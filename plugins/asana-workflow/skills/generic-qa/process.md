@@ -149,7 +149,7 @@ Include:
 
 #### Feature Completion
 
-When QA is invoked for a **non-bug task** (feature, tech debt, etc.) — via `start-task` Step 10e or `ship-it` Step 2 — post:
+When QA is invoked for a **non-bug task** (feature, tech debt, etc.) — via start-task's `QA: Verify Non-Bug` or pre-ship-check's QA verification gate — post:
 
 Prefix: `✅ QA Verification — Feature Complete`
 

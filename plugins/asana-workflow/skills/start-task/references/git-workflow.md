@@ -24,7 +24,7 @@ If resuming, check out the existing branch and skip branch creation. If starting
 
 ## Create Feature Branch
 
-Use the base branch confirmed by the user in Step 6c of start-task. Do not assume `main` — always use the explicitly chosen base.
+Use the base branch confirmed by the user in Step 6b of start-task. Do not assume `main` — always use the explicitly chosen base.
 
 Inform (do not ask) when creating:
 

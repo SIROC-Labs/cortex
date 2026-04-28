@@ -27,7 +27,7 @@
 
 ### `superpowers:using-git-worktrees` _(optional)_
 - **Plugin:** `superpowers@claude-plugins-official` _(same as above)_
-- **Used for:** Worktree setup if user chooses worktree mode in Step 6b
+- **Used for:** Worktree setup if user chooses worktree mode in Step 6a
 - **Install:** Included with `superpowers` above
 
 ## How to Check If Dependencies Are Installed
@@ -37,8 +37,8 @@ Before routing in Step 10, verify the required skill is available by checking if
 To check installed plugins:
 
 ```bash
-# List installed plugins
-cat ~/.claude/plugins/installed_plugins.json | grep -E '"feature-dev|superpowers"'
+# List installed plugins — match JSON keys like "feature-dev@..." or "superpowers@..."
+cat ~/.claude/plugins/installed_plugins.json | grep -E '"feature-dev|"superpowers'
 ```
 
 ## Dependency Check at Start-Task Launch (Step 0)
@@ -75,5 +75,5 @@ These skills are included in the `asana-workflow` plugin itself:
 | `asana-workflow:work-summary` | Session summary |
 | `asana-workflow:create-pr` | PR creation |
 | `asana-workflow:ship-it` | Shipping orchestrator |
-| `asana-workflow:web-qa` | Web QA investigation & verification (extends generic-qa) |
-| `asana-workflow:mobile-qa` | Mobile QA investigation & verification (extends generic-qa, placeholder) |
+| `asana-workflow:web-qa` | Web QA investigation & verification |
+| `asana-workflow:mobile-qa` | Mobile QA investigation & verification |

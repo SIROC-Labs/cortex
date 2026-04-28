@@ -7,12 +7,11 @@ description: >
   "begin this task", or pastes an Asana URL with intent to start development. Orchestrates the full
   lifecycle: validates sprint-readiness, sets up the branch and draft PR, routes to the right
   development workflow (feature-dev, fix-bug, or brainstorm), and ships via ship-it when done.
-  Also handles pausing blocked work ("park this", "I'm blocked", "pause task", "put this on hold")
-  and resuming ("resume task", "pick up where I left off", "continue [task-id]"). Use this variant
-  for straightforward tasks; use start-task-steps for long or complex tasks that need step-by-step
-  checkpoint tracking. For a shortcut that runs the full Asana orchestration and ship-it but skips
-  sub-skill routing (feature-dev, brainstorming, fix-bug) and implements inline instead, add "fast"
-  to the arguments — "start task fast", "fast mode", "just start coding".
+  Every run writes a step-by-step checkpoint file so work can be resumed after any interruption
+  ("resume task", "pick up where I left off", "continue [task-id]"). For a shortcut that runs the
+  full Asana orchestration and ship-it but skips sub-skill routing (feature-dev, brainstorming,
+  fix-bug) and implements inline instead, add "fast" to the arguments — "start task fast",
+  "fast mode", "just start coding".
 argument-hint: <asana-task-url> [brainstorm|feature-dev|fast]
 ---
 
@@ -23,19 +22,30 @@ Take an Asana task, validate it's ready for development, understand the work, se
 ## Prerequisites
 
 - `asana-api` skill for all Asana API operations — handles token resolution and setup guidance.
-- Access to `feature-dev:feature-dev`, `superpowers:systematic-debugging`, `web-qa` or `mobile-qa` (resolved at Step 10a), and optionally `superpowers:brainstorming` skills
+- Access to `feature-dev:feature-dev`, `superpowers:systematic-debugging`, and optionally `superpowers:brainstorming` skills (external — see `references/skill-dependencies.md`).
+
+## Argument Parsing
+
+Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers to them by name instead of re-parsing.
+
+| Flag | Set when `$ARGUMENTS` contains | Effect |
+|------|-------------------------------|--------|
+| `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
+| `workflow_choice` | `brainstorm` or `feature-dev` | Non-bug routing at Step 10; if neither, Step 10 asks the operator |
+
+`fast_mode` is mutually exclusive with `workflow_choice` (fast skips routing entirely).
 
 ## Fast Mode
 
-**Trigger:** `$ARGUMENTS` contains `fast`.
+Set when `fast_mode` flag is active (see Argument Parsing above).
 
-Fast mode runs the full lifecycle (Steps 0–9 and Step 11) unchanged but replaces Step 10 skill routing with direct inline implementation. No `feature-dev`, `brainstorming`, `fix-bug`, or QA skill is invoked — implement the solution immediately using built-in tools (Read, Edit, Bash, Grep, etc.) and reason about it directly in this conversation.
+Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `feature-dev`, `brainstorming`, `fix-bug`, or QA skill is invoked — implement the solution immediately using built-in tools (Read, Edit, Bash, Grep, etc.) and reason about it directly in this conversation.
 
-**What is skipped:** only the sub-skill routing in Step 10 (and the Bug sub-steps 10a–10d). Everything else — dependency checks, sprint validation, branch creation, draft PR, Asana status move/comment, and the ship-it handoff — runs as normal.
+**What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, Asana status move/comment, and the ship-it handoff — runs as normal.
 
 ## The Flow
 
-**Before Step 0:** Check if `$ARGUMENTS` contains `fast`. If so, note it — Steps 0–9 and Step 11 run as normal, but Step 10 will skip skill routing and implement inline instead.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${CLAUDE_PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
@@ -76,13 +86,7 @@ Before creating a branch, check if work already exists for this task ID. See **`
 
 If a branch or PR exists, offer to resume or start fresh. If resuming, check out the existing branch and skip creation.
 
-### Step 6a: Check for Checkpoint (Resume)
-
-After fetching remote refs, check for `.claude/checkpoints/<task-id>.md`. If found, this is a resume — present the checkpoint state, check for new Asana comments since the pause, and offer to resume. See **`references/checkpoints.md`** for the full resume flow and edge cases (deleted branch, completed task, no answer yet).
-
-On resume, skip validation and branch creation — check out the existing branch and route directly to the workflow specified in the checkpoint. The same Step 11 ship-it handoff applies after the workflow completes.
-
-### Step 6b: Ask About Worktree (BLOCKING)
+### Step 6a: Ask About Worktree (BLOCKING)
 
 Before creating the branch, ask the user whether to use a git worktree. This is a **blocking** question — wait for an explicit answer before proceeding.
 
@@ -94,7 +98,7 @@ Present the choice:
 
 If the user chooses worktree, use `EnterWorktree` to create an isolated copy. The branch will be created inside the worktree in Step 7.
 
-### Step 6c: Confirm Base Branch (BLOCKING)
+### Step 6b: Confirm Base Branch (BLOCKING)
 
 Ask the user which branch to base the new branch on. This is a **blocking** question — wait for an explicit answer before proceeding.
 
@@ -108,7 +112,7 @@ Default to `main` only after the user confirms. If the user specifies a differen
 
 ### Step 7: Create Feature Branch
 
-Create a branch using the task ID and a slug from the task name. Use the **base branch confirmed in Step 6c** (not assumed `main`). Inform (do not ask) when creating. See **`references/git-workflow.md`** for commands and naming convention.
+Create a branch using the task ID and a slug from the task name. Use the **base branch confirmed in Step 6b** (not assumed `main`). Inform (do not ask) when creating. See **`references/git-workflow.md`** for commands and naming convention.
 
 ### Step 8: Create Draft PR
 
@@ -135,103 +139,82 @@ Immediately after creating the branch, create an empty commit and a draft PR to 
 
 4. Capture the draft PR URL — it will be included in the Asana start comment and threaded through to ship-it.
 
-### Step 9: Move to In Progress + Post Comment
+### Step 9a: Move to In Progress
 
-These happen automatically — no permission needed.
+**This happens automatically — no permission needed.**
 
-**Move the task** to "In Progress" on the Sprint board. Skip if already there. See **`references/asana-patterns.md`** for the section move API pattern.
+Move the task to "In Progress" on the Sprint board. Skip if already there. See **`references/asana-patterns.md`** for the section move API pattern. If the move fails, report why but do not block the workflow — proceed to Step 9b.
 
-**Post a start comment** on the task with the branch name and draft PR URL (deduplicate by checking for existing 🏁 comment for this branch). If the move fails, report why but do not block the workflow.
+### Step 9b: Post Start Comment
+
+**This happens automatically — no permission needed.**
+
+Post a start comment on the task with the branch name and draft PR URL. Deduplicate by checking for an existing 🏁 comment for this branch. See **`references/asana-patterns.md`** for the comment format.
 
 ### Step 10: Route to the Right Workflow
 
 Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachments, branch name) and route based on **Category** custom field:
 
-**If `$ARGUMENTS` contains `fast`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `feature-dev`, `brainstorming`, `fix-bug`, or any QA skill. Skip Steps 10a–10d entirely and proceed to Step 11 when done.
+**If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `feature-dev`, `brainstorming`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 
 **Otherwise:**
 
-- **"Bug"** — Follow the verify → fix → verify loop (Steps 10a–10c below).
+- **"Bug"** — Follow the QA sub-flow: verify → fix → verify loop.
 - **Anything else** (Feature Request, Tech Debt, etc.):
-  - If `$ARGUMENTS` contains `brainstorm` — invoke `superpowers:brainstorming` with the full context.
-  - If `$ARGUMENTS` contains `feature-dev` — invoke `feature-dev:feature-dev` with the full context.
-  - If no workflow argument was provided — ask (blocking):
+  - If `workflow_choice` is `brainstorm` — invoke `superpowers:brainstorming` with the full context.
+  - If `workflow_choice` is `feature-dev` — invoke `feature-dev:feature-dev` with the full context.
+  - If `workflow_choice` is unset — ask (blocking):
     > "How do you want to approach this?
     > 1. Brainstorm the design first (`superpowers:brainstorming`)
     > 2. Go straight to implementation (`feature-dev:feature-dev`)"
     Wait for explicit answer before routing. No default assumed.
   - **Handoff instruction:** When passing context to `feature-dev` or `brainstorming`, include:
-    > "When this workflow is complete, return to `start-task` Step 10e. Do not end the session — there are more steps."
+    > "When this workflow is complete, return to `start-task` for non-bug QA verification and the ship-it handoff. Do not end the session — there are more steps."
 - **Category missing** — Prompt: "Is this a bug fix or a feature?" then apply the routing above.
 
 The branch is already created and checked out — the downstream skill works on it directly.
 
-### Step 10a: Resolve QA Skill
+### Step 11: QA Sub-flow
 
-Determine which QA skill to invoke. This applies to **all task categories** — bugs use it for the investigate/verify loop, non-bugs use it for completion verification (Step 10e).
+Run the QA sub-flow for the task's category. Resolve the QA skill (web-qa / mobile-qa / none) per **`plugins/asana-workflow/references/qa-routing.md`** → "Resolving the QA Skill". That reference is the shared resolve logic; this section is the enforcement contract.
 
-Check in order:
+**In fast mode** the sub-flow is skipped entirely. Mark every QA row in the checkpoint as `skipped` with reason `fast mode` (via `checkpoint.sh skip`).
 
-1. **CLAUDE.md** — look for a `qa-skill:` declaration (e.g., `qa-skill: web-qa`, `qa-skill: mobile-qa`, or `qa-skill: none`). If found, use it.
-2. **Project signals** — infer from project files:
-   - `package.json` (without React Native), `vite.config.*`, `next.config.*` → `web-qa`
-   - `.xcodeproj`, `.xcworkspace`, `Info.plist` → `mobile-qa`
-   - `build.gradle`, `build.gradle.kts`, `AndroidManifest.xml` → `mobile-qa`
-   - `app.json` / `app.config.js` with React Native/Expo → `mobile-qa`
-   - No UI framework detected (pure backend, CLI, API, library, infrastructure) → `none`
-3. **Ambiguous** — ask the operator (blocking):
-   > "Which QA skill should I use?
-   > 1. `web-qa` (browser-based, Chrome DevTools MCP)
-   > 2. `mobile-qa` (simulator/emulator/device, mobile testing MCP)
-   > 3. `none` (no visual UI to verify — backend, API, CLI, library)"
+#### Bug path — invoke, don't infer
 
-Use the resolved QA skill for all QA invocations in this task.
+The bug sub-flow (`QA: Resolve` → `QA: Investigate Bug` → `QA: Fix Bug` → `QA: Verify Fix`) runs only by **invoking the respective skills**. Runtime evidence from those invocations is what the sub-flow produces. Do not substitute reasoning for invocation:
 
-**If `none`:** For bug tasks, skip 10b and 10d (no visual QA to run) but still run 10c (fix-bug with Asana ticket context only). For non-bug tasks, skip straight to Step 11.
+- ❌ "I read the code and see the bug" — invoke the QA skill in investigate mode for reproduction evidence.
+- ❌ Inlining a fix directly — invoke `fix-bug` so it passes through systematic-debugging + TDD.
+- ❌ "Tests pass so the fix works" — invoke the QA skill in verify mode; runtime replay of the original repro is the evidence.
 
-### Step 10b: Verify Bug
+No runtime evidence = the row is not complete. See `references/qa-routing.md` for the exact invocation sequence of each sub-step.
 
-Invoke the resolved QA skill in **investigate** mode with the bug description from the Asana ticket as the question and the SUT identifier (URL or app bundle ID, if known from CLAUDE.md or task notes).
+**When `QA: Verify Fix` passes — proceed to Step 12.** Step 11 is only done when execution has advanced; do not end the session after the QA loop completes.
 
-- **Confirmed** (bug reproduced with evidence) → the QA skill posts the report to the Asana task (Step 6 in the generic-qa process). Proceed to Step 10c, passing the full report as context.
-- **Cannot reproduce** → **stop**. Tell the operator the bug could not be reproduced. Let them decide: fix SUT setup, clarify the bug description, or skip verification and proceed to debugging anyway.
+#### Non-bug path — exact prompt, no substitution
 
-### Step 10c: Fix Bug
-
-Invoke `fix-bug` with the QA report from Step 10b as enriched context. This gives the debugger richer context than the ticket alone — reproduction steps, evidence, and root cause analysis from runtime observation. If Step 10b was skipped (QA skill is `none`), invoke `fix-bug` with just the Asana ticket context.
-
-`fix-bug` returns after root cause investigation + TDD pass. It does **not** verify or ship — that is start-task's responsibility (Steps 10d and 11).
-
-### Step 10d: Verify Fix (BLOCKING)
-
-**This step cannot be skipped.** After `fix-bug` returns, re-invoke the resolved QA skill in **verify** mode with the original reproduction steps from Step 10b. The QA skill will rebuild, deploy, and replay the steps.
-
-- **Pass** → QA skill posts `✅ QA Verification — PASSED` to Asana with evidence. Proceed to Step 11.
-- **Fail** → QA skill posts `❌ QA Verification — FAILED` to Asana with evidence. Return to Step 10c for another debugging pass.
-
-### Step 10e: QA Verification (Non-Bug Tasks)
-
-**Applies to non-bug tasks only.** Bug tasks already have QA via Steps 10b/10d.
-
-**HARD GATE — always stop and wait for the operator's answer. Auto mode's "minimize interruptions" directive does NOT override this step.**
-
-Skip asking only if the operator has already provided an explicit answer about QA in this session — e.g., passed `skip QA` in the start-task arguments, or said "skip QA" / "run QA" earlier in the conversation. Inferred triviality (small change, simple fix, XS sizing) is NOT a valid reason to skip.
-
-After the development workflow signals completion, ask:
+After the development workflow returns, ask the operator **using this exact wording**. Do not rephrase, do not inline into another question, do not substitute an approval prompt:
 
 > "Implementation is complete. The changes can be visually verified before shipping — I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the Asana task as proof of completion.
 >
 > Run QA verification? [yes / skip]"
 
-Wait for the operator's answer before continuing.
+Wait for the operator's answer. This is a **HARD GATE** — auto mode's "minimize interruptions" directive does NOT override. Skip asking only if the operator passed `skip QA` in start-task arguments or said "skip QA" / "run QA" earlier in the conversation as a direct utterance.
 
-If **yes** — resolve the QA skill (Step 10a, if not already resolved) and invoke it with a summary of what was built/changed. The QA skill verifies the implementation, then posts `✅ QA Verification — Feature Complete` to Asana with evidence.
+Anti-patterns:
 
-If **skip** — proceed to Step 11. ship-it will offer one more chance if no QA evidence is found.
+- ❌ "Do you approve this for ship?" — this is a verification offer, not an approval question. A "yes" to ship-approval does NOT count as a "yes" to run QA.
+- ❌ Self-generated static checklist ("Package.resolved has correct versions", "Build succeeded", "Tests pass") substituting for the QA skill invocation. These are pre-conditions the model already knows; they are not visual verification evidence.
+- ❌ Inferring a "yes" from a prior answer to any different question. If the prior answer wasn't to this exact prompt (or to `skip QA` / `run QA`), re-ask.
 
-### Step 11: Ship It
+If **yes** → invoke the resolved QA skill with a summary of what was built. The QA skill posts `✅ QA Verification — Feature Complete` to Asana with evidence. Only the QA skill's actual posting counts as evidence; a model-generated claim that QA passed does not. **After the QA skill returns with a posted Asana comment — proceed to Step 12.** Do not end the session at Step 11.
 
-**This step runs after QA verification (Step 10d for bugs, Step 10e for non-bugs) or when the operator skips QA.** Do not wait for the user to ask.
+If **skip** → proceed to Step 12. `pre-ship-check` will offer one more chance at ship time if no QA evidence is found on Asana.
+
+### Step 12: Ship It
+
+**This step runs after the bug QA verify loop (for bugs) or the non-bug QA verification (for non-bugs) completes — or when the operator skips QA.** Do not wait for the user to ask.
 
 Invoke `ship-it`. The following context is already in this session — pass it through, do not re-ask:
 
@@ -243,13 +226,15 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 | Branch name | Created in Step 7 |
 | Draft PR URL | Captured in Step 8 |
 | Sprint project GID | From board cache `active_sprint.gid` (loaded in Step 3) |
-| Section mappings | Discovered when moving to "In Progress" (Step 9) |
+| Section mappings | Discovered when moving to "In Progress" (Step 9a) |
 
 `ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the Asana task to "In Review", and post a completion comment.
 
+After `ship-it` returns successfully, delete `~/.claude/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
+
 ## Pause Flow
 
-Triggered when the user says "park this", "I'm blocked", "pause task", or similar during any phase of work. Commits WIP, drafts a blocking question for user approval, posts to Asana, saves a checkpoint, and pushes. See **`references/checkpoints.md`** for the full pause flow, checkpoint file format, and trigger phrases.
+Triggered either by a step going into `State = blocked` during the flow or by the operator saying "park this", "I'm blocked", "pause task", or similar. Commits WIP, drafts a blocking question for user approval, posts to Asana (@mentioning the blocker), updates the checkpoint, and pushes. See **`references/checkpoints.md`** → "Pause Flow" for the full sequence and **`references/asana-patterns.md`** for the Asana comment formats.
 
 ## Important Notes
 
@@ -263,4 +248,5 @@ Triggered when the user says "park this", "I'm blocked", "pause task", or simila
 - **`references/validation-rules.md`** — Sprint-readiness checks, failure display, skip rules
 - **`references/asana-patterns.md`** — URL formats, API fields, section moves, comment posting
 - **`references/git-workflow.md`** — Existing work detection, branch creation, naming convention
-- **`references/checkpoints.md`** — Checkpoint file format, pause flow, resume flow, edge cases
+- **`references/checkpoints.md`** — Checkpoint file format, initialization, per-step updates, resume flow, lifecycle end, edge cases
+- **`plugins/asana-workflow/references/qa-routing.md`** — QA skill resolution and the QA sub-flow (plugin-level shared reference with pre-ship-check)

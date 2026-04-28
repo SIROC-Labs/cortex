@@ -20,7 +20,7 @@ Receives full task context from start-task:
 - Task name, notes, custom fields (category, task ID, sprint)
 - Subtasks (incomplete = remaining work, completed = done)
 - Comments and attachments
-- QA investigation report (from start-task Step 10b)
+- QA investigation report (from start-task's `QA: Investigate Bug`)
 - Branch name (already created and checked out)
 - Asana task URL
 
@@ -61,4 +61,4 @@ When both steps pass, return to start-task with:
 - Regression test name and file path
 - Test run output confirming all green
 
-Start-task handles QA verification (Step 10d) and shipping (Step 11) from here.
+Start-task handles QA verification (`QA: Verify Fix`) and shipping (Step 12) from here.

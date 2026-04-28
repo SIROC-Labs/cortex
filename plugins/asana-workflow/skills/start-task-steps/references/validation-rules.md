@@ -1,1 +1,0 @@
-../../start-task/references/validation-rules.md

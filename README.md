@@ -12,12 +12,13 @@ Central repository for SIROC's AI context: skills, agents, hooks, and orchestrat
 
 End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication.
 
+> For the complete `start-task` lifecycle map (init, checkpointing, routing, QA sub-flow, pause/resume, ship), see [FLOW.md](plugins/asana-workflow/skills/start-task/FLOW.md).
+
 **Skills included:**
 
 | Skill | Description |
 |-------|-------------|
-| `start-task` | Validates Asana task, creates branch and draft PR, routes to feature-dev or debugging |
-| `start-task-steps` | Full lifecycle variant of start-task with mandatory checkpoint tracking for long or interruptible tasks |
+| `start-task` | Validates Asana task, creates branch and draft PR, routes to feature-dev or debugging. Writes a per-step checkpoint for resumability; add `fast` to skip sub-skill routing |
 | `ship-it` | Orchestrates pre-checks, summary, PR creation, and Asana update |
 | `pre-ship-check` | Validates git state, lint, build, and tests |
 | `git-check` | Branch safety, working tree cleanliness, debug artifact detection |

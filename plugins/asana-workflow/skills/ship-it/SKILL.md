@@ -5,10 +5,10 @@ description: >
   This skill should be used when development is complete and the work needs to be shipped:
   the user says "ship it", "we're done", "ready to ship", "done with this feature", "let's wrap up",
   "mark as in review", "create the PR", "link this to Asana", "create a PR and update Asana",
-  or "push this and close the ticket". Also triggered automatically by `start-task` and
-  `start-task-steps` once the downstream development workflow (feature-dev, fix-bug, brainstorm)
-  signals completion — in that case all session context (task GID, branch, draft PR URL) is
-  already available and must not be re-requested.
+  or "push this and close the ticket". Also triggered automatically by `start-task` once the
+  downstream development workflow (feature-dev, fix-bug, brainstorm) signals completion — in that
+  case all session context (task GID, branch, draft PR URL) is already available and must not be
+  re-requested.
 ---
 
 # Ship It
@@ -59,51 +59,33 @@ If neither `start-task` nor `log-task` was used but an Asana URL appeared earlie
 
 ## The Flow
 
-Follow these 6 steps in order.
+Follow these 5 steps in order.
 
 ### Step 1: Pre-ship Check
 
-Invoke `pre-ship-check`.
+Invoke `pre-ship-check`. This sub-skill owns the QA verification gate — it prompts and invokes the QA skill directly if QA is missing for a non-bug task, blocks on missing QA for a bug task, and runs git/lint/build/test checks.
 
 - If it returns **blocking** issues — stop and resolve them before continuing.
-- If it returns **advisory** warnings (including QA verification) — present them to the user and ask whether to proceed or fix first.
+- If it returns **advisory** warnings — present them to the user and ask whether to proceed or fix first.
 
-### Step 2: QA Verification (if needed)
+ship-it no longer has a separate QA step — all QA handling lives in pre-ship-check.
 
-**Skip this step when:** pre-ship-check did not report a QA advisory (QA already done, no task GID, or QA skill resolved to `none` for backend/API/CLI/library work), **or** the operator already declined QA earlier in this session (e.g., answered "skip" at start-task Step 10e). Do not ask twice.
-
-If pre-ship-check reported a QA advisory (no QA verification found for a non-bug task), **always stop and ask the operator. Auto mode's "minimize interruptions" directive does NOT override this step.** Skip asking only if the operator already answered the QA question explicitly earlier in this session (e.g., at start-task Step 10e). Inferred triviality is NOT a valid reason to skip:
-
-> "No QA verification found. Would you like to run QA to verify the changes before shipping?
-> This will build, deploy, and visually verify the affected flows. Evidence will be uploaded to the Asana task.
-> - **Yes** — run QA verification
-> - **Skip** — proceed without QA"
-
-Wait for the operator's answer before continuing.
-
-If the operator chooses **Yes**:
-1. Resolve the QA skill: check CLAUDE.md for `qa-skill:` declaration, then infer from project files (same logic as start-task Step 10a).
-2. Invoke the QA skill with a summary of what was built/changed (from git diff/log) — same as start-task Step 10e.
-3. The QA skill posts `✅ QA Verification — Feature Complete` to Asana with evidence.
-
-If the operator chooses **Skip**, proceed to Step 3.
-
-### Step 3: Work Summary
+### Step 2: Work Summary
 
 Invoke `work-summary` to generate a session recap.
 
 Present the summary to the user and let them tweak it before proceeding. This summary will be reused in the PR description and Asana comment.
 
-### Step 4: Create PR
+### Step 3: Create PR
 
 Invoke `create-pr`, passing:
-- The work summary from Step 3
+- The work summary from Step 2
 - The Asana task URL (from context threading above, if available)
 - `orchestrator: true` — signals create-pr to skip its own git-check (already done in Step 1)
 
 If a draft PR exists from `start-task`, create-pr will promote it to ready, update its description with the work summary, and assign reviewers — no new PR needed.
 
-### Step 5: Asana Update
+### Step 4: Asana Update
 
 Handle via the `asana-api` skill. All Asana operations use the task GID from context threading.
 
@@ -125,7 +107,7 @@ Handle via the `asana-api` skill. All Asana operations use the task GID from con
 
 **Skip condition:** If no Asana task context is available, skip this step entirely.
 
-### Step 6: Recap
+### Step 5: Recap
 
 Print a single recap:
 
@@ -140,9 +122,8 @@ Print a single recap:
 
 | Condition | Steps skipped |
 |---|---|
-| No Asana task context | 2, 5 |
-| QA already done or no advisory | 2 |
-| Draft PR from start-task | 4 promotes draft to ready (no skip) |
+| No Asana task context | 4 |
+| Draft PR from start-task | 3 promotes draft to ready (no skip) |
 
 ## Deliberate Removals
 
