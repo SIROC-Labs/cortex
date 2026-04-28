@@ -13,7 +13,7 @@
       "name": "asana-workflow",
       "source": "./plugins/asana-workflow",
       "description": "End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
-      "version": "1.1.4"
+      "version": "1.1.5"
     }
   ]
 }
