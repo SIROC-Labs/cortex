@@ -106,13 +106,19 @@ Extract from conversation context as much as possible. Fill gaps with smart defa
 | **Description** | Summary of issue/fix/plan | Include root cause if known |
 | **Priority** | Highest urgency option | Match semantically: prefer names containing "0", "critical", or "urgent"; or the option with the lowest numeric suffix (P0 < P1 < P2). Fall back to first in list only if no semantic match. |
 | **Sizing** | Lowest available option | e.g., XS, 1, S — if Fix Done, use session scope as proxy |
-| **Estimate** | Lowest available option | Same proxy logic as sizing |
+| **Estimate** | Plan Only: blank. Fix Done: `00:00` | See Estimate rules below |
 | **Assignee** | Current user (Fix Done) / Unassigned (Plan Only) | |
 | **Product Status** | "Assigned" enum option | Match case-insensitively |
 
-**Sizing/Estimate for Fix Done**: Brief fix (< 01:00) → smallest. Moderate (01:00–04:00) → second-smallest. Substantial (04:00+) → medium. Err toward smaller.
+**Sizing scale** (assumes a 5-step scale ordered smallest → largest, e.g. XS/S/M/L/XL): 1st = ≤ 8h (1 day), 2nd = ≤ 16h (2 days), 3rd = ≤ 40h (5 days / 1 week), 4th = ≤ 80h (10 days / 2 weeks), 5th = > 80h. Match by position, not name. If the project's scale isn't 5-step, fall back to "err toward smaller."
 
-**Time format**: Always display and submit estimate values in `hh:mm` format (e.g., `00:30`, `01:00`, `04:00`). Never use shorthand like `30m`, `1h`, `1d`.
+**Sizing for Fix Done**: estimate session effort in hours and pick the smallest position that fits. Err toward smaller.
+
+**Estimate rules**:
+- **Plan Only**: leave the Estimate blank. Do not pick a default.
+- **Fix Done**: default to `00:00`. The work is already completed without an estimate.
+
+**Time format**: Always display and submit estimate values in `hh:mm` format (e.g., `00:00`, `00:30`, `01:00`). Never use shorthand like `30m`, `1h`, `1d`.
 
 **Priority**: Default to the highest urgency enum option using semantic matching — do not rely on list position. If the conversation describes something non-critical ("nice to have", "minor cleanup"), drop to a mid-level option instead.
 
@@ -138,7 +144,7 @@ Task draft:
   Fields:
     Priority:       P0            [options: P0, P1, P2, P3]
     Sizing:         XS            [options: XS, S, M, L, XL]
-    Estimate:       00:30         [options: 00:30, 01:00, 02:00, 04:00, 08:00]
+    Estimate:       —             [options: 00:00, 00:30, 01:00, 02:00, 04:00] (Plan Only: blank; Fix Done: 00:00)
     Product Status: Assigned      [options: Assigned, In Progress, Done]
     Assignee:       Francisco Javier (you)
 

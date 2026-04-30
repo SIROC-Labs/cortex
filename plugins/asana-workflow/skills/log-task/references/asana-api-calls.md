@@ -83,6 +83,8 @@ curl -s -X PUT -H "Authorization: Bearer $ASANA_PERSONAL_ACCESS_TOKEN" \
   "https://app.asana.com/api/1.0/tasks/<task_gid>"
 ```
 
+**Estimate**: Plan Only → omit the `<estimate_gid>` key. Fix Done → set it to the `00:00` enum option.
+
 ## 6d (cont). Fetch the auto-assigned task ID
 
 Asana automation assigns an ID (e.g. `MT251-182`) once the task is in the right project. Retry up to 3 times waiting 10 seconds between each attempt.
