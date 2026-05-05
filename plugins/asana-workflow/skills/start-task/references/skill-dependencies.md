@@ -36,14 +36,24 @@ Before routing in Step 10, verify the required skill is available by checking if
 
 To check installed plugins:
 
+### If running under Claude Code
+
 ```bash
 # List installed plugins — match JSON keys like "feature-dev@..." or "superpowers@..."
 cat ~/.claude/plugins/installed_plugins.json | grep -E '"feature-dev|"superpowers'
 ```
 
+### If running under OpenCode
+
+Check `opencode.json` for the `plugin` array. `superpowers` should appear as
+`"superpowers@git+https://github.com/obra/superpowers.git"`. `feature-dev` is
+not available for OpenCode — implement feature development workflows inline.
+
 ## Dependency Check at Start-Task Launch (Step 0)
 
 At the very beginning of start-task (before fetching the Asana task), check which routing path may be needed and confirm the relevant plugin is installed.
+
+### If running under Claude Code
 
 **If `feature-dev` is missing:**
 
@@ -56,6 +66,18 @@ At the very beginning of start-task (before fetching the Asana task), check whic
 > ⚠️ The `superpowers` plugin is required for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear to be installed.
 > Install it with: `/plugin install superpowers@claude-plugins-official`
 > Continue anyway and install manually before Step 10, or install now and re-run `/start-task`.
+
+### If running under OpenCode
+
+**If `superpowers` is missing:**
+
+> ⚠️ The `superpowers` plugin is recommended for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear in `opencode.json`.
+> Install by adding to your `opencode.json` plugin array: `"superpowers@git+https://github.com/obra/superpowers.git"`
+> Continue anyway and install manually before Step 10, or install now and re-run start-task.
+
+`feature-dev` is not available for OpenCode. When the task is a non-bug task,
+implement the development workflow inline — do not attempt to invoke a
+Claude Code plugin.
 
 **Behavior:** These checks are **advisory**, not hard-blocking — the user may know the task type in advance and only need one of the two. Warn clearly, then ask:
 

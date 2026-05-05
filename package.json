@@ -1,0 +1,7 @@
+{
+  "name": "asana-workflow",
+  "version": "1.1.6",
+  "description": "End-to-end Asana-driven development workflow",
+  "main": ".opencode/plugins/asana-workflow.js",
+  "private": true
+}

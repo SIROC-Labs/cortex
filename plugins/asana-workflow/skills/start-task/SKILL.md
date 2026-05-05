@@ -45,7 +45,7 @@ Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replac
 
 ## The Flow
 
-**Before Step 0:** Initialize (or resume) the checkpoint by running `${CLAUDE_PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
@@ -247,7 +247,7 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 
 `ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the Asana task to "In Review", and post a completion comment.
 
-After `ship-it` returns successfully, delete `~/.claude/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
+After `ship-it` returns successfully, delete `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
 ## Pause Flow
 

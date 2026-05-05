@@ -16,7 +16,7 @@ Usage: `/start-task <url> [brainstorm | feature-dev | fast]`
 
 ## Checkpointing
 
-Every run writes to `~/.claude/asana-workflow/checkpoints/<task-gid>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
+Every run writes to `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
 
 ## Pause Flow
 
@@ -45,7 +45,7 @@ Task stays **"In Progress"** → ■ PAUSED
 ```
              ┌────────────────────────────────────────────┐
              │  INIT / RESUME  (before Step 0)            │
-             │  ls ~/.claude/asana-workflow/checkpoints/  │
+             │  ls ~/.cortex/asana-workflow/checkpoints/  │
              │     <task-gid>.md                          │
              └───────────────────┬────────────────────────┘
                                  │

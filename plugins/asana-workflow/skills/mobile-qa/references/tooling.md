@@ -28,8 +28,8 @@ which node 2>/dev/null && node --version
 
 Then tell the operator what they need to do:
 
-- **No `node`:** Node.js v22+ is required — they need to install it, then restart Claude Code.
-- **`node` found but mobile-mcp still won't start:** Ask them to run `/mcp` to check server status, then `/plugin reload asana-workflow` or restart Claude Code.
+- **No `node`:** Node.js v22+ is required — they need to install it, then restart the agent session.
+- **`node` found but mobile-mcp still won't start:** Check MCP server status, then restart the agent session.
 
 After explaining the fix, you may offer native shell commands (`xcrun simctl io`, `adb screenrecord`, etc.) as a **limited fallback** for the current session only — but always present installing Node.js/npx first.
 
@@ -45,7 +45,7 @@ If any mobile-mcp tool fails mid-session:
 
 1. Tell the operator.
 2. Ask them to check `/mcp` and restart mobile-mcp from there.
-3. If that doesn't work, restart the Claude Code session.
+3. If that doesn't work, restart the agent session.
 4. Re-verify with `mobile_list_available_devices` before continuing.
 
 ## App State Reset

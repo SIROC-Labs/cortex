@@ -23,8 +23,8 @@ Run this first:
 which node 2>/dev/null && node --version
 ```
 
-- **No `node`:** Node.js is required for the MCP to run via npx — tell the operator to install it, then restart Claude Code.
-- **`node` found:** The MCP should auto-launch and manage its own Chrome instance. If tools are still unavailable, the operator needs to restart their Claude Code session so the MCP server is picked up.
+- **No `node`:** Node.js is required for the MCP to run via npx — tell the operator to install it, then restart the agent session.
+- **`node` found:** The MCP should auto-launch and manage its own Chrome instance. If tools are still unavailable, the operator needs to restart their agent session so the MCP server is picked up.
 
 ## Taking Screenshots
 
