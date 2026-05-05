@@ -45,14 +45,14 @@ If you test mobile or web apps, add these MCP servers:
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "mobile-mcp": {
-      "command": "npx",
-      "args": ["-y", "@mobilenext/mobile-mcp@latest"]
+      "type": "local",
+      "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"]
     },
     "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]
     }
   }
 }
