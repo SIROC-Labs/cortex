@@ -190,7 +190,7 @@ if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
   echo ""
   while true; do
-    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT
+    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT || true
     if [ -n "$ASANA_TOKEN_INPUT" ]; then
       add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
       break
@@ -223,7 +223,7 @@ fi
 # Optional: additional Asana accounts
 if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   echo ""
-  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE
+  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE || true
   ADD_MORE=${ADD_MORE:-N}
   if [[ "$ADD_MORE" =~ ^[Yy]$ ]]; then
     while true; do
