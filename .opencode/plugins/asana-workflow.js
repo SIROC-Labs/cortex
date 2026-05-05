@@ -2,7 +2,8 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const skillsDir = path.resolve(__dirname, "../../plugins/asana-workflow/skills")
+const pluginsDir = path.resolve(__dirname, "../../plugins/asana-workflow")
+const skillsDir = path.resolve(pluginsDir, "skills")
 
 const TOOL_MAPPING = `
 ## OpenCode Runtime — Tool Mapping
@@ -78,6 +79,10 @@ export const AsanaWorkflowPlugin = async () => {
       if (!config.skills) config.skills = { paths: [] }
       if (!config.skills.paths) config.skills.paths = []
       config.skills.paths.push(skillsDir)
+    },
+
+    "shell.env": async (_input, output) => {
+      output.env.PLUGIN_ROOT = pluginsDir
     },
 
     "experimental.chat.messages.transform": async (_input, output) => {

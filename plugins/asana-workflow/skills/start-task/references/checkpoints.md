@@ -2,7 +2,7 @@
 
 Every `start-task` run tracks progress in a checkpoint file so work can be paused and resumed without losing context. The checkpoint is initialized on entry, updated around every step, and deleted after a successful ship.
 
-**All writes go through the helper script** at `${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh` (equivalently `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh` when the plugin is local). Do not use Edit/Write on checkpoint files directly — the script keeps the format consistent and minimizes conversation noise (one short Bash command per update instead of a full diff). The file format below still applies; the script produces exactly this layout.
+**All writes go through the helper script** at `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh` (equivalently `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh` when the plugin is local). Do not use Edit/Write on checkpoint files directly — the script keeps the format consistent and minimizes conversation noise (one short Bash command per update instead of a full diff). The file format below still applies; the script produces exactly this layout.
 
 ---
 
@@ -107,7 +107,7 @@ The `QA:` rows are only exercised when their preconditions apply (bug vs non-bug
 
 4. **If no checkpoint** → create it via the helper:
    ```bash
-   ${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>
+   ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>
    ```
    The script creates `~/.cortex/asana-workflow/checkpoints/` if needed and writes the template with `task_gid`, `asana_url`, `created_at`, `last_updated` pre-filled. No `.gitignore` entry is needed (the file lives outside the repo).
 
@@ -119,32 +119,32 @@ The `QA:` rows are only exercised when their preconditions apply (bug vs non-bug
 
 **Non-negotiable:** the script must be called for every numbered step in the flow, including trivial ones. If Step N didn't do anything observable (e.g., Step 1 when the URL was already in `$ARGUMENTS`), mark it complete with comment `trivial — already present` and `auto=yes`. Never leave a step as `[ ]` / `—` after advancing past it. A blank row is not "the step was implicit"; it is a checkpoint gap that will cause incorrect behavior on resume.
 
-Abbreviate the helper path as `CP=${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh` mentally; the examples below use the full path for clarity.
+Abbreviate the helper path as `CP=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh` mentally; the examples below use the full path for clarity.
 
 ### Update Pattern
 
 When a step **starts** (`State → in_progress`, `Attempts += 1`, `last_updated` refreshed):
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh start <gid> "<step>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh start <gid> "<step>"
 ```
 
 When a step **completes successfully** (`Completed → [x]`, `State → completed`, `Comment` set, `last_updated` refreshed). Add a 4th arg `no` if the step required operator input (so `Auto → [ ]`), else omit (defaults to `yes`):
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh complete <gid> "<step>" "<comment>" [yes|no]
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh complete <gid> "<step>" "<comment>" [yes|no]
 ```
 
 When a step is **blocked** (cannot complete — waiting on input, external dependency, or a failure that halts progress). Then proceed to **Pause Flow** below:
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<reason>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<reason>"
 ```
 
 When a step does **not apply** in this run (wrong category, `qa-skill=none`, fast mode, operator opted out). `Completed → [ ]`, `State → skipped`, `Comment → reason`:
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh skip <gid> "<step>" "<reason>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh skip <gid> "<step>" "<reason>"
 ```
 
 A skipped row is terminal. Resume skips over it the same as `[x]`/completed rows.
@@ -183,7 +183,7 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 Use the `set` subcommand — it updates the field and refreshes `last_updated`:
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh set <gid> <field> "<value>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh set <gid> <field> "<value>"
 ```
 
 - After Step 2: set `task_id`
@@ -230,8 +230,8 @@ After approval, post via the `asana-api` skill. Include the @mention of the bloc
 **5. Update checkpoint**
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<who is blocking>"
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh append-note <gid> "<blocking question + who to follow up with>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<who is blocking>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh append-note <gid> "<blocking question + who to follow up with>"
 ```
 
 The `block` call sets `State → blocked` and `Comment → reason`; `append-note` adds a block to the `## Notes` section.
@@ -281,7 +281,7 @@ See `asana-patterns.md` → "Posting a Resume Comment".
 After Step 12 (Ship It) completes successfully, **delete the checkpoint file** via the helper:
 
 ```bash
-${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh delete <task-gid>
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh delete <task-gid>
 ```
 
 The checkpoint's lifetime is one start → develop → ship pass. Once shipped, the Asana task status moves to "In Review" and the PR is ready for review — any further work on the branch (code-review fixes, reviewer feedback, follow-up commits) is **out of scope** for start-task and is not tracked by this checkpoint. It happens through git + the PR review thread, or via a different skill.

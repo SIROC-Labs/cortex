@@ -45,7 +45,7 @@ Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replac
 
 ## The Flow
 
-**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
