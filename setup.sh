@@ -341,10 +341,10 @@ if superpowers_entry not in plugins:
     plugins.append(superpowers_entry)
 config["plugin"] = plugins
 
-mcp = config.get("mcpServers", {})
-mcp["mobile-mcp"] = {"command": "npx", "args": ["-y", "@mobilenext/mobile-mcp@latest"]}
-mcp["chrome-devtools"] = {"command": "npx", "args": ["-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]}
-config["mcpServers"] = mcp
+mcp = config.get("mcp", {})
+mcp["mobile-mcp"] = {"type": "local", "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"]}
+mcp["chrome-devtools"] = {"type": "local", "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]}
+config["mcp"] = mcp
 
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
