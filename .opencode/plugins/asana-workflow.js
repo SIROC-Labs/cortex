@@ -106,9 +106,13 @@ export const AsanaWorkflowPlugin = async () => {
 
       if (!config.permission) config.permission = {}
       if (!config.permission.external_directory) config.permission.external_directory = {}
+      // Whitelist paths the plugin needs to read/write outside the project directory
       config.permission.external_directory["~/.cortex/asana-workflow/*"] = "allow"
+      // ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
       config.permission.external_directory["~/.config/opencode/opencode.json"] = "allow"
+      // ^ dependency check reads opencode.json to verify superpowers is installed
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
+      // ^ skill reference files live inside the plugin install (read at runtime by skills)
     },
 
     "shell.env": async (_input, output) => {

@@ -357,8 +357,11 @@ config["mcp"] = mcp
 
 perm = config.get("permission", {})
 ext = perm.get("external_directory", {})
+# Whitelist paths the plugin needs to read/write outside the project directory
 ext["~/.cortex/asana-workflow/*"] = "allow"
+# ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
 ext["~/.config/opencode/opencode.json"] = "allow"
+# ^ dependency check reads opencode.json to verify superpowers is installed
 perm["external_directory"] = ext
 config["permission"] = perm
 
