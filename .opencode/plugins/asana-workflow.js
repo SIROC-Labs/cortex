@@ -42,6 +42,14 @@ Claude Code-specific plugin management commands. Under OpenCode, dependencies
 are managed via opencode.json and setup.sh.
 `
 
+const CLAUDE_MD_MAPPING = `
+## Project Config File
+
+When a skill instructs you to read CLAUDE.md, also check for AGENTS.md and
+opencode.json. If AGENTS.md exists, prefer it. CLAUDE.md may contain
+Claude Code-specific configuration that does not apply.
+`
+
 const SKILL_PATHS = `
 ## Skill File Resolution
 
