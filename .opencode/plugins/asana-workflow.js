@@ -113,6 +113,8 @@ export const AsanaWorkflowPlugin = async () => {
       // ^ dependency check reads opencode.json to verify superpowers is installed
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
       // ^ skill reference files live inside the plugin install (read at runtime by skills)
+      config.permission.external_directory["/tmp/qa-evidence/*"] = "allow"
+      // ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
     },
 
     "shell.env": async (_input, output) => {

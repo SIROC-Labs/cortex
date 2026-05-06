@@ -362,6 +362,8 @@ ext["~/.cortex/asana-workflow/*"] = "allow"
 # ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
 ext["~/.config/opencode/opencode.json"] = "allow"
 # ^ dependency check reads opencode.json to verify superpowers is installed
+ext["/tmp/qa-evidence/*"] = "allow"
+# ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
 perm["external_directory"] = ext
 config["permission"] = perm
 
