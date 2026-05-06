@@ -321,12 +321,20 @@ configure_opencode() {
   mkdir -p "$CONFIG_DIR"
 
   # Add plugins and merge mcpServers into opencode.json
-  python3 - "$CONFIG_FILE" <<'PYEOF'
+  # Detect repo root for local development
+  local SCRIPT_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  python3 - "$CONFIG_FILE" "$SCRIPT_DIR" <<'PYEOF'
 import json, sys, os
 
 config_path = sys.argv[1]
 cortex_entry = "asana-workflow@git+https://github.com/Siroc-Lab/cortex.git"
 superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
+
+# If running from within the repo clone, use local path instead of git+ URL
+if len(sys.argv) > 2 and sys.argv[2]:
+    cortex_entry = sys.argv[2]
 
 try:
     with open(config_path) as f:
