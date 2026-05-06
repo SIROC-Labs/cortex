@@ -107,6 +107,7 @@ export const AsanaWorkflowPlugin = async () => {
       if (!config.permission) config.permission = {}
       if (!config.permission.external_directory) config.permission.external_directory = {}
       config.permission.external_directory["~/.cortex/asana-workflow/*"] = "allow"
+      config.permission.external_directory["~/.config/opencode/opencode.json"] = "allow"
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
     },
 
