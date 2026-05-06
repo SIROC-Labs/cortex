@@ -346,6 +346,12 @@ mcp["mobile-mcp"] = {"type": "local", "command": ["npx", "-y", "@mobilenext/mobi
 mcp["chrome-devtools"] = {"type": "local", "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]}
 config["mcp"] = mcp
 
+perm = config.get("permission", {})
+ext = perm.get("external_directory", {})
+ext["~/.cortex/asana-workflow/*"] = "allow"
+perm["external_directory"] = ext
+config["permission"] = perm
+
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")

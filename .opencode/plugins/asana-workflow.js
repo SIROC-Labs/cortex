@@ -103,6 +103,11 @@ export const AsanaWorkflowPlugin = async () => {
       if (!config.skills) config.skills = { paths: [] }
       if (!config.skills.paths) config.skills.paths = []
       config.skills.paths.push(skillsDir)
+
+      if (!config.permission) config.permission = {}
+      if (!config.permission.external_directory) config.permission.external_directory = {}
+      config.permission.external_directory["~/.cortex/asana-workflow/*"] = "allow"
+      config.permission.external_directory[`${pluginsDir}/*`] = "allow"
     },
 
     "shell.env": async (_input, output) => {
