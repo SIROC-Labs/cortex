@@ -28,6 +28,8 @@ Take an Asana task, validate it's ready for development, understand the work, se
 
 Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers to them by name instead of re-parsing.
 
+**Default: `fast_mode` is OFF.** Only set `fast_mode` when the user's actual `$ARGUMENTS` message contains the word "fast" or "fast mode". Do NOT infer fast mode from this skill file's description, examples, or body text — those are instructions for you, not user input.
+
 | Flag | Set when `$ARGUMENTS` contains | Effect |
 |------|-------------------------------|--------|
 | `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
