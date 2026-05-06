@@ -333,8 +333,9 @@ cortex_entry = "asana-workflow@git+https://github.com/Siroc-Lab/cortex.git"
 superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
 
 # If running from within the repo clone, use local path instead of git+ URL
-if len(sys.argv) > 2 and sys.argv[2]:
-    cortex_entry = sys.argv[2]
+script_root = sys.argv[2] if len(sys.argv) > 2 else ""
+if script_root and os.path.isfile(os.path.join(script_root, "package.json")):
+    cortex_entry = script_root
 
 try:
     with open(config_path) as f:
