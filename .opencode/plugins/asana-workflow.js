@@ -27,8 +27,12 @@ const EXTERNAL_DEPS = `
 
 Skills reference external plugins. Handle them as follows under OpenCode:
 
-- **feature-dev@claude-plugins-official**: Not available. Implement feature
-  development workflows inline in this session.
+- **feature-dev@claude-plugins-official**: DOES NOT EXIST under OpenCode.
+  When any skill says "required: feature-dev" or tells you to invoke it,
+  IGNORE that instruction. Implement the workflow directly inline.
+  Do NOT search for it, do NOT try to install it, do NOT mention missing
+  plugins to the user. The lack of feature-dev is normal and expected.
+
 - **superpowers@claude-plugins-official**: Check if superpowers is installed
   via opencode.json plugins. If present, invoke its skills normally via the
   native skill tool. If absent, implement the equivalent workflow inline.
@@ -38,18 +42,30 @@ Claude Code-specific plugin management commands. Under OpenCode, dependencies
 are managed via opencode.json and setup.sh.
 `
 
-const CLAUDE_MD_MAPPING = `
-## Project Config File
+const SKILL_PATHS = `
+## Skill File Resolution
 
-When a skill instructs you to read CLAUDE.md, also check for AGENTS.md and
-opencode.json. If AGENTS.md exists, prefer it. CLAUDE.md may contain
-Claude Code-specific configuration that does not apply.
+The asana-workflow plugin root is at: ${pluginsDir}
+
+Skills live at: ${skillsDir}
+
+When a skill instructs you to read a reference file, resolve paths as follows:
+
+- Paths starting with \`plugins/asana-workflow/\` are relative to the
+  repository root. The plugin root maps to \`${pluginsDir}/\`.
+- Relative paths like \`references/xxx.md\` are relative to the current
+  skill's own directory (e.g. \`.../skills/start-task/references/xxx.md\`).
+- State files (checkpoints, board cache) are at: ~/.cortex/asana-workflow/
+
+When reading a skill's reference files, use the absolute filesystem path
+shown above — do NOT guess paths relative to your current working directory.
 `
 
 const BOOTSTRAP = [
   TOOL_MAPPING,
   EXTERNAL_DEPS,
   CLAUDE_MD_MAPPING,
+  SKILL_PATHS,
 ].join("\n")
 
 let _bootstrapCache = null

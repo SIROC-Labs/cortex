@@ -69,15 +69,15 @@ At the very beginning of start-task (before fetching the Asana task), check whic
 
 ### If running under OpenCode
 
+**feature-dev:** DOES NOT EXIST under OpenCode. Skip the feature-dev check
+entirely — do NOT ask the user about it, do NOT try to install it. For non-bug
+tasks, implement the development workflow inline.
+
 **If `superpowers` is missing:**
 
 > ⚠️ The `superpowers` plugin is recommended for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear in `opencode.json`.
 > Install by adding to your `opencode.json` plugin array: `"superpowers@git+https://github.com/obra/superpowers.git"`
 > Continue anyway and install manually before Step 10, or install now and re-run start-task.
-
-`feature-dev` is not available for OpenCode. When the task is a non-bug task,
-implement the development workflow inline — do not attempt to invoke a
-Claude Code plugin.
 
 **Behavior:** These checks are **advisory**, not hard-blocking — the user may know the task type in advance and only need one of the two. Warn clearly, then ask:
 
