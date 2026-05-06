@@ -349,6 +349,7 @@ config["mcp"] = mcp
 perm = config.get("permission", {})
 ext = perm.get("external_directory", {})
 ext["~/.cortex/asana-workflow/*"] = "allow"
+ext["~/.config/opencode/opencode.json"] = "allow"
 perm["external_directory"] = ext
 config["permission"] = perm
 
