@@ -5,31 +5,20 @@ description: >
   Use when writing, reviewing, or improving tests in a frontend project — triggers include "write tests",
   "add tests", "test this component", "improve test coverage", "/frontend-testing", or any request to create
   or fix frontend tests. Also triggered when TDD is active in a frontend codebase to provide the testing
-  context and patterns. Stack-agnostic: detect the project's framework, runner, and conventions before
-  writing.
+  context and patterns.
 ---
 
 # Frontend Testing
 
-Write frontend tests that prove behavior, resist refactors, and enforce quality through infrastructure.
+## Before writing any test
 
-## Base Fundamentals
-
-Read and follow `../generic-testing/process.md` — the 10 non-negotiables apply to every test you write.
-
-## Process
-
-Read and follow `process.md` for frontend-specific patterns: component testing, query priority, mocking boundaries, E2E, and accessibility.
-
-## Before Writing Any Test
-
-1. **Detect the stack** — follow `references/stack-detection.md` and inspect the project directly. Don't assume which runner, framework, utilities, or file conventions are in use. If something looks weird or inconsistent, stop and advise before writing.
+1. **Inspect the stack** — follow `references/stack-detection.md`. Read `package.json`, runner config, and an existing test file. Don't assume the runner, framework, utilities, or file conventions. If something looks weird or inconsistent, stop and advise before writing.
 2. **Match existing conventions** — file naming, location, import style, test structure. Don't introduce a second pattern.
 
-## Reference Files
+## Reference files
 
-- **`../generic-testing/process.md`** — Universal testing fundamentals (determinism, AAA, behavior over implementation)
-- **`../generic-testing/references/infrastructure.md`** — CI, flake detection, benchmarks, reporting (stack-agnostic)
-- **`process.md`** — Frontend testing patterns (Testing Library, components, hooks, forms, E2E)
-- **`references/stack-detection.md`** — How to inspect and learn the project's testing setup
-- **`references/infrastructure.md`** — Coverage and CI guidance, adapted to whatever runner the project uses
+- **`../generic-testing/process.md`** — universal fundamentals (determinism, AAA, behavior over implementation). Apply on every test.
+- **`../generic-testing/references/infrastructure.md`** — CI, flake detection, benchmarks, reporting.
+- **`process.md`** — frontend patterns (component testing, query priority, mocking boundaries, E2E, accessibility).
+- **`references/stack-detection.md`** — how to inspect the project's testing setup.
+- **`references/infrastructure.md`** — frontend-specific additions on top of the generic infrastructure doc.

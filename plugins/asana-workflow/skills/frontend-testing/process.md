@@ -1,10 +1,6 @@
 # Frontend Testing
 
-Frontend-specific testing patterns, tooling, and infrastructure. Extends the universal fundamentals in `../generic-testing/process.md`.
-
-## Base Fundamentals
-
-Read and follow `../generic-testing/process.md` for the non-negotiables. This document provides the frontend bindings.
+Frontend bindings for `../generic-testing/process.md` (non-negotiables apply here too).
 
 ## The Golden Rule
 
@@ -18,7 +14,7 @@ Before writing any test, detect the project's stack. See `references/stack-detec
 
 ## Query Priority
 
-Testing Library provides queries in priority order. Use the highest-priority query that works.
+If the project uses Testing Library (or a compatible API), use queries in priority order — pick the highest-priority one that works.
 
 | Priority | Query | Use when |
 |---|---|---|
@@ -54,7 +50,7 @@ Act     — simulate user interaction (click, type, press key)
 Assert  — verify the visible result of the interaction
 ```
 
-**Use `userEvent` over `fireEvent`.** `userEvent` simulates real browser behavior (focus, blur, keydown, keyup, input). `fireEvent` dispatches a single synthetic event. The gap between them is where bugs hide.
+**Prefer the higher-fidelity event API.** Real-user event simulators (e.g. Testing Library's `userEvent`) fire the full event sequence — focus, blur, keydown, keyup, input — that an actual interaction produces. Single-event dispatchers (`fireEvent` and equivalents) skip the sequence. The gap is where bugs hide; reach for the lower-fidelity API only when you need raw control.
 
 ### Async Behavior
 
@@ -83,7 +79,7 @@ Assert  — wait for the result using `findBy*` or `waitFor`
 | **Hooks/utilities** | Almost never | Test through the component that uses them |
 | **State management** | Almost never | Render with real store, seed with test data |
 
-**MSW (Mock Service Worker)** is the preferred way to mock network requests. It intercepts at the network level, so your code runs exactly as it would in production — fetch calls, error handling, headers, all real. If the project doesn't have MSW, stub fetch/axios at the module level as a fallback.
+Mock at the **network level** when possible — the closer to the wire, the more real code runs (fetch, error handling, headers, retries). Use whatever the project already uses for this; only introduce a new mocking layer if there's none. Stubbing fetch/axios at the module level is an acceptable fallback when network-level interception isn't available.
 
 ### Router and Navigation
 
@@ -103,7 +99,7 @@ Test hooks through the components that use them. If a hook is complex enough to 
 
 Test the full user flow: fill fields, submit, verify outcome.
 
-- Use `userEvent.type()` not `fireEvent.change()`
+- Use the higher-fidelity event API (see "User Interactions") so keystroke handlers fire correctly
 - Test validation messages appear for invalid input
 - Test submit with valid data produces the right outcome
 - Test that disabled/loading states prevent double submission
@@ -117,7 +113,7 @@ Additionally:
 - Test keyboard navigation for interactive elements
 - Check that error messages are associated with their inputs (`aria-describedby`)
 
-## E2E Tests (Playwright/Cypress)
+## E2E Tests
 
 E2E tests cover critical user flows through the full stack. They complement component tests — they don't replace them.
 
@@ -136,8 +132,8 @@ E2E tests cover critical user flows through the full stack. They complement comp
 ### E2E Principles
 
 - **No shared state between tests.** Each test seeds its own data.
-- **No `sleep` or `waitForTimeout`.** Use auto-waiting or explicit `waitFor` conditions.
-- **Selectors:** prefer `getByRole`, `getByText`, `getByTestId` (same priority as component tests). Avoid CSS selectors.
+- **No `sleep` or fixed-time waits.** Use the runner's auto-waiting or explicit "wait for condition" helpers.
+- **Selectors:** same priority as component tests — accessible name first, visible text second, test ID last. Avoid CSS selectors.
 - **One flow per test.** Don't chain unrelated assertions.
 
 ## Snapshot Tests

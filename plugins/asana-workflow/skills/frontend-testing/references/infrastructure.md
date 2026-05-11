@@ -1,55 +1,22 @@
 # Frontend Testing Infrastructure
 
-Frontend-specific coverage and CI guidance. Extends `../../generic-testing/references/infrastructure.md` for the universal principles.
+Frontend-specific additions on top of `../../generic-testing/references/infrastructure.md`. Read that first — coverage principles, PR gates, flake protocol, and reporting live there. This doc only covers what's different about a frontend codebase.
 
-Before applying any of the snippets below, read the project's existing runner config and CI workflows. Adapt — don't paste.
+Before applying anything here, read the project's existing runner config and CI workflows. Adapt — don't paste.
 
-## Coverage
+## Coverage provider
 
-### Principles
+Prefer the runner's V8 provider over Babel/Istanbul instrumentation when both are available — V8 is faster and more accurate on modern bundled code. Use whatever the runner already configures unless there's a concrete reason to switch.
 
-- **Provider:** prefer the runner's V8 provider over Babel/Istanbul instrumentation — it's faster and more accurate for modern bundled code. Use whatever the runner already configures unless you have a reason to switch.
-- **Include paths:** mirror the project's actual source layout (`src/`, `app/`, `packages/*/src`, `lib/`, etc.). Inspect the repo, don't assume.
-- **Exclude:** type declarations (`*.d.ts`), barrel files (`index.*` re-exports), stories, generated code, config files, and the test files themselves.
-- **Thresholds:** start around 70% on a greenfield project. On an existing codebase, set thresholds at the current level and ratchet up — never set thresholds that fail the build on day one.
+Adapt include/exclude globs to the project's actual source layout. Exclude type declarations, barrel files (re-export `index.*`), stories, generated code, and configs.
 
-### Where to put thresholds
+## E2E as a separate CI job
 
-Most runners support per-directory overrides. Push higher thresholds (90%+) on critical paths (auth, payments, data integrity) and accept lower ones on UI surface or glue code. A single global number hides where the suite is weak.
+E2E typically needs browser binaries and possibly a running dev server or test backend. Don't pile it onto the unit/integration job:
 
-## CI Pipeline (Frontend)
+- Install browser binaries (cached).
+- Start the dev server or point at a test environment.
+- Run the E2E suite.
+- Upload traces/screenshots on failure.
 
-### Minimum viable test job
-
-```yaml
-# Pseudo — adapt to the project's CI system and package manager
-steps:
-  - Install dependencies (cached by lockfile hash)
-  - Type check
-  - Lint
-  - Unit + integration tests with coverage
-  - Upload coverage report
-```
-
-Fail on any step. No `continue-on-error` for tests.
-
-### E2E job (separate)
-
-E2E typically needs browser binaries and possibly a running dev server or test backend. Run it as a separate job:
-
-- Install browser binaries (cached)
-- Start the dev server or point at a test environment
-- Run the E2E suite
-- Upload traces/screenshots on failure
-
-### PR gates
-
-| Gate | Required | Advisory |
-|---|---|---|
-| Type check | Yes | — |
-| Lint | Yes | — |
-| Unit/integration tests | Yes | — |
-| Coverage threshold | Yes | — |
-| Coverage delta | — | Yes (flag decreases) |
-| E2E tests | Depends on project | — |
-| Build succeeds | Yes | — |
+Whether E2E blocks merge or runs advisory is a project decision — match what the team already does.
