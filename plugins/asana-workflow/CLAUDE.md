@@ -18,6 +18,7 @@ asana-workflow/
     ├── generic-testing/   ← Shared testing fundamentals & references (not a skill — used by platform-specific testing skills)
     ├── log-task/          ← Create Asana task from conversation-discovered work (bundled)
     ├── mobile-qa/         ← Mobile QA investigation & verification (bundled, mobile-mcp)
+    ├── mobile-testing/    ← Mobile testing patterns & infrastructure (bundled — extends generic-testing)
     ├── pre-ship-check/    ← Readiness gate before shipping (bundled)
     ├── ship-it/           ← Shipping orchestrator (bundled)
     ├── start-task/        ← Entry point for dev workflow (bundled)
@@ -77,6 +78,12 @@ frontend-testing (bundled skill — extends generic-testing)
   └── references/
       ├── stack-detection.md    (detect frontend runner, framework, coverage, package manager)
       └── infrastructure.md     (Jest/Vitest coverage configs, frontend CI pipeline)
+
+mobile-testing (bundled skill — extends generic-testing; scope: unit + integration on native iOS / native Android / KMP)
+  ├── process.md         (ViewModels, repos, async/time, mocking, DI)
+  └── references/
+      ├── stack-detection.md    (inspect the project's runner, DI, async style, persistence)
+      └── infrastructure.md     (coverage configs, JVM/Xcode parallelism, toolchain caching)
 
 ## External Dependencies
 

@@ -29,6 +29,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
+| `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
 
 ## Installation
 
