@@ -2,6 +2,10 @@
 
 Chrome DevTools MCP observation capabilities. For generic investigation guidance (source code cross-referencing, completion criteria, anti-patterns), see `../../generic-qa/references/investigation.md`.
 
+## Authentication Gates
+
+If navigation lands on a login/auth page, follow the authentication process before proceeding. See `authentication.md`.
+
 ## Page Navigation
 - Navigate to the relevant page/route
 - Observe the rendered state

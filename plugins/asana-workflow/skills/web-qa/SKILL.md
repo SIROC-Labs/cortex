@@ -30,3 +30,4 @@ Read and follow `../generic-qa/process.md` as the QA process. This skill provide
 - **`references/tooling.md`** — Chrome DevTools MCP verification, screenshots, screencasts
 - **`references/discovery.md`** — URL-based SUT discovery
 - **`references/investigation.md`** — Web-specific observation techniques (DOM, console, network)
+- **`references/authentication.md`** — Handling login/auth gates (CLAUDE.local.md lookup, operator fallback)
