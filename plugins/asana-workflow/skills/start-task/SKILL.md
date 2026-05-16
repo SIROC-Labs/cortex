@@ -99,7 +99,14 @@ Present the choice:
 If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then run project setup inside the worktree:
 
 ```bash
-if [ -f package.json ]; then npm install; fi
+# Node.js — detect package manager from lockfile
+if [ -f package.json ]; then
+  if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pnpm install
+  elif [ -f yarn.lock ]; then yarn install
+  else npm install
+  fi
+fi
+
 if [ -f Cargo.toml ]; then cargo build; fi
 if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 if [ -f pyproject.toml ]; then poetry install; fi
