@@ -2,9 +2,9 @@
 name: web-qa
 version: 0.1.0
 description: >
-  Use when the operator asks to investigate a specific question or problem in a web application —
+  Use when the operator asks to investigate a specific question or problem in a running web application —
   triggers include "QA this", "why is X broken", "test this flow", "/qa", "/web-qa", or any specific question
-  about a web app's behavior. Will start the dev server automatically if not already running. Requires Chrome DevTools MCP.
+  about a web app's behavior. Requires a running web app (local or remote) and Chrome DevTools MCP.
 argument-hint: <url-of-sut>
 ---
 

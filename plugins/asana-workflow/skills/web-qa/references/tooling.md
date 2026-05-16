@@ -4,13 +4,6 @@
 
 Call `list_pages` to verify Chrome DevTools MCP is connected and functional. This must succeed before any investigation begins.
 
-If `list_pages` returns no open tabs (e.g., fresh Chrome launch after server startup), open one before navigating:
-
-1. Call `new_page` to create a blank tab
-2. Call `navigate_page` with the SUT URL
-
-If tabs are already open, prefer `navigate_page` on an existing one instead of creating a new tab.
-
 **Expected success:** Returns a list of open browser pages/tabs.
 
 **Failure means:**

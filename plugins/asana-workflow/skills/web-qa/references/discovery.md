@@ -48,30 +48,13 @@ If no SUT information is found:
 
 > "I couldn't determine where the app is running. Can you provide the URL or tell me how to start the dev server?"
 
-If the operator provides a URL, verify it's reachable. If it's reachable, proceed. If not, attempt server startup below before blocking.
-
-## Server Startup
-
-When the SUT URL is known but the port is not responding, attempt to start the server rather than immediately blocking:
-
-1. **Identify the start command** — already gathered from CLAUDE.md, package.json, or docker-compose in the discovery steps above
-2. **Start in background** — run the command via Bash with `run_in_background: true`; do not wait for it interactively
-3. **Wait for the port** — poll until ready (30s max):
-   ```bash
-   for i in $(seq 1 30); do curl -s -o /dev/null http://localhost:<port> && break || sleep 1; done
-   ```
-4. **Open a browser page** — once the port responds, use `new_page` + `navigate_page` (see `references/tooling.md`)
-5. **Confirm with operator**:
-   > "I started the dev server with `npm run dev` and opened the app at localhost:5173. Proceeding with QA."
-
-If the start command cannot be determined, or the port never responds within 30 seconds, fall through to blocking below.
+If the operator provides a URL, verify it's reachable using the testing tool (`navigate` to the URL and confirm a page loads).
 
 ## SUT is Blocking
 
-Only block if no start command could be found **and** the operator cannot provide one, or if the startup attempt failed.
-
-When blocking:
-- Report what was attempted (command tried, port checked, timeout reached)
+Investigation cannot begin without a confirmed, reachable SUT. If the SUT cannot be reached:
+- Report the failure clearly
+- Suggest troubleshooting (is the server running? correct port? firewall?)
 - Ask the operator for help
 
 Do NOT proceed with source-code-only analysis and call it "investigation."
