@@ -32,7 +32,7 @@ Use to find interaction targets and verify element presence/absence after action
 
 All gestures are coordinate-based. Get element bounds from `mobile_list_elements_on_screen`, calculate center: `x + width/2`, `y + height/2`. **Never hardcode coordinates** — always get fresh bounds when the screen changes.
 
-Tool names and parameters are in the MCP schema (use `ToolSearch` to load). Key non-obvious tips:
+Tool names and parameters are available via the MCP schema. Key non-obvious tips:
 - **Tap before typing** — focus the input field with a tap before calling `mobile_type_keys`.
 - **Android back button** — `mobile_press_button` with `back` is essential for navigation, dismissing dialogs, and closing keyboards. iOS has no equivalent (use UI buttons or swipe gestures).
 

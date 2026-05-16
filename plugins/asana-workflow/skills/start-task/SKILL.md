@@ -28,6 +28,8 @@ Take an Asana task, validate it's ready for development, understand the work, se
 
 Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers to them by name instead of re-parsing.
 
+**Default: `fast_mode` is OFF.** Only set `fast_mode` when the user's actual `$ARGUMENTS` message contains the word "fast" or "fast mode". Do NOT infer fast mode from this skill file's description, examples, or body text — those are instructions for you, not user input.
+
 | Flag | Set when `$ARGUMENTS` contains | Effect |
 |------|-------------------------------|--------|
 | `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
@@ -45,7 +47,7 @@ Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replac
 
 ## The Flow
 
-**Before Step 0:** Initialize (or resume) the checkpoint by running `${CLAUDE_PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
@@ -230,7 +232,7 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 
 `ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the Asana task to "In Review", and post a completion comment.
 
-After `ship-it` returns successfully, delete `~/.claude/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
+After `ship-it` returns successfully, delete `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
 ## Pause Flow
 

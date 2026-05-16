@@ -7,19 +7,22 @@
    ```bash
    bash setup.sh
    ```
-3. In Claude Code, add the local marketplace and install the plugin:
-   ```
-   /plugin marketplace add /path/to/cortex
-   /plugin install asana-workflow@siroc-cortex
-   ```
+3. Load the plugin:
+   - **Claude Code:** Add the local marketplace and install:
+     ```
+     /plugin marketplace add /path/to/cortex
+     /plugin install asana-workflow@siroc-cortex
+     ```
+   - **OpenCode:** Point your `opencode.json` at the local clone:
+     ```json
+     { "plugin": ["/absolute/path/to/cortex"] }
+     ```
 
 ## Development loop
 
-Skills are Markdown files — no build step. After editing a file, start a new Claude Code conversation and changes are picked up automatically. If you're already in a session, run:
-
-```
-/plugin reload asana-workflow
-```
+Skills are Markdown files — no build step. After editing a file, start a new conversation and changes are picked up automatically. If you're already in a session:
+- **Claude Code:** `/plugin reload asana-workflow`
+- **OpenCode:** Restart the agent session
 
 ## Editing an existing skill
 
@@ -56,7 +59,7 @@ Accepted forms of evidence:
 
 ## Versioning
 
-Never edit version numbers in `plugin.json` or `marketplace.json` manually. Version bumps are done via GitHub Actions:
+Never edit version numbers in `plugin.json`, `marketplace.json`, or `package.json` manually. Version bumps are done via GitHub Actions:
 
 **Actions → Bump Plugin Version → Run workflow**
 

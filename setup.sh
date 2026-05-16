@@ -3,10 +3,21 @@ set -euo pipefail
 
 # SIROC Cortex — Setup Script
 # Validates prerequisites, fetches available plugins, and installs selected ones
+#
+# Usage:
+#   bash setup.sh             Claude Code setup (default)
+#   bash setup.sh --opencode   OpenCode setup
 
 MARKETPLACE_REPO="Siroc-Lab/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
+
+OP_ENCODE=false
+for arg in "$@"; do
+  case "$arg" in
+    --opencode) OP_ENCODE=true ;;
+  esac
+done
 
 # Colors
 RED='\033[0;31m'
@@ -23,6 +34,11 @@ info() { echo -e "  ${BLUE}→${NC} $1"; }
 step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
 TOTAL_STEPS=5
+
+if [ "$OP_ENCODE" = true ]; then
+  TOTAL_STEPS=6
+fi
+
 ERRORS=0
 PROFILE_CHANGED=false
 
@@ -174,7 +190,7 @@ if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
   echo ""
   while true; do
-    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT
+    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT || true
     if [ -n "$ASANA_TOKEN_INPUT" ]; then
       add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
       break
@@ -207,7 +223,7 @@ fi
 # Optional: additional Asana accounts
 if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   echo ""
-  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE
+  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE || true
   ADD_MORE=${ADD_MORE:-N}
   if [[ "$ADD_MORE" =~ ^[Yy]$ ]]; then
     while true; do
@@ -291,37 +307,161 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Step 5: Next steps
+# Step 5: OpenCode configuration
 # ─────────────────────────────────────────────
-step 5 "Next steps"
 
-if [ "$ERRORS" -gt 0 ]; then
+configure_opencode() {
+  local CONFIG_DIR="${HOME}/.config/opencode"
+  local CACHE_DIR="${HOME}/.cache/opencode/node_modules"
+  local CONFIG_FILE="${CONFIG_DIR}/opencode.json"
+
+  info "Configuring OpenCode..."
+
+  # Ensure config directory exists
+  mkdir -p "$CONFIG_DIR"
+
+  # Add plugins and merge mcpServers into opencode.json
+  # Detect repo root for local development
+  local SCRIPT_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  python3 - "$CONFIG_FILE" "$SCRIPT_DIR" <<'PYEOF'
+import json, sys, os
+
+config_path = sys.argv[1]
+cortex_entry = "asana-workflow@git+https://github.com/Siroc-Lab/cortex.git"
+superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
+
+# If running from within the repo clone, use local path instead of git+ URL
+script_root = sys.argv[2] if len(sys.argv) > 2 else ""
+if script_root and os.path.isfile(os.path.join(script_root, "package.json")):
+    cortex_entry = script_root
+
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    config = {}
+
+plugins = config.get("plugin", [])
+if cortex_entry not in plugins:
+    plugins.append(cortex_entry)
+if superpowers_entry not in plugins:
+    plugins.append(superpowers_entry)
+config["plugin"] = plugins
+
+mcp = config.get("mcp", {})
+mcp["mobile-mcp"] = {"type": "local", "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"]}
+mcp["chrome-devtools"] = {"type": "local", "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]}
+config["mcp"] = mcp
+
+perm = config.get("permission", {})
+ext = perm.get("external_directory", {})
+# Whitelist paths the plugin needs to read/write outside the project directory
+ext["~/.cortex/asana-workflow/*"] = "allow"
+# ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
+ext["~/.config/opencode/opencode.json"] = "allow"
+# ^ dependency check reads opencode.json to verify superpowers is installed
+ext["/tmp/qa-evidence/*"] = "allow"
+# ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
+perm["external_directory"] = ext
+config["permission"] = perm
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+
+print("OK")
+PYEOF
+
+  if [ $? -eq 0 ]; then
+    pass "opencode.json configured at ${CONFIG_FILE}"
+  else
+    fail "Failed to configure opencode.json"
+    return 1
+  fi
+
+  # Clear plugin cache to force fresh install on restart
+  if [ -d "$CACHE_DIR" ]; then
+    rm -rf "${CACHE_DIR}/asana-workflow" 2>/dev/null || true
+    info "Plugin cache cleared"
+  fi
+
+  return 0
+}
+if [ "$OP_ENCODE" = true ]; then
+  # ─────────────────────────────────────────────
+  # OpenCode: configure plugin and show instructions
+  # ─────────────────────────────────────────────
+  if [ "$ERRORS" -gt 0 ]; then
+    echo ""
+    fail "${ERRORS} error(s) found — fix them and re-run this script"
+    echo ""
+    exit 1
+  fi
+
+  step 5 "OpenCode plugin configuration"
+  configure_opencode
+
+  step 6 "Done"
   echo ""
-  fail "${ERRORS} error(s) found — fix them and re-run this script"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}  Environment ready!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  exit 1
-fi
+  echo "  Restart OpenCode to pick up the changes."
+  echo ""
+  echo "  Verify by asking: list available skills"
+  echo ""
+  echo "  To update later, re-run: bash setup.sh --opencode"
+  echo ""
 
-pass "All prerequisites met"
+  if [ "$PROFILE_CHANGED" = true ]; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+    echo ""
+    echo -e "${YELLOW}  Run one of the following:${NC}"
+    echo ""
+    echo -e "${BOLD}    source ${PROFILE}${NC}"
+    echo ""
+    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  fi
+else
+  # ─────────────────────────────────────────────
+  # Claude Code: show install commands
+  # ─────────────────────────────────────────────
+  step 5 "Next steps"
 
-# Fetch marketplace.json to show available plugins
-MARKETPLACE_JSON=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
-  --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  if [ "$ERRORS" -gt 0 ]; then
+    echo ""
+    fail "${ERRORS} error(s) found — fix them and re-run this script"
+    echo ""
+    exit 1
+  fi
 
-echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  Environment ready!${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "  Open Claude Code and run these commands:"
-echo ""
-echo -e "    ${BOLD}1.${NC} Add the marketplace:"
-echo -e "       ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
-echo ""
+  pass "All prerequisites met"
 
-if [ -n "$MARKETPLACE_JSON" ]; then
-  echo -e "    ${BOLD}2.${NC} Install plugins:"
-  echo "$MARKETPLACE_JSON" | python3 -c "
+  # Fetch marketplace.json to show available plugins
+  MARKETPLACE_JSON=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
+    --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+  echo ""
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}  Environment ready!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "  Open Claude Code and run these commands:"
+  echo ""
+  echo -e "    ${BOLD}1.${NC} Add the marketplace:"
+  echo -e "       ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
+  echo ""
+
+  if [ -n "$MARKETPLACE_JSON" ]; then
+    echo -e "    ${BOLD}2.${NC} Install plugins:"
+    echo "$MARKETPLACE_JSON" | python3 -c "
 import sys, json
 plugins = json.load(sys.stdin)['plugins']
 for p in plugins:
@@ -333,27 +473,28 @@ for p in plugins:
         print(f'         {desc}')
     print()
 " 2>/dev/null
-else
-  echo -e "    ${BOLD}2.${NC} Install plugins:"
-  echo -e "       ${GREEN}/plugin install <plugin-name>@${MARKETPLACE_NAME}${NC}"
-  echo ""
-fi
+  else
+    echo -e "    ${BOLD}2.${NC} Install plugins:"
+    echo -e "       ${GREEN}/plugin install <plugin-name>@${MARKETPLACE_NAME}${NC}"
+    echo ""
+  fi
 
-echo "  Manage plugins:"
-echo -e "    /plugin list                              — See installed plugins"
-echo -e "    /plugin marketplace update ${MARKETPLACE_NAME}  — Pull latest versions"
-echo ""
+  echo "  Manage plugins:"
+  echo -e "    /plugin list                              — See installed plugins"
+  echo -e "    /plugin marketplace update ${MARKETPLACE_NAME}  — Pull latest versions"
+  echo ""
 
-if [ "$PROFILE_CHANGED" = true ]; then
-  echo ""
-  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-  echo ""
-  echo -e "${YELLOW}  Run one of the following:${NC}"
-  echo ""
-  echo -e "${BOLD}    source ${PROFILE}${NC}"
-  echo ""
-  echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
+  if [ "$PROFILE_CHANGED" = true ]; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+    echo ""
+    echo -e "${YELLOW}  Run one of the following:${NC}"
+    echo ""
+    echo -e "${BOLD}    source ${PROFILE}${NC}"
+    echo ""
+    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  fi
 fi

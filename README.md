@@ -1,6 +1,6 @@
 # SIROC Cortex
 
-Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces).
+Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) and an OpenCode plugin.
 
 ## Marketplace
 
@@ -32,17 +32,29 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 
 ## Installation
 
+### Claude Code
+
 Run the setup script — it validates prerequisites, configures tokens, and guides you through plugin installation:
 
 ```bash
 bash setup.sh
 ```
 
+### OpenCode
+
+```bash
+bash setup.sh --opencode
+```
+
+This validates prerequisites and merges the required configuration into your `opencode.json`.
+
+See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed instructions.
+
 ### What the Script Does
 
 **GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `Siroc-Lab/cortex` repo.
 
-**Git SSH** — Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite Claude Code needs:
+**Git SSH** — Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite:
 
 ```bash
 git config --global url."git@github.com:".insteadOf "https://github.com/"
@@ -52,19 +64,28 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 **GitHub token** — Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
 
-**Plugin installation** — Once all prerequisites pass, prints the exact Claude Code commands to run:
-
-1. `/plugin marketplace add Siroc-Lab/cortex`
-2. `/plugin install asana-workflow@siroc-cortex`
+**Plugin installation** — Once all prerequisites pass:
+- Claude Code: prints the exact `/plugin` commands to run
+- OpenCode: merges the plugin configuration into `opencode.json` and clears the cache
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
 ## Updating
 
+### Claude Code
+
 ```
 /plugin marketplace update siroc-cortex
 /plugin update asana-workflow@siroc-cortex
 ```
+
+### OpenCode
+
+```bash
+bash setup.sh --opencode
+```
+
+The script is idempotent — it re-merges the latest configuration and clears the plugin cache.
 
 ## Contributing
 
