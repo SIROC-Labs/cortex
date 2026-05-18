@@ -16,7 +16,7 @@ Extract the numeric segment that corresponds to the task.
 Request the following `opt_fields` when fetching task details:
 
 ```
-name,notes,assignee,assignee.name,custom_fields,custom_fields.name,
+name,notes,assignee,assignee.gid,assignee.name,custom_fields,custom_fields.name,
 custom_fields.display_value,custom_fields.enum_value,custom_fields.enum_value.name,
 custom_fields.type,memberships,memberships.project,memberships.project.name,
 memberships.section,memberships.section.name,projects,projects.name
@@ -44,6 +44,23 @@ Include subtasks in downstream context so feature-dev or debugging understands w
 Fetch task stories (comments) and filter for `type: "comment"` to get human-written context.
 
 If the task has attachments, list them by name. Note any images (mockups, screenshots) — these may need to be viewed.
+
+## Fetching the Current User
+
+```
+GET /users/me?opt_fields=gid,name
+```
+
+Returns the authenticated user's GID and name. Use this in Step 2a to compare against `task.assignee.gid`.
+
+## Assigning or Reassigning a Task
+
+```
+PUT /tasks/<task-gid>
+Body: {"data":{"assignee":"me"}}
+```
+
+Use `"me"` as the assignee value — Asana resolves it to the authenticated user automatically.
 
 ## Moving to In Progress
 

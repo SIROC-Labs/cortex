@@ -66,6 +66,19 @@ Fetch the full task with custom fields, memberships, assignee, and notes via the
 
 Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify memberships per **`plugins/asana-workflow/references/board-resolution.md`**.
 
+### Step 2a: Validate Assignee
+
+Fetch the current user via `GET /users/me` (through the `asana-api` skill) to obtain their GID. Then compare against `task.assignee`:
+
+- **No assignee** — automatically assign the task to the current user via the Asana API. Inform the user (do not ask). Proceed.
+- **Assignee is the current user** — all good. Proceed.
+- **Assignee is someone else** — ask (BLOCKING):
+  > "This task is assigned to [Name]. Reassign it to you before starting?"
+  - **Yes** → Reassign via API, then proceed.
+  - **No** → Stop. Tell the user to resolve the assignment in Asana before retrying.
+
+See **`references/asana-patterns.md`** for the `GET /users/me` call and the task assignee update pattern.
+
 ### Step 3: Validate Sprint-Readiness
 
 Run four validation checks: Active sprint membership, Estimated time, Product Status = Assigned, and ID field presence. See **`references/validation-rules.md`** for check details, failure display format, fix-offer logic, and skip rules. The validation-rules reference loads the board registry cache (see **`plugins/asana-workflow/references/board-resolution.md`**) to resolve the active sprint.
