@@ -105,7 +105,7 @@ After writing the breakdown file, offer to push it to Asana:
 
 > "Breakdown saved to `<file-path>`. Want to submit it to Asana now? [Y/n]"
 
-If the user confirms, invoke `submit-breakdown` with the breakdown file path. If the breakdown's References section contains an Asana project URL, pass it along — `submit-breakdown` will use it as the target project. If no Asana URL is present, `submit-breakdown` will ask for it.
+If the user confirms, invoke the `asana-workflow:submit-breakdown` skill using the Skill tool (skill name: `asana-workflow:submit-breakdown`). Pass the breakdown file path and, if the breakdown's References section contains an Asana project URL, include that too.
 
 If the user declines, stop here. They can run `/submit-breakdown` later with the file path.
 
