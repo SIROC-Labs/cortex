@@ -15,13 +15,21 @@ Generate a concise report of the current session's work — what was done, why, 
 
 ## Output Format
 
-The summary has two parts: the **body** and the **footer**.
+The summary has three parts: the **Asana summary**, the **body**, and the **footer**.
+
+### Asana Summary (max 3 sentences)
+
+A high-level, non-technical description for the Asana task comment. Written for a product manager or stakeholder, not an engineer. Focus on what changed at the feature/product level and highlight anything critical (a constraint overcome, a tradeoff made, a risk resolved). Do NOT name hooks, files, endpoints, or implementation details.
+
+Examples:
+- *"Replaced the Dynamic Creative sidebar with the Instant Creative sidebar. The main constraint was keeping the shared code inside the app package due to an API dependency limitation. All four locales were updated."*
+- *"Fixed premature session logouts for users outside UTC. Root cause was a timezone mismatch in the expiry check."*
 
 ### Body (max 3 paragraphs)
 
-Write a natural, flowing summary — not a form with rigid sections. Use as many paragraphs as needed, up to three:
+A technical, flowing summary for the PR description and handoffs. Use as many paragraphs as needed, up to three:
 
-1. **What and why** — What work was done and what motivated it. Write for someone with no context. Be specific: name endpoints, components, files, configs. Mention technical details when they matter (e.g., "migrated from polling to WebSocket" not just "improved performance").
+1. **What and why** — What work was done and what motivated it. Be specific: name endpoints, components, files, configs. Mention technical details when they matter (e.g., "migrated from polling to WebSocket" not just "improved performance").
 
 2. **Key changes** (if needed) — Expand on significant changes that deserve more detail than paragraph 1 can hold. Include architectural decisions, tradeoffs, or notable implementation details. Skip this paragraph for small or straightforward work.
 
@@ -102,6 +110,13 @@ When git timestamps span a much larger window than conversation turns suggest (e
 
 **Small change:**
 
+Asana summary:
+```
+Fixed premature session logouts for users outside UTC. Root cause was a timezone
+mismatch in the session expiry check.
+```
+
+Body + footer (for PR and handoffs):
 ```
 Fixed the timezone offset bug in the session expiry check. The comparison
 was using UTC timestamps against local time, causing premature logouts
@@ -113,6 +128,14 @@ for users in positive UTC offsets.
 
 **Larger feature:**
 
+Asana summary:
+```
+Added admin endpoints for listing and exporting presale code pool codes.
+Needed for reconciliation with the payment provider. Frontend table still
+needs to wire up to the new endpoints.
+```
+
+Body + footer (for PR and handoffs):
 ```
 Added superadmin endpoints for listing and exporting presale code pool
 codes. The pool management UI needed a way to inspect and export codes
@@ -143,8 +166,8 @@ Do not ask clarifying questions before producing the summary — use available c
 
 This skill produces output that other skills consume:
 
-- **ship-it** — Uses the body and stats for Asana comments.
-- **create-pr** — Uses the body for the PR description.
-- **asana-api** — Uses the full output as a task comment.
+- **ship-it** — Uses the **Asana summary** (high-level, 1-3 sentences) for the Asana task comment.
+- **create-pr** — Uses the **body** (technical paragraphs) for the PR description.
+- **asana-api** — Uses the Asana summary + stats footer as a task comment.
 
-When called by another skill, return the structured output so the caller can extract what it needs. When called standalone, present the full formatted output directly to the user. In both cases, do not prompt the user to validate or adjust the summary.
+When called by another skill, return both the Asana summary and the body so the caller can pick the right one. When called standalone, present both to the user. In both cases, do not prompt the user to validate or adjust the summary.
