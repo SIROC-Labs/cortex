@@ -156,17 +156,25 @@ If the user adjusts an estimate, update it and proceed. Don't re-show the table 
 
 Create tasks in **dependency order** — tasks with no dependencies first, then tasks that depend on those, etc. This ensures GIDs are available for wiring dependencies.
 
-### Per task:
+### Step 1: Create all tasks (NO dependencies yet)
 
-1. **Create the task** in the correct section (milestone) with:
-   - Name (no platform prefix — Platform is a custom field)
-   - Description (HTML, composed in Phase 2)
-   - Custom fields: Platform, Estimate (from Step 2c, confirmed in Estimation Review), Category, Priority (default P3), Product Status (default Unassigned)
-2. **Track the returned GID** — needed for dependency wiring.
+The Asana `create_task` / `create_tasks` tools do NOT support a dependencies field. Any dependency data passed during creation is silently ignored. Dependencies are wired in a separate step below.
 
-### After all tasks are created:
+For each task, create it with:
+- Name (no platform prefix — Platform is a custom field)
+- Description (HTML, composed in Phase 2) — pass as `html_notes` wrapped in `<body>...</body>`
+- Section (milestone)
+- Custom fields: Platform, Estimate (from Step 2c, confirmed in Estimation Review), Category, Priority (default P3), Product Status (default Unassigned)
 
-3. **Set dependencies** using the collected GIDs. Use `asana_set_task_dependencies` — for each task, set its dependencies to the GIDs of the tasks it depends on (mapped from T-labels in the breakdown).
+Track every returned task GID in a T-label → GID map (e.g., T1 → "1234567890").
+
+### Step 2: Wire dependencies (separate API calls)
+
+After ALL tasks exist, wire dependencies using `asana_set_task_dependencies`. This is a separate tool — not a field on create_task.
+
+For each task that has dependencies in the breakdown:
+- Look up the dependency T-labels in the T-label → GID map
+- Call `asana_set_task_dependencies` with `task_id` = this task's GID and `dependencies` = array of dependency GIDs
 
 ### Task title rules:
 - No platform prefix (Platform is a custom field)
