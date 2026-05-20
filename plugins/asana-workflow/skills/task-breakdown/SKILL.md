@@ -82,6 +82,16 @@ The descriptive name should be a short slug derived from what the breakdown cove
 
 Create the `docs/task-breakdowns/` directory if it doesn't exist.
 
+### Phase 6: Transition to Submit
+
+After writing the breakdown file, offer to push it to Asana:
+
+> "Breakdown saved to `<file-path>`. Want to submit it to Asana now? [Y/n]"
+
+If the user confirms, invoke `submit-breakdown` with the breakdown file path. If the breakdown's References section contains an Asana project URL, pass it along — `submit-breakdown` will use it as the target project. If no Asana URL is present, `submit-breakdown` will ask for it.
+
+If the user declines, stop here. They can run `/submit-breakdown` later with the file path.
+
 ## What This Skill Does NOT Do
 
 - Does not produce implementation plans or file-level specs (that's the downstream skill)
