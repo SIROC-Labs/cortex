@@ -82,7 +82,24 @@ The descriptive name should be a short slug derived from what the breakdown cove
 
 Create the `docs/task-breakdowns/` directory if it doesn't exist.
 
-### Phase 6: Transition to Submit
+### Phase 6: Originating Task Disposition
+
+When the breakdown was triggered from a single Asana task (e.g., a requirements-stage task that said "build feature X"), that originating task is now superseded by the breakdown's tasks. It needs to be dealt with.
+
+**When this applies:** The input to task-breakdown was an Asana task URL (not a project URL, not a local spec file). That task is the "originating task."
+
+**When this does NOT apply:** The input was a spec file, a project URL, or multiple sources. Skip this phase.
+
+If an originating task exists, ask the user:
+
+> "The originating task `<task-name>` (`<task-url>`) has been decomposed into T1–TN. What should happen to it?
+> 1. **Delete** — remove it entirely
+> 2. **Complete** — mark as complete with a comment listing the new tasks
+> [1/2]"
+
+Write the user's choice into the breakdown file's **Originating Task** section (see `references/output-format.md`). The `submit-breakdown` skill will execute the chosen action after creating all new tasks.
+
+### Phase 7: Transition to Submit
 
 After writing the breakdown file, offer to push it to Asana:
 

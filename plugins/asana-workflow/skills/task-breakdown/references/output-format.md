@@ -55,9 +55,12 @@ All source materials that inform this breakdown:
 ## M2 :: [Milestone Name]
 ...
 
-## Dependency Overview
+## Originating Task
 
-[Optional section: a text-based summary of the critical path and parallelizable work, if the breakdown is complex enough to warrant it]
+[Optional — only when the breakdown was triggered from a single Asana task]
+
+- **Task:** [Task name](Asana task URL)
+- **Action:** Delete | Complete
 ```
 
 ## Field Reference
@@ -119,6 +122,17 @@ Bad: "Employee list works correctly"
 
 Good: "API returns 404 with error message when employee ID doesn't exist"
 Bad: "Error handling is implemented"
+
+### Originating Task
+
+Optional. Present only when the breakdown was triggered from a single Asana task that is now superseded by the breakdown's tasks.
+
+- **Task** — the name and Asana URL of the originating task
+- **Action** — what `submit-breakdown` should do with it after creating all new tasks:
+  - **Delete** — remove the task from Asana
+  - **Complete** — mark the task as complete and post a comment listing all newly created tasks with their Asana URLs
+
+The user chooses the action during Phase 6 of task-breakdown. `submit-breakdown` executes it during its cleanup phase, always with a confirmation prompt before acting.
 
 ## Dependency Overview Section
 

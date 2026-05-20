@@ -188,10 +188,32 @@ After all tasks and dependencies are set:
 
 ## Phase 4: Cleanup
 
-If the breakdown specifies tasks to remove (via Source field pointing to existing Asana tasks, or an explicit removal section):
+### Originating Task Disposition
+
+If the breakdown has an **Originating Task** section, handle it based on the specified action:
+
+**Delete:** List the task name and GID, ask for confirmation, then delete.
+
+**Complete:** Mark the task as complete and post a comment listing all newly created tasks. The comment should include each task's name and Asana URL, grouped by milestone. Example comment format:
+
+> This task has been decomposed into the following implementation tasks:
+>
+> **M1 :: Core Data Layer**
+> - [Setup employee entity + repository](task-url)
+> - [Employee CRUD API endpoints](task-url)
+>
+> **M2 :: Employee Management UI**
+> - [Employee list page](task-url)
+> - ...
+
+**Both actions require explicit user confirmation** — no exceptions.
+
+### Task Removal
+
+If the breakdown specifies additional tasks to remove (via Source field pointing to existing Asana tasks):
 
 1. List the tasks to be deleted with their names and GIDs.
-2. **Ask the user for confirmation before deleting** — no exceptions, even if the breakdown explicitly says to remove them.
+2. **Ask the user for confirmation before deleting.**
 3. Delete only after explicit confirmation.
 
 ---
