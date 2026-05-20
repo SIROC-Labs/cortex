@@ -49,7 +49,7 @@ From the target project:
    - **Priority** — enum: P0, P1, P2, P3, P4
    - **Product Status** — enum: Requirements, Sizing, Unassigned, Scheduled, Assigned, Ready, Canceled
 
-   Match fields by name using case-insensitive patterns (same approach as `log-task` Step 3). Record each field's GID and enum option GIDs.
+   Read **`references/asana-custom-field-discovery.md`** (plugin-level shared reference) for field name matching patterns and how to record GIDs.
 
 3. **Fetch existing tasks per section** to understand current state — what's done, what exists, what the breakdown says to remove.
 
@@ -75,7 +75,7 @@ Process each task from the breakdown. For each task:
 Run these checks and surface issues to the user:
 
 - **Platform check:** Does this task involve only one platform? If it spans multiple (e.g., backend API + frontend UI), propose splitting into separate tasks with a dependency between them. Recalculate estimates. Ask the user for confirmation before splitting.
-- **Size check:** Is the task completable in a single `start-task` session (roughly 0.5–4 hours)? If too large, propose a split with reasoning.
+- **Size check:** Is the task completable in a single session (roughly 0.5–4 hours)? If too large, propose a split with reasoning.
 - **Redundancy check:** Does the task duplicate work already done in the codebase? Flag and ask whether to skip or adjust scope.
 
 ### 2b. Resolve Ambiguities
@@ -91,9 +91,9 @@ The rule: only ask when there's genuine ambiguity. Don't ask for permission on d
 
 ### 2c. Estimate the Task
 
-Produce an honest estimate of how long an experienced senior software engineer would take to implement this task without AI assistance. This estimate is written to the Asana Estimate custom field (number, in hours).
+Produce an honest estimate of how long an experienced senior software engineer would take to implement this task without AI assistance. This estimate is written to the Asana Estimate custom field.
 
-**Format:** hours as a number, 2 decimal places, in multiples of 0.25 (e.g., 0.25, 0.50, 1.00, 1.25, 1.50, 2.75, 4.00). Never use values like 1.33 or 2.10.
+**Format:** multiples of 0.25 hours. Display as `hh:mm` in conversation (e.g., `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`). Submit to Asana as decimal hours (e.g., `1.5`). See `references/asana-custom-field-discovery.md` for the conversion rule.
 
 **What to weigh:**
 
@@ -110,13 +110,13 @@ Produce an honest estimate of how long an experienced senior software engineer w
 
 **Calibration anchors:**
 
-- 0.25h — a single config change, adding an import, registering a route
-- 0.50h — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
-- 1.00h — a small feature with 2-3 files, clear pattern to follow, no design decisions
-- 2.00h — a feature with 4-6 files, some decisions, moderate acceptance criteria
-- 3.00–4.00h — complex feature, new patterns, multiple edge cases, or significant UI work
+- 00:15 — a single config change, adding an import, registering a route
+- 00:30 — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
+- 01:00 — a small feature with 2-3 files, clear pattern to follow, no design decisions
+- 02:00 — a feature with 4-6 files, some decisions, moderate acceptance criteria
+- 03:00–04:00 — complex feature, new patterns, multiple edge cases, or significant UI work
 
-Estimate honestly. Don't inflate to be safe and don't compress to look efficient. If the task breakdown scoped tasks well (0.5–4h range), most estimates should land between 0.50 and 3.00.
+Estimate honestly. Don't inflate to be safe and don't compress to look efficient. If the task breakdown scoped tasks well (00:30–04:00 range), most estimates should land between 00:30 and 03:00.
 
 ### 2d. Compose the Task Description
 
@@ -136,11 +136,11 @@ Key principles (details in the reference file):
 After preparing all tasks (descriptions + estimates), present a summary table before submitting:
 
 ```
-Estimates (total: 24.50h):
-  T1  Setup employee entity + repository    1.50h  Backend
-  T2  Employee CRUD API endpoints           2.00h  Backend
-  T3  Employee list page                    2.50h  Frontend
-  T4  Employee create/edit form             2.75h  Frontend
+Estimates (total: 24:30):
+  T1  Setup employee entity + repository    01:30  Backend
+  T2  Employee CRUD API endpoints           02:00  Backend
+  T3  Employee list page                    02:30  Frontend
+  T4  Employee create/edit form             02:45  Frontend
   ...
 
 Confirm? [Y/n / type T-label to adjust]
@@ -239,4 +239,3 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 - `task-breakdown` — produces the input file for this skill
 - `start-task` — consumes the output tasks (the "customer" of this skill's output)
 - `asana-api` — all Asana API operations route through this skill
-- `log-task` — creates individual tasks (this skill creates batches from a breakdown)

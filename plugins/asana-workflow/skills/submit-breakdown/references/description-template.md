@@ -1,6 +1,6 @@
 # Task Description Template
 
-This is the canonical reference for composing Asana task descriptions in the `submit-breakdown` skill. Each task description is consumed by `start-task` running in a separate Claude session with codebase access but no prior conversation context.
+Each task description must stand alone — a separate session with codebase access but no prior conversation context must be able to execute from it.
 
 ## Description Structure
 
@@ -79,13 +79,13 @@ Observable behaviors that confirm the task is done. These should be checkable by
 These rules determine what goes into a description and how to phrase it.
 
 ### Reference, don't replicate
-Point to source files and let `start-task` read them. Don't paste code snippets, full schemas, or API response shapes into descriptions.
+Point to source files by path and let the implementer read them directly. Don't paste code snippets, full schemas, or API response shapes into descriptions.
 
 ### Extract, don't include
 Don't copy the full spec into descriptions. Extract only what's relevant to this specific task.
 
 ### Reference existing patterns by pointing to files
-Instead of describing a pattern in prose, name the file that demonstrates it. `start-task` can open and read it.
+Instead of describing a pattern in prose, name the file that demonstrates it. The implementer can open and read it.
 
 ### Point to backend source files for API contracts
 Never hardcode request/response shapes in task descriptions. They'll drift from the actual code. Always reference the source files.
@@ -100,7 +100,7 @@ Reference file paths based on architecture conventions ("the users module is at 
 If a pattern (e.g., confirmation dialog style, form component library, error handling approach) is established in one task and reused in later tasks, state that explicitly: "Reuse the form components from *src/app/components/forms/*." Don't re-explain the same decision in every task.
 
 ### State CLAUDE.md conventions only when non-obvious
-If the project CLAUDE.md has a convention that directly affects this task's implementation and isn't obvious from reading the code, mention it. Don't restate basic conventions that `start-task` will discover on its own.
+If the project CLAUDE.md has a convention that directly affects this task's implementation and isn't obvious from reading the code, mention it. Don't restate basic conventions that the implementer will discover on their own.
 
 ---
 

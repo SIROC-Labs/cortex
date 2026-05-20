@@ -20,7 +20,7 @@ The constraint is: **never propose a breakdown until you have enough context to 
 Where is the spec? Collect every source:
 
 - Markdown files in the repo (check `docs/`, `specs/`, project root)
-- Asana task or project URLs (fetch via `asana-api` skill to read full descriptions, subtasks, comments)
+- Asana task or project URLs — read the full description, subtasks, and comments
 - PDFs, Google Docs, or other documents
 - Figma links (for design specs)
 - Verbal description from the user
