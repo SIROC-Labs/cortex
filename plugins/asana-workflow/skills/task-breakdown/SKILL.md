@@ -1,0 +1,99 @@
+---
+name: task-breakdown
+description: >
+  Decomposes product work into a milestone-based roadmap of implementation tasks. Use this skill
+  whenever the user wants to plan, organize, or structure implementation work — "break down this spec",
+  "plan this project", "create a task breakdown", "roadmap this", "/task-breakdown", or provides a spec
+  document (markdown, PDF, Asana task/project URL, Figma link) and wants to figure out how to organize
+  the implementation. Also use when the user wants to restructure, revise, or extend an existing task
+  breakdown. Works for both greenfield projects (new spec to full breakdown) AND incremental work on
+  existing projects (change requests, new features, bug batches slotted into existing milestones).
+---
+
+# Task Breakdown
+
+Decompose product work into a milestone-based roadmap of implementation tasks. The output is a markdown file listing milestones, tasks within each milestone, and — critically — the rationale for why work is divided this way.
+
+This is about **strategic decomposition**, not detailed task specs. Each task gets a purpose, description, and acceptance criteria — but not implementation plans or file lists. A separate downstream skill will later read this breakdown to produce detailed specs and create tasks in project management tools.
+
+The breakdown file is a **bridge document**: it must contain all references (spec files, Asana task URLs, Figma links, external docs) that the downstream skill will need for full context.
+
+## The Flow
+
+This is a conversational skill — not a one-shot generator. Work through these phases in order, but adapt to what the user brings. If they arrive with a complete spec and clear context, move quickly through discovery. If they're still figuring things out, spend more time there.
+
+### Phase 1: Discover
+
+Gather all relevant context before proposing any structure. The goal is a complete picture of what exists, what needs to be built, and across which platforms.
+
+Read **`references/discovery-guide.md`** for the full discovery checklist. The key areas:
+
+1. **Specification sources** — collect every spec, doc, URL, and file path. Read all of them.
+2. **Existing project state** — new project or existing? What's already built? Are there existing milestones?
+3. **Platform inventory** — which platforms (Backend, Frontend, iOS, Android, Design) are involved and what's their current state?
+4. **Design state** — do designs exist? Is a Figma file available? Do designs need to be created before implementation can start?
+5. **External dependencies** — third-party APIs, services, infrastructure needs.
+6. **Team context** — who's doing the work? This affects task granularity.
+
+Be smart about discovery. Batch related questions. Skip areas that are obviously irrelevant. But never propose a breakdown until you have enough context to make informed decomposition decisions.
+
+**Every URL, file path, and reference discovered here must appear in the output's References section.**
+
+### Phase 2: Propose Milestone Structure
+
+Before breaking down individual tasks, propose the milestone structure and get alignment:
+
+- How many milestones (or which existing milestones to extend)?
+- What does each milestone deliver as a usable product increment?
+- Why this ordering?
+
+For design-heavy projects, consider whether design needs its own milestone before implementation, or whether design and backend can be parallelized while frontend is deferred.
+
+Present the rationale for your structure. Get user feedback before proceeding.
+
+### Phase 3: Break Down Each Milestone
+
+For each milestone, propose the tasks — their platform, ordering, and scoping. Read **`references/decomposition-principles.md`** for the rules governing:
+
+- **Milestone design** — each milestone delivers a usable increment, not a technical layer
+- **Task ordering** — foundational before dependent, read before write, backend before frontend, design before implementation
+- **Task scoping** — one platform per task, completable in a single session (0.5–4 hours)
+- **Dependencies** — explicit cross-references using T-labels, identify parallelizable work, flag blocking risks
+- **Cleanup tasks** — when and why to include a milestone cleanup/review task
+
+Explain the rationale for ordering and scoping decisions. These decisions embody the core value of the breakdown — the "why" matters as much as the "what."
+
+### Phase 4: Challenge and Refine
+
+If the user suggests a different ordering or structure, evaluate it against the decomposition principles:
+
+- If it's valid — agree and explain why it works
+- If it violates a dependency or principle — push back with clear reasoning ("Projects depend on Users for the assigned_user_ids relationship. Building Users first means the Project detail page can link to real User pages from day one.")
+
+This is collaborative design, not rubber-stamping. The goal is the best decomposition, not the first one.
+
+### Phase 5: Write the Breakdown
+
+Produce the final markdown file following the format in **`references/output-format.md`**.
+
+**File location:** `docs/task-breakdowns/<descriptive-name>-<YYYY-MM-DD>.md`
+
+The descriptive name should be a short slug derived from what the breakdown covers (e.g., `management-features-2026-05-20.md`, `auth-redesign-2026-05-20.md`).
+
+Create the `docs/task-breakdowns/` directory if it doesn't exist.
+
+## What This Skill Does NOT Do
+
+- Does not produce implementation plans or file-level specs (that's the downstream skill)
+- Does not create Asana tasks or interact with project management tools for writing
+- Does not write code or scaffold projects
+- Does not assign people, set priorities, or manage external IDs
+- Does not estimate hours (estimation is a separate concern)
+
+It **does** read from Asana (existing tasks, projects, milestones) during discovery to understand current state.
+
+## Reference Files
+
+- **`references/discovery-guide.md`** — Full discovery checklist and questioning strategy
+- **`references/decomposition-principles.md`** — Rules for milestone design, task ordering, scoping, dependencies, and cleanup tasks
+- **`references/output-format.md`** — Markdown template and field reference for the breakdown file

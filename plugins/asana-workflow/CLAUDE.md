@@ -22,6 +22,8 @@ asana-workflow/
     ├── ship-it/           ← Shipping orchestrator (bundled)
     ├── start-task/        ← Entry point for dev workflow (bundled)
     │   └── scripts/       ← skill-local helpers (e.g., checkpoint.sh — checkpoint file I/O)
+    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps (bundled)
+    │   └── references/    ← discovery guide, decomposition principles, output format
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
 ```
@@ -55,6 +57,9 @@ pre-ship-check
 log-task
   ├── asana-api          (create task, set custom fields, add to projects)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
+
+task-breakdown             (standalone — no cross-skill dependencies)
+  └── asana-api          (optional: read existing tasks/projects for context during discovery)
 ```
 
 generic-qa (shared markdown, not a skill)
