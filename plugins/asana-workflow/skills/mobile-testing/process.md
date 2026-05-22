@@ -27,7 +27,7 @@ Assert  — verify the resulting state and any side effects (navigation events, 
 Stack bindings:
 
 - **Android / KMP (Kotlin)** — `runTest { ... }` with an injected `TestDispatcher`. Collect `StateFlow` / `SharedFlow` with the project's chosen flow-assertion helper (e.g. Turbine) or manual `toList()`. Never use `runBlocking` in tests.
-- **iOS (Swift)** — `async/await` test methods (XCTest supports them natively). For time control, inject a clock — see `references/stack-detection.md` → "Async / time control" for the iOS-version-specific pattern. Use `XCTestExpectation` only for genuinely callback-based legacy code.
+- **iOS (Swift)** — `async/await` test methods (XCTest supports them natively). For time control, inject a clock: on **iOS 16+** use a Swift `Clock` (`ContinuousClock`, a custom test clock); on **iOS 15 and earlier**, wrap `Date()` / sleep calls in a `TimeProvider` protocol and inject a fake. Use `XCTestExpectation` only for genuinely callback-based legacy code.
 
 ### 2. Use cases / interactors / domain services
 
@@ -64,7 +64,7 @@ The single largest source of flake on mobile. Treat the rules below as non-negot
 | Stack | Time control | Async control |
 |---|---|---|
 | **Kotlin (Android / KMP)** | `TestDispatcher` (`StandardTestDispatcher` / `UnconfinedTestDispatcher`); `advanceTimeBy(...)` | `runTest { }`, flow-assertion helper for `StateFlow` / `SharedFlow` |
-| **Swift (iOS)** | inject a `Clock` (iOS 16+) or `TimeProvider` protocol (iOS 15 and below) — see stack-detection | native `async/await` test methods |
+| **Swift (iOS)** | inject a `Clock` (iOS 16+) or `TimeProvider` protocol (iOS 15 and below) | native `async/await` test methods |
 
 **Forbidden:**
 
@@ -80,7 +80,7 @@ Mock at the platform / network boundary. Do not mock your own value types or pur
 |---|---|---|
 | **HTTP / GraphQL** | Yes — fake server preferred | Honest integration shape; status codes, headers, retries all real |
 | **Platform APIs** (location, camera, biometrics, push, keychain/keystore, permissions) | Yes — protocol/interface + fake | Not available reliably in unit-test environment |
-| **Persistent storage** | Prefer in-memory variant over mocks | See stack-detection → Persistence in-memory variants |
+| **Persistent storage** | Prefer in-memory variant over mocks | Recipes below |
 | **Analytics / crash reporting SDKs** | Yes — stub or no-op | Avoid side effects; sometimes assert events fired |
 | **Date / random** | Inject — never mock the system clock or `Math.random()` | Determinism is law (see generic-testing) |
 | **Value types** (data classes, structs, enums) | No | They have no behavior to mock |
@@ -96,19 +96,30 @@ Prefer a fake server over response mocks. A fake server forces your code through
 
 **iOS `URLProtocol` gotcha:** the protocol class must be registered before the `URLSession` is created. Either build a custom session (`URLSessionConfiguration.ephemeral` with `protocolClasses = [MockURLProtocol.self]`) and inject it, or call `URLProtocol.registerClass(MockURLProtocol.self)` in test setup before any code touches `URLSession.shared`. Without this, requests fall through to the real network silently.
 
+### Persistence — in-memory variants
+
+Prefer the real persistence layer in an in-memory configuration over mocks. You get real schema validation, real query behavior, and real serialization — without disk I/O.
+
+- **Room** — `Room.inMemoryDatabaseBuilder(...)`.
+- **SQLDelight** — `:memory:` driver (`JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)` on JVM).
+- **Core Data** — `NSInMemoryStoreType` is the canonical in-memory variant. `description.url = URL(fileURLWithPath: "/dev/null")` on a SQLite store is a different technique used when SQLite parser semantics are needed; don't conflate them.
+- **SwiftData** — `ModelConfiguration(isStoredInMemoryOnly: true)`.
+- **GRDB** — `DatabaseQueue()` with no path is in-memory by default.
+
 ## DI for testability
 
-Production DI graph and test DI graph must share the same wiring discipline. Use the framework's test entry points.
+**Default: manual constructor injection.** Pass fakes directly to the type under test. No framework, no container, no test-runtime wiring. This is what our apps use; prefer it everywhere it's viable.
 
-| Stack | Test override |
+**Rule of thumb:** if a class cannot be constructed in a test without booting an entire DI graph, the class has too many dependencies. Refactor toward constructor injection rather than introducing a test container.
+
+If you encounter an existing DI framework in the codebase, follow its test conventions rather than fighting them — but the bar for *introducing* a framework should be high:
+
+| Stack you find | Test override |
 |---|---|
 | **Hilt (Android)** | `@TestInstallIn(replaces = ProductionModule::class)`; `HiltAndroidRule` in instrumentation tests |
 | **Koin (Android / KMP)** | `loadKoinModules(testModule)` in test setup; stop the container in `@After` |
 | **Dagger (Android)** | swap `@Component` builders or `@BindsInstance` for fakes |
 | **Swinject / Resolver / Factory (iOS)** | per-test container or property-based injection |
-| **Manual constructor injection** | preferred everywhere — pass fakes directly to the type under test |
-
-**Rule of thumb:** if a class cannot be constructed in a test without booting the entire DI graph, the class has too many dependencies. Refactor toward constructor injection.
 
 ## Integration tests (middle tier)
 
@@ -159,4 +170,6 @@ Match the existing project. If none exists, default to:
 
 - **Android (Gradle)** — `src/test/kotlin/<package>/<TypeName>Test.kt` for JVM tests; `src/androidTest/kotlin/...` reserved for instrumentation only.
 - **iOS (Xcode)** — `<Module>Tests/<TypeName>Tests.swift` in a dedicated unit-test target.
-- **KMP** — shared tests in `commonTest/kotlin/<package>/<TypeName>Test.kt`; platform-specific tests in `androidUnitTest` / `iosTest`.
+- **KMP** — shared tests in `commonTest/kotlin/<package>/<TypeName>Test.kt`; platform-specific tests in `androidUnitTest/` (JVM), `androidInstrumentedTest/` (device/emulator), and `iosTest/` (iOS).
+
+**KMP iOS folders, in one breath:** you have *one* `iosTest/` folder. Names like `iosX64Test` / `iosArm64Test` / `iosSimulatorArm64Test` are Gradle *task names*, not folders — Kotlin's hierarchical structure compiles `iosTest/` against each declared iOS target and exposes a test task per target. Per-target source-set leaves stay empty in practice. CI runs the task that matches the runner architecture (`iosSimulatorArm64Test` on Apple Silicon).
