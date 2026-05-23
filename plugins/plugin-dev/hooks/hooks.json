@@ -1,0 +1,17 @@
+{
+  "description": "Tracks cross-skill references and challenges unnecessary coupling when SKILL.md files are written or edited",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_ROOT/scripts/analyze-skill-refs.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

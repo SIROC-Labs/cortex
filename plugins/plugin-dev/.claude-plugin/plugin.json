@@ -1,0 +1,8 @@
+{
+  "name": "plugin-dev",
+  "description": "Meta-tooling for managing cortex-w skills: dependency tracking, graph visualization, and cross-skill coupling alerts",
+  "version": "1.0.0",
+  "author": {
+    "name": "SIROC Team"
+  }
+}

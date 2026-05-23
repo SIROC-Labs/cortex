@@ -14,6 +14,12 @@
       "source": "./plugins/asana-workflow",
       "description": "End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
       "version": "1.1.7"
+    },
+    {
+      "name": "plugin-dev",
+      "source": "./plugins/plugin-dev",
+      "description": "Meta-tooling for managing cortex-w skills: dependency tracking, graph visualization, and cross-skill coupling alerts",
+      "version": "1.0.0"
     }
   ]
 }
