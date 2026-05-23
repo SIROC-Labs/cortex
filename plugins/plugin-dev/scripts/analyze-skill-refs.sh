@@ -78,10 +78,10 @@ rm -f "$tmp_graph"
 if [[ ${#new_refs[@]} -gt 0 ]]; then
   refs_str=$(IFS=', '; echo "${new_refs[*]}")
   cat <<MSG
-{"systemMessage": "SKILL DEPENDENCY DETECTED: '${edited_skill}' now references: ${refs_str}. Before continuing, challenge the user: Is this cross-skill dependency truly necessary? Could this logic live within '${edited_skill}' itself? Tight coupling between skills makes the plugin harder to evolve independently. Confirm the user intentionally wants this coupling. Diagram updated: plugins/plugin-dev/references/skill-graph.md"}
+{"systemMessage": "SKILL DEPENDENCY DETECTED: '${edited_skill}' now references: ${refs_str}. Invoke the /skill-graph skill now to regenerate the full dependency diagram and present it to the user. Then challenge the user: Is this cross-skill dependency truly necessary? Could this logic live within '${edited_skill}' itself?"}
 MSG
 else
   cat <<MSG
-{"systemMessage": "Skill graph updated at plugins/plugin-dev/references/skill-graph.md (no new cross-skill references detected in '${edited_skill}')."}
+{"systemMessage": "Invoke the /skill-graph skill now to regenerate the dependency diagram and confirm no unintended references were introduced in '${edited_skill}'."}
 MSG
 fi
