@@ -56,7 +56,6 @@ pre-ship-check
 log-task
   ├── asana-api          (create task, set custom fields, add to projects)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
-```
 
 generic-qa (shared markdown, not a skill)
   ├── process.md         (universal QA flow)
@@ -82,8 +81,8 @@ frontend-testing (bundled skill — extends generic-testing)
 mobile-testing (bundled skill — extends generic-testing; scope: unit + integration on native iOS / native Android / KMP)
   ├── process.md         (ViewModels, repos, async/time, mocking, DI)
   └── references/
-      ├── stack-detection.md    (inspect the project's runner, DI, async style, persistence)
       └── infrastructure.md     (coverage configs, JVM/Xcode parallelism, toolchain caching)
+```
 
 ## External Dependencies
 
