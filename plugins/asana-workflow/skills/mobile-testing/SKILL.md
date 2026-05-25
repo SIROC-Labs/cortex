@@ -17,12 +17,15 @@ Scoped to **native iOS**, **native Android**, and **Kotlin Multiplatform** (shar
 
 1. **Inspect the project.** Read the build files (`build.gradle(.kts)`, `settings.gradle(.kts)`, `libs.versions.toml`, `Package.swift`, `Podfile`, `*.xcodeproj` settings), one representative existing test file, and the CI workflow. These tell you the runner, the DI approach, the async style, and the conventions to match. Don't assume.
 
-2. **Stop and advise if any of these hold:**
-   - No test target / test source set exists yet — testing isn't set up; agree on the harness first.
-   - The test script or scheme is broken or fails on a clean checkout.
-   - Two conventions coexist in the codebase (some files in `src/test/`, some in `src/androidTest/` for JVM-only code; mixed `*Test.kt` / `*Tests.kt` naming). Ask which one to follow rather than picking arbitrarily.
-   - The test utilities look mismatched with the framework (e.g. Compose code with no `androidx.compose.ui:ui-test-junit4` and no JVM ViewModel tests either — a missing setup step).
-   - The codebase is React Native, Flutter, or a hybrid wrapper (Capacitor, Ionic, Tauri). This skill doesn't cover those — surface it.
+2. **Handle ambiguous or unsupported situations.** Never block — take the default action below and include the surfaced message in the output. The operator (or the calling skill) can read it and redirect if the default is wrong.
+
+   - **No test target / source set exists** → skip writing tests. Do not auto-scaffold project structure. Surface: *"No test infrastructure found. No tests were added. Set up the test harness before invoking this skill again."*
+   - **Test runner or scheme broken on clean checkout** → skip writing tests. Don't pile new tests onto a broken runner. Surface: *"Test runner failed on clean checkout: \<error\>. No tests were added until the harness is fixed."*
+   - **Mixed conventions in the codebase** (test location, file naming, etc.) → use the majority convention in the closest sibling directory. Surface: *"Found mixed conventions (\<X\> used N times, \<Y\> used M times). Chose \<X\>. Regenerate with the alternative if this is wrong."*
+   - **Test utilities missing for one layer** (e.g. Compose UI Test not configured for Composable code) → write tests for the layers that have utilities, skip the rest. Surface: *"Wrote tests for \<X\>. Skipped \<Y\> tests because \<utility\> is not configured."*
+   - **Project is React Native, Flutter, or hybrid wrapper** → do not write tests. Hard scope mismatch. Surface: *"Project uses \<framework\>. This skill doesn't cover \<framework\>. Consider an alternative."*
+
+   When invoked by another skill, propagate the surfaced text so the caller has the record.
 
 3. **Match what's there.** File naming, mocking style, test structure, where tests live. Don't introduce a second pattern.
 
