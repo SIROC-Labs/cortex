@@ -26,32 +26,18 @@ Assert  — verify the resulting state and any side effects (navigation events, 
 
 Stack bindings:
 
-- **Android / KMP (Kotlin)** — `runTest { ... }` with an injected `TestDispatcher`. Collect `StateFlow` / `SharedFlow` with the project's chosen flow-assertion helper (e.g. Turbine) or manual `toList()`. Never use `runBlocking` in tests.
-- **iOS (Swift)** — `async/await` test methods (XCTest supports them natively). For time control, inject a clock: on **iOS 16+** use a Swift `Clock` (`ContinuousClock`, a custom test clock); on **iOS 15 and earlier**, wrap `Date()` / sleep calls in a `TimeProvider` protocol and inject a fake. Use `XCTestExpectation` only for genuinely callback-based legacy code.
+- **Android / KMP (Kotlin)** — `runTest { ... }` with an injected `TestDispatcher`. Collect `StateFlow` / `SharedFlow` using the project's flow-assertion helper, or `flow.toList()` in a `runTest` block for one-shot terminating flows. Never use `runBlocking` in tests.
+- **iOS (Swift)** — `async/await` test methods (XCTest and Swift Testing both support them natively). For time control, inject a Swift `Clock`. Use callback-based expectation APIs (`XCTestExpectation` in XCTest, `confirmation` in Swift Testing) only for genuinely callback-based legacy code.
 
 ### 2. Use cases / interactors / domain services
 
-Pure orchestration logic between repositories. High coverage value because they encode business rules.
-
-```
-Arrange — construct the use case with fake repositories returning known data
-Act     — call the use case
-Assert  — verify the returned domain result and any cross-repository coordination
-```
+Pure orchestration logic between repositories. High coverage value because they encode business rules. Same AAA shape as ViewModels — construct with fake repositories returning known data, call the use case, assert on the returned domain result and any cross-repository coordination.
 
 On KMP, use cases typically live in `commonMain` and are tested from `commonTest` — runs on the JVM, fastest tests in the build.
 
 ### 3. Repositories
 
-The boundary between domain code and platform APIs. Test the *coordination* — what happens on success, error, empty, partial — using a fake network layer and an in-memory database.
-
-```
-Arrange — fake the network response (success / 4xx / 5xx / timeout)
-Act     — call the repository
-Assert  — verify return value, cache writes, and error mapping
-```
-
-**Do not** unit-test the underlying SDK (URLSession, OkHttp, Retrofit, Apollo, Ktor) — its authors did. Test how *your* code reacts to its outputs.
+The boundary between domain code and platform APIs. Test the *coordination* — what happens on success, error, empty, partial — using a fake network layer (success / 4xx / 5xx / timeout) and an in-memory database. Assert on return value, cache writes, and error mapping.
 
 ### 4. Pure functions — mappers, validators, formatters
 
@@ -63,8 +49,8 @@ The single largest source of flake on mobile. Treat the rules below as non-negot
 
 | Stack | Time control | Async control |
 |---|---|---|
-| **Kotlin (Android / KMP)** | `TestDispatcher` (`StandardTestDispatcher` / `UnconfinedTestDispatcher`); `advanceTimeBy(...)` | `runTest { }`, flow-assertion helper for `StateFlow` / `SharedFlow` |
-| **Swift (iOS)** | inject a `Clock` (iOS 16+) or `TimeProvider` protocol (iOS 15 and below) | native `async/await` test methods |
+| **Kotlin (Android / KMP)** | `TestDispatcher` — default to `StandardTestDispatcher` (queues continuations); switch to `UnconfinedTestDispatcher` only when you need eager dispatch (e.g. some `flatMapLatest` synchronization). `advanceTimeBy(...)` for explicit virtual-time control. | `runTest { }`, flow-assertion helper for `StateFlow` / `SharedFlow` |
+| **Swift (iOS)** | inject a Swift `Clock` | native `async/await` test methods |
 
 **Forbidden:**
 
@@ -73,6 +59,8 @@ The single largest source of flake on mobile. Treat the rules below as non-negot
 - "Retry until green" — fix the determinism root cause
 
 ## Mocking boundaries
+
+**Prefer hand-rolled fakes over a mocking library** for the dependencies you own. A `FakeUserRepository` that implements the production interface is plain code — zero supply-chain risk, reads like the real thing, reusable across tests. Reach for a mocking library only when verification, exception-path scripting, or argument capture would be visibly clunky as a fake — and even then, only if a library is already in the project.
 
 Mock at the platform / network boundary. Do not mock your own value types or pure functions.
 
@@ -91,8 +79,8 @@ Mock at the platform / network boundary. Do not mock your own value types or pur
 
 Prefer a fake server over response mocks. A fake server forces your code through real serialization, headers, and error paths — the places where bugs actually live. Response-mocking libraries that bypass the network layer hide real failures.
 
-- **Android / KMP-on-JVM** — whatever the project already uses (MockWebServer, WireMock, Ktor's `MockEngine`). Only introduce a new one if there's nothing.
-- **iOS** — a `URLProtocol` subclass intercepting at the URLSession layer (works with Alamofire, Apollo, URLSession directly).
+- **Android / KMP** — match whatever the project already uses (an HTTP-client interceptor, an HTTP engine swap, or a JVM fake server). Only introduce something new if there's nothing.
+- **iOS** — a `URLProtocol` subclass intercepting at the `URLSession` layer. Native to Foundation; no third-party dependency required.
 
 **iOS `URLProtocol` gotcha:** the protocol class must be registered before the `URLSession` is created. Either build a custom session (`URLSessionConfiguration.ephemeral` with `protocolClasses = [MockURLProtocol.self]`) and inject it, or call `URLProtocol.registerClass(MockURLProtocol.self)` in test setup before any code touches `URLSession.shared`. Without this, requests fall through to the real network silently.
 
@@ -125,23 +113,15 @@ If you encounter an existing DI framework in the codebase, follow its test conve
 
 Integration tests exercise multiple real layers without the UI. They are the highest-confidence-per-second tests on mobile and are routinely undervalued.
 
-### When to write one
+**When to write one:**
 
 - ViewModel + Repository + in-memory database — verifies the DI graph and data flow end-to-end below the view.
 - Use case + fake-server network + in-memory cache — verifies error mapping, retry, offline fallback.
 - Navigation graph wiring — verifies that triggering a navigation event leads to the expected destination key (without rendering).
 
-### What to use
+**What to use:** real `ViewModel`, real `Repository`, in-memory persistence, fake network. On Android this stays on the JVM unit-test runner (milliseconds). On iOS, an XCTest target with in-memory Core Data / SwiftData / GRDB and the `URLProtocol` fake. On KMP, shared-code integration goes in `commonTest`; platform-specific integration (anything touching `androidMain` or `iosMain`) goes in the matching platform test source set.
 
-- **Android** — same JVM unit-test runner; instantiate real `ViewModel`, real `Repository`, in-memory Room/SQLDelight DB, fake-server for network. Stays on the JVM, runs in milliseconds.
-- **iOS** — XCTest target instantiating real ViewModels and repositories with Core Data / SwiftData / GRDB in-memory configurations and `URLProtocol` fake.
-- **KMP** — `commonTest` for shared-code integration; platform-specific integration (anything that touches `androidMain` or `iosMain`) goes in the platform test source set.
-
-### What NOT to use
-
-- Real network. Ever. Even in integration tests.
-- Real device sensors, real push delivery, real biometric prompts. These belong in UI tests at most.
-- A real backend — even a staging one. Use a fake server.
+**Never:** real network, real device sensors, real push delivery, real biometric prompts, real backend (even staging). Those belong in UI tests at most.
 
 ## What NOT to unit-test
 

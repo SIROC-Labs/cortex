@@ -73,7 +73,7 @@ On Apple Silicon CI runners (`macos-latest`), run **only** the simulator-arm64 t
 
 Two further wins specific to KMP CI:
 
-- **Path-based job skipping.** Most PRs only touch one side. Use a "detect changes" pre-job (e.g. `dorny/paths-filter`) to gate the iOS job on `shared/**` or `iosApp/**` changes, and the JVM job on `shared/**` or `androidApp/**`. Cuts CI minutes in half on typical PRs.
+- **Path-based job skipping.** Most PRs only touch one side. Use a path-based change-detection step to gate the iOS job on `shared/**` or `iosApp/**` changes, and the JVM job on `shared/**` or `androidApp/**`. Cuts CI minutes in half on typical PRs.
 - **Concurrency cancellation.** `concurrency: { group: ${{ github.head_ref || github.ref_name }}, cancel-in-progress: true }` cancels older runs on the same branch when a new push lands — stops compute stacking up on rapid pushes.
 
 Fail on any step. Block merge on lint, unit + integration, build.
