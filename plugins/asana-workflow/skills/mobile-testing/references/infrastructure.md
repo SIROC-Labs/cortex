@@ -85,9 +85,11 @@ Fail on any step. Block merge on lint, unit + integration, build.
 - Gradle parallel execution: `--parallel` and `org.gradle.workers.max` in `gradle.properties`.
 - Configure forked test JVMs (`tasks.withType<Test> { maxParallelForks = ... }`) for CPU-bound suites — usually CPU count − 1 on a CI runner.
 
-### iOS (XCTest unit tests)
+### iOS unit tests
 
-- `xcodebuild test -parallel-testing-enabled YES -parallel-testing-worker-count N` — parallel simulators per runner. Useful even at the unit-test scale because XCTest is slow to spin up.
+Applies to XCTest and Swift Testing alike — both run via `xcodebuild` and share the same parallelism and simulator-boot characteristics.
+
+- `xcodebuild test -parallel-testing-enabled YES -parallel-testing-worker-count N` — parallel simulators per runner. Useful even at the unit-test scale because simulator-based test runs are slow to spin up.
 - Boot simulators ahead of time (`xcrun simctl bootstatus`) and **keep them warm across tests in the same job** — do not boot a fresh one per test class. After the platform-split decision in CI pipeline, this is the biggest single lever on macOS cost.
 
 ### KMP

@@ -119,7 +119,7 @@ Integration tests exercise multiple real layers without the UI. They are the hig
 - Use case + fake-server network + in-memory cache — verifies error mapping, retry, offline fallback.
 - Navigation graph wiring — verifies that triggering a navigation event leads to the expected destination key (without rendering).
 
-**What to use:** real `ViewModel`, real `Repository`, in-memory persistence, fake network. On Android this stays on the JVM unit-test runner (milliseconds). On iOS, an XCTest target with in-memory Core Data / SwiftData / GRDB and the `URLProtocol` fake. On KMP, shared-code integration goes in `commonTest`; platform-specific integration (anything touching `androidMain` or `iosMain`) goes in the matching platform test source set.
+**What to use:** real `ViewModel`, real `Repository`, in-memory persistence, fake network. On Android this stays on the JVM unit-test runner (milliseconds). On iOS, an iOS test target (Swift Testing or XCTest) with in-memory Core Data / SwiftData / GRDB and the `URLProtocol` fake. On KMP, shared-code integration goes in `commonTest`; platform-specific integration (anything touching `androidMain` or `iosMain`) goes in the matching platform test source set.
 
 **Never:** real network, real device sensors, real push delivery, real biometric prompts, real backend (even staging). Those belong in UI tests at most.
 
