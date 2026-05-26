@@ -27,10 +27,6 @@ Do not manually edit `plugin.json` or `.claude-plugin/marketplace.json` version 
 
 Each skill lives at `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmatter (`name`, `version`, `description`). Keep SKILL.md under ~100 lines; move larger docs to a `references/` subdirectory and link from SKILL.md. See `plugins/asana-workflow/CLAUDE.md` for the full plugin development guide.
 
-## Worktree Setup
-
-When working in a git worktree, run `scripts/setup-worktree.sh` to prepare the environment (copies `.env.local` from the main worktree and performs any other project-specific initialization). Add project-specific setup steps to that script — it is the single source of truth for worktree bootstrapping.
-
 ## Behavior
 
 Don't add comments, docstrings, or features beyond what was asked.
