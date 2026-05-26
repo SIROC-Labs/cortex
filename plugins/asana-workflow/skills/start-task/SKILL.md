@@ -109,7 +109,9 @@ Present the choice:
 > - **Worktree** _(recommended for parallel work — keeps main directory clean)_
 > - **Current directory**
 
-If the user chooses worktree, use `EnterWorktree` to create an isolated copy. The branch will be created inside the worktree in Step 7.
+If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
+
+The branch will be created inside the worktree in Step 7.
 
 ### Step 6b: Confirm Base Branch (BLOCKING)
 
