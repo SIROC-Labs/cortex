@@ -96,22 +96,7 @@ Present the choice:
 > - **Worktree** _(recommended for parallel work — keeps main directory clean)_
 > - **Current directory**
 
-If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then run project setup inside the worktree:
-
-```bash
-# Node.js — detect package manager from lockfile
-if [ -f package.json ]; then
-  if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pnpm install
-  elif [ -f yarn.lock ]; then yarn install
-  else npm install
-  fi
-fi
-
-if [ -f Cargo.toml ]; then cargo build; fi
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
-if [ -f go.mod ]; then go mod download; fi
-```
+If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then inspect the project and follow its documented setup instructions to prepare the worktree — check for a `scripts/setup-worktree.sh`, a `CLAUDE.md` setup section, a `README`, or any project-specific onboarding guide. Run whatever setup the project defines (dependency install, env file copy, code generation, local services, etc.). Do not hardcode assumptions about the tech stack.
 
 The branch will be created inside the worktree in Step 7.
 
