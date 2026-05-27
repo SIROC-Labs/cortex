@@ -90,3 +90,32 @@ When a project is design-heavy and designs don't yet exist:
 **Option C: Design-as-you-go.** Design tasks are interleaved within milestones, each preceding its corresponding frontend implementation task. Choose this for projects with an established design system where design work is incremental rather than exploratory.
 
 Discuss the tradeoffs with the user and let them choose. The right approach depends on the project's design maturity and team structure.
+
+## Rough Estimation
+
+After tasks are decomposed and before transitioning to submit, produce a rough estimate per task. This is the **honest first guess** — task-breakdown has not read the codebase, so it cannot know whether a task is mechanical replication or an entirely new pattern. The estimate's purpose is to give downstream tools (and the user) a sense of relative effort; `refine-tasks` revises it after codebase analysis.
+
+**Format:** `hh:mm` with quarter-hour precision (e.g., `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`).
+
+**What to weigh from the breakdown alone:**
+
+| Factor | Effect |
+|--------|--------|
+| Task description says "same as / follows pattern of <existing thing>" | Reduces time — replication, not design |
+| Task involves a new pattern with no precedent named in the breakdown | Increases time — design decisions, trial and error |
+| Number of files implied by scope (entity + repo + router + tests = ~4 files) | More files = more time |
+| Clear API contract already named (this or a sibling task) | Reduces time |
+| UI work with layout/styling decisions | Increases time |
+| Complex acceptance criteria (edge cases, error states) | Increases time |
+| Depends on multiple prior tasks (context-loading overhead) | Slight increase |
+| Boilerplate-heavy but straightforward (CRUD, config, wiring) | Low estimate — mechanical |
+
+**Calibration anchors:**
+
+- `00:15` — a single config change, adding an import, registering a route
+- `00:30` — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
+- `01:00` — a small feature with 2–3 files, clear pattern to follow, no design decisions
+- `02:00` — a feature with 4–6 files, some decisions, moderate acceptance criteria
+- `03:00`–`04:00` — complex feature, new patterns, multiple edge cases, or significant UI work
+
+Most well-scoped tasks land between `00:30` and `03:00`. If a task estimates above `04:00`, that is a strong signal it should be split.
