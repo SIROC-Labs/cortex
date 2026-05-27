@@ -11,7 +11,7 @@ The descriptive name is a short slug derived from what the breakdown covers:
 - `auth-redesign-2026-05-20.md`
 - `mobile-onboarding-2026-05-20.md`
 
-Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed. Persistence into Asana is achieved by `submit-breakdown`, which embeds every reference from this file directly into each Asana task description.
+Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; persistence into Asana is handled by `submit-breakdown`.
 
 ## Template
 
@@ -35,6 +35,7 @@ All source materials that inform this breakdown:
 
 **Delivers:** [One sentence — what product increment becomes usable after this milestone]
 **Source:** [Optional — existing Asana section URL, spec section, etc.]
+**References:** [Optional — URLs, file paths, or docs specific to this milestone that go beyond the file header References]
 
 [One paragraph: rationale for why these tasks are grouped together and why this milestone is ordered here in the roadmap]
 
