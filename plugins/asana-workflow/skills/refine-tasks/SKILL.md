@@ -87,21 +87,25 @@ For each Refinement task, run these steps:
 
 ### 3a. Challenge the spec and resolve ambiguities
 
-This is the **only phase where you interact with the user** during refinement. Use it. The implementation plan is only as good as the assumptions baked into it, and the user is the one who knows which assumptions are load-bearing.
+This is the only phase where you interact with the user during refinement. The user is in the conversation and available — when an assumption is load-bearing and the codebase can't resolve it, ask. When the path is genuinely clear from the codebase, sibling tasks, or the task description, don't manufacture questions just to ask.
 
-For each task, **proactively** probe across these categories. The breakdown task description and the codebase rarely cover all of them — most tasks have at least one unresolved question worth confirming.
+The framing is: *use the user when their input adds value*. Not every task has open questions; some tasks are mechanically clear from existing patterns. Trust your reading. But when you spot a real ambiguity, lean toward asking rather than guessing — a wrong assumption baked into the plan is worse than a small interruption.
+
+Scan these categories for genuine open questions on each task:
 
 1. **Scope edges** — cases the task description didn't mention: empty inputs, error inputs, partial data, very large inputs, concurrent access, idempotency.
-2. **Pattern selection** — when multiple existing patterns in the codebase could apply (e.g., two different form libraries, two different state-management approaches), which one does this task follow?
+2. **Pattern selection** — when multiple existing patterns in the codebase could apply (e.g., two form libraries, two state-management approaches), which one does this task follow?
 3. **UX / behavior** — for user-facing tasks: loading states, error states, empty states, success feedback, validation feedback, optimistic vs server-confirmed UI.
-4. **Naming and structure** — file/module names, type names, route paths that match codebase conventions but the breakdown didn't pin down.
+4. **Naming and structure** — file/module names, type names, route paths that aren't pinned down by an existing convention.
 5. **Migration / backwards compatibility** — when modifying existing code: keep old behavior, deprecate, hard-cut? Is there data to migrate?
-6. **Test scope** — what level of coverage is expected (unit, integration, e2e); which specific scenarios are non-negotiable.
-7. **Trade-offs** — explicit choice points the implementer would otherwise make alone (simplicity vs exhaustiveness, performance vs readability, MVP vs complete feature).
+6. **Test scope** — what coverage level is expected; which specific scenarios are non-negotiable.
+7. **Trade-offs** — explicit choice points the implementer would otherwise make alone (simplicity vs exhaustiveness, performance vs readability, MVP vs complete).
 
-**Batch every question for one task into a single prompt** to the user. Don't drip-feed.
+**Ask** when the codebase + task description + earlier tasks in the same milestone don't resolve a category, or when you'd otherwise make a load-bearing choice the user might want to own.
 
-**Default to asking at least one question per task.** If you are about to skip the prompt entirely, first state which of the 7 categories you verified against the codebase / spec and why no question is needed in each. If that statement feels uncomfortable to write, that's a signal there's a question worth asking after all.
+**Skip** when the answer is unambiguous from existing patterns, the task description, or prior milestone tasks. Some tasks are genuinely question-free — that's fine.
+
+**Batch every question for one task into a single prompt.** Don't drip-feed.
 
 Example batched prompt:
 
@@ -113,6 +117,8 @@ Example batched prompt:
 > 4. **Loading state:** Skeleton rows, or a spinner overlay?
 >
 > Answer 1–4, or "all default" to let me pick reasonable defaults from the codebase patterns.
+
+When you skip the prompt for a task, note it briefly in that task's progress line so the user can flag it if they think a question was warranted (e.g., `Refined "User entity": no open questions, plan attached`). The transparency lets the user trust the silence is deliberate, not a missed beat.
 
 ### 3b. Compose the implementation plan
 
