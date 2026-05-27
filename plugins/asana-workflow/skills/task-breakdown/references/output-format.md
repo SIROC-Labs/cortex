@@ -4,14 +4,14 @@ The breakdown file follows a consistent shape at every level — breakdown, mile
 
 ## File Location
 
-Save to: `docs/task-breakdowns/<descriptive-name>-<YYYY-MM-DD>.md`
+Save to: `docs/cortex/<descriptive-name>-<YYYY-MM-DD>.md`
 
 The descriptive name is a short slug derived from what the breakdown covers:
 - `management-features-2026-05-20.md`
 - `auth-redesign-2026-05-20.md`
 - `mobile-onboarding-2026-05-20.md`
 
-Create the `docs/task-breakdowns/` directory if it doesn't exist.
+Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed. Persistence into Asana is achieved by `submit-breakdown`, which embeds every reference from this file directly into each Asana task description.
 
 ## Template
 
@@ -41,12 +41,14 @@ All source materials that inform this breakdown:
 ### T1 — [Platform] — [Category] — [Task Name]
 **Purpose:** [One sentence — why this task exists and what it achieves]
 **Description:** [2-5 sentences — what needs to be built, key decisions, enough to remove ambiguity]
+**Estimate:** [hh:mm in quarter-hour precision — e.g. 00:15, 00:30, 01:00, 01:30, 02:45, 04:00]
 **Acceptance criteria:**
 - [Observable outcome 1]
 - [Observable outcome 2]
 - ...
 **Out of scope:** [Optional — only when there's real risk of scope creep or ambiguity]
 **Depends on:** [T-labels or "None"]
+**References:** [Optional — task-specific URLs, file paths, docs that go beyond what's in the milestone / file header References]
 **Source:** [Optional — Asana task URL, spec reference, or other originating document]
 
 ### T2 — [Platform] — [Category] — [Task Name]
@@ -112,6 +114,26 @@ Don't use this field to restate boundaries that are already clear from the task 
 List of T-labels that must be completed before this task can start, or "None."
 
 Dependencies are always between tasks, never between milestones. Cross-milestone dependencies are fine — T12 in M3 can depend on T5 in M2.
+
+### Estimate
+
+A rough estimate of how long an experienced senior software engineer would take to implement this task without AI assistance. Written from the breakdown's own scope/dependency/pattern cues — **no codebase reading at this stage**.
+
+**Format:** `hh:mm` with quarter-hour precision. Examples: `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`.
+
+This estimate is passed through verbatim by `submit-breakdown` to the Asana Estimate custom field (converted to decimal hours by the API layer). It is later **revised** by `refine-tasks` once the codebase is read. Don't try to be precise here — being honest about the rough phase is the point.
+
+See `references/decomposition-principles.md` → "Rough Estimation" for calibration anchors and weighting factors.
+
+### References (per task)
+
+Optional. Task-specific URLs, file paths, or documents that go beyond what's already listed in the file's top-level References section or the milestone's References. Examples:
+
+- A spec subsection that only this task implements
+- A Figma frame URL specific to this task's component
+- An external doc the implementer must read for this task only
+
+When `submit-breakdown` builds the Asana task description, it aggregates references from three levels: this task's References, the milestone's References, and the file header's References (deduplicated by URL/path). Repetition across tasks is acceptable — each task is meant to be a complete, self-contained refinement input.
 
 ### Acceptance Criteria
 
