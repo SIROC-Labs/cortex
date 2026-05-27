@@ -57,13 +57,13 @@ For each milestone, propose the tasks — their platform, ordering, and scoping.
 
 - **Milestone design** — each milestone delivers a usable increment, not a technical layer
 - **Task ordering** — foundational before dependent, read before write, backend before frontend, design before implementation
-- **Task scoping** — one platform per task, completable in a single session (0.5–4 hours)
+- **Task scoping** — one platform per task, completable in a single session (`00:30`–`04:00`)
 - **Dependencies** — explicit cross-references using T-labels, identify parallelizable work, flag blocking risks
 - **Cleanup tasks** — when and why to include a milestone cleanup/review task
 
 Explain the rationale for ordering and scoping decisions. These decisions embody the core value of the breakdown — the "why" matters as much as the "what."
 
-### Phase 3.5: Estimate and Validate
+### Phase 3.5: Validate and Estimate
 
 After tasks are decomposed and before the user reviews them, walk every task and run two checks:
 
