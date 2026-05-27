@@ -9,15 +9,15 @@ description: >
   the task from Refinement to Unassigned. Triggers: "refine these tasks",
   "/refine-tasks", "refine M1", "refine milestone X", or providing one or more
   Asana task URLs alongside a request to detail / spec / plan them. Do NOT
-  trigger to create new tasks (that's submit-breakdown) or to start
-  implementing a task (that's start-task).
+  trigger to create new Asana tasks, or to start implementing / executing
+  a task.
 ---
 
 # Refine Tasks
 
 Take a deterministic set of Asana tasks in **Refinement** product status and produce a codebase-informed implementation plan for each. The plan is attached to the task as `implementation-plan.md`, the estimate is revised based on real code analysis, and the task transitions to **Unassigned** so it is ready for staffing.
 
-This skill is the bridge between strategic decomposition (`task-breakdown` + `submit-breakdown`, which produce Refinement tasks) and execution (`start-task`, which consumes refined tasks).
+The skill operates on Asana tasks in **Refinement** status — typically produced upstream by a planning/upload workflow — and produces tasks in **Unassigned** status with a detailed implementation plan attached, ready for any downstream agent (or human) to execute.
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ If the user wants to re-refine a task, they must first change its status back to
    - **Status filter** — keep only tasks where Product Status is `Refinement`. For tasks in any other status, log:
      > Skipped "<title>" — status is `<status>`, not Refinement.
    - **Platform filter** — skip tasks where Platform is `Design`. Design work (Figma files, wireframes, design specs) is produced by humans, not Claude; flag each skipped Design task prominently so the user can route it through the design workflow:
-     > ⚠ Skipped "<title>" — Platform is Design. Design tasks aren't refined by Claude. `submit-breakdown` normally sends Design tasks straight to Unassigned; this one is in Refinement because someone moved it manually. Either revert it to Unassigned (`/asana-api` or the Asana UI) or change its Platform if that's wrong.
+     > ⚠ Skipped "<title>" — Platform is Design. Design tasks aren't refined by Claude. Design tasks should normally go straight to Unassigned (design work — Figma files, wireframes, design specs — is produced by humans); this one is in Refinement because it was moved there manually. Either revert it to Unassigned or change its Platform if that's wrong.
 3. Order the remaining tasks topologically by their Asana dependencies (so dependencies appear before dependents).
 4. Present the confirmation prompt above. On `n`, abort. On `Y`, proceed.
 
@@ -73,7 +73,7 @@ If the user wants to re-refine a task, they must first change its status back to
 
 ### 2b. Per-task context
 
-Read each task's full Asana description. It already contains Purpose, Description, Scope, Acceptance Criteria, Dependencies, and the aggregated References list — that's the contract `submit-breakdown` provides. No external file lookup is needed.
+Read each task's full Asana description. A properly-prepared task already contains Purpose, Description, Scope, Acceptance Criteria, Dependencies, and an aggregated References list — that's the input contract refine-tasks expects. No external file lookup is needed; if the description is missing any of these fields, surface that to the user and ask whether to proceed anyway or abort the task.
 
 ### 2c. Codebase
 
@@ -124,7 +124,7 @@ When you skip the prompt for a task, note it briefly in that task's progress lin
 
 Generate the `implementation-plan.md` content for this task. Use **`references/implementation-plan-template.md`** for the full structure, content rules, and self-review checklist.
 
-The plan is **code-free** by design — it provides enough context (file paths, models, signatures, exemplar patterns, decisions) for `start-task` → `feature-dev` to derive the actual implementation from the live codebase. `refine-tasks` removes ambiguity about *what* and *why*; the downstream session writes the code. High-level structure:
+The plan is **code-free** by design — it provides enough context (file paths, models, signatures, exemplar patterns, decisions) for the downstream agent implementing the task to derive the actual implementation from the live codebase. refine-tasks removes ambiguity about *what* and *why*; the downstream session writes the code. High-level structure:
 
 - **Header** — `# <Task title>`, Asana URL, milestone, verbatim Purpose. **Never use T-labels in the plan** — they are breakdown-internal identifiers.
 - **Resolved decisions** (optional) — choices recorded from the Phase 3a ambiguity batch
@@ -140,7 +140,17 @@ The plan is **code-free** by design — it provides enough context (file paths, 
 
 ### 3c. Revise the estimate
 
-Recompute the estimate based on the codebase-informed view (number of files, exemplar availability, design decisions, edge cases). Use the same `hh:mm` quarter-hour format and the calibration anchors in `references/decomposition-principles.md` → "Rough Estimation" (in the task-breakdown skill — the calibration is shared).
+Recompute the estimate based on the codebase-informed view (number of files, exemplar availability, design decisions, edge cases). Use `hh:mm` quarter-hour precision (`00:15`, `00:30`, `00:45`, `01:00`, …).
+
+**Calibration anchors:**
+
+- `00:15` — a single config change, adding an import, registering a route
+- `00:30` — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
+- `01:00` — a small feature with 2–3 files, clear pattern to follow, no design decisions
+- `02:00` — a feature with 4–6 files, some decisions, moderate acceptance criteria
+- `03:00`–`04:00` — complex feature, new patterns, multiple edge cases, or significant UI work
+
+Estimate honestly — neither inflate to be safe nor compress to look efficient. The refined estimate replaces the rough one set during the upstream decomposition.
 
 If the revised estimate differs from the rough estimate by more than 25%, display the delta in the progress report:
 
@@ -184,7 +194,7 @@ Refined 4 tasks:
   4. Employee create/edit form         02:45 → 03:00  Unassigned
 
 Project: https://app.asana.com/0/<project_gid>/
-Next step: run `/start-task <task-url>` on any of these.
+Next step: pick any task and begin implementation through your preferred workflow.
 ```
 
 If any tasks were skipped (wrong status, Design platform), list them at the end, grouped by reason. Example:
@@ -209,20 +219,19 @@ Skipped:
 
 ## What This Skill Does NOT Do
 
-- Does not create new Asana tasks (that's `submit-breakdown`)
+- Does not create new Asana tasks
 - Does not move tasks beyond Unassigned (Scheduled / Assigned / Ready are PM concerns)
-- Does not write code or scaffold projects (that's `start-task` and its routed sub-skills)
+- Does not write code or scaffold projects (the downstream implementing agent does that)
 - Does not generate plans for tasks in any status other than Refinement
-- Does not refine Design-platform tasks (Figma/wireframe/design-spec work is produced by humans; `submit-breakdown` already routes Design tasks straight to Unassigned)
+- Does not refine Design-platform tasks (Figma / wireframe / design-spec work is produced by humans)
 
 ## Reference Files
 
 - **`references/input-resolution.md`** — how to interpret each input shape into a deterministic GID list
 - **`references/implementation-plan-template.md`** — structure and content rules for the attached `implementation-plan.md`
 
-## Related Skills
+## Dependencies
 
-- `task-breakdown` — produces the breakdown with rough estimates and validation
-- `submit-breakdown` — uploads the breakdown to Asana with Product Status = Refinement
-- `start-task` — consumes refined tasks; downloads `implementation-plan.md` as part of its task-context bundle
-- `asana-api` — all Asana API operations route through this skill
+- `asana-api` — all Asana API operations route through this skill (resolve task set, fetch descriptions and custom fields, upload the implementation-plan.md attachment, update Estimate, move Product Status).
+
+This skill has no other skill dependencies. Upstream and downstream agents (whatever they may be) interact with refine-tasks only through Asana state: the input is Refinement-status tasks with a well-formed description; the output is Unassigned-status tasks with `implementation-plan.md` attached.

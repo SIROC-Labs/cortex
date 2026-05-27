@@ -1,8 +1,8 @@
 # Implementation Plan Template
 
-The attached `implementation-plan.md` is a standalone markdown document a separate Claude session (running `start-task` → `feature-dev` / `fix-bug` / `brainstorming`) reads to execute the task with minimal user interaction. It owns the **scope, context, and decisions** — files to touch, patterns to follow, models and function signatures, acceptance criteria, edge cases, how to verify.
+The attached `implementation-plan.md` is a standalone markdown document the downstream agent implementing the task (a separate Claude session, another tool, or a human) reads to execute the task with minimal user interaction. It owns the **scope, context, and decisions** — files to touch, patterns to follow, models and function signatures, acceptance criteria, edge cases, how to verify.
 
-The plan does **not** contain implementation code. The downstream session has full codebase access and a single-task focus; it is better positioned than `refine-tasks` to derive exact syntax, types, and naming from the live codebase at execution time. `refine-tasks` removes ambiguity about *what* and *why*; the downstream session writes the code.
+The plan does **not** contain implementation code. The downstream agent has full codebase access and a single-task focus; it is better positioned than refine-tasks to derive exact syntax, types, and naming from the live codebase at execution time. refine-tasks removes ambiguity about *what* and *why*; the downstream agent writes the code.
 
 The Asana task description still owns the high-level **what** and **why** (Purpose, Scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering — without prescribing the code itself.
 
@@ -18,7 +18,7 @@ Every plan starts with:
 - **Purpose:** <one sentence, verbatim from the Asana task description's Purpose>
 ```
 
-**Never use T-labels (`T1`, `T2`, …) in the plan.** T-labels exist only inside the task-breakdown markdown so the breakdown can express dependencies before Asana GIDs exist. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
+**Never use T-labels (`T1`, `T2`, …) in the plan.** T-labels are an internal identifier scheme from an upstream decomposition document — they have no meaning once tasks are in Asana. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
 
 ## Resolved Decisions (optional)
 

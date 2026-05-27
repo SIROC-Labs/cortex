@@ -11,7 +11,12 @@ https://app.asana.com/0/<project_gid>/<task_gid>
 https://app.asana.com/0/<project_gid>/<task_gid>/f
 ```
 
-Extract the task GID (the trailing numeric segment that corresponds to the task — see `start-task/references/asana-patterns.md` → URL Formats for parser patterns).
+Extract the task GID — the trailing numeric segment that corresponds to the task. Asana URLs come in several shapes; the parser should handle these forms (always extracting the segment that is the task GID, not the project / org / inbox):
+
+- `https://app.asana.com/0/<project_gid>/<task_gid>`
+- `https://app.asana.com/0/<project_gid>/<task_gid>/f`
+- `https://app.asana.com/1/<org_gid>/project/<project_gid>/task/<task_gid>`
+- `https://app.asana.com/1/<org_gid>/inbox/<inbox_gid>/item/<task_gid>/...`
 
 If multiple URLs are provided, resolve each independently. Order them by their dependencies once status filtering is done.
 
