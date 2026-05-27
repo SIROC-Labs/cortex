@@ -93,7 +93,9 @@ For each task, create it with:
   - Estimate — from the breakdown task entry's `Estimate:` field, converted from `hh:mm` to decimal hours (e.g., `01:30` → `1.5`)
   - Category — from the breakdown task entry
   - Priority — default `P3`
-  - **Product Status — `Refinement`** (using the enum option GID resolved in Phase 1a)
+  - **Product Status** — conditional on the task's Platform (using the enum option GIDs resolved in Phase 1a):
+    - If **Platform = `Design`** → set Product Status to **`Unassigned`**. Design tasks are not refinable by Claude (the work is producing Figma files, wireframes, design specs, etc. — outside this tooling's reach), so they bypass the Refinement stage and go straight to the staffing pool.
+    - For every other platform (Backend, Frontend, iOS, Android) → set Product Status to **`Refinement`** so `refine-tasks` can pick them up.
 
 Track every returned task GID in a T-label → GID map (e.g., `T1 → "1234567890"`).
 
@@ -115,11 +117,17 @@ For each task that has dependencies in the breakdown:
 - Sections should be ordered to match the milestone order in the breakdown.
 
 ### Progress reporting
-After creating each task, report briefly:
-> Created: "Task title" (M1) — [Platform] · Refinement · estimate hh:mm
+After creating each task, report briefly. Reflect the actual Product Status set (Design → Unassigned, everything else → Refinement):
 
-After all tasks and dependencies are set:
-> All N tasks created in Refinement status with dependencies wired. Run `/refine-tasks` against this project when you're ready to add implementation plans. [Project URL]
+> Created: "Task title" (M1) — Backend · Refinement · estimate hh:mm
+> Created: "Wireframe employee list" (M1) — Design · Unassigned · estimate hh:mm
+
+After all tasks and dependencies are set, summarize so the user knows which tasks need refinement next. Adapt the wording to the actual counts (omit the Design line when there are no Design tasks):
+
+> All N tasks created with dependencies wired.
+>   • M tasks at Refinement (run `/refine-tasks` against this project to add implementation plans)
+>   • K Design-platform tasks at Unassigned (Claude can't refine Design work — staff them through your normal design workflow)
+> [Project URL]
 
 ---
 

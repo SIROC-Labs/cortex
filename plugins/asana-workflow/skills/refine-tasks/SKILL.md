@@ -56,8 +56,11 @@ If the user wants to re-refine a task, they must first change its status back to
 ## Phase 1: Resolve and confirm task set
 
 1. Parse the user's input and resolve to a list of Asana task GIDs (see `references/input-resolution.md`).
-2. Fetch each task's Product Status custom field. Filter to `Refinement` only. For tasks in any other status, log:
-   > Skipped "<title>" — status is `<status>`, not Refinement.
+2. Fetch each task's Product Status **and Platform** custom fields. Apply two filters:
+   - **Status filter** — keep only tasks where Product Status is `Refinement`. For tasks in any other status, log:
+     > Skipped "<title>" — status is `<status>`, not Refinement.
+   - **Platform filter** — skip tasks where Platform is `Design`. Design work (Figma files, wireframes, design specs) is produced by humans, not Claude; flag each skipped Design task prominently so the user can route it through the design workflow:
+     > ⚠ Skipped "<title>" — Platform is Design. Design tasks aren't refined by Claude. `submit-breakdown` normally sends Design tasks straight to Unassigned; this one is in Refinement because someone moved it manually. Either revert it to Unassigned (`/asana-api` or the Asana UI) or change its Platform if that's wrong.
 3. Order the remaining tasks topologically by their Asana dependencies (so dependencies appear before dependents).
 4. Present the confirmation prompt above. On `n`, abort. On `Y`, proceed.
 
@@ -178,7 +181,13 @@ Project: https://app.asana.com/0/<project_gid>/
 Next step: run `/start-task <task-url>` on any of these.
 ```
 
-If any tasks were skipped due to wrong status, list them at the end.
+If any tasks were skipped (wrong status, Design platform), list them at the end, grouped by reason. Example:
+
+```
+Skipped:
+  ⚠ "Wireframe employee list" — Platform is Design (revert to Unassigned manually if it was moved by mistake)
+  - "Audit log refactor" — status is Scheduled, not Refinement
+```
 
 ---
 
@@ -198,6 +207,7 @@ If any tasks were skipped due to wrong status, list them at the end.
 - Does not move tasks beyond Unassigned (Scheduled / Assigned / Ready are PM concerns)
 - Does not write code or scaffold projects (that's `start-task` and its routed sub-skills)
 - Does not generate plans for tasks in any status other than Refinement
+- Does not refine Design-platform tasks (Figma/wireframe/design-spec work is produced by humans; `submit-breakdown` already routes Design tasks straight to Unassigned)
 
 ## Reference Files
 
