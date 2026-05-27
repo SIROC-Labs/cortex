@@ -24,6 +24,7 @@ tasks/
 
 # Skill eval workspaces (generated artifacts)
 plugins/**/*-workspace/
+plugins/**/evals/
 
 # Docs
 docs/

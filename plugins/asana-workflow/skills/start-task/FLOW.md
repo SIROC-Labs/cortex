@@ -175,7 +175,8 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  5 · Fetch Comments & Attachments          │
              │  filter stories → comments                 │
-             │  list attachments · note images/mockups    │
+             │  list attachments; download non-image      │
+             │  (e.g., implementation-plan.md)            │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼

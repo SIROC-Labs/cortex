@@ -30,6 +30,9 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
 | `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
+| `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
+| `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
+| `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |
 
 ## Installation
 
