@@ -82,15 +82,34 @@ Follow the References on each task to read specs, CLAUDE.md files, and source fi
 
 For each Refinement task, run these steps:
 
-### 3a. Resolve ambiguities
+### 3a. Challenge the spec and resolve ambiguities
 
-Identify genuine ambiguities — questions the codebase + spec + task description cannot answer. Batch all questions for the task into a single prompt to the user. Examples:
+This is the **only phase where you interact with the user** during refinement. Use it. The implementation plan is only as good as the assumptions baked into it, and the user is the one who knows which assumptions are load-bearing.
 
-- "The task description says 'employee form' — should password be required on edit, or only on create?"
-- "The breakdown mentions a 'confirmation dialog' — should that be a shared component or inline?"
-- "The API returns user IDs only. Should this task resolve user names, or display IDs?"
+For each task, **proactively** probe across these categories. The breakdown task description and the codebase rarely cover all of them — most tasks have at least one unresolved question worth confirming.
 
-The rule: only ask when the code, spec, and task description cannot resolve the question. Skip silently if none.
+1. **Scope edges** — cases the task description didn't mention: empty inputs, error inputs, partial data, very large inputs, concurrent access, idempotency.
+2. **Pattern selection** — when multiple existing patterns in the codebase could apply (e.g., two different form libraries, two different state-management approaches), which one does this task follow?
+3. **UX / behavior** — for user-facing tasks: loading states, error states, empty states, success feedback, validation feedback, optimistic vs server-confirmed UI.
+4. **Naming and structure** — file/module names, type names, route paths that match codebase conventions but the breakdown didn't pin down.
+5. **Migration / backwards compatibility** — when modifying existing code: keep old behavior, deprecate, hard-cut? Is there data to migrate?
+6. **Test scope** — what level of coverage is expected (unit, integration, e2e); which specific scenarios are non-negotiable.
+7. **Trade-offs** — explicit choice points the implementer would otherwise make alone (simplicity vs exhaustiveness, performance vs readability, MVP vs complete feature).
+
+**Batch every question for one task into a single prompt** to the user. Don't drip-feed.
+
+**Default to asking at least one question per task.** If you are about to skip the prompt entirely, first state which of the 7 categories you verified against the codebase / spec and why no question is needed in each. If that statement feels uncomfortable to write, that's a signal there's a question worth asking after all.
+
+Example batched prompt:
+
+> Before refining T3 (Employee list page), confirm:
+>
+> 1. **Scope edge:** Should the list paginate (and at what page size), or render all employees? The spec didn't say.
+> 2. **Pattern:** The codebase has `src/lib/data-table.tsx` (custom) and the `@radix/data-table` pattern in `src/lib/projects-table.tsx`. Use the custom one for consistency with Projects list?
+> 3. **Empty state:** Show a "No employees yet" placeholder, or hide the list entirely when empty?
+> 4. **Loading state:** Skeleton rows, or a spinner overlay?
+>
+> Answer 1–4, or "all default" to let me pick reasonable defaults from the codebase patterns.
 
 ### 3b. Compose the implementation plan
 

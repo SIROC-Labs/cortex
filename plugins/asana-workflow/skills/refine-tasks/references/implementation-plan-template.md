@@ -138,4 +138,11 @@ A flat list of every source consulted to write this plan: spec sections, exempla
 
 ## Length expectations
 
-A well-written plan is typically 80–200 lines of markdown. Plans much shorter usually mean the task is too small to be its own task (consider merging); plans much longer usually mean the task is too big (consider splitting and rerunning task-breakdown).
+Plan length follows from task complexity — there is no fixed cap. A plan as short as ~30 lines may be perfectly sufficient for a trivial task; a plan of several hundred lines can be appropriate when the task touches many files or has many edge cases.
+
+Two soft signals to watch:
+
+- **Very short plans (<30 lines)** sometimes mean the task is too small to be its own task — consider whether it should be merged with a sibling.
+- **Very long plans (>500 lines)** sometimes mean the task is too big — consider whether it should have been split during decomposition.
+
+Neither is a hard rule; let the task drive the length.

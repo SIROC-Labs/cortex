@@ -21,6 +21,7 @@ The goal: a faithful, low-friction upload so the breakdown is visible in Asana a
 ## Prerequisites
 
 - `asana-api` skill for all Asana API operations — route every call through it, no raw curl.
+- **Execute API calls directly via the `asana-api` skill — do not write helper scripts.** It is tempting to wrap the per-task creation loop in a Python or Node script that batches the calls. Don't. The agent has direct tool access to every Asana operation needed here (create task, set custom fields, set dependencies, create section, post comment, delete). Wrapping them in a script adds an opaque layer, hides individual call failures, makes progress harder to report, and produces an artifact (the script file) that has no reason to persist. Make the calls one by one as tool invocations; report progress per task.
 - A task breakdown file (output of `task-breakdown`) — markdown with milestones, tasks, dependencies, **and per-task `Estimate:` field**.
 - An Asana project URL — the target project where tasks will be created.
 - The target project's Product Status custom field must include a **Refinement** enum option. The skill verifies this before doing anything else and aborts with a clear message if it's missing.
