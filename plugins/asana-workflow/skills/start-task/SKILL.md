@@ -91,7 +91,9 @@ Fetch subtasks via the `asana-api` skill. Group by status (incomplete = remainin
 
 ### Step 5: Fetch Comments and Attachments
 
-Fetch task stories and filter for comments. List attachments by name, noting any images (mockups, screenshots). See **`references/asana-patterns.md`** for details.
+Fetch task stories and filter for comments. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents via the `asana-api` skill and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
+
+See **`references/asana-patterns.md`** for the download pattern.
 
 ### Step 6: Check for Existing Work
 
@@ -168,7 +170,7 @@ Post a start comment on the task with the branch name and draft PR URL. Deduplic
 
 ### Step 10: Route to the Right Workflow
 
-Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachments, branch name) and route based on **Category** custom field:
+Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, branch name) and route based on **Category** custom field:
 
 **If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `feature-dev`, `brainstorming`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 

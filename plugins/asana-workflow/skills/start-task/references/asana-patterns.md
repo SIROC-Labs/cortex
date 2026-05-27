@@ -43,7 +43,22 @@ Include subtasks in downstream context so feature-dev or debugging understands w
 
 Fetch task stories (comments) and filter for `type: "comment"` to get human-written context.
 
-If the task has attachments, list them by name. Note any images (mockups, screenshots) — these may need to be viewed.
+### Attachments
+
+List attachments by calling:
+
+```
+GET /tasks/<task-gid>/attachments?opt_fields=name,resource_subtype,download_url,parent.gid,host
+```
+
+Classify each attachment:
+
+- **Image** — mime type starts with `image/`, or filename extension is `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`. Note in the task summary so the user can open it in Asana if relevant; do not download.
+- **Non-image** — every other attachment (markdown, PDF, plain text, JSON, etc.). Download the file via `download_url`. Include the body in the task context bundle passed to the routed sub-skill in Step 10.
+
+This generic handling lets `start-task` consume any document that earlier-stage skills attach to a task (for example, `implementation-plan.md` from `refine-tasks`) without coupling to a specific filename.
+
+If a non-image attachment is unreasonably large (>200 KB), summarize first 200 KB and note that the body was truncated.
 
 ## Fetching the Current User
 
