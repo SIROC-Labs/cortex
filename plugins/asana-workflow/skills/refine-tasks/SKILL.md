@@ -39,10 +39,10 @@ Read **`references/input-resolution.md`** for the resolution rules and the exact
 Whatever the input, **confirm the resolved set with the user before proceeding**:
 
 > About to refine 4 tasks (in dependency order):
->   T1 — Employee entity + repository
->   T2 — Employee CRUD API endpoints
->   T3 — Employee list page
->   T4 — Employee create/edit form
+>   1. Employee entity + repository
+>   2. Employee CRUD API endpoints
+>   3. Employee list page
+>   4. Employee create/edit form
 > Proceed? [Y/n]
 
 ## Strict state filter
@@ -57,7 +57,7 @@ If the user wants to re-refine a task, they must first change its status back to
 
 1. Parse the user's input and resolve to a list of Asana task GIDs (see `references/input-resolution.md`).
 2. Fetch each task's Product Status custom field. Filter to `Refinement` only. For tasks in any other status, log:
-   > Skipped T<n> "<title>" — status is `<status>`, not Refinement.
+   > Skipped "<title>" — status is `<status>`, not Refinement.
 3. Order the remaining tasks topologically by their Asana dependencies (so dependencies appear before dependents).
 4. Present the confirmation prompt above. On `n`, abort. On `Y`, proceed.
 
@@ -102,7 +102,7 @@ For each task, **proactively** probe across these categories. The breakdown task
 
 Example batched prompt:
 
-> Before refining T3 (Employee list page), confirm:
+> Before refining "Employee list page", confirm:
 >
 > 1. **Scope edge:** Should the list paginate (and at what page size), or render all employees? The spec didn't say.
 > 2. **Pattern:** The codebase has `src/lib/data-table.tsx` (custom) and the `@radix/data-table` pattern in `src/lib/projects-table.tsx`. Use the custom one for consistency with Projects list?
@@ -117,7 +117,7 @@ Generate the `implementation-plan.md` content for this task. Use **`references/i
 
 The template is inspired by the `superpowers:writing-plans` skill — plans are checkbox-tracked, code-explicit, and TDD-first where the task has testable behavior. High-level structure:
 
-- **Header** — `# T<n> — <title>`, Asana URL, milestone, verbatim Purpose
+- **Header** — `# <Task title>`, Asana URL, milestone, verbatim Purpose. **Never use T-labels in the plan** — they are breakdown-internal identifiers.
 - **Files** — `Create` / `Modify` / `Reference` paths grouped by action; every path real
 - **Step-by-step plan** — `- [ ]` checkbox steps, 2–5 minutes each, with the actual code/commands to run and the expected outcome. For testable behavior, use TDD order (write failing test → verify fails → implement → verify passes → commit).
 - **Patterns to follow** — cross-cutting exemplars too broad to inline in a step
@@ -131,7 +131,7 @@ Recompute the estimate based on the codebase-informed view (number of files, exe
 
 If the revised estimate differs from the rough estimate by more than 25%, display the delta in the progress report:
 
-> Refined T3: estimate 02:15 (was 01:30, +50%), plan attached
+> Refined "Employee list page": estimate 02:15 (was 01:30, +50%), plan attached
 
 ### 3d. Upload as Asana attachment
 
@@ -155,7 +155,7 @@ Update the task's Product Status custom field from `Refinement` to `Unassigned` 
 
 Single-line report per task:
 
-> Refined T3: estimate 02:15 (was 01:30), plan attached
+> Refined "Employee list page": estimate 02:15 (was 01:30), plan attached
 
 ---
 
@@ -165,10 +165,10 @@ After processing all tasks, present a summary table and link to the project boar
 
 ```
 Refined 4 tasks:
-  T1  Employee entity + repository      01:30 → 01:45  Unassigned
-  T2  Employee CRUD API endpoints       02:00 → 02:30  Unassigned
-  T3  Employee list page                02:30 → 02:30  Unassigned
-  T4  Employee create/edit form         02:45 → 03:00  Unassigned
+  1. Employee entity + repository      01:30 → 01:45  Unassigned
+  2. Employee CRUD API endpoints       02:00 → 02:30  Unassigned
+  3. Employee list page                02:30 → 02:30  Unassigned
+  4. Employee create/edit form         02:45 → 03:00  Unassigned
 
 Project: https://app.asana.com/0/<project_gid>/
 Next step: run `/start-task <task-url>` on any of these.

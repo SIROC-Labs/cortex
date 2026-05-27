@@ -11,14 +11,16 @@ This template is heavily inspired by the `superpowers:writing-plans` skill. Plan
 Every plan starts with:
 
 ```markdown
-# T<n> — <Task title>
+# <Task title>
 
 > **For executors:** Steps use checkbox (`- [ ]`) syntax. Mark each as complete as you go. Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` if you want structured execution.
 
 - **Asana task:** <url>
-- **Milestone:** M<n> :: <name>
+- **Milestone:** <milestone name as it appears in Asana, e.g., "M1 :: Core Data Layer">
 - **Purpose:** <one sentence, verbatim from the Asana task description's Purpose>
 ```
+
+**Never use T-labels (`T1`, `T2`, …) in the plan.** T-labels exist only inside the task-breakdown markdown so the breakdown can express dependencies before Asana GIDs exist. Once tasks are in Asana, the canonical references are the task title and the Asana URL. If you find yourself reaching for `T<n>` to identify a sibling task, use its title or Asana URL instead.
 
 ## Files
 
@@ -224,6 +226,7 @@ Every source consulted to write this plan: spec sections, exemplar files, relate
   - `similar to Step N` (repeat the snippet — the executor may be reading out of order)
   - Steps that describe what to do without showing how when the step changes code
   - References to types/functions/methods not defined anywhere in the plan or pointed at via Reference files
+- **No T-labels.** `T1`, `T2`, … are breakdown-internal identifiers. They have no meaning once tasks are in Asana. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
 
 ## Self-Review
 

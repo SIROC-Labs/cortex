@@ -88,7 +88,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 <strong>Scope — Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
 <strong>Dependencies</strong>
-<ul><li><a href="https://app.asana.com/0/PROJ/T1-GID">Setup employee entity + repository</a></li><li><a href="https://app.asana.com/0/PROJ/T2-GID">Employee migration</a></li></ul>
+<ul><li><a href="https://app.asana.com/0/1199384720000001/1199384720000123">Setup employee entity + repository</a></li><li><a href="https://app.asana.com/0/1199384720000001/1199384720000124">Employee migration</a></li></ul>
 <strong>Acceptance criteria</strong>
 <ul><li>GET /employees returns all employees with name, role, department</li><li>POST /employees creates and returns entity with generated ID</li><li>GET /employees/{id} returns 404 with error message for nonexistent IDs</li><li>DELETE soft-deletes (sets is_active=false)</li></ul>
 <strong>References</strong>
@@ -103,6 +103,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 - **Aggregate references unconditionally.** Even if a milestone has only one task, embed the milestone's references in that task — every task must be self-contained when read in isolation.
 - **Preserve labels verbatim.** Reference labels come from the breakdown's References lines exactly. Do not normalize, rename, or "clean up" labels.
 - **Skip empty sections.** If the breakdown has no `Out of scope:` or no task-level `References:`, simply omit those bullets — do not render an empty section.
+- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are breakdown-internal identifiers — they only exist so the breakdown markdown can express dependencies before Asana GIDs exist. Resolve every T-label reference (Dependencies, prose mentions, examples) to the corresponding Asana task link + title. Never write the literal `T1`, `T2`, … into the Asana task description.
 
 ---
 

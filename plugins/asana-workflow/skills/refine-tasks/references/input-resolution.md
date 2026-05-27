@@ -49,7 +49,7 @@ This shape is for bulk refinement runs. If the resolved set is large (>10 tasks)
 User says something like:
 
 - "refine all backend Refinement tasks in M2"
-- "refine the Refinement tasks that depend on T1"
+- "refine the Refinement tasks that depend on the Employee entity task"
 - "<project-url> — refine only backend tasks"
 
 For these cases:
@@ -81,10 +81,10 @@ After resolution and ordering, always show the user the resolved set before proc
 
 ```
 About to refine 4 tasks (in dependency order):
-  T1 — Employee entity + repository
-  T2 — Employee CRUD API endpoints
-  T3 — Employee list page
-  T4 — Employee create/edit form
+  1. Employee entity + repository
+  2. Employee CRUD API endpoints
+  3. Employee list page
+  4. Employee create/edit form
 Proceed? [Y/n]
 ```
 

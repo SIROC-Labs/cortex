@@ -71,6 +71,7 @@ Key principles:
 - The description is a faithful render of the breakdown task entry — Purpose, Description, Scope, Dependencies, Acceptance Criteria, References.
 - References aggregate from three levels (task entry, milestone block, file header) and are deduplicated by URL/path.
 - No implementation-plan content. No file paths inferred. No analysis. If the breakdown didn't say it, the description doesn't say it.
+- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are internal to the breakdown markdown only — they exist solely so the breakdown can express dependencies before Asana GIDs exist. Once tasks are in Asana, the canonical reference is the Asana task link. Any `Depends on: T1, T2` in the breakdown must be resolved to Asana task links in the description; never write the literal `T1` / `T2` into Asana.
 - No questions asked of the user during this phase. Any ambiguity is `refine-tasks`' problem to resolve later.
 
 ---
@@ -115,7 +116,7 @@ For each task that has dependencies in the breakdown:
 
 ### Progress reporting
 After creating each task, report briefly:
-> Created: "Task title" (M1, T3) — [Platform] · Refinement · estimate hh:mm
+> Created: "Task title" (M1) — [Platform] · Refinement · estimate hh:mm
 
 After all tasks and dependencies are set:
 > All N tasks created in Refinement status with dependencies wired. Run `/refine-tasks` against this project when you're ready to add implementation plans. [Project URL]
