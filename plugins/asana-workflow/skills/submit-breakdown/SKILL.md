@@ -3,18 +3,18 @@ name: submit-breakdown
 description: >
   Pushes a task breakdown to Asana by faithfully replicating the breakdown
   markdown into Asana tasks. Use this skill whenever the user wants to submit,
-  push, publish, or create Asana tasks from a task breakdown file — "submit this
-  breakdown", "push these tasks to Asana", "create Asana tasks from the breakdown",
-  "submit breakdown to Asana", "publish this plan", or after completing a
-  task-breakdown and the user says "let's push it". Also triggers when the user
-  provides a breakdown file path and an Asana project URL together. Do NOT trigger
-  on requests to create a single Asana task (that's log-task) or to start working
-  on an existing task (that's start-task).
+  push, upload, publish, or create Asana tasks from a task-breakdown file —
+  "submit this breakdown", "upload this task-breakdown file", "push these tasks
+  to Asana", "create Asana tasks from the breakdown", "submit breakdown to
+  Asana", "publish this plan", or after completing a task-breakdown and the user
+  says "let's push it". Also triggers when the user provides a breakdown file
+  path and an Asana project URL together. Do NOT trigger on requests to create
+  a single Asana task, or to start working on an existing task.
 ---
 
 # Submit Breakdown
 
-Replicate a task breakdown (output of `task-breakdown`) into Asana as tasks in **Refinement** product status. The skill performs no codebase analysis, resolves no ambiguities, and writes no implementation plans — those are the job of `refine-tasks`, which runs later for a chosen batch of tasks.
+Replicate a task breakdown (output of `task-breakdown`) into Asana as tasks in **Refinement** product status. The skill performs no codebase analysis, resolves no ambiguities, and writes no implementation plans — those happen later during refinement, after the codebase has been read.
 
 The goal: a faithful, low-friction upload so the breakdown is visible in Asana and ready for refinement.
 
@@ -57,7 +57,7 @@ If either input is missing, ask for it before proceeding.
 
 5. **Fetch existing tasks per section** to understand current state — what's done, what exists, what the breakdown says to remove.
 
-This skill does **no codebase discovery**. The references embedded in each task description (aggregated by Phase 2) are what `refine-tasks` will use later.
+This skill does **no codebase discovery**. The references embedded in each task description (aggregated by Phase 2) are what the downstream refinement step will read later.
 
 ---
 
@@ -72,7 +72,7 @@ Key principles:
 - References aggregate from three levels (task entry, milestone block, file header) and are deduplicated by URL/path.
 - No implementation-plan content. No file paths inferred. No analysis. If the breakdown didn't say it, the description doesn't say it.
 - **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are internal to the breakdown markdown only — they exist solely so the breakdown can express dependencies before Asana GIDs exist. Once tasks are in Asana, the canonical reference is the Asana task link. Any `Depends on: T1, T2` in the breakdown must be resolved to Asana task links in the description; never write the literal `T1` / `T2` into Asana.
-- No questions asked of the user during this phase. Any ambiguity is `refine-tasks`' problem to resolve later.
+- No questions asked of the user during this phase. Any ambiguity is handled later, during the refinement step that reads the codebase.
 
 ---
 
@@ -95,7 +95,7 @@ For each task, create it with:
   - Priority — default `P3`
   - **Product Status** — conditional on the task's Platform (using the enum option GIDs resolved in Phase 1a):
     - If **Platform = `Design`** → set Product Status to **`Unassigned`**. Design tasks are not refinable by Claude (the work is producing Figma files, wireframes, design specs, etc. — outside this tooling's reach), so they bypass the Refinement stage and go straight to the staffing pool.
-    - For every other platform (Backend, Frontend, iOS, Android) → set Product Status to **`Refinement`** so `refine-tasks` can pick them up.
+    - For every other platform (Backend, Frontend, iOS, Android) → set Product Status to **`Refinement`** so the downstream refinement step can pick them up.
 
 Track every returned task GID in a T-label → GID map (e.g., `T1 → "1234567890"`).
 
@@ -125,7 +125,7 @@ After creating each task, report briefly. Reflect the actual Product Status set 
 After all tasks and dependencies are set, summarize so the user knows which tasks need refinement next. Adapt the wording to the actual counts (omit the Design line when there are no Design tasks):
 
 > All N tasks created with dependencies wired.
->   • M tasks at Refinement (run `/refine-tasks` against this project to add implementation plans)
+>   • M tasks at Refinement (next step: run the refinement workflow to add implementation plans before staffing)
 >   • K Design-platform tasks at Unassigned (Claude can't refine Design work — staff them through your normal design workflow)
 > [Project URL]
 
@@ -166,14 +166,14 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 ## User Interaction Model
 
 - **Do NOT present each task description for review.** The descriptions render mechanically from the breakdown; the user already approved the breakdown.
-- **Do NOT ask implementation-ambiguity questions.** Those go to `refine-tasks`.
+- **Do NOT ask implementation-ambiguity questions.** Those are resolved later during refinement.
 - **Ask confirmation** only for destructive actions — task deletions in Phase 4.
 - **If no questions, proceed silently.** Create the task and move on.
 - **Report progress** — brief status updates so the user knows things are moving.
 
-## Related Skills
+## Dependencies
 
-- `task-breakdown` — produces the input file for this skill, including rough estimates and per-task validation
-- `refine-tasks` — picks up where this skill leaves off; reads Refinement-status tasks, performs codebase analysis, attaches an implementation plan, revises the estimate, transitions to Unassigned
-- `start-task` — consumes refined tasks (downloads the attached implementation plan and includes it in the routed sub-skill's context)
-- `asana-api` — all Asana API operations route through this skill
+- `asana-api` — all Asana API operations route through this skill (fetch project / sections / custom fields, create tasks, set custom fields, wire dependencies, post comments, delete tasks).
+- `task-breakdown` — produces the input file this skill consumes. The two skills are intentionally paired: task-breakdown produces a markdown roadmap with rough estimates and validation; submit-breakdown faithfully replicates it into Asana.
+
+This skill has no other skill dependencies. Whatever happens to the Asana tasks after submission (refinement, staffing, implementation) is outside this skill's contract.

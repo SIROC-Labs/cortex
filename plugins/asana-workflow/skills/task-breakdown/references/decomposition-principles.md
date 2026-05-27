@@ -93,7 +93,7 @@ Discuss the tradeoffs with the user and let them choose. The right approach depe
 
 ## Rough Estimation
 
-After tasks are decomposed and before transitioning to submit, produce a rough estimate per task. This is the **honest first guess** — task-breakdown has not read the codebase, so it cannot know whether a task is mechanical replication or an entirely new pattern. The estimate's purpose is to give downstream tools (and the user) a sense of relative effort; `refine-tasks` revises it after codebase analysis.
+After tasks are decomposed and before transitioning to submit, produce a rough estimate per task. This is the **honest first guess** — task-breakdown has not read the codebase, so it cannot know whether a task is mechanical replication or an entirely new pattern. The estimate's purpose is to give downstream tools (and the user) a sense of relative effort; it is revised later during the refinement step that reads the codebase.
 
 **Format:** `hh:mm` with quarter-hour precision (e.g., `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`).
 

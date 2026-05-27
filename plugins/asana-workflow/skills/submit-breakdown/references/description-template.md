@@ -2,7 +2,7 @@
 
 Each Asana task description is a **thin, faithful render** of one task entry from the breakdown markdown file, with references aggregated from all three levels of the breakdown so the task is self-contained.
 
-The description does **not** contain an implementation plan. That is produced later by `refine-tasks` and attached as an `implementation-plan.md` file on the same Asana task.
+The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same Asana task.
 
 ## Description Structure
 
@@ -16,7 +16,7 @@ One sentence: why this task exists and what it unlocks. Pull verbatim from the b
 
 ### 2. Description
 
-The 2–5 sentence summary from the breakdown task entry's `Description:` field. State what needs to be built; do not list files or implementation steps — that is `refine-tasks`' job.
+The 2–5 sentence summary from the breakdown task entry's `Description:` field. State what needs to be built; do not list files or implementation steps — that is handled later during refinement, when the codebase is read.
 
 ### 3. Scope
 
@@ -99,7 +99,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 
 ## Content Rules
 
-- **Render, don't analyze.** This template renders the breakdown verbatim. Do not infer new content, add file paths the breakdown didn't mention, or speculate about implementation. That is `refine-tasks`' job.
+- **Render, don't analyze.** This template renders the breakdown verbatim. Do not infer new content, add file paths the breakdown didn't mention, or speculate about implementation. That is handled later during refinement, when the codebase is read.
 - **Aggregate references unconditionally.** Even if a milestone has only one task, embed the milestone's references in that task — every task must be self-contained when read in isolation.
 - **Preserve labels verbatim.** Reference labels come from the breakdown's References lines exactly. Do not normalize, rename, or "clean up" labels.
 - **Skip empty sections.** If the breakdown has no `Out of scope:` or no task-level `References:`, simply omit those bullets — do not render an empty section.

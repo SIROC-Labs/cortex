@@ -76,7 +76,7 @@ Surface any issues to the user and resolve them (split / merge / reword) before 
 
 **2. Rough estimate.** For each task, produce an `hh:mm` rough estimate using the calibration anchors and weighting factors in `references/decomposition-principles.md` → "Rough Estimation". This estimate is written into the task entry's `Estimate:` field in the output markdown.
 
-The estimates are rough by design. `refine-tasks` later revises them after reading the codebase. If a task crosses `04:00`, treat it as a size-check failure and split.
+The estimates are rough by design. They are revised later, during refinement, once the codebase has been read. If a task crosses `04:00`, treat it as a size-check failure and split.
 
 After validation and estimation, present the per-task list to the user as a compact table before moving on:
 
@@ -139,11 +139,11 @@ If the user declines, stop here. They can run `/submit-breakdown` later with the
 
 ## What This Skill Does NOT Do
 
-- Does not produce implementation plans or file-level specs (that's `refine-tasks`)
+- Does not produce implementation plans or file-level specs (those are produced later, during a separate refinement step that reads the codebase)
 - Does not create Asana tasks or interact with project management tools for writing
 - Does not write code or scaffold projects
 - Does not assign people, set priorities, or manage external IDs
-- Does not produce *refined* estimates — rough estimates only; `refine-tasks` revises after codebase analysis
+- Does not produce *refined* estimates — rough estimates only; refined estimates come later during the refinement step, after codebase analysis
 
 It **does** read from Asana (existing tasks, projects, milestones) during discovery to understand current state.
 
