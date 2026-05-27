@@ -113,9 +113,17 @@ Example batched prompt:
 
 ### 3b. Compose the implementation plan
 
-Generate the `implementation-plan.md` content for this task. Use **`references/implementation-plan-template.md`** for the full structure and content rules.
+Generate the `implementation-plan.md` content for this task. Use **`references/implementation-plan-template.md`** for the full structure, content rules, and self-review checklist.
 
-The plan covers (high level): Title, Source (Asana task URL), Purpose, Scope, Files to create/modify with real paths, Patterns to follow with real exemplar files, Step-by-step plan, Acceptance criteria mapping, Edge cases, References.
+The template is inspired by the `superpowers:writing-plans` skill — plans are checkbox-tracked, code-explicit, and TDD-first where the task has testable behavior. High-level structure:
+
+- **Header** — `# T<n> — <title>`, Asana URL, milestone, verbatim Purpose
+- **Files** — `Create` / `Modify` / `Reference` paths grouped by action; every path real
+- **Step-by-step plan** — `- [ ]` checkbox steps, 2–5 minutes each, with the actual code/commands to run and the expected outcome. For testable behavior, use TDD order (write failing test → verify fails → implement → verify passes → commit).
+- **Patterns to follow** — cross-cutting exemplars too broad to inline in a step
+- **Acceptance criteria mapping** — table tying each acceptance criterion to the step(s) that verify it
+- **Edge cases** — non-happy-path expectations
+- **References** — every source consulted
 
 ### 3c. Revise the estimate
 
