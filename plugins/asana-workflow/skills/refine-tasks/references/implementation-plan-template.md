@@ -52,7 +52,7 @@ Each step is one action — small enough to execute and verify before moving on 
 
 ### When the task has testable behavior — prefer TDD order
 
-```markdown
+````markdown
 - [ ] **Step 1: Write failing test for GET /employees**
 
   Create `tests/core/employees/test_employees_api.py`:
@@ -120,13 +120,13 @@ Each step is one action — small enough to execute and verify before moving on 
   ```
 
 (Repeat the test → implement → verify → commit cycle for each remaining acceptance criterion: POST, GET by ID, PUT, DELETE.)
-```
+````
 
 ### When the task isn't easily testable
 
 Config changes, scaffolding, refactors, frontend UI work where visual review is the spec — drop the test-first cadence but keep the bite-sized step-and-verify structure:
 
-```markdown
+````markdown
 - [ ] **Step 1: Add the feature flag to `.env.example`**
 
   Append:
@@ -148,7 +148,7 @@ Config changes, scaffolding, refactors, frontend UI work where visual review is 
   git add .env.example
   git commit -m "feat(config): add EMPLOYEES_ENABLED feature flag"
   ```
-```
+````
 
 ### Step quality
 
