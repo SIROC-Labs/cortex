@@ -86,7 +86,25 @@ Follow the References on each task to read specs, CLAUDE.md files, and source fi
 
 ## Phase 3: Per-task processing (in dependency order)
 
-For each Refinement task, run these steps:
+**Process one task at a time, fully, before moving to the next.** For each task in dependency order, run **all** of steps 3a → 3h end-to-end — ambiguity batch, plan composition, estimate revision, attachment upload, summary comment, Estimate update, status move, progress report — *and only then* start the next task.
+
+Do **NOT** batch by step. Specifically, do not:
+
+- Compose plans for all tasks first and then upload them all at the end.
+- Collect ambiguity questions for every task into one mega-prompt at the start.
+- Stage drafts in a temporary folder and submit them together.
+- Defer status moves to a final pass.
+
+Why serial-per-task matters:
+
+- The user sees real-time progress and can intervene mid-batch if something looks wrong, instead of waiting for a black-box "done" at the end.
+- A failure on task 5 leaves tasks 1–4 fully refined in Asana — not in a half-drafted local state.
+- Each ambiguity batch is scoped to one task; the user isn't context-switching across seven tasks in a single Q&A.
+- Re-runs are cheap and natural: re-running refine-tasks on the same input will skip already-Unassigned tasks and pick up wherever it stopped.
+
+The only steps that legitimately span the whole batch are **Phase 1** (resolve the task set) and **Phase 2** (Asana + codebase discovery shared across tasks). From Phase 3 onward, each task is a self-contained unit.
+
+For each Refinement task, in dependency order, run these steps:
 
 ### 3a. Challenge the spec and resolve ambiguities
 
