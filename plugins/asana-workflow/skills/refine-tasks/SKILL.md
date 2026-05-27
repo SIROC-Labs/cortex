@@ -115,14 +115,18 @@ Example batched prompt:
 
 Generate the `implementation-plan.md` content for this task. Use **`references/implementation-plan-template.md`** for the full structure, content rules, and self-review checklist.
 
-The template is inspired by the `superpowers:writing-plans` skill — plans are checkbox-tracked, code-explicit, and TDD-first where the task has testable behavior. High-level structure:
+The plan is **code-free** by design — it provides enough context (file paths, models, signatures, exemplar patterns, decisions) for `start-task` → `feature-dev` to derive the actual implementation from the live codebase. `refine-tasks` removes ambiguity about *what* and *why*; the downstream session writes the code. High-level structure:
 
 - **Header** — `# <Task title>`, Asana URL, milestone, verbatim Purpose. **Never use T-labels in the plan** — they are breakdown-internal identifiers.
+- **Resolved decisions** (optional) — choices recorded from the Phase 3a ambiguity batch
 - **Files** — `Create` / `Modify` / `Reference` paths grouped by action; every path real
-- **Step-by-step plan** — `- [ ]` checkbox steps, 2–5 minutes each, with the actual code/commands to run and the expected outcome. For testable behavior, use TDD order (write failing test → verify fails → implement → verify passes → commit).
+- **Models** (when the task introduces data structures) — name + fields + types + constraints, described in structured prose, **not** as class declarations
+- **Functions / Endpoints** (when the task introduces new public surfaces) — name + parameters + return shape + behavior, described not implemented
 - **Patterns to follow** — cross-cutting exemplars too broad to inline in a step
+- **Step-by-step plan** — numbered steps (optional `- [ ]` checkbox), one action each. For testable behavior, use TDD order (write failing test → verify fails → implement → verify passes → commit). State the *intent* of each step, the file it touches, and the pattern to follow — never the literal code.
 - **Acceptance criteria mapping** — table tying each acceptance criterion to the step(s) that verify it
 - **Edge cases** — non-happy-path expectations
+- **How to test** — concrete end-to-end verification commands (shell / curl / manual UI walkthrough) the executor runs at the end
 - **References** — every source consulted
 
 ### 3c. Revise the estimate

@@ -1,10 +1,10 @@
 # Implementation Plan Template
 
-The attached `implementation-plan.md` is a standalone markdown document a separate Claude session (running `start-task` → `feature-dev` / `fix-bug`) reads to execute the task with minimal user interaction. It owns the **how** — files, patterns, concrete steps, code snippets, commands, verifications.
+The attached `implementation-plan.md` is a standalone markdown document a separate Claude session (running `start-task` → `feature-dev` / `fix-bug` / `brainstorming`) reads to execute the task with minimal user interaction. It owns the **scope, context, and decisions** — files to touch, patterns to follow, models and function signatures, acceptance criteria, edge cases, how to verify.
 
-The Asana task description still owns the **what** and **why** — Purpose, Scope, Acceptance Criteria, References. The plan complements it; do not duplicate the description verbatim.
+The plan does **not** contain implementation code. The downstream session has full codebase access and a single-task focus; it is better positioned than `refine-tasks` to derive exact syntax, types, and naming from the live codebase at execution time. `refine-tasks` removes ambiguity about *what* and *why*; the downstream session writes the code.
 
-This template is heavily inspired by the `superpowers:writing-plans` skill. Plans are structured for **checkbox-tracked, code-explicit, TDD-where-applicable execution**.
+The Asana task description still owns the high-level **what** and **why** (Purpose, Scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering — without prescribing the code itself.
 
 ## Plan Header
 
@@ -13,200 +13,231 @@ Every plan starts with:
 ```markdown
 # <Task title>
 
-> **For executors:** Steps use checkbox (`- [ ]`) syntax. Mark each as complete as you go. Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` if you want structured execution.
-
 - **Asana task:** <url>
 - **Milestone:** <milestone name as it appears in Asana, e.g., "M1 :: Core Data Layer">
 - **Purpose:** <one sentence, verbatim from the Asana task description's Purpose>
 ```
 
-**Never use T-labels (`T1`, `T2`, …) in the plan.** T-labels exist only inside the task-breakdown markdown so the breakdown can express dependencies before Asana GIDs exist. Once tasks are in Asana, the canonical references are the task title and the Asana URL. If you find yourself reaching for `T<n>` to identify a sibling task, use its title or Asana URL instead.
+**Never use T-labels (`T1`, `T2`, …) in the plan.** T-labels exist only inside the task-breakdown markdown so the breakdown can express dependencies before Asana GIDs exist. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
+
+## Resolved Decisions (optional)
+
+When the Phase 3a ambiguity batch surfaced questions and the user answered them, record each as a one-line decision. Skip the section if no ambiguities were resolved.
+
+```markdown
+## Resolved decisions
+
+- **Pagination:** the list endpoint paginates with `?limit` / `?offset`, default `limit=50`, max `limit=200`. (User decision, refinement session 2026-05-27.)
+- **Empty state UX:** render a "No employees yet" placeholder; do not hide the list.
+- **Soft-delete visibility:** soft-deleted employees are excluded from list/get by default.
+```
 
 ## Files
 
-A focused list grouped by action. Every path must be real (or be a new file based on a clearly-named convention discovered during codebase exploration). If a path can't be confirmed, the refine-tasks Phase 2c codebase discovery wasn't deep enough — go back and finish it before finalizing the plan.
+A focused list grouped by action. Every path must be real (or a new file based on a clearly-named convention discovered during codebase exploration).
 
 ```markdown
 ## Files
 
 - **Create:**
-  - `src/core/employees/domain/model.py` — Employee entity + EmployeeCreate/EmployeeUpdate schemas
+  - `src/core/employees/domain/model.py` — Employee entity + Pydantic schemas
   - `src/core/employees/infrastructure/repository.py` — SQLAlchemy implementation
   - `src/api/routers/employees.py` — CRUD endpoints
   - `tests/core/employees/test_employees_api.py` — endpoint tests
 
 - **Modify:**
-  - `src/api/main.py` — register the employees router (1-line change)
+  - `src/api/main.py` — register the employees router
   - `src/core/database/models.py` — add Employee SQLAlchemy model
 
 - **Reference (read, don't modify):**
-  - `src/core/users/domain/model.py` — entity+schema pattern
-  - `src/core/users/infrastructure/repository.py` — SQLAlchemy repo pattern
-  - `src/api/routers/users.py` — CRUD router structure
-  - `tests/core/users/test_users_api.py` — test fixture conventions
+  - `src/core/users/` — analogous module; mirror its layout
+  - `src/api/routers/users.py` — CRUD router pattern
+  - `tests/core/users/test_users_api.py` — endpoint test pattern
 ```
 
-## Step-by-Step Plan
+## Models / Schemas
 
-Each step is one action — small enough to execute and verify before moving on (typically 2–5 minutes). Use `- [ ]` checkbox so an executor can track progress.
+For each new data structure the task introduces: name, fields with types and constraints, relationships. **Describe — don't write the class.** Omit the section if the task doesn't introduce new data structures.
 
-### When the task has testable behavior — prefer TDD order
+```markdown
+## Models
 
-````markdown
-- [ ] **Step 1: Write failing test for GET /employees**
+- **Employee** — domain entity for the `employees` table
+  - `id`: int, primary key, auto-generated
+  - `name`: str, required, max length 100
+  - `role`: str, required, max length 100
+  - `department`: str, required, max length 100
+  - `is_active`: bool, default `true` (soft-delete flag — DELETE sets to false rather than removing the row)
 
-  Create `tests/core/employees/test_employees_api.py`:
+- **EmployeeCreate** — POST request body
+  - All Employee fields except `id` and `is_active`
 
-  ```python
-  def test_get_employees_returns_list(client, sample_employees):
-      response = client.get("/employees")
-      assert response.status_code == 200
-      assert len(response.json()) == 3
-  ```
+- **EmployeeRead** — response shape for GET endpoints
+  - All Employee fields including `id`
+```
 
-- [ ] **Step 2: Run the test — verify it fails**
+## Functions and Endpoints
 
-  ```bash
-  pytest tests/core/employees/test_employees_api.py::test_get_employees_returns_list -v
-  ```
+For each new endpoint, public function, or method: name, parameters with types, return shape, behavior. **Describe behavior — don't write the body.** Omit the section if the task is e.g. config-only or refactoring without new public surfaces.
 
-  Expected: FAIL with route not found / 404.
+```markdown
+## Endpoints
 
-- [ ] **Step 3: Implement the Employee model**
+- `GET /employees` — `list_employees(limit, offset, repo) -> list[EmployeeRead]`
+  Returns active employees (`is_active=true`), ordered by `name` ascending. `limit` defaults to 50, max 200. `offset` defaults to 0.
 
-  Create `src/core/employees/domain/model.py`. Mirror the structure of `src/core/users/domain/model.py`:
+- `POST /employees` — `create_employee(payload: EmployeeCreate, repo) -> EmployeeRead`
+  Creates a new employee. Returns the created entity with generated `id`. 201 on success, 422 on validation error.
 
-  ```python
-  class Employee(Base):
-      __tablename__ = "employees"
-      id: Mapped[int] = mapped_column(primary_key=True)
-      name: Mapped[str]
-      role: Mapped[str]
-      department: Mapped[str]
-      is_active: Mapped[bool] = mapped_column(default=True)
-  ```
+- `GET /employees/{id}` — `get_employee(id: int, repo) -> EmployeeRead`
+  Returns the employee. 404 with `{"error": "not_found"}` if `id` doesn't exist or `is_active=false`.
 
-- [ ] **Step 4: Implement the router with the list endpoint**
+- `PUT /employees/{id}` — `update_employee(id, payload: EmployeeUpdate, repo) -> EmployeeRead`
+  Updates fields present in the payload. 404 if id unknown, 422 on validation error.
 
-  Create `src/api/routers/employees.py`. Follow `src/api/routers/users.py`. The list endpoint:
-
-  ```python
-  @router.get("/employees", response_model=list[EmployeeRead])
-  async def list_employees(repo: EmployeeRepo = Depends(get_employee_repo)):
-      return await repo.list()
-  ```
-
-- [ ] **Step 5: Register the router in `src/api/main.py`**
-
-  Add after the existing users-router include:
-
-  ```python
-  app.include_router(employees_router)
-  ```
-
-- [ ] **Step 6: Run the test — verify it passes**
-
-  ```bash
-  pytest tests/core/employees/test_employees_api.py::test_get_employees_returns_list -v
-  ```
-
-  Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-  ```bash
-  git add src/core/employees/ src/api/routers/employees.py src/api/main.py tests/core/employees/test_employees_api.py
-  git commit -m "feat(employees): list endpoint"
-  ```
-
-(Repeat the test → implement → verify → commit cycle for each remaining acceptance criterion: POST, GET by ID, PUT, DELETE.)
-````
-
-### When the task isn't easily testable
-
-Config changes, scaffolding, refactors, frontend UI work where visual review is the spec — drop the test-first cadence but keep the bite-sized step-and-verify structure:
-
-````markdown
-- [ ] **Step 1: Add the feature flag to `.env.example`**
-
-  Append:
-  ```
-  EMPLOYEES_ENABLED=true
-  ```
-
-- [ ] **Step 2: Verify the value is loaded at startup**
-
-  ```bash
-  pnpm dev
-  ```
-
-  Expected: dev console logs `EMPLOYEES_ENABLED=true`.
-
-- [ ] **Step 3: Commit**
-
-  ```bash
-  git add .env.example
-  git commit -m "feat(config): add EMPLOYEES_ENABLED feature flag"
-  ```
-````
-
-### Step quality
-
-- Every step that changes code shows the **actual code** to write or modify (signature + key body), not a description of what code should do.
-- Every step that runs a command shows the **exact command** and the **expected outcome** (pass/fail/output shape).
-- Every commit step shows the **exact git commands** including a conventional commit message.
-- A step that requires a design decision is a planning bug — that decision should have been resolved in `refine-tasks` Phase 3a (ambiguity batch) and embedded as a stated choice in this plan.
+- `DELETE /employees/{id}` — `delete_employee(id, repo) -> None`
+  Soft-delete: sets `is_active=false`. Returns 204. 404 if id unknown or already inactive.
+```
 
 ## Patterns to Follow
 
-Cross-cutting conventions the executor would otherwise re-discover. Use this when a pattern spans multiple steps and is too broad to inline into one step.
+Cross-cutting conventions the executor would otherwise re-discover. Real exemplar files only.
 
 ```markdown
 ## Patterns to follow
 
 - `src/core/users/domain/model.py` — entity + Pydantic schema split
 - `src/core/users/infrastructure/repository.py` — async SQLAlchemy session pattern
-- `src/api/routers/users.py` — CRUD router structure, dependency injection
+- `src/api/routers/users.py` — CRUD router structure, dependency injection, error shapes
 - `tests/core/users/test_users_api.py` — endpoint test fixtures and assertions
+```
+
+## Step-by-Step Plan
+
+Numbered, ordered steps. Each step is one action describable in a single sentence plus brief context (file, pattern, behavior reference). **No code** — the downstream session writes code by reading the patterns and applying the descriptions in this plan.
+
+Optional `- [ ]` checkbox prefix for execution-tracking tools.
+
+For tasks with testable behavior, **prefer TDD-style ordering:** write a failing test that asserts the acceptance criterion → verify it fails for the expected reason → implement → verify the test passes → commit. State the assertion *intent*, not the test code.
+
+```markdown
+## Steps
+
+- [ ] **Step 1: Write a failing test for `GET /employees`**
+  File: `tests/core/employees/test_employees_api.py`
+  Pattern: `tests/core/users/test_users_api.py`
+  Asserts: response is 200 and the body contains the seeded employees with `name`, `role`, `department`. Use the same fixture pattern as users tests.
+
+- [ ] **Step 2: Run the test — expect failure**
+  Expected: the route is not yet registered (404 or "no such route").
+
+- [ ] **Step 3: Implement the Employee SQLAlchemy model**
+  File: `src/core/employees/domain/model.py`
+  Pattern: `src/core/users/domain/model.py`
+  Defines: the `Employee` entity per the Models section.
+
+- [ ] **Step 4: Implement the repository**
+  File: `src/core/employees/infrastructure/repository.py`
+  Pattern: `src/core/users/infrastructure/repository.py`
+  Provides: `list(limit, offset)`, `get(id)`, `create(payload)`, `update(id, payload)`, `soft_delete(id)` on `EmployeeRepo`.
+
+- [ ] **Step 5: Implement the router with the list endpoint**
+  File: `src/api/routers/employees.py`
+  Pattern: `src/api/routers/users.py`
+  Provides: `GET /employees` per the Endpoints section.
+
+- [ ] **Step 6: Register the router**
+  File: `src/api/main.py`
+  Action: include the employees router alongside the existing users registration.
+
+- [ ] **Step 7: Run the test — expect pass**
+
+- [ ] **Step 8: Commit**
+  Conventional commit: `feat(employees): list endpoint`
+
+(Repeat the test → implement → verify → commit cycle for POST, GET by ID, PUT, DELETE.)
+```
+
+### When the task isn't easily testable
+
+Config changes, scaffolding, refactors, frontend UI work where visual review is the spec — drop the test-first cadence but keep the bite-sized step structure:
+
+```markdown
+## Steps
+
+- [ ] **Step 1: Add the feature flag to `.env.example`**
+  Add `EMPLOYEES_ENABLED=true` alongside the existing flags.
+
+- [ ] **Step 2: Verify the flag loads at startup**
+  Run the dev server; confirm the new env var is present in the dev console output.
+
+- [ ] **Step 3: Commit**
+  Conventional commit: `feat(config): add EMPLOYEES_ENABLED feature flag`
 ```
 
 ## Acceptance Criteria Mapping
 
-Map each acceptance criterion (verbatim from the Asana task description) to the step(s) that verify it. This grounds the plan in the task's success conditions and prevents "implementation done but criteria not checked."
+Map each acceptance criterion (verbatim from the Asana task description) to the step(s) that verify it.
 
 ```markdown
 ## Acceptance criteria mapping
 
 | Acceptance criterion | Verified by |
 |---|---|
-| GET /employees returns all employees with name, role, department | Step 6 (test passes) |
-| POST /employees creates and returns entity with generated ID | Step 10 (POST test passes) |
-| GET /employees/{id} returns 404 for nonexistent IDs | Step 14 (404 test passes) |
-| DELETE soft-deletes (sets is_active=false) | Step 18 (soft-delete test passes) |
+| GET /employees returns all employees with name, role, department | Step 7 (list test passes) |
+| POST /employees creates and returns entity with generated ID | Step 11 (create test passes) |
+| GET /employees/{id} returns 404 for nonexistent IDs | Step 15 (404 test passes) |
+| DELETE soft-deletes (sets is_active=false) | Step 19 (soft-delete test passes) |
 ```
 
 ## Edge Cases
 
-Non-happy-path scenarios with expected behavior. Distinct from acceptance criteria (the success path). The executor must handle these even if no dedicated test is required.
+Non-happy-path scenarios with expected behavior. The executor must handle these even if no dedicated test is required.
 
 ```markdown
 ## Edge cases
 
 - POST with missing required field — 422 with field-level error
-- PUT for nonexistent ID — 404 with error message
+- PUT for nonexistent ID — 404 with `{"error": "not_found"}`
 - DELETE on already-soft-deleted task — 404 (treat as if it doesn't exist)
 - Concurrent updates — last write wins; no optimistic locking required for this task
 ```
 
+## How to Test
+
+Concrete commands the executor (or a reviewer) can run end-to-end once the task is complete. Distinct from the per-step "run the test" entries — this is the final verification block that ties everything together.
+
+````markdown
+## How to test
+
+```bash
+# Run the module's test suite
+pytest tests/core/employees/ -v
+
+# Smoke-test the endpoints against a running dev server
+curl http://localhost:8000/employees
+curl -X POST http://localhost:8000/employees \
+  -H "content-type: application/json" \
+  -d '{"name":"Alice","role":"Engineer","department":"Backend"}'
+curl http://localhost:8000/employees/1
+curl -X DELETE http://localhost:8000/employees/1
+curl http://localhost:8000/employees/1   # expect 404 after delete
+```
+
+Expected: all happy-path calls return 2xx; the GET after DELETE returns 404 with the standard not-found body.
+````
+
+For frontend / UI tasks, replace curl with a step-through of the user flow (e.g., "navigate to /employees, click New, fill the form, click Save, confirm the new row appears in the list").
+
 ## References
 
-Every source consulted to write this plan: spec sections, exemplar files, related Asana tasks, external docs. Helps the executor verify the plan against current state and chase down anything the plan didn't pre-resolve.
+Every source consulted to write this plan.
 
 ```markdown
 ## References
 
 - Spec: `docs/spec.md` § Employees
-- Pattern: `src/core/users/domain/model.py`
+- Pattern: `src/core/users/`
 - Pattern: `src/api/routers/users.py`
 - Asana milestone: <url>
 ```
@@ -215,39 +246,40 @@ Every source consulted to write this plan: spec sections, exemplar files, relate
 
 ## Content Rules
 
-- **Show code where it removes ambiguity, reference files where it doesn't.** Step bodies should contain real snippets — function signatures, the actual key line(s) being added, exact text being modified. Full multi-hundred-line file bodies stay as references ("follow `src/core/users/domain/model.py`").
+- **Reference patterns, don't predict code.** Point to exemplar files. The downstream session has the codebase open at execution time and is better positioned than `refine-tasks` to derive exact syntax, types, and naming.
+- **Describe models and signatures in structured form, not as class/function declarations.** Field name + type + constraint is all that's needed; the syntax follows from the pattern.
 - **Be opinionated.** Where conventions exist, pick the one to follow. Don't offer alternatives.
-- **State technical facts, not predictions.** Only assert file paths and patterns that are real in the current codebase. The code snippets in your steps *are* predictions — they should be grounded in the patterns you reference, not invented from scratch.
-- **Resolve cross-task decisions once.** If a sibling task established a pattern (form components, error handling, confirmation dialog style), state it as the established choice rather than re-litigating in every plan.
-- **Don't duplicate the Asana description.** Purpose / Scope / Acceptance Criteria already live there. The plan's job is the implementation path — files, patterns, concrete code-bearing steps.
+- **State technical facts, not predictions.** Only assert file paths and patterns that are real in the current codebase. Describing what a new function/endpoint should do is fine; predicting its body is not.
+- **Resolve cross-task decisions once.** If a sibling task established a pattern, state it as the established choice rather than re-litigating in every plan.
+- **Don't duplicate the Asana description.** Purpose / Scope / Acceptance Criteria already live there. The plan's job is to deepen them with files, patterns, models, signatures, and step ordering.
+- **No T-labels.** `T1`, `T2`, … are breakdown-internal identifiers. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
 - **No placeholders.** These are plan failures:
   - `TBD`, `TODO`, `fill in details`, `implement later`
-  - `add appropriate error handling`, `handle edge cases`, `add validation` (without specifics)
-  - `similar to Step N` (repeat the snippet — the executor may be reading out of order)
-  - Steps that describe what to do without showing how when the step changes code
-  - References to types/functions/methods not defined anywhere in the plan or pointed at via Reference files
-- **No T-labels.** `T1`, `T2`, … are breakdown-internal identifiers. They have no meaning once tasks are in Asana. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
+  - `add appropriate error handling`, `handle edge cases`, `add validation` — without specifics
+  - `similar to Step N` — repeat the brief description, the executor may be reading out of order
+  - Steps that describe a code change without naming the file and a pattern to follow
+  - References to types/functions not defined in this plan's Models / Endpoints sections or pointed at via Reference files
+- **No code blocks in step bodies.** The only legitimate code in the plan is shell commands inside the "How to test" section. Models and signatures live as structured prose, not as `class Foo:` or `def foo():` declarations.
 
 ## Self-Review
 
-Before saving the plan as the Asana attachment, look at it with fresh eyes:
+Before saving the plan as the Asana attachment:
 
-1. **Acceptance coverage** — does every acceptance criterion map to at least one step in Acceptance Criteria Mapping?
-2. **Placeholder scan** — search for the forbidden patterns above. Fix any hits.
-3. **Path validity** — every Create / Modify / Reference path either exists or is a clearly-named new file matching a discovered pattern.
-4. **Identifier consistency** — same names used the same way throughout. `clearLayers()` in Step 3 and `clearFullLayers()` in Step 7 is a planning bug.
-5. **Step granularity** — every step doable in 2–5 minutes by a Claude session, and verifiable before moving to the next.
-6. **Code snippet plausibility** — the snippets actually fit the referenced patterns; you didn't invent a signature that contradicts the exemplar files.
+1. **Acceptance coverage** — every acceptance criterion maps to at least one step in Acceptance Criteria Mapping.
+2. **Placeholder scan** — none of the forbidden patterns above remain.
+3. **No code blocks outside "How to test"** — models are structured prose, endpoints are described behaviorally, steps describe actions not implementations.
+4. **Path validity** — every Create / Modify / Reference path either exists or is a clearly-named new file matching a discovered pattern.
+5. **Identifier consistency** — same model / field / function names used the same way throughout.
+6. **Step granularity** — each step is one action, executable and verifiable before moving to the next.
+7. **Decisions captured** — every choice made during the ambiguity batch landed somewhere in the plan (Resolved Decisions, or embedded in Models / Endpoints / Steps).
 
-Fix issues inline. No re-review loop — just fix and save.
+Fix issues inline.
 
 ---
 
 ## Length expectations
 
-Plan length follows from task complexity — there is no fixed cap. A plan as short as ~30 lines may be perfectly sufficient for a trivial task; a plan of several hundred lines can be appropriate when the task touches many files or has many edge cases.
-
-Two soft signals to watch:
+Plan length follows from task complexity — there is no fixed cap. A trivial task may need ~30 lines; a complex task with many endpoints, edge cases, and models can be several hundred. Two soft signals:
 
 - **Very short plans (<30 lines)** sometimes mean the task is too small to be its own task — consider whether it should be merged with a sibling.
 - **Very long plans (>500 lines)** sometimes mean the task is too big — consider whether it should have been split during decomposition.
