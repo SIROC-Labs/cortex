@@ -84,7 +84,7 @@ Implements the employee CRUD API so the frontend can list, create, and edit empl
 <strong>Description</strong>
 Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
 <strong>Scope — In scope</strong>
-<ul><li>GET/POST/PUT/DELETE under /employees</li><li>Soft-delete behavior</li><li>Standard 404 response shape</li></ul>
+<ul><li>GET/POST/PUT/DELETE endpoints under /employees</li><li>Soft-delete on DELETE</li><li>404 with error message for unknown IDs</li></ul>
 <strong>Scope — Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
 <strong>Dependencies</strong>
