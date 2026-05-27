@@ -17,7 +17,10 @@ description: >
 
 Take a deterministic set of Asana tasks in **Refinement** product status and produce a codebase-informed implementation plan for each. The plan is attached to the task as `implementation-plan.md`, the estimate is revised based on real code analysis, and the task transitions to **Unassigned** so it is ready for staffing.
 
-The skill operates on Asana tasks in **Refinement** status — typically produced upstream by a planning/upload workflow — and produces tasks in **Unassigned** status with a detailed implementation plan attached, ready for any downstream agent (or human) to execute.
+The skill operates on Asana tasks in **Refinement** status — typically produced upstream by a planning/upload workflow — and produces tasks in **Unassigned** status with two artifacts attached to the task:
+
+1. **`implementation-plan.md`** — a detailed code-free plan attached as a file, written for the downstream agent (or human) that will implement the task.
+2. **A "Refinement summary" Asana comment** — a short, human-readable digest of decisions made during refinement (resolved ambiguities, pattern choices, edge cases), written for followers watching the task in Asana. Carries no implementation-bearing content.
 
 ## Prerequisites
 
@@ -166,19 +169,62 @@ Upload the markdown content as an attachment on the task:
 
 **Replacement on re-run.** Before uploading, list the task's existing attachments. If an attachment named `implementation-plan.md` already exists, delete it first (DELETE `/attachments/<attachment_gid>`). Never accumulate duplicate plans.
 
-### 3e. Update the Estimate custom field
+### 3e. Post a refinement summary as a comment
+
+After the plan is attached, post an Asana comment on the same task with a **human-readable summary** of what refinement decided. This is the "at-a-glance" view for followers (PM, designer, anyone watching the task) — not the full implementation plan, which is the attachment.
+
+**Critical:** the comment is for human readers. It must carry **zero value for the agent that will later implement the task** — implementers read the task description and the attached `implementation-plan.md`; the comment is commentary, not directives.
+
+**Content guidelines:**
+
+- Lead with `📋 Refinement summary` so the comment is easy to spot in the activity feed.
+- 3–6 bullet points typically — fewer is fine, longer only when truly warranted.
+- Focus on what was **decided or discovered during refinement** that a casual reader wouldn't already know from the task description:
+  - Answers given by the user during the Phase 3a ambiguity batch (the decisions, distilled)
+  - Pattern choices when there were multiple candidates (e.g., "chose A over B for consistency with X")
+  - Notable trade-offs or considerations the team should be aware of
+  - Edge cases worth flagging to non-implementing readers
+  - Estimate revision when it materially changed (e.g., "doubled from 01:30 to 03:00 — the API contract turned out not to be reusable")
+- **Do NOT include:**
+  - The Purpose / Description / Scope / Acceptance Criteria — they live in the task description already
+  - File paths, function signatures, model field lists, step-by-step actions — they live in the attached plan
+  - Anything an implementer would need to do the work — that audience reads the attachment, not the comment
+- Keep bullets terse (under ~120 characters each); the comment should fit on a phone screen.
+
+**Posting:** `POST /tasks/<task_gid>/stories` with `data.text` (HTML formatting allowed — `<strong>`, `<ul><li>`) via the `asana-api` skill.
+
+**Example (substantive refinement):**
+
+> 📋 **Refinement summary**
+>
+> - Pagination: default `limit=50`, max `200` — was unspecified in the breakdown
+> - Pattern choice: custom `data-table.tsx` (matches the Projects list) rather than Radix
+> - Empty state: explicit "No employees yet" placeholder, not a hidden list
+> - Estimate revised: 01:30 → 02:15 (more files than the rough pass anticipated)
+>
+> Full plan: see the attached `implementation-plan.md`.
+
+**Example (mechanical refinement, nothing notable):**
+
+> 📋 **Refinement summary** — plan follows existing patterns directly, no notable trade-offs. Full plan in the attached `implementation-plan.md`.
+
+Always post a comment, even when minimal. The presence of the comment signals to followers that the task has been refined and is ready.
+
+**Re-runs:** post a fresh comment each time. Re-refinement is a deliberate manual action (user reverts Product Status to Refinement); the resulting timeline of summary comments is expected.
+
+### 3f. Update the Estimate custom field
 
 Set the Estimate custom field to the revised value (decimal hours).
 
-### 3f. Move Product Status
+### 3g. Move Product Status
 
 Update the task's Product Status custom field from `Refinement` to `Unassigned` using the enum option GIDs resolved in Phase 2a.
 
-### 3g. Progress report
+### 3h. Progress report
 
 Single-line report per task:
 
-> Refined "Employee list page": estimate 02:15 (was 01:30), plan attached
+> Refined "Employee list page": estimate 02:15 (was 01:30), plan attached, summary posted
 
 ---
 
@@ -232,6 +278,6 @@ Skipped:
 
 ## Dependencies
 
-- `asana-api` — all Asana API operations route through this skill (resolve task set, fetch descriptions and custom fields, upload the implementation-plan.md attachment, update Estimate, move Product Status).
+- `asana-api` — all Asana API operations route through this skill (resolve task set, fetch descriptions and custom fields, upload the implementation-plan.md attachment, post the Refinement summary comment, update Estimate, move Product Status).
 
 This skill has no other skill dependencies. Upstream and downstream agents (whatever they may be) interact with refine-tasks only through Asana state: the input is Refinement-status tasks with a well-formed description; the output is Unassigned-status tasks with `implementation-plan.md` attached.
