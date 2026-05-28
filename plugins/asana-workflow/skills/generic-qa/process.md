@@ -163,7 +163,7 @@ After posting the comment, upload all evidence files from the evidence directory
 
 Upload the assertion-point screenshot at minimum. If a recording exists, upload that too.
 
-Format all QA comments as structured HTML (Asana rich text). Post them via `asana-post-comment.sh <task-gid> --html-text "<body>...</body>"` — this is the only supported path for rich-text comments. The wrapper validates the body shape locally and refuses to POST if the rules are violated, so a broken comment cannot reach Asana. See `asana-api` → "Post Comment on Task" for full details.
+Author QA comments as structured HTML (Asana rich text — bold section titles, bulleted lists, inline `<code>` for identifiers). Post via the `asana-api` skill.
 
 ## Behavior Rules
 

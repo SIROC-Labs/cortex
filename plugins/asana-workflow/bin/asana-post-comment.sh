@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
 #
-# asana-post-comment.sh — post a comment (story) to an Asana task with the
-# correct body field, with hard-enforced field-shape rules
+# asana-post-comment.sh — post a comment (story) to an Asana task
 #
 # Usage:
-#   asana-post-comment.sh <task-gid> --text       "<plain text body>"
-#   asana-post-comment.sh <task-gid> --html-text  "<body>...rich body...</body>"
+#   asana-post-comment.sh <task-gid> "<body>"
 #
-# Exactly one of --text or --html-text must be provided. This is the single
-# supported path for posting Asana task comments from the asana-workflow
-# plugin — it exists because the raw POST /tasks/<gid>/stories endpoint has
-# two mutually-exclusive body fields whose shape rules the model has
-# repeatedly forgotten when constructing curl invocations directly. By
-# routing every comment through this wrapper, the broken-payload bug
-# becomes structurally impossible.
+# Pass the comment body as-authored. The script inspects the body and
+# routes it through the correct Asana API field automatically:
 #
-# Behavior:
-#   --text       Body must NOT contain HTML tags. Asana renders tags as
-#                literal characters in the `text` field. URLs in the body
-#                are auto-linked by Asana.
-#   --html-text  Body MUST be wrapped in <body>...</body>. Asana rejects
-#                rich-text bodies that aren't body-wrapped, and we reject
-#                them locally before issuing the POST. Supported tags
-#                inside <body> include: <strong>, <em>, <u>, <s>, <code>,
-#                <a href="...">, <ul><li>, <ol><li>, <br>, <h1>-<h2>.
+#   - Body contains HTML tags (<strong>, <em>, <ul>, <a>, etc.) → POSTed
+#     as `html_text`. If the body is not already wrapped in
+#     <body>...</body>, the script wraps it before sending.
+#   - Body contains no HTML tags → POSTed as `text` (plain text). URLs
+#     in the body are auto-linked by Asana.
+#
+# Callers do not need to choose a field. Authoring the content as plain
+# text or as HTML is sufficient — the script handles the rest.
+#
+# Supported tags inside <body> include: <strong>, <em>, <u>, <s>,
+# <code>, <a href="...">, <ul><li>, <ol><li>, <br>, <h1>–<h2>.
 #
 # Token resolution (in order):
 #   1. ASANA_TOKEN env var if set and non-empty
@@ -32,16 +27,12 @@
 #
 # Exit codes:
 #   0  comment posted successfully (story GID printed to stdout)
-#   1  invalid usage / missing token / network or Asana API failure
-#   2  --text body contains HTML tags (rejected before POST)
-#   3  --html-text body missing <body>...</body> wrapper (rejected before POST)
-#   4  both --text and --html-text supplied
-#   5  neither --text nor --html-text supplied
+#   1  invalid usage, missing token, or Asana API failure
 
 set -euo pipefail
 
 usage() {
-  sed -n '3,35p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -49,75 +40,36 @@ if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-task_gid=""
-mode=""
-body=""
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --text)
-      if [[ -n "$mode" ]]; then
-        echo "asana-post-comment: --text and --html-text are mutually exclusive" >&2
-        exit 4
-      fi
-      mode="text"
-      body="${2:-}"
-      shift 2
-      ;;
-    --html-text)
-      if [[ -n "$mode" ]]; then
-        echo "asana-post-comment: --text and --html-text are mutually exclusive" >&2
-        exit 4
-      fi
-      mode="html_text"
-      body="${2:-}"
-      shift 2
-      ;;
-    --*)
-      echo "asana-post-comment: unknown flag: $1" >&2
-      exit 1
-      ;;
-    *)
-      if [[ -z "$task_gid" ]]; then
-        task_gid="$1"
-        shift
-      else
-        echo "asana-post-comment: unexpected positional arg: $1" >&2
-        exit 1
-      fi
-      ;;
-  esac
-done
-
-if [[ -z "$task_gid" ]]; then
-  echo "asana-post-comment: missing <task-gid>" >&2
+if [[ $# -ne 2 ]]; then
+  echo "asana-post-comment: expected exactly 2 arguments (<task-gid> <body>), got $#" >&2
   usage >&2
   exit 1
 fi
+
+task_gid="$1"
+body="$2"
 
 if ! [[ "$task_gid" =~ ^[0-9]+$ ]]; then
   echo "asana-post-comment: task-gid must be numeric (got '$task_gid')" >&2
   exit 1
 fi
 
-if [[ -z "$mode" ]]; then
-  echo "asana-post-comment: must supply exactly one of --text or --html-text" >&2
-  exit 5
-fi
-
 if [[ -z "$body" ]]; then
-  echo "asana-post-comment: --$mode body is empty" >&2
+  echo "asana-post-comment: body is empty" >&2
   exit 1
 fi
 
-# Field-shape lint (deterministic; mirrors asana-lint-comment-payload.sh rules).
-# We re-validate here even though there is no other entry point, so the script
-# is self-contained and auditable.
-python3 - "$mode" "$body" <<'PY'
+# Detect field and normalise body via Python — same HTML-tag pattern used
+# previously, allow-list of known tag names so plain-text comparisons like
+# "x < 5 and y > 3" don't trip false positives. Python emits two lines:
+# the chosen field name, then the serialised JSON payload (single-line —
+# json.dumps escapes newlines in the body).
+detection="$(python3 - "$body" <<'PY'
+import json
 import re
 import sys
 
-mode, body = sys.argv[1], sys.argv[2]
+body = sys.argv[1]
 
 HTML_TAG_PATTERN = re.compile(
     r"<\s*/?\s*("
@@ -127,23 +79,20 @@ HTML_TAG_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-if mode == "text":
-    if HTML_TAG_PATTERN.search(body):
-        print(
-            "asana-post-comment: --text body contains HTML tags. "
-            "Use --html-text with a <body>...</body> wrapper for rich text.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-elif mode == "html_text":
+if HTML_TAG_PATTERN.search(body):
     stripped = body.strip()
     if not (stripped.startswith("<body>") and stripped.endswith("</body>")):
-        print(
-            "asana-post-comment: --html-text body must be wrapped in <body>...</body>",
-            file=sys.stderr,
-        )
-        sys.exit(3)
+        body = f"<body>{body}</body>"
+    print("html_text")
+    print(json.dumps({"data": {"html_text": body}}))
+else:
+    print("text")
+    print(json.dumps({"data": {"text": body}}))
 PY
+)"
+
+mode="$(printf '%s' "$detection" | sed -n '1p')"
+payload="$(printf '%s' "$detection" | sed -n '2p')"
 
 # Token resolution
 token="${ASANA_TOKEN:-${ASANA_PERSONAL_ACCESS_TOKEN:-}}"
@@ -152,12 +101,6 @@ if [[ -z "$token" ]]; then
   echo "Get a personal access token at https://app.asana.com/0/my-apps and export it in ~/.zshrc." >&2
   exit 1
 fi
-
-payload="$(python3 -c '
-import json, sys
-mode, body = sys.argv[1], sys.argv[2]
-print(json.dumps({"data": {mode: body}}))
-' "$mode" "$body")"
 
 response="$(curl -sS -w '\n__HTTP_STATUS__:%{http_code}' \
   -X POST \
@@ -177,7 +120,7 @@ try:
 except Exception as e:
     print(f"<could-not-parse-gid: {e}>", file=sys.stderr)
 ')"
-  echo "Posted comment $story_gid on task $task_gid (mode=$mode)"
+  echo "Posted comment $story_gid on task $task_gid (field=$mode)"
   exit 0
 else
   echo "asana-post-comment: HTTP $status from Asana" >&2

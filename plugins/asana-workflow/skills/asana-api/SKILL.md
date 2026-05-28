@@ -143,45 +143,9 @@ For enum fields, the value is the enum option GID.
 
 ### Post Comment on Task
 
-**Always use the bundled `asana-post-comment.sh` wrapper. Do not POST `/tasks/<gid>/stories` directly with curl.**
+Use `asana-post-comment.sh <task-gid> "<body>"`. The script inspects the body, routes it through the correct Asana API field (`text` or `html_text`), and validates the payload locally before posting. Author the body as plain text or as HTML — no field selection or wrapping is needed at the call site.
 
-The wrapper exists because Asana's stories endpoint has two mutually-exclusive body fields (`text` and `html_text`) whose shape rules are easy to get wrong — past sessions have repeatedly posted HTML into `text` (which renders as literal angle brackets in the UI) or sent `html_text` without the required `<body>` wrapper (which Asana rejects). The wrapper validates the body shape against the field locally and only POSTs if the payload is well-formed. Routing every comment through it makes the broken-payload bug structurally impossible.
-
-The wrapper lives in the plugin's `bin/` directory, which Claude Code adds to `PATH` automatically — call it by bare command name, no path prefix needed.
-
-**Plain text comment:**
-
-```bash
-asana-post-comment.sh <task-gid> --text "🏁 Starting work — branch: MT251-47/foo
-Draft PR: https://github.com/owner/repo/pull/N"
-```
-
-URLs are auto-linked by Asana. Use `--text` whenever the comment has no formatting beyond line breaks and links — for example the 🏁 start comment and the 🤖 Done ship summary.
-
-**Rich-text comment:**
-
-```bash
-asana-post-comment.sh <task-gid> --html-text "<body><strong>✅ QA Verification — Feature Complete</strong><br><br><strong>What was verified</strong><ul><li>Item one</li><li>Item two</li></ul></body>"
-```
-
-Use `--html-text` whenever the comment needs bold, italics, lists, code spans, or links rendered as anchor text. The body must be wrapped in `<body>...</body>` (the wrapper enforces this; Asana rejects unwrapped rich text). Supported tags inside: `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<a href="...">`, `<ul><li>`, `<ol><li>`, `<br>`, `<h1>`–`<h2>`.
-
-When constructing the body, escape any user-supplied content that may contain `<`, `>`, or `&` (e.g., code samples) so it does not break the markup.
-
-**Exit codes:**
-
-| Exit | Meaning |
-|---|---|
-| `0` | Comment posted; story GID printed to stdout |
-| `1` | Invalid usage, missing token, or Asana API failure |
-| `2` | `--text` body contained HTML tags — switch to `--html-text` |
-| `3` | `--html-text` body missing `<body>...</body>` wrapper |
-| `4` | Both `--text` and `--html-text` supplied (mutually exclusive) |
-| `5` | Neither `--text` nor `--html-text` supplied |
-
-A non-zero exit means the comment was **not** posted. Fix the body shape and retry — do not fall back to raw curl. If the wrapper's checks are wrong for a legitimate case, fix the wrapper, not the calling code.
-
-The wrapper uses the same token resolution as the rest of this skill (`$ASANA_TOKEN` if set, otherwise `$ASANA_PERSONAL_ACCESS_TOKEN`).
+Run `asana-post-comment.sh --help` for the full behaviour spec.
 
 ### Fetch Subtasks
 

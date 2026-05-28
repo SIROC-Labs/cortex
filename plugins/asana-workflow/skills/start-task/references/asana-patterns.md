@@ -104,7 +104,7 @@ Post a comment on the task (only if one with the flag emoji doesn't already exis
 
 Include the draft PR URL so teammates can find the GitHub PR from Asana immediately. The counterpart is 🚀 posted by `ship-it` when the work ships.
 
-**Posting:** use `asana-post-comment.sh <task-gid> --text "..."` (the wrapper bundled with `asana-api`). Plain text — no HTML tags. Asana auto-links the PR URL.
+**Posting:** post via the `asana-api` skill. Plain text — Asana auto-links the PR URL.
 
 ## Posting a Blocking Question (Pause)
 
@@ -114,7 +114,7 @@ Format the comment to @mention the person who should answer:
 
 > @Maria — Need clarification: should the CSV export include filtered-out rows as a separate sheet, or exclude them entirely? This blocks the export logic implementation.
 
-**Posting:** once approved, send via `asana-post-comment.sh <task-gid> --text "..."` — plain text only.
+**Posting:** once approved, post via the `asana-api` skill. Plain text.
 
 ## Checking for Answers on Resume
 
@@ -132,7 +132,7 @@ When resuming work on a previously blocked task, post a brief comment for team v
 
 > Resuming work on branch `<task-id>/<slug>`
 
-**Posting:** `asana-post-comment.sh <task-gid> --text "..."` — plain text.
+**Posting:** post via the `asana-api` skill. Plain text.
 
 ## All Asana API Calls
 
