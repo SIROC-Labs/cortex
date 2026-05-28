@@ -143,7 +143,22 @@ For enum fields, the value is the enum option GID.
 
 ### Post Comment on Task
 
-Use `asana-post-comment.sh <task-gid> "<body>"`. The script inspects the body, routes it through the correct Asana API field (`text` or `html_text`), and validates the payload locally before posting. Author the body as plain text or as HTML — no field selection or wrapping is needed at the call site.
+Use `asana-post-comment.sh <task-gid> "<body>"`. The script inspects the body, routes it through the correct Asana API field (`text` or `html_text`), and validates the payload locally before posting. Author the body as plain text or as Asana HTML — no field selection or wrapping is needed at the call site.
+
+**Markdown is not supported by Asana.** If the source content is in Markdown (e.g., the user pasted Markdown, or another skill produced a Markdown-formatted summary), convert it to Asana HTML before invoking the script. Sending raw Markdown produces literal asterisks, backticks, and bracket characters in the rendered comment. Common conversions:
+
+| Markdown | Asana HTML |
+|---|---|
+| `**bold**` | `<strong>bold</strong>` |
+| `*italic*` or `_italic_` | `<em>italic</em>` |
+| `` `code` `` | `<code>code</code>` |
+| `[text](url)` | `<a href="url">text</a>` |
+| `- item` / `* item` (bullet list) | `<ul><li>item</li></ul>` |
+| `1. item` (numbered list) | `<ol><li>item</li></ol>` |
+| ` ```code block``` ` | `<pre><code>code block</code></pre>` |
+| `# Heading` | `<h1>Heading</h1>` (or `<strong>Heading</strong>` for lighter weight) |
+
+For mixed-format input (e.g., a Markdown bullet list embedded in plain prose), convert the entire body to HTML — once any HTML tag is present, the body must be coherent HTML throughout.
 
 **Invocation:** invoke by bare command name only. The script is shipped in this plugin's `bin/` directory, which Claude Code automatically prepends to `PATH`. Do **not** construct a path from the skill's base directory or from anywhere else — the script is not co-located with `SKILL.md`.
 
