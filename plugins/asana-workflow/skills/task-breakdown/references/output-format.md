@@ -31,6 +31,15 @@ All source materials that inform this breakdown:
 - **Asana:** [URL if applicable]
 - **Other:** [Any other input URLs, documents, or files provided or discovered]
 
+**Only list non-obvious references.** A reference belongs here only when the downstream agent could not reasonably find the material on its own. Skip everything else — it is pure context noise at refinement time. In particular, **never reference**:
+
+- **Other task-breakdown files** (here or in milestone- / task-level References). Meta-documents that bundle every milestone — pointing to one forces refinement to read an entire unrelated breakdown.
+- **CLAUDE.md files at any level** — root `CLAUDE.md`, `backend/CLAUDE.md`, `frontend/CLAUDE.md`, etc. Claude auto-loads these from the working directory; listing them as references adds zero information.
+- **The target Asana project URL itself** — every task already lives in that project; pointing back to it is tautological. (Other Asana tasks providing context for *separate* related work are fine.)
+- **Anything else trivially auto-discoverable** — repo URL, worktree root, generic onboarding pages a fresh session would see. If the agent would find it without being told, leave it out.
+
+Keep references that are genuinely load-bearing: spec documents, Figma frames, external library/API docs, specific Asana tasks giving context not derivable from the project, RFCs, design-system pages, etc. The bar is *"would a reader without this link be missing something they can't otherwise find?"* — if not, drop it. If a prior breakdown informed this one, link to the underlying source materials it referenced (spec, Figma, external docs), never to the breakdown itself.
+
 ## M1 :: [Milestone Name]
 
 **Delivers:** [One sentence — what product increment becomes usable after this milestone]
