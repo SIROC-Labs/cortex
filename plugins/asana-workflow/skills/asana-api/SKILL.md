@@ -143,12 +143,28 @@ For enum fields, the value is the enum option GID.
 
 ### Post Comment on Task
 
-```bash
-curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"data":{"text":"<comment text>"}}' \
-  "https://app.asana.com/api/1.0/tasks/<task-gid>/stories"
-```
+Use `asana-post-comment.py <task-gid> "<body>"`. The script inspects the body, routes it through the correct Asana API field (`text` or `html_text`), and validates the payload locally before posting. Author the body as plain text or as Asana HTML — no field selection or wrapping is needed at the call site.
+
+**Markdown is not supported by Asana.** If the source content is in Markdown (e.g., the user pasted Markdown, or another skill produced a Markdown-formatted summary), convert it to Asana HTML before invoking the script. Sending raw Markdown produces literal asterisks, backticks, and bracket characters in the rendered comment. Common conversions:
+
+| Markdown | Asana HTML |
+|---|---|
+| `**bold**` | `<strong>bold</strong>` |
+| `*italic*` or `_italic_` | `<em>italic</em>` |
+| `` `code` `` | `<code>code</code>` |
+| `[text](url)` | `<a href="url">text</a>` |
+| `- item` / `* item` (bullet list) | `<ul><li>item</li></ul>` |
+| `1. item` (numbered list) | `<ol><li>item</li></ol>` |
+| ` ```code block``` ` | `<pre><code>code block</code></pre>` |
+| `# Heading` | `<h1>Heading</h1>` (or `<strong>Heading</strong>` for lighter weight) |
+
+For mixed-format input (e.g., a Markdown bullet list embedded in plain prose), convert the entire body to HTML — once any HTML tag is present, the body must be coherent HTML throughout.
+
+**Line breaks in rich text use literal `\n`, not `<br>`.** Asana does not support `<br>` — if the rich-text body contains `<br>`, Asana silently rejects it and stores the body as plain text, which then renders with visible HTML tags in the UI. The script defensively auto-replaces `<br>` (and `<br/>`, `<br />`) with `\n` before posting, so accidentally including a `<br>` won't break the comment — but authoring the body with `\n` directly is cleaner.
+
+**Invocation:** invoke by bare command name only — `asana-post-comment.py`, not `python3 asana-post-comment.py` and not a constructed path. The script is shipped in this plugin's `bin/` directory, which Claude Code automatically prepends to `PATH`; it has a `#!/usr/bin/env python3` shebang and is marked executable, so the bare-name invocation runs it directly. Do **not** construct a path from the skill's base directory or from anywhere else — the script is not co-located with `SKILL.md`.
+
+Run `asana-post-comment.py --help` for the full behaviour spec.
 
 ### Fetch Subtasks
 

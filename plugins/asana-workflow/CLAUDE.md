@@ -7,6 +7,7 @@ asana-workflow/
 ├── CLAUDE.md              ← you are here
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version, skills array)
+├── bin/                   ← executables exposed on PATH (Claude Code auto-prepends <plugin>/bin/). Name files `asana-<verb>.<ext>` where `<ext>` is `sh` or `py` (use whichever fits the script — Python wins once any non-trivial parsing, JSON, or HTTP is involved); invoke by bare command name from skills.
 ├── references/            ← plugin-wide shared references (board-resolution, qa-routing)
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)

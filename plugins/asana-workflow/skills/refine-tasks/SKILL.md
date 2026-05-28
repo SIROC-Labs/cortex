@@ -209,22 +209,21 @@ After the plan is attached, post an Asana comment on the same task with a **huma
   - Anything an implementer would need to do the work — that audience reads the attachment, not the comment
 - Keep bullets terse (under ~120 characters each); the comment should fit on a phone screen.
 
-**Posting:** `POST /tasks/<task_gid>/stories` with `data.text` (HTML formatting allowed — `<strong>`, `<ul><li>`) via the `asana-api` skill.
+**Posting:** post the comment via the `asana-api` skill.
+
+Both examples below are written in Asana rich text (HTML).
 
 **Example (substantive refinement):**
 
-> 📋 **Refinement summary**
->
-> - Pagination: default `limit=50`, max `200` — was unspecified in the breakdown
-> - Pattern choice: custom `data-table.tsx` (matches the Projects list) rather than Radix
-> - Empty state: explicit "No employees yet" placeholder, not a hidden list
-> - Estimate revised: 01:30 → 02:15 (more files than the rough pass anticipated)
->
-> Full plan: see the attached `implementation-plan.md`.
+```html
+<body><strong>📋 Refinement summary</strong><ul><li>Pagination: default <code>limit=50</code>, max <code>200</code> — was unspecified in the breakdown</li><li>Pattern choice: custom <code>data-table.tsx</code> (matches the Projects list) rather than Radix</li><li>Empty state: explicit "No employees yet" placeholder, not a hidden list</li><li>Estimate revised: 01:30 → 02:15 (more files than the rough pass anticipated)</li></ul>Full plan: see the attached <em>implementation-plan.md</em>.</body>
+```
 
 **Example (mechanical refinement, nothing notable):**
 
-> 📋 **Refinement summary** — plan follows existing patterns directly, no notable trade-offs. Full plan in the attached `implementation-plan.md`.
+```html
+<body><strong>📋 Refinement summary</strong> — plan follows existing patterns directly, no notable trade-offs. Full plan in the attached <em>implementation-plan.md</em>.</body>
+```
 
 Always post a comment, even when minimal. The presence of the comment signals to followers that the task has been refined and is ready.
 

@@ -105,6 +105,8 @@ Handle via the `asana-api` skill. All Asana operations use the task GID from con
 
    The stats line is mandatory. The `🤖 Done` footer is mandatory — it signals AI-assisted work is complete and ready for review.
 
+   **Posting:** post via the `asana-api` skill. Author this comment as **plain text** — Asana auto-links the PR URL, and a flowing prose summary is the right shape for the audience. If an earlier comment in this session was authored as HTML (e.g., a QA verification comment), do not carry that style over; this one is plain text.
+
 **Skip condition:** If no Asana task context is available, skip this step entirely.
 
 ### Step 5: Recap
