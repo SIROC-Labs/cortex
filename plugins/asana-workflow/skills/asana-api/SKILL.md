@@ -174,16 +174,17 @@ When constructing `html_text`, escape any user-supplied content that may contain
 
 Before sending a comment payload to `/tasks/<task-gid>/stories`, run the bundled linter against the exact JSON body. The linter exits 0 if the payload conforms to the rules above, non-zero with an explanation on stderr otherwise. Treat a non-zero exit as a hard block — fix the payload and re-lint before sending.
 
+The linter is shipped as `asana-lint-comment-payload.sh` in the plugin's `bin/` directory, which Claude Code automatically adds to `PATH`. Invoke it by bare command name — no path prefix, no `${CLAUDE_PLUGIN_ROOT}` expansion required:
+
 ```bash
-"$CLAUDE_PLUGIN_ROOT/skills/asana-api/scripts/lint-comment-payload.sh" "$payload" \
+asana-lint-comment-payload.sh "$payload" \
   || { echo "Lint failed — fix the payload before POSTing."; exit 1; }
 ```
 
 Or via stdin:
 
 ```bash
-printf '%s' "$payload" \
-  | "$CLAUDE_PLUGIN_ROOT/skills/asana-api/scripts/lint-comment-payload.sh"
+printf '%s' "$payload" | asana-lint-comment-payload.sh
 ```
 
 The linter catches the three failure modes that have shipped broken comments to Asana in the past: HTML tags accidentally placed in `data.text` (exit 2), `data.html_text` missing the `<body>` wrapper (exit 3), and both fields set at once (exit 4). The check is cheap and deterministic — there is no good reason to skip it.
