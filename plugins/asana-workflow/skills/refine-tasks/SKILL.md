@@ -211,7 +211,7 @@ After the plan is attached, post an Asana comment on the same task with a **huma
 
 **Posting:** Use `asana-post-comment.sh <task_gid> --html-text "<body>...</body>"` (the wrapper bundled with `asana-api`). The wrapper enforces the body-shape rules so the comment cannot render as literal angle brackets. Do not POST `/tasks/<task_gid>/stories` directly with curl.
 
-Both examples below are written in Asana rich text — send them as `data.html_text` (the body shown is already wrapped in `<body>...</body>`).
+Both examples below are written in Asana rich text — pass them to the wrapper as `--html-text` (the body is already wrapped in `<body>...</body>`).
 
 **Example (substantive refinement):**
 

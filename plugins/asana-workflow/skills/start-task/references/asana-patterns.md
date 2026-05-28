@@ -114,6 +114,8 @@ Format the comment to @mention the person who should answer:
 
 > @Maria — Need clarification: should the CSV export include filtered-out rows as a separate sheet, or exclude them entirely? This blocks the export logic implementation.
 
+**Posting:** once approved, send via `asana-post-comment.sh <task-gid> --text "..."` — plain text only.
+
 ## Checking for Answers on Resume
 
 On resume, if the resuming row has `State = blocked`, fetch task stories posted after the checkpoint's `last_updated` timestamp:
@@ -129,6 +131,8 @@ Filter for `type: "comment"` and `created_at` after `last_updated`. Present any 
 When resuming work on a previously blocked task, post a brief comment for team visibility:
 
 > Resuming work on branch `<task-id>/<slug>`
+
+**Posting:** `asana-post-comment.sh <task-gid> --text "..."` — plain text.
 
 ## All Asana API Calls
 
