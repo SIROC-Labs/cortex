@@ -246,7 +246,7 @@ Every source consulted to write this plan.
 
 ## Content Rules
 
-- **ASCII characters only.** The plan is uploaded to Asana as an attachment, and Asana's preview renders the file without declaring a UTF-8 charset - non-ASCII bytes become mojibake (em dashes show up as `â€"`, section signs as `Â§`). Replace every typographic character with its ASCII equivalent: em dash and en dash become `-`, right arrow becomes `->`, smart quotes become straight `'` and `"`, ellipsis becomes `...`, the section sign becomes the word `Section`. This rule covers prose, examples, tables, and step descriptions equally.
+- **ASCII characters only.** The plan is uploaded to Asana as an attachment, and Asana's preview renders the file without declaring a UTF-8 charset; non-ASCII bytes are decoded as Latin-1 / Windows-1252 and become visible mojibake. Replace every typographic character with its ASCII equivalent: em dash and en dash become `-`, right arrow becomes `->`, smart quotes become straight `'` and `"`, ellipsis becomes `...`, the section sign becomes the word `Section`. This rule covers prose, examples, tables, and step descriptions equally.
 - **Reference patterns, don't predict code.** Point to exemplar files. The downstream session has the codebase open at execution time and is better positioned than `refine-tasks` to derive exact syntax, types, and naming.
 - **Describe models and signatures in structured form, not as class/function declarations.** Field name + type + constraint is all that's needed; the syntax follows from the pattern.
 - **Be opinionated.** Where conventions exist, pick the one to follow. Don't offer alternatives.
