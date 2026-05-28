@@ -209,7 +209,7 @@ After the plan is attached, post an Asana comment on the same task with a **huma
   - Anything an implementer would need to do the work — that audience reads the attachment, not the comment
 - Keep bullets terse (under ~120 characters each); the comment should fit on a phone screen.
 
-**Posting:** `POST /tasks/<task_gid>/stories` with `data.text` (HTML formatting allowed — `<strong>`, `<ul><li>`) via the `asana-api` skill.
+**Posting:** `POST /tasks/<task_gid>/stories` via the `asana-api` skill. If the comment contains HTML tags (`<strong>`, `<ul><li>`, etc.), send it as `data.html_text` wrapped in `<body>...</body>` — HTML inside `data.text` renders as literal angle brackets.
 
 **Example (substantive refinement):**
 

@@ -143,12 +143,32 @@ For enum fields, the value is the enum option GID.
 
 ### Post Comment on Task
 
+Asana's stories endpoint accepts the body in **one of two mutually-exclusive fields** — pick the right one or the comment will render incorrectly:
+
+- **`text`** — plain text only. HTML tags are NOT interpreted; they render as literal characters (e.g., `<strong>bold</strong>` shows the angle brackets). URLs are auto-linked. Use this when the comment has no formatting beyond line breaks and links.
+- **`html_text`** — Asana rich text. The body MUST be wrapped in `<body>...</body>`. Supported tags: `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<a href="...">`, `<ul><li>`, `<ol><li>`, `<br>`, `<h1>`, `<h2>`. Use this whenever the comment includes bold, italic, lists, code spans, or any other tag.
+
+**Critical rule:** never put HTML tags into `text`. If the comment is going to contain any HTML, use `html_text` instead — and remember the `<body>` wrapper. Sending the same payload in both fields also fails: Asana picks one and may escape the other.
+
+**Plain text comment:**
+
 ```bash
 curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"data":{"text":"<comment text>"}}' \
+  -d '{"data":{"text":"🏁 Starting work — branch: MT251-47/foo\nDraft PR: https://github.com/...\n"}}' \
   "https://app.asana.com/api/1.0/tasks/<task-gid>/stories"
 ```
+
+**Rich-text comment (HTML):**
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"html_text":"<body><strong>✅ QA Verification — Feature Complete</strong><br><br><strong>What was verified</strong><ul><li>Item one</li><li>Item two</li></ul></body>"}}' \
+  "https://app.asana.com/api/1.0/tasks/<task-gid>/stories"
+```
+
+When constructing `html_text`, escape any user-supplied content that may contain `<`, `>`, or `&` (e.g., code samples) so it does not break the markup.
 
 ### Fetch Subtasks
 

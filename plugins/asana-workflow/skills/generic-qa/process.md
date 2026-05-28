@@ -163,7 +163,7 @@ After posting the comment, upload all evidence files from the evidence directory
 
 Upload the assertion-point screenshot at minimum. If a recording exists, upload that too.
 
-Format all comments as structured HTML (Asana rich text).
+Format all comments as structured HTML (Asana rich text). When posting via the `asana-api` skill, send the body as `data.html_text` wrapped in `<body>...</body>` — **never** put HTML into `data.text`, or the tags render as literal characters. See `asana-api` → "Post Comment on Task" for the field rules.
 
 ## Behavior Rules
 

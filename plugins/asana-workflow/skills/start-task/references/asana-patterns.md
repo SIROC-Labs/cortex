@@ -104,6 +104,8 @@ Post a comment on the task (only if one with the flag emoji doesn't already exis
 
 Include the draft PR URL so teammates can find the GitHub PR from Asana immediately. The counterpart is 🚀 posted by `ship-it` when the work ships.
 
+**Formatting:** post via the `asana-api` skill's `data.text` field (plain text — no HTML). Asana auto-links the PR URL.
+
 ## Posting a Blocking Question (Pause)
 
 When pausing a task (see `checkpoints.md` → "Pause Flow"), draft a blocking question and present it for user approval before posting. Never post without explicit approval.
