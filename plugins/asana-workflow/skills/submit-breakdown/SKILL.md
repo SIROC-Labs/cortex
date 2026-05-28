@@ -142,7 +142,7 @@ If the breakdown has an **Originating Task** section, handle it based on the spe
 **Complete:** Mark the task as complete and post a comment listing all newly created tasks via the `asana-api` skill. The comment should include each task's name and Asana URL, grouped by milestone. Author it as Asana rich text (HTML) — Markdown is not interpreted. Example body:
 
 ```html
-<body>This task has been decomposed into the following implementation tasks:<br><br><strong>M1 :: Core Data Layer</strong><ul><li><a href="task-url">Setup employee entity + repository</a></li><li><a href="task-url">Employee CRUD API endpoints</a></li></ul><strong>M2 :: Employee Management UI</strong><ul><li><a href="task-url">Employee list page</a></li><li>...</li></ul></body>
+<body>This task has been decomposed into the following implementation tasks:\n\n<strong>M1 :: Core Data Layer</strong><ul><li><a href="task-url">Setup employee entity + repository</a></li><li><a href="task-url">Employee CRUD API endpoints</a></li></ul><strong>M2 :: Employee Management UI</strong><ul><li><a href="task-url">Employee list page</a></li><li>...</li></ul></body>
 ```
 
 **Both actions require explicit user confirmation** — no exceptions.

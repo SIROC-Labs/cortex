@@ -160,6 +160,8 @@ Use `asana-post-comment.sh <task-gid> "<body>"`. The script inspects the body, r
 
 For mixed-format input (e.g., a Markdown bullet list embedded in plain prose), convert the entire body to HTML — once any HTML tag is present, the body must be coherent HTML throughout.
 
+**Line breaks in rich text use literal `\n`, not `<br>`.** Asana does not support `<br>` — if the rich-text body contains `<br>`, Asana silently rejects it and stores the body as plain text, which then renders with visible HTML tags in the UI. The script defensively auto-replaces `<br>` (and `<br/>`, `<br />`) with `\n` before posting, so accidentally including a `<br>` won't break the comment — but authoring the body with `\n` directly is cleaner.
+
 **Invocation:** invoke by bare command name only. The script is shipped in this plugin's `bin/` directory, which Claude Code automatically prepends to `PATH`. Do **not** construct a path from the skill's base directory or from anywhere else — the script is not co-located with `SKILL.md`.
 
 Run `asana-post-comment.sh --help` for the full behaviour spec.

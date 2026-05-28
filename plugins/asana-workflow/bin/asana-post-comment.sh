@@ -17,8 +17,15 @@
 # Callers do not need to choose a field. Authoring the content as plain
 # text or as HTML is sufficient — the script handles the rest.
 #
-# Supported tags inside <body> include: <strong>, <em>, <u>, <s>,
-# <code>, <a href="...">, <ul><li>, <ol><li>, <br>, <h1>–<h2>.
+# Supported tags inside <body>: <strong>, <em>, <u>, <s>, <code>,
+# <a href="...">, <ul><li>, <ol><li>, <h1>, <h2>, <blockquote>.
+#
+# Line breaks are literal "\n" characters inside the body — NOT <br>.
+# Asana does not support <br> in rich text; if Asana sees <br> in
+# html_text it silently rejects the rich-text body and stores the raw
+# content as plain text (which renders with visible HTML tags). To
+# protect callers, this script auto-replaces any <br>, <br/>, or
+# <br /> in the body with a "\n" character before posting.
 #
 # Token resolution (in order):
 #   1. ASANA_TOKEN env var if set and non-empty
@@ -80,6 +87,12 @@ HTML_TAG_PATTERN = re.compile(
 )
 
 if HTML_TAG_PATTERN.search(body):
+    # Asana rejects rich text containing <br> and silently degrades the
+    # entire payload to plain text — visible HTML tags in the UI.
+    # Replace <br>, <br/>, <br /> (any case) with a newline before
+    # routing as html_text.
+    body = re.sub(r"<\s*br\s*/?\s*>", "\n", body, flags=re.IGNORECASE)
+
     stripped = body.strip()
     if not (stripped.startswith("<body>") and stripped.endswith("</body>")):
         body = f"<body>{body}</body>"
