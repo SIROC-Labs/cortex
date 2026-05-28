@@ -92,6 +92,12 @@ if HTML_TAG_PATTERN.search(body):
     # Replace <br>, <br/>, <br /> (any case) with a newline before
     # routing as html_text.
     body = re.sub(r"<\s*br\s*/?\s*>", "\n", body, flags=re.IGNORECASE)
+    # Collapse runs of 3+ newlines (including any inline whitespace
+    # between them) down to a single blank line — when the input had
+    # <br> on its own line surrounded by newlines, the substitution
+    # otherwise produces an extra blank line. Authors writing a <br>
+    # on its own line almost always intend one blank line, not two.
+    body = re.sub(r"(?:[ \t]*\n[ \t]*){3,}", "\n\n", body)
 
     stripped = body.strip()
     if not (stripped.startswith("<body>") and stripped.endswith("</body>")):
