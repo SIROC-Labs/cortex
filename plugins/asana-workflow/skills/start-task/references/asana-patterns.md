@@ -104,7 +104,7 @@ Post a comment on the task (only if one with the flag emoji doesn't already exis
 
 Include the draft PR URL so teammates can find the GitHub PR from Asana immediately. The counterpart is 🚀 posted by `ship-it` when the work ships.
 
-**Formatting:** post via the `asana-api` skill's `data.text` field (plain text — no HTML). Asana auto-links the PR URL.
+**Posting:** use `asana-post-comment.sh <task-gid> --text "..."` (the wrapper bundled with `asana-api`). Plain text — no HTML tags. Asana auto-links the PR URL.
 
 ## Posting a Blocking Question (Pause)
 

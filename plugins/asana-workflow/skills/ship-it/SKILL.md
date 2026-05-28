@@ -105,7 +105,7 @@ Handle via the `asana-api` skill. All Asana operations use the task GID from con
 
    The stats line is mandatory. The `🤖 Done` footer is mandatory — it signals AI-assisted work is complete and ready for review.
 
-   **Formatting:** post this comment as **plain text** via the `asana-api` skill's `data.text` field. Do NOT add HTML tags (`<strong>`, `<em>`, `<br>`, etc.) — Asana auto-links the PR URL, and plain text with `\n` line breaks renders correctly. If an earlier comment in this session used `data.html_text` (e.g., a QA verification comment), do not carry that style over — this comment is plain text. Sending HTML through `data.text` produces visible angle brackets on the task.
+   **Posting:** use `asana-post-comment.sh <task-gid> --text "..."` (the wrapper bundled with `asana-api`). This comment is **plain text** — do not add HTML tags (`<strong>`, `<em>`, `<br>`, etc.). Asana auto-links the PR URL, and plain text with `\n` line breaks renders correctly. If an earlier comment in this session used `--html-text` (e.g., a QA verification comment), do not carry that style over — this comment is plain text and uses `--text`. The wrapper will refuse the POST if HTML slips into the body.
 
 **Skip condition:** If no Asana task context is available, skip this step entirely.
 

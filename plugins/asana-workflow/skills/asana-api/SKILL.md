@@ -143,51 +143,45 @@ For enum fields, the value is the enum option GID.
 
 ### Post Comment on Task
 
-Asana's stories endpoint accepts the body in **one of two mutually-exclusive fields** — pick the right one or the comment will render incorrectly:
+**Always use the bundled `asana-post-comment.sh` wrapper. Do not POST `/tasks/<gid>/stories` directly with curl.**
 
-- **`text`** — plain text only. HTML tags are NOT interpreted; they render as literal characters (e.g., `<strong>bold</strong>` shows the angle brackets). URLs are auto-linked. Use this when the comment has no formatting beyond line breaks and links.
-- **`html_text`** — Asana rich text. The body MUST be wrapped in `<body>...</body>`. Supported tags: `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<a href="...">`, `<ul><li>`, `<ol><li>`, `<br>`, `<h1>`, `<h2>`. Use this whenever the comment includes bold, italic, lists, code spans, or any other tag.
+The wrapper exists because Asana's stories endpoint has two mutually-exclusive body fields (`text` and `html_text`) whose shape rules are easy to get wrong — past sessions have repeatedly posted HTML into `text` (which renders as literal angle brackets in the UI) or sent `html_text` without the required `<body>` wrapper (which Asana rejects). The wrapper validates the body shape against the field locally and only POSTs if the payload is well-formed. Routing every comment through it makes the broken-payload bug structurally impossible.
 
-**Critical rule:** never put HTML tags into `text`. If the comment is going to contain any HTML, use `html_text` instead — and remember the `<body>` wrapper. Sending the same payload in both fields also fails: Asana picks one and may escape the other.
+The wrapper lives in the plugin's `bin/` directory, which Claude Code adds to `PATH` automatically — call it by bare command name, no path prefix needed.
 
 **Plain text comment:**
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"data":{"text":"🏁 Starting work — branch: MT251-47/foo\nDraft PR: https://github.com/...\n"}}' \
-  "https://app.asana.com/api/1.0/tasks/<task-gid>/stories"
+asana-post-comment.sh <task-gid> --text "🏁 Starting work — branch: MT251-47/foo
+Draft PR: https://github.com/owner/repo/pull/N"
 ```
 
-**Rich-text comment (HTML):**
+URLs are auto-linked by Asana. Use `--text` whenever the comment has no formatting beyond line breaks and links — for example the 🏁 start comment and the 🤖 Done ship summary.
+
+**Rich-text comment:**
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"data":{"html_text":"<body><strong>✅ QA Verification — Feature Complete</strong><br><br><strong>What was verified</strong><ul><li>Item one</li><li>Item two</li></ul></body>"}}' \
-  "https://app.asana.com/api/1.0/tasks/<task-gid>/stories"
+asana-post-comment.sh <task-gid> --html-text "<body><strong>✅ QA Verification — Feature Complete</strong><br><br><strong>What was verified</strong><ul><li>Item one</li><li>Item two</li></ul></body>"
 ```
 
-When constructing `html_text`, escape any user-supplied content that may contain `<`, `>`, or `&` (e.g., code samples) so it does not break the markup.
+Use `--html-text` whenever the comment needs bold, italics, lists, code spans, or links rendered as anchor text. The body must be wrapped in `<body>...</body>` (the wrapper enforces this; Asana rejects unwrapped rich text). Supported tags inside: `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<a href="...">`, `<ul><li>`, `<ol><li>`, `<br>`, `<h1>`–`<h2>`.
 
-#### Lint the payload before POSTing (mandatory)
+When constructing the body, escape any user-supplied content that may contain `<`, `>`, or `&` (e.g., code samples) so it does not break the markup.
 
-Before sending a comment payload to `/tasks/<task-gid>/stories`, run the bundled linter against the exact JSON body. The linter exits 0 if the payload conforms to the rules above, non-zero with an explanation on stderr otherwise. Treat a non-zero exit as a hard block — fix the payload and re-lint before sending.
+**Exit codes:**
 
-The linter is shipped as `asana-lint-comment-payload.sh` in the plugin's `bin/` directory, which Claude Code automatically adds to `PATH`. Invoke it by bare command name — no path prefix, no `${CLAUDE_PLUGIN_ROOT}` expansion required:
+| Exit | Meaning |
+|---|---|
+| `0` | Comment posted; story GID printed to stdout |
+| `1` | Invalid usage, missing token, or Asana API failure |
+| `2` | `--text` body contained HTML tags — switch to `--html-text` |
+| `3` | `--html-text` body missing `<body>...</body>` wrapper |
+| `4` | Both `--text` and `--html-text` supplied (mutually exclusive) |
+| `5` | Neither `--text` nor `--html-text` supplied |
 
-```bash
-asana-lint-comment-payload.sh "$payload" \
-  || { echo "Lint failed — fix the payload before POSTing."; exit 1; }
-```
+A non-zero exit means the comment was **not** posted. Fix the body shape and retry — do not fall back to raw curl. If the wrapper's checks are wrong for a legitimate case, fix the wrapper, not the calling code.
 
-Or via stdin:
-
-```bash
-printf '%s' "$payload" | asana-lint-comment-payload.sh
-```
-
-The linter catches the three failure modes that have shipped broken comments to Asana in the past: HTML tags accidentally placed in `data.text` (exit 2), `data.html_text` missing the `<body>` wrapper (exit 3), and both fields set at once (exit 4). The check is cheap and deterministic — there is no good reason to skip it.
+The wrapper uses the same token resolution as the rest of this skill (`$ASANA_TOKEN` if set, otherwise `$ASANA_PERSONAL_ACCESS_TOKEN`).
 
 ### Fetch Subtasks
 
