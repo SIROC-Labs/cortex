@@ -145,6 +145,8 @@ For enum fields, the value is the enum option GID.
 
 Use `asana-post-comment.sh <task-gid> "<body>"`. The script inspects the body, routes it through the correct Asana API field (`text` or `html_text`), and validates the payload locally before posting. Author the body as plain text or as HTML — no field selection or wrapping is needed at the call site.
 
+**Invocation:** invoke by bare command name only. The script is shipped in this plugin's `bin/` directory, which Claude Code automatically prepends to `PATH`. Do **not** construct a path from the skill's base directory or from anywhere else — the script is not co-located with `SKILL.md`.
+
 Run `asana-post-comment.sh --help` for the full behaviour spec.
 
 ### Fetch Subtasks
