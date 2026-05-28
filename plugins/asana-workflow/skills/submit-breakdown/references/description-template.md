@@ -53,6 +53,13 @@ Each bullet preserves the descriptive label from the breakdown (e.g., `Spec: doc
 - Preserve order: task-specific first, then milestone-level, then file-header references. (This puts the most-specific source at the top.)
 - Labels come verbatim from the breakdown; do not paraphrase.
 - Repetition *across* tasks in the same milestone is expected and acceptable. Every task is meant to be a complete, self-contained refinement input.
+- **Only carry non-obvious references.** A reference is worth carrying only when it points to material the downstream agent could not reasonably find on its own. Strip everything else during aggregation — it is pure context noise. Specifically, **always exclude**:
+  - **Task-breakdown files** — the breakdown being submitted, or any other one. Recognize them by path (e.g., anything under `docs/cortex/*.md`) or by label (`Task Breakdown:`, `Breakdown:`, or any label that names another breakdown document). They are meta-documents that bundle every milestone and task in scope; if a downstream step follows the reference, the entire breakdown gets pulled in.
+  - **CLAUDE.md files at any level** — root `CLAUDE.md`, `backend/CLAUDE.md`, `frontend/CLAUDE.md`, `mobile/CLAUDE.md`, etc. Claude auto-loads these from the working directory; calling them out as references adds zero information and clutters the description. Strip them regardless of label (`Backend conventions:`, `Root conventions:`, `Frontend conventions:`, etc.).
+  - **The target Asana project URL itself** — every task already lives inside that project; pointing back to it is tautological. (Other Asana task URLs that point to *related but separate* work are fine to keep.)
+  - **Anything else trivially auto-discoverable** — the repo URL, the worktree root, generic onboarding pointers a fresh session would already see. If the agent would find it without being told, do not reference it.
+
+  Keep references that are genuinely load-bearing: spec docs, Figma frames, external library/API docs, specific Asana tasks providing context not derivable from the project, design system pages, RFC links, etc. The bar is *"would a reader without this link be missing something they can't otherwise find?"* — if the answer is no, drop the line.
 
 ---
 
