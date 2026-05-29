@@ -64,6 +64,14 @@ This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote b
 
 See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
 
+### All agents
+
+```bash
+bash setup.sh --all
+```
+
+Installs for every supported agent in one run. Each agent is installed independently — if one fails (or its CLI isn't installed), the others still proceed — and a per-agent success/failure summary is printed at the end. Add `--dev` to source from your local clone.
+
 ### What the Script Does
 
 **GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `SIROC-Labs/cortex` repo.

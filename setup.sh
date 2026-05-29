@@ -8,9 +8,12 @@ set -euo pipefail
 #   bash setup.sh              Claude Code setup (default)
 #   bash setup.sh --opencode    OpenCode setup
 #   bash setup.sh --codex       Codex setup
+#   bash setup.sh --all         Install for every supported agent (each isolated;
+#                               one agent failing never blocks the others; prints
+#                               a per-agent success/failure summary at the end)
 #   bash setup.sh --dev         Developer install: point at this local clone
-#                               instead of the remote repo (combine with the
-#                               agent flag, e.g. `bash setup.sh --codex --dev`)
+#                               instead of the remote repo (combine with an
+#                               agent flag or --all, e.g. `bash setup.sh --all --dev`)
 #
 # By default the install is "normal": the marketplace/plugin source is the remote
 # SIROC-Labs/cortex repo, so no local clone of the repo is required. Pass --dev to
@@ -22,17 +25,24 @@ MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main
 
 OP_ENCODE=false
 CODEX=false
+ALL=false
 DEV=false
 for arg in "$@"; do
   case "$arg" in
     --opencode) OP_ENCODE=true ;;
     --codex) CODEX=true ;;
+    --all) ALL=true ;;
     --dev) DEV=true ;;
   esac
 done
 
 if [ "$OP_ENCODE" = true ] && [ "$CODEX" = true ]; then
   echo "Use either --opencode or --codex, not both." >&2
+  exit 1
+fi
+
+if [ "$ALL" = true ] && { [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ]; }; then
+  echo "Use --all on its own (optionally with --dev), not with --opencode/--codex." >&2
   exit 1
 fi
 
@@ -52,7 +62,7 @@ step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
 TOTAL_STEPS=5
 
-if [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ]; then
+if [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ] || [ "$ALL" = true ]; then
   TOTAL_STEPS=6
 fi
 
@@ -447,7 +457,7 @@ configure_codex() {
   if ! command -v codex &>/dev/null; then
     fail "Codex CLI not installed"
     info "Install Codex, then re-run: bash setup.sh --codex"
-    return 1
+    return 2
   fi
 
   pass "Codex CLI installed ($(codex --version | head -1))"
@@ -570,7 +580,69 @@ configure_claude() {
   return 0
 }
 
-if [ "$OP_ENCODE" = true ]; then
+if [ "$ALL" = true ]; then
+  # ─────────────────────────────────────────────
+  # All agents: install each independently. One agent's failure never blocks the
+  # others — each configure_* is called in an `|| rc=$?` context, which captures a
+  # non-zero return (and suspends `set -e` inside the function) instead of aborting
+  # the script. A per-agent success/failure summary is printed at the end.
+  # ─────────────────────────────────────────────
+  if [ "$ERRORS" -gt 0 ]; then
+    echo ""
+    fail "${ERRORS} error(s) found — fix them and re-run this script"
+    echo ""
+    exit 1
+  fi
+
+  step 5 "Installing for all supported agents"
+
+  # rc convention: 0 = installed, 2 = skipped (agent CLI absent), other = failed.
+  CLAUDE_RC=0;   echo ""; info "── Claude Code ──"; configure_claude   || CLAUDE_RC=$?
+  OPENCODE_RC=0; echo ""; info "── OpenCode ──";    configure_opencode || OPENCODE_RC=$?
+  CODEX_RC=0;    echo ""; info "── Codex ──";       configure_codex    || CODEX_RC=$?
+
+  agent_status() {
+    case "$1" in
+      0) echo -e "${GREEN}✔ installed${NC}" ;;
+      2) echo -e "${YELLOW}⏭ skipped (CLI not found)${NC}" ;;
+      *) echo -e "${RED}✘ failed${NC}" ;;
+    esac
+  }
+
+  step 6 "Summary"
+  echo ""
+  echo -e "  Claude Code   $(agent_status "$CLAUDE_RC")"
+  echo -e "  OpenCode      $(agent_status "$OPENCODE_RC")"
+  echo -e "  Codex         $(agent_status "$CODEX_RC")"
+  echo ""
+
+  FAILED=0
+  for rc in "$CLAUDE_RC" "$OPENCODE_RC" "$CODEX_RC"; do
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then FAILED=$((FAILED + 1)); fi
+  done
+  if [ "$FAILED" -gt 0 ]; then
+    warn "${FAILED} agent install(s) failed — see messages above. The other agents were unaffected."
+  else
+    echo "  Restart each installed agent to load the plugin and skills."
+  fi
+  echo ""
+
+  if [ "$PROFILE_CHANGED" = true ]; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+    echo ""
+    echo -e "${YELLOW}  Run one of the following:${NC}"
+    echo ""
+    echo -e "${BOLD}    source ${PROFILE}${NC}"
+    echo ""
+    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  fi
+
+  [ "$FAILED" -eq 0 ] || exit 1
+elif [ "$OP_ENCODE" = true ]; then
   # ─────────────────────────────────────────────
   # OpenCode: configure plugin and show instructions
   # ─────────────────────────────────────────────
@@ -662,8 +734,10 @@ else
 
   step 5 "Claude Code plugin installation"
   pass "All prerequisites met"
-  configure_claude
-  CLAUDE_RC=$?
+  # Capture the return without tripping `set -e` (a bare call would abort on
+  # a non-zero return before we could read it).
+  CLAUDE_RC=0
+  configure_claude || CLAUDE_RC=$?
 
   step 6 "Done"
   echo ""
