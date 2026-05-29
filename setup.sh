@@ -5,19 +5,27 @@ set -euo pipefail
 # Validates prerequisites, fetches available plugins, and installs selected ones
 #
 # Usage:
-#   bash setup.sh             Claude Code setup (default)
-#   bash setup.sh --opencode   OpenCode setup
+#   bash setup.sh              Claude Code setup (default)
+#   bash setup.sh --opencode    OpenCode setup
+#   bash setup.sh --codex       Codex setup
 
 MARKETPLACE_REPO="Siroc-Lab/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
 OP_ENCODE=false
+CODEX=false
 for arg in "$@"; do
   case "$arg" in
     --opencode) OP_ENCODE=true ;;
+    --codex) CODEX=true ;;
   esac
 done
+
+if [ "$OP_ENCODE" = true ] && [ "$CODEX" = true ]; then
+  echo "Use either --opencode or --codex, not both." >&2
+  exit 1
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -35,7 +43,7 @@ step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
 TOTAL_STEPS=5
 
-if [ "$OP_ENCODE" = true ]; then
+if [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ]; then
   TOTAL_STEPS=6
 fi
 
@@ -389,6 +397,93 @@ PYEOF
 
   return 0
 }
+
+configure_codex() {
+  local SCRIPT_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local MARKETPLACE_FILE="${SCRIPT_DIR}/.agents/plugins/marketplace.json"
+  local PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.codex-plugin/plugin.json"
+  local MCP_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json"
+
+  info "Configuring Codex..."
+
+  if ! command -v codex &>/dev/null; then
+    fail "Codex CLI not installed"
+    info "Install Codex, then re-run: bash setup.sh --codex"
+    return 1
+  fi
+
+  pass "Codex CLI installed ($(codex --version | head -1))"
+
+  if [ ! -f "$MARKETPLACE_FILE" ]; then
+    fail "Missing Codex marketplace: ${MARKETPLACE_FILE}"
+    return 1
+  fi
+
+  if [ ! -f "$PLUGIN_MANIFEST" ]; then
+    fail "Missing Codex plugin manifest: ${PLUGIN_MANIFEST}"
+    return 1
+  fi
+
+  if [ ! -f "$MCP_MANIFEST" ]; then
+    fail "Missing MCP manifest: ${MCP_MANIFEST}"
+    return 1
+  fi
+
+  python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
+import json, sys
+
+for path in sys.argv[1:]:
+    with open(path) as f:
+        json.load(f)
+
+print("OK")
+PYEOF
+
+  if [ $? -eq 0 ]; then
+    pass "Codex marketplace ready at ${MARKETPLACE_FILE}"
+    pass "Codex plugin manifest ready at ${PLUGIN_MANIFEST}"
+    pass "MCP manifest ready at ${MCP_MANIFEST}"
+  else
+    fail "Codex plugin metadata is invalid JSON"
+    return 1
+  fi
+
+  if codex plugin marketplace add "$SCRIPT_DIR" >/dev/null 2>&1; then
+    pass "Codex marketplace added from ${SCRIPT_DIR}"
+  elif codex plugin marketplace upgrade "$MARKETPLACE_NAME" >/dev/null 2>&1; then
+    pass "Codex marketplace already present — upgraded ${MARKETPLACE_NAME}"
+  else
+    fail "Failed to add or upgrade Codex marketplace"
+    info "Try manually: codex plugin marketplace add ${SCRIPT_DIR}"
+    return 1
+  fi
+
+  # Install declared MCPs alongside the plugin. Recreate our named entries so
+  # reruns update command arguments when this repo changes.
+  if codex mcp get mobile-mcp >/dev/null 2>&1; then
+    codex mcp remove mobile-mcp >/dev/null 2>&1 || true
+  fi
+  if codex mcp add mobile-mcp -- npx -y @mobilenext/mobile-mcp@latest >/dev/null 2>&1; then
+    pass "Codex MCP configured: mobile-mcp"
+  else
+    fail "Failed to configure Codex MCP: mobile-mcp"
+    return 1
+  fi
+
+  if codex mcp get chrome-devtools >/dev/null 2>&1; then
+    codex mcp remove chrome-devtools >/dev/null 2>&1 || true
+  fi
+  if codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest --experimentalScreencast >/dev/null 2>&1; then
+    pass "Codex MCP configured: chrome-devtools"
+  else
+    fail "Failed to configure Codex MCP: chrome-devtools"
+    return 1
+  fi
+
+  return 0
+}
+
 if [ "$OP_ENCODE" = true ]; then
   # ─────────────────────────────────────────────
   # OpenCode: configure plugin and show instructions
@@ -414,6 +509,48 @@ if [ "$OP_ENCODE" = true ]; then
   echo "  Verify by asking: list available skills"
   echo ""
   echo "  To update later, re-run: bash setup.sh --opencode"
+  echo ""
+
+  if [ "$PROFILE_CHANGED" = true ]; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+    echo ""
+    echo -e "${YELLOW}  Run one of the following:${NC}"
+    echo ""
+    echo -e "${BOLD}    source ${PROFILE}${NC}"
+    echo ""
+    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  fi
+elif [ "$CODEX" = true ]; then
+  # ─────────────────────────────────────────────
+  # Codex: configure marketplace, declared MCPs, and show instructions
+  # ─────────────────────────────────────────────
+  if [ "$ERRORS" -gt 0 ]; then
+    echo ""
+    fail "${ERRORS} error(s) found — fix them and re-run this script"
+    echo ""
+    exit 1
+  fi
+
+  step 5 "Codex plugin configuration"
+  configure_codex
+
+  step 6 "Done"
+  echo ""
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}  Environment ready!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "  Codex marketplace and required MCP servers are configured."
+  echo ""
+  echo "  Open /plugins in Codex and install or enable both plugins from siroc-cortex:"
+  echo -e "    ${BOLD}asana-workflow${NC}"
+  echo -e "    ${BOLD}superpowers${NC}"
+  echo ""
+  echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
 
   if [ "$PROFILE_CHANGED" = true ]; then

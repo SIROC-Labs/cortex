@@ -22,7 +22,9 @@ Take an Asana task, validate it's ready for development, understand the work, se
 ## Prerequisites
 
 - `asana-api` skill for all Asana API operations — handles token resolution and setup guidance.
-- Access to `feature-dev:feature-dev`, `superpowers:systematic-debugging`, and optionally `superpowers:brainstorming` skills (external — see `references/skill-dependencies.md`).
+- Access to required external workflow skills (see `references/skill-dependencies.md`):
+  - Claude Code: `feature-dev:feature-dev` and `superpowers:*`
+  - OpenCode/Codex: `superpowers:*`
 
 ## Argument Parsing
 
@@ -41,7 +43,7 @@ Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers 
 
 Set when `fast_mode` flag is active (see Argument Parsing above).
 
-Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `feature-dev`, `brainstorming`, `fix-bug`, or QA skill is invoked — implement the solution immediately using built-in tools (Read, Edit, Bash, Grep, etc.) and reason about it directly in this conversation.
+Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `feature-dev`, `brainstorming`, `fix-bug`, or QA skill is invoked — implement the solution immediately using the agent's native file, shell, and edit tools, and reason about it directly in this conversation.
 
 **What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, Asana status move/comment, and the ship-it handoff — runs as normal.
 
@@ -51,12 +53,12 @@ Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replac
 
 ### Step 0: Check External Skill Dependencies
 
-Before doing anything else, check whether the external skills required for routing are installed. These are **not bundled** with this plugin.
+Before doing anything else, check whether external skills required for routing are installed for the current runtime. These are **not bundled** with this plugin and are **mandatory**.
 
-- **`feature-dev@claude-plugins-official`** — required for non-bug tasks using the `feature-dev` workflow
-- **`superpowers@claude-plugins-official`** — required for Bug tasks (`fix-bug` uses `systematic-debugging`) and for non-bug tasks using the `brainstorm` workflow
+- **Claude Code:** `feature-dev@claude-plugins-official` and `superpowers@claude-plugins-official`
+- **OpenCode/Codex:** `superpowers`
 
-If either is missing, warn the user and ask whether to install now or continue. This is an **advisory blocking step** — wait for the user's answer before proceeding. See **`references/skill-dependencies.md`** for check instructions, install commands, and warning message templates.
+If any required dependency for the current runtime is missing, stop before Step 1 and tell the user which setup command or plugin install is required. Do not continue inline. See **`references/skill-dependencies.md`** for runtime-specific check instructions and warning behavior.
 
 ### Step 1: Get the Asana Task URL
 
@@ -113,7 +115,7 @@ Present the choice:
 > - **Worktree** _(recommended for parallel work — keeps main directory clean)_
 > - **Current directory**
 
-If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
+If the user chooses worktree, use `EnterWorktree` when that tool exists; otherwise invoke `superpowers:using-git-worktrees`. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
 
 The branch will be created inside the worktree in Step 7.
 
@@ -181,13 +183,19 @@ Compile full task context (name, notes, custom fields, task ID, subtasks, commen
 - **"Bug"** — Follow the QA sub-flow: verify → fix → verify loop.
 - **Anything else** (Feature Request, Tech Debt, etc.):
   - If `workflow_choice` is `brainstorm` — invoke `superpowers:brainstorming` with the full context.
-  - If `workflow_choice` is `feature-dev` — invoke `feature-dev:feature-dev` with the full context.
+  - If `workflow_choice` is `feature-dev`:
+    - **Claude Code:** invoke `feature-dev:feature-dev` with the full context.
+    - **OpenCode:** invoke `superpowers:subagent-driven-development` with the full context.
+    - **Codex:** inspect the fetched Asana notes, comments, subtasks, and attachments for both:
+      - a usable **spec**: concrete behavior, acceptance criteria, UX/API contract, or explicit constraints
+      - a usable **implementation plan**: ordered steps, affected files/modules, migration notes, or test strategy
+      If both are present, invoke `superpowers:subagent-driven-development` with the full context and explicitly include the spec and plan excerpts. This is the Codex development skill for executing from a spec and plan. If either the spec or plan is missing, do not invoke a feature-dev substitute; implement inline in the current Codex session using native tools, while still preserving the normal Step 11 QA sub-flow and Step 12 ship-it handoff.
   - If `workflow_choice` is unset — ask (blocking):
     > "How do you want to approach this?
     > 1. Brainstorm the design first (`superpowers:brainstorming`)
-    > 2. Go straight to implementation (`feature-dev:feature-dev`)"
+    > 2. Go straight to implementation (`feature-dev:feature-dev` in Claude Code, `superpowers:subagent-driven-development` in OpenCode when applicable, Codex uses spec/plan-aware routing)"
     Wait for explicit answer before routing. No default assumed.
-  - **Handoff instruction:** When passing context to `feature-dev` or `brainstorming`, include:
+  - **Handoff instruction:** When passing context to `feature-dev`, `subagent-driven-development`, or `brainstorming`, include:
     > "When this workflow is complete, return to `start-task` for non-bug QA verification and the ship-it handoff. Do not end the session — there are more steps."
 - **Category missing** — Prompt: "Is this a bug fix or a feature?" then apply the routing above.
 

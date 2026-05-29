@@ -91,19 +91,19 @@ Task stays **"In Progress"** → ■ PAUSED
                                      │
                                      ▼
              ┌────────────────────────────────────────────┐
-             │  0 · Skill Dependencies  (advisory)        │
-             │  feature-dev@claude-plugins-official       │
-             │  superpowers@claude-plugins-official       │
+             │  0 · Skill Dependencies  (mandatory)       │
+             │  Claude: feature-dev + superpowers         │
+             │  OpenCode/Codex: superpowers + MCPs        │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ installed?
                            ╱             ╲
                          NO               YES
                           │                │
-                    warn + ask             │
-                    ╱        ╲            │
-                install    continue        │
-                    └──────────►──────────┘
+                    block + setup          │
+                    rerun start-task       │
+                          │                │
+                          └─────X          │
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
@@ -283,9 +283,9 @@ Task stays **"In Progress"** → ■ PAUSED
                        │        │   ╱     │       ╲
                        │        │  brn   fdev     none
                        │        │   │     │         │
-                       │        │  sup:  feat-dev  ask
-                       │        │  brn   :feature  brn/fdev
-                       │        │   │     -dev       │
+                       │        │  sup:  runtime   ask
+                       │        │  brn   routing   brn/fdev
+                       │        │   │     │          │
                        │        │   │     │          │
                        │        │   └─────┴──────┬───┘
                        │        │                │

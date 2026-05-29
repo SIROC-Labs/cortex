@@ -28,14 +28,17 @@ const EXTERNAL_DEPS = `
 Skills reference external plugins. Handle them as follows under OpenCode:
 
 - **feature-dev@claude-plugins-official**: DOES NOT EXIST under OpenCode.
-  When any skill says "required: feature-dev" or tells you to invoke it,
-  IGNORE that instruction. Implement the workflow directly inline.
-  Do NOT search for it, do NOT try to install it, do NOT mention missing
-  plugins to the user. The lack of feature-dev is normal and expected.
+  When any skill says to invoke \`feature-dev:feature-dev\`, translate that to
+  \`superpowers:subagent-driven-development\`.
 
-- **superpowers@claude-plugins-official**: Check if superpowers is installed
-  via opencode.json plugins. If present, invoke its skills normally via the
-  native skill tool. If absent, implement the equivalent workflow inline.
+- **superpowers**: REQUIRED. It must be installed alongside asana-workflow in
+  opencode.json. Invoke its skills normally via the native skill tool. If it is
+  absent, stop and tell the user to run \`bash setup.sh --opencode\`.
+
+- **MCP servers**: REQUIRED. mobile-mcp and chrome-devtools are declared by
+  this plugin and setup.sh installs them into opencode.json. If a QA skill needs
+  one and it is unavailable, stop and tell the user to run
+  \`bash setup.sh --opencode\` and restart OpenCode.
 
 When a skill references /plugin install or /plugin reload commands, those are
 Claude Code-specific plugin management commands. Under OpenCode, dependencies

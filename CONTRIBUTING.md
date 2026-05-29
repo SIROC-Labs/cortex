@@ -17,12 +17,18 @@
      ```json
      { "plugin": ["/absolute/path/to/cortex"] }
      ```
+   - **Codex:** Add the local marketplace at:
+     ```
+     /path/to/cortex/.agents/plugins/marketplace.json
+     ```
+     The local marketplace exposes both `asana-workflow` and required `superpowers`; run `bash setup.sh --codex` to register the required MCP servers, then install or enable both plugins from `/plugins`.
 
 ## Development loop
 
 Skills are Markdown files — no build step. After editing a file, start a new conversation and changes are picked up automatically. If you're already in a session:
 - **Claude Code:** `/plugin reload asana-workflow`
 - **OpenCode:** Restart the agent session
+- **Codex:** Restart the agent session
 
 ## Editing an existing skill
 
@@ -39,7 +45,7 @@ Keep SKILL.md under ~100 lines. For larger reference content, create a `referenc
    description: one-line description of when this skill triggers
    ---
    ```
-2. Start a new Claude Code session or run `/plugin reload asana-workflow` to test
+2. Start a new Claude Code or Codex session, run `/plugin reload asana-workflow` in Claude Code, or restart OpenCode to test
 
 ## Before opening a PR
 

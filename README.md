@@ -1,6 +1,6 @@
 # SIROC Cortex
 
-Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) and an OpenCode plugin.
+Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces), an OpenCode plugin, and a Codex plugin marketplace.
 
 ## Marketplace
 
@@ -54,6 +54,16 @@ This validates prerequisites and merges the required configuration into your `op
 
 See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed instructions.
 
+### Codex
+
+```bash
+bash setup.sh --codex
+```
+
+This validates prerequisites, adds the local Codex marketplace, exposes `asana-workflow` alongside required `superpowers`, and configures the required MCP servers declared by the plugin. Complete plugin installation from `/plugins` in Codex.
+
+See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
+
 ### What the Script Does
 
 **GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `Siroc-Lab/cortex` repo.
@@ -71,6 +81,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 **Plugin installation** — Once all prerequisites pass:
 - Claude Code: prints the exact `/plugin` commands to run
 - OpenCode: merges the plugin configuration into `opencode.json` and clears the cache
+- Codex: adds the local marketplace, exposes `asana-workflow` and required `superpowers`, and configures declared MCP servers; plugin installation is completed from `/plugins`
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
@@ -90,6 +101,14 @@ bash setup.sh --opencode
 ```
 
 The script is idempotent — it re-merges the latest configuration and clears the plugin cache.
+
+### Codex
+
+```bash
+bash setup.sh --codex
+```
+
+Pull the latest repository changes and restart Codex so it reloads plugin metadata and skills.
 
 ## Contributing
 

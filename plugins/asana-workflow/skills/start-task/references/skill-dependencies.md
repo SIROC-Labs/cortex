@@ -1,10 +1,10 @@
 # Skill Dependencies
 
-`start-task` orchestrates several external skills that are **not bundled** with the `asana-workflow` plugin. These must be installed separately before start-task can route work correctly.
+`start-task` orchestrates external skills that are **not bundled** with the `asana-workflow` plugin. They are mandatory and must be installed alongside `asana-workflow` before start-task can route work correctly.
 
 ## Required External Skills
 
-### `feature-dev:feature-dev`
+### Claude Code: `feature-dev:feature-dev`
 - **Plugin:** `feature-dev@claude-plugins-official`
 - **Used for:** Routing Feature Request, Tech Debt, and all non-bug task categories (Step 10)
 - **Install:**
@@ -12,27 +12,42 @@
   /plugin install feature-dev@claude-plugins-official
   ```
 
-### `superpowers:systematic-debugging`
-- **Plugin:** `superpowers@claude-plugins-official`
-- **Used for:** Root cause investigation inside `fix-bug` (Step 1 of fix-bug, invoked when start-task routes a Bug category task)
+### All runtimes: `superpowers`
+- **Claude Code plugin:** `superpowers@claude-plugins-official`
+- **OpenCode plugin:** `superpowers@git+https://github.com/obra/superpowers.git`
+- **Codex plugin:** `superpowers` from the `siroc-cortex` marketplace entry
+- **Used for:** Brainstorming, systematic debugging, TDD, git worktrees, OpenCode feature implementation, and Codex feature implementation when a usable spec and implementation plan are present
 - **Install:**
   ```
   /plugin install superpowers@claude-plugins-official
   ```
 
-### `superpowers:brainstorming` _(optional)_
-- **Plugin:** `superpowers@claude-plugins-official` _(same as above)_
-- **Used for:** Brainstorm workflow for non-bug tasks when `brainstorm` argument is passed to start-task (Step 10)
-- **Install:** Included with `superpowers` above
+For OpenCode, run `bash setup.sh --opencode`; it writes the superpowers plugin
+entry alongside asana-workflow. For Codex, run `bash setup.sh --codex`; it
+registers the `siroc-cortex` marketplace that exposes both `asana-workflow` and
+`superpowers`, then install or enable both from `/plugins`.
 
-### `superpowers:using-git-worktrees` _(optional)_
-- **Plugin:** `superpowers@claude-plugins-official` _(same as above)_
-- **Used for:** Worktree setup if user chooses worktree mode in Step 6a
-- **Install:** Included with `superpowers` above
+For Claude Code, `feature-dev` and `superpowers` are declared in the plugin
+metadata and should be auto-installed when installing `asana-workflow`, provided
+the `claude-plugins-official` marketplace is available and cross-marketplace
+dependencies are allowed by this marketplace.
+
+## Required MCP Servers
+
+The QA skills require the MCP servers declared by the plugin:
+
+- `mobile-mcp`
+- `chrome-devtools`
+
+For OpenCode, run `bash setup.sh --opencode`; it writes both MCP server entries
+into `opencode.json`. For Codex, the MCP servers are declared in
+`plugins/asana-workflow/.mcp.json` and referenced by the `.codex-plugin/plugin.json`
+`mcpServers` field; `bash setup.sh --codex` also registers them with
+`codex mcp add` so they are available after setup.
 
 ## How to Check If Dependencies Are Installed
 
-Before routing in Step 10, verify the required skill is available by checking if its trigger phrases are recognized. If a skill is missing, Claude cannot invoke it.
+Before routing in Step 10, verify whether the relevant external skill is available in the current runtime. Missing dependencies are blocking; do not continue inline.
 
 To check installed plugins:
 
@@ -47,7 +62,14 @@ cat ~/.claude/plugins/installed_plugins.json | grep -E '"feature-dev|"superpower
 
 Check `opencode.json` for the `plugin` array. `superpowers` should appear as
 `"superpowers@git+https://github.com/obra/superpowers.git"`. `feature-dev` is
-not available for OpenCode — implement feature development workflows inline.
+not available for OpenCode; route feature implementation to
+`superpowers:subagent-driven-development`.
+
+### If running under Codex
+
+Check the available skill list for `superpowers`. If it is not available, stop
+and tell the user to install or enable `superpowers` from `/plugins` alongside
+`asana-workflow`.
 
 ## Dependency Check at Start-Task Launch (Step 0)
 
@@ -59,31 +81,60 @@ At the very beginning of start-task (before fetching the Asana task), check whic
 
 > ⚠️ The `feature-dev` plugin is required for feature and tech debt tasks but doesn't appear to be installed.
 > Install it with: `/plugin install feature-dev@claude-plugins-official`
-> Continue anyway and install manually before Step 10, or install now and re-run `/start-task`.
+> Install it now, then re-run `/start-task`.
 
 **If `superpowers` is missing:**
 
 > ⚠️ The `superpowers` plugin is required for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear to be installed.
 > Install it with: `/plugin install superpowers@claude-plugins-official`
-> Continue anyway and install manually before Step 10, or install now and re-run `/start-task`.
+> Install it now, then re-run `/start-task`.
 
 ### If running under OpenCode
 
-**feature-dev:** DOES NOT EXIST under OpenCode. Skip the feature-dev check
-entirely — do NOT ask the user about it, do NOT try to install it. For non-bug
-tasks, implement the development workflow inline.
+**feature-dev:** DOES NOT EXIST under OpenCode. Route feature implementation to
+`superpowers:subagent-driven-development`.
 
 **If `superpowers` is missing:**
 
-> ⚠️ The `superpowers` plugin is recommended for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear in `opencode.json`.
-> Install by adding to your `opencode.json` plugin array: `"superpowers@git+https://github.com/obra/superpowers.git"`
-> Continue anyway and install manually before Step 10, or install now and re-run start-task.
+> ⚠️ The `superpowers` plugin is required but doesn't appear in `opencode.json`.
+> Run `bash setup.sh --opencode`, restart OpenCode, then re-run start-task.
 
-**Behavior:** These checks are **advisory**, not hard-blocking — the user may know the task type in advance and only need one of the two. Warn clearly, then ask:
+**If declared MCP servers are missing:**
 
-> The task category will determine which skill is invoked at Step 10. Do you want to install the missing plugin(s) now, or continue?
+> ⚠️ Required MCP servers are missing from `opencode.json`.
+> Run `bash setup.sh --opencode`, restart OpenCode, then re-run start-task.
 
-Wait for the user's answer before proceeding.
+**Behavior:** These checks are hard blockers. Do not continue inline.
+
+### If running under Codex
+
+**feature-dev:** The Claude plugin dependency is not a Codex dependency. For
+Codex feature implementation, inspect the Asana notes, comments, subtasks, and
+attachments for both a usable spec and a usable implementation plan:
+
+- **Spec present:** concrete behavior, acceptance criteria, UX/API contract, or
+  explicit constraints.
+- **Plan present:** ordered steps, affected files/modules, migration notes, or
+  test strategy.
+
+If both are present, route implementation to
+`superpowers:subagent-driven-development` and include the spec and plan excerpts
+in the handoff. This is the Codex development skill for executing from a spec
+and plan. If either is missing, do not invoke a feature-dev substitute; implement
+inline in the current Codex session, while keeping the normal QA and ship-it
+steps.
+
+**If `superpowers` is missing:**
+
+> ⚠️ The `superpowers` plugin is required but does not appear to be installed.
+> Run `bash setup.sh --codex`, install or enable `superpowers` from `/plugins` alongside `asana-workflow`, restart Codex, then re-run start-task.
+
+**If declared MCP servers are missing:**
+
+> ⚠️ Required MCP servers from `plugins/asana-workflow/.mcp.json` are unavailable.
+> Reinstall or reload the `asana-workflow` plugin, restart Codex, then re-run start-task.
+
+**Behavior:** These checks are hard blockers. Do not continue inline.
 
 ## Bundled Skills (No Installation Needed)
 

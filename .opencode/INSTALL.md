@@ -13,22 +13,14 @@ Run the setup script:
 bash setup.sh --opencode
 ```
 
-This validates prerequisites (gh, ssh, tokens) and merges the required
-configuration into your `opencode.json`. Restart OpenCode after.
+This validates prerequisites (gh, ssh, tokens) and merges the required plugin,
+dependency, and MCP configuration into your `opencode.json`. Restart OpenCode
+after.
 
 ## Manual Install
 
-Add to your `opencode.json` plugin array:
-
-```json
-{
-  "plugin": ["asana-workflow@git+https://github.com/Siroc-Lab/cortex.git"]
-}
-```
-
-### Optional: superpowers
-
-For brainstorming, TDD, and git worktree support, also install superpowers:
+Add `asana-workflow` and its required `superpowers` dependency to your
+`opencode.json` plugin array:
 
 ```json
 {
@@ -39,9 +31,10 @@ For brainstorming, TDD, and git worktree support, also install superpowers:
 }
 ```
 
-### Optional: MCP servers for QA
+### Required MCP servers for QA
 
-If you test mobile or web apps, add these MCP servers:
+The workflow expects the declared QA MCP servers to be configured alongside the
+plugin:
 
 ```json
 {
@@ -67,8 +60,8 @@ and clears the plugin cache so OpenCode picks up the newest commit.
 
 Ask OpenCode: "list available skills"
 
-You should see asana-workflow skills. Key entry point: use the skill tool to
-load `asana-workflow/start-task` with an Asana task URL.
+You should see asana-workflow and superpowers skills. Key entry point: use the
+skill tool to load `asana-workflow/start-task` with an Asana task URL.
 
 ## Getting Help
 

@@ -8,12 +8,23 @@
     "version": "1.0.0",
     "pluginRoot": "./plugins"
   },
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "asana-workflow",
       "source": "./plugins/asana-workflow",
       "description": "End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
-      "version": "1.2.1"
+      "version": "1.2.1",
+      "dependencies": [
+        {
+          "name": "feature-dev",
+          "marketplace": "claude-plugins-official"
+        },
+        {
+          "name": "superpowers",
+          "marketplace": "claude-plugins-official"
+        }
+      ]
     }
   ]
 }

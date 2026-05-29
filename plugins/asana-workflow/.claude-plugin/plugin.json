@@ -4,5 +4,15 @@
   "version": "1.2.1",
   "author": {
     "name": "SIROC Team"
-  }
+  },
+  "dependencies": [
+    {
+      "name": "feature-dev",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "superpowers",
+      "marketplace": "claude-plugins-official"
+    }
+  ]
 }

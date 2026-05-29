@@ -26,7 +26,7 @@ Receives full task context from start-task:
 
 ## Step 1: Root Cause Investigation
 
-Invoke `superpowers:systematic-debugging` with the full task context as the bug report.
+Invoke `superpowers:systematic-debugging` with the full task context as the bug report. `superpowers` is a mandatory dependency; if the skill is unavailable, stop and tell the user to install `superpowers` alongside `asana-workflow` before continuing.
 
 Do not proceed to Step 2 until systematic-debugging confirms both:
 - Root cause identified with specificity (not "it was broken")
