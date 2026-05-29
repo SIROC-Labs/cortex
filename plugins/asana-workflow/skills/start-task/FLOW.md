@@ -207,7 +207,7 @@ Task stays **"In Progress"** → ■ PAUSED
                            ╱             ╲
                          YES              NO
                           │                │
-                    EnterWorktree          │
+                    create worktree        │
                           └───────────────┘
                                  │
                                  ▼

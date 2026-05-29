@@ -16,7 +16,7 @@
 - **Claude Code plugin:** `superpowers@claude-plugins-official`
 - **OpenCode plugin:** `superpowers@git+https://github.com/obra/superpowers.git`
 - **Codex plugin:** `superpowers` from the `siroc-cortex` marketplace entry
-- **Used for:** Brainstorming, systematic debugging, TDD, git worktrees, OpenCode feature implementation, and Codex feature implementation when a usable spec and implementation plan are present
+- **Used for:** Brainstorming, systematic debugging, TDD, OpenCode feature implementation, and Codex feature implementation when a usable spec and implementation plan are present
 - **Install:**
   ```
   /plugin install superpowers@claude-plugins-official
