@@ -13,35 +13,50 @@ Run the setup script:
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds this repository as a local Codex marketplace,
-and configures the required MCP servers declared by the plugin.
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by
+default — no local clone needed; pass `--dev` to source from your working copy
+instead), and configures the required MCP servers declared by the plugin.
 
-The marketplace exposes both `asana-workflow` and the required `superpowers`
-dependency. The setup script also registers the required QA MCP servers from
-`plugins/asana-workflow/.mcp.json` with `codex mcp add`.
+The setup script then installs the plugins for you with `codex plugin add`:
+`asana-workflow` from the `siroc-cortex` marketplace, and the required
+`superpowers` dependency from the official `openai-curated` catalog (its single
+canonical source — Codex does not dedupe identically named plugins across
+marketplaces, so it is not shipped in `siroc-cortex`). The setup script also
+registers the required QA MCP servers from `plugins/asana-workflow/.mcp.json`
+with `codex mcp add`.
 
-Codex CLI currently registers local marketplaces from the shell, but plugin
-installation is completed from `/plugins`. After setup, open `/plugins`, search
-the `siroc-cortex` marketplace, and install or enable both `asana-workflow` and
-`superpowers`.
+Restart Codex afterwards to pick up the plugins and skills — no `/plugins` step
+is required.
 
 ## Manual Install
 
-Add this repository as a local Codex plugin marketplace:
+Add the marketplace. Normal install (remote — no clone needed):
+
+```bash
+codex plugin marketplace add SIROC-Labs/cortex
+```
+
+Developer install (point at a local clone instead):
 
 ```bash
 codex plugin marketplace add /absolute/path/to/cortex
 ```
 
-Use the repository root as the marketplace source, not
+For the local form, use the repository root as the marketplace source, not
 `.agents/plugins/marketplace.json` and not `plugins/asana-workflow`. Codex
-expects a local marketplace root directory that contains
+expects a marketplace root directory that contains
 `.agents/plugins/marketplace.json`.
 
-Install `asana-workflow` and `superpowers` from the `siroc-cortex` marketplace
-using `/plugins`.
-`superpowers` is required for brainstorming, systematic debugging, TDD, worktree
-workflows, and non-Claude feature implementation routing.
+Then install the plugins from the shell:
+
+```bash
+codex plugin add asana-workflow@siroc-cortex
+codex plugin add superpowers@openai-curated
+```
+
+`superpowers` is sourced from the official `openai-curated` catalog, not from
+`siroc-cortex`. It is required for brainstorming, systematic debugging, TDD, and
+non-Claude feature implementation routing.
 
 The marketplace manifest is:
 
@@ -89,4 +104,4 @@ metadata and skills.
 
 ## Getting Help
 
-- Report issues: https://github.com/Siroc-Lab/cortex/issues
+- Report issues: https://github.com/SIROC-Labs/cortex/issues

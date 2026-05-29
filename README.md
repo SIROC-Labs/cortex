@@ -60,13 +60,13 @@ See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds the local Codex marketplace, exposes `asana-workflow` alongside required `superpowers`, and configures the required MCP servers declared by the plugin. Complete plugin installation from `/plugins` in Codex.
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default — no clone needed; pass `--dev` to use your local working copy), installs `asana-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`, and configures the required MCP servers declared by the plugin. Restart Codex afterwards — no `/plugins` step needed.
 
 See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
 
 ### What the Script Does
 
-**GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `Siroc-Lab/cortex` repo.
+**GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `SIROC-Labs/cortex` repo.
 
 **Git SSH** — Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite:
 
@@ -79,9 +79,9 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 **GitHub token** — Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
 
 **Plugin installation** — Once all prerequisites pass:
-- Claude Code: prints the exact `/plugin` commands to run
+- Claude Code: installs the marketplace and `asana-workflow` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
 - OpenCode: merges the plugin configuration into `opencode.json` and clears the cache
-- Codex: adds the local marketplace, exposes `asana-workflow` and required `superpowers`, and configures declared MCP servers; plugin installation is completed from `/plugins`
+- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone), installs `asana-workflow` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`, and configures declared MCP servers
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 

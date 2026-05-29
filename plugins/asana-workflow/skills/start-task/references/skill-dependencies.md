@@ -15,7 +15,7 @@
 ### All runtimes: `superpowers`
 - **Claude Code plugin:** `superpowers@claude-plugins-official`
 - **OpenCode plugin:** `superpowers@git+https://github.com/obra/superpowers.git`
-- **Codex plugin:** `superpowers` from the `siroc-cortex` marketplace entry
+- **Codex plugin:** `superpowers@openai-curated` (the official catalog; not shipped in `siroc-cortex`)
 - **Used for:** Brainstorming, systematic debugging, TDD, OpenCode feature implementation, and Codex feature implementation when a usable spec and implementation plan are present
 - **Install:**
   ```
@@ -24,8 +24,9 @@
 
 For OpenCode, run `bash setup.sh --opencode`; it writes the superpowers plugin
 entry alongside asana-workflow. For Codex, run `bash setup.sh --codex`; it
-registers the `siroc-cortex` marketplace that exposes both `asana-workflow` and
-`superpowers`, then install or enable both from `/plugins`.
+registers the `siroc-cortex` marketplace and runs `codex plugin add` to install
+`asana-workflow` (from `siroc-cortex`) and `superpowers` (from `openai-curated`)
+automatically — no `/plugins` step required.
 
 For Claude Code, `feature-dev` and `superpowers` are declared in the plugin
 metadata and should be auto-installed when installing `asana-workflow`, provided
@@ -68,8 +69,8 @@ not available for OpenCode; route feature implementation to
 ### If running under Codex
 
 Check the available skill list for `superpowers`. If it is not available, stop
-and tell the user to install or enable `superpowers` from `/plugins` alongside
-`asana-workflow`.
+and tell the user to install it: `codex plugin add superpowers@openai-curated`
+(or re-run `bash setup.sh --codex`), then restart Codex.
 
 ## Dependency Check at Start-Task Launch (Step 0)
 
@@ -127,7 +128,7 @@ steps.
 **If `superpowers` is missing:**
 
 > ⚠️ The `superpowers` plugin is required but does not appear to be installed.
-> Run `bash setup.sh --codex`, install or enable `superpowers` from `/plugins` alongside `asana-workflow`, restart Codex, then re-run start-task.
+> Run `bash setup.sh --codex` (or `codex plugin add superpowers@openai-curated`), restart Codex, then re-run start-task.
 
 **If declared MCP servers are missing:**
 

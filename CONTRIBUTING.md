@@ -3,12 +3,15 @@
 ## One-time setup
 
 1. Clone the repo
-2. Run the setup script — validates GitHub CLI auth, SSH config, and sets `ASANA_PERSONAL_ACCESS_TOKEN` in your shell profile:
+2. Run the setup script in **developer mode** (`--dev`) so the install points at your local clone instead of the remote repo — validates GitHub CLI auth, SSH config, and sets `ASANA_PERSONAL_ACCESS_TOKEN` in your shell profile:
    ```bash
-   bash setup.sh
+   bash setup.sh --dev              # Claude Code
+   bash setup.sh --opencode --dev   # OpenCode
+   bash setup.sh --codex --dev      # Codex
    ```
-3. Load the plugin:
-   - **Claude Code:** Add the local marketplace and install:
+   Without `--dev` the script does the normal install from the remote `SIROC-Labs/cortex` repo (no clone needed) — that's the end-user path.
+3. The script completes installation for you. To do it manually instead:
+   - **Claude Code:**
      ```
      /plugin marketplace add /path/to/cortex
      /plugin install asana-workflow@siroc-cortex
@@ -17,11 +20,13 @@
      ```json
      { "plugin": ["/absolute/path/to/cortex"] }
      ```
-   - **Codex:** Add the local marketplace at:
+   - **Codex:** Add the local clone as the marketplace (use the repo root, which contains `.agents/plugins/marketplace.json`), then install the plugins:
+     ```bash
+     codex plugin marketplace add /path/to/cortex
+     codex plugin add asana-workflow@siroc-cortex
+     codex plugin add superpowers@openai-curated
      ```
-     /path/to/cortex/.agents/plugins/marketplace.json
-     ```
-     The local marketplace exposes both `asana-workflow` and required `superpowers`; run `bash setup.sh --codex` to register the required MCP servers, then install or enable both plugins from `/plugins`.
+     `superpowers` comes from the official `openai-curated` catalog, not from `siroc-cortex`.
 
 ## Development loop
 

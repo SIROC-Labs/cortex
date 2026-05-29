@@ -25,7 +25,7 @@ Add `asana-workflow` and its required `superpowers` dependency to your
 ```json
 {
   "plugin": [
-    "asana-workflow@git+https://github.com/Siroc-Lab/cortex.git",
+    "asana-workflow@git+https://github.com/SIROC-Labs/cortex.git",
     "superpowers@git+https://github.com/obra/superpowers.git"
   ]
 }
@@ -65,4 +65,4 @@ skill tool to load `asana-workflow/start-task` with an Asana task URL.
 
 ## Getting Help
 
-- Report issues: https://github.com/Siroc-Lab/cortex/issues
+- Report issues: https://github.com/SIROC-Labs/cortex/issues
