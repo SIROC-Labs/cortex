@@ -112,11 +112,14 @@ The script is idempotent — it re-merges the latest configuration and clears th
 
 ### Codex
 
+Update with the Codex CLI:
+
 ```bash
-bash setup.sh --codex
+codex plugin marketplace upgrade siroc-cortex
+codex plugin add asana-workflow@siroc-cortex
 ```
 
-Pull the latest repository changes and restart Codex so it reloads plugin metadata and skills.
+Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run `codex plugin add asana-workflow@siroc-cortex` instead — `marketplace upgrade` only applies to the remote Git marketplace.
 
 ## Contributing
 
