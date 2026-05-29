@@ -8,17 +8,26 @@ set -euo pipefail
 #   bash setup.sh              Claude Code setup (default)
 #   bash setup.sh --opencode    OpenCode setup
 #   bash setup.sh --codex       Codex setup
+#   bash setup.sh --dev         Developer install: point at this local clone
+#                               instead of the remote repo (combine with the
+#                               agent flag, e.g. `bash setup.sh --codex --dev`)
+#
+# By default the install is "normal": the marketplace/plugin source is the remote
+# SIROC-Labs/cortex repo, so no local clone of the repo is required. Pass --dev to
+# source from this working copy instead.
 
-MARKETPLACE_REPO="Siroc-Lab/cortex"
+MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
 OP_ENCODE=false
 CODEX=false
+DEV=false
 for arg in "$@"; do
   case "$arg" in
     --opencode) OP_ENCODE=true ;;
     --codex) CODEX=true ;;
+    --dev) DEV=true ;;
   esac
 done
 
@@ -328,21 +337,24 @@ configure_opencode() {
   # Ensure config directory exists
   mkdir -p "$CONFIG_DIR"
 
-  # Add plugins and merge mcpServers into opencode.json
-  # Detect repo root for local development
+  # Add plugins and merge mcpServers into opencode.json. Default to the remote
+  # git+ URL; only in --dev mode pass the local clone path to use instead.
   local SCRIPT_DIR
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local DEV_ROOT=""
+  [ "$DEV" = true ] && DEV_ROOT="$SCRIPT_DIR"
 
-  python3 - "$CONFIG_FILE" "$SCRIPT_DIR" <<'PYEOF'
+  python3 - "$CONFIG_FILE" "$DEV_ROOT" <<'PYEOF'
 import json, sys, os
 
 config_path = sys.argv[1]
-cortex_entry = "asana-workflow@git+https://github.com/Siroc-Lab/cortex.git"
+cortex_entry = "asana-workflow@git+https://github.com/SIROC-Labs/cortex.git"
 superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
 
-# If running from within the repo clone, use local path instead of git+ URL
+# In --dev mode, argv[2] is the local clone path; use it instead of the git+ URL.
 script_root = sys.argv[2] if len(sys.argv) > 2 else ""
-if script_root and os.path.isfile(os.path.join(script_root, "package.json")):
+dev = bool(script_root and os.path.isfile(os.path.join(script_root, "package.json")))
+if dev:
     cortex_entry = script_root
 
 try:
@@ -352,16 +364,44 @@ except (FileNotFoundError, json.JSONDecodeError):
     config = {}
 
 plugins = config.get("plugin", [])
-if cortex_entry not in plugins:
-    plugins.append(cortex_entry)
-if superpowers_entry not in plugins:
-    plugins.append(superpowers_entry)
+
+def spec_name(spec):
+    # Resolve a plugin spec to its plugin name so we dedupe across spec forms
+    # (git+ URL, pinned #ref, plain npm name, or local clone path).
+    s = str(spec).strip().rstrip("/")
+    # Local clone path: the dir basename (e.g. "cortex") is NOT the plugin name,
+    # so read the real name from its package.json.
+    expanded = os.path.expanduser(s)
+    if os.path.isdir(expanded):
+        try:
+            with open(os.path.join(expanded, "package.json")) as f:
+                return json.load(f).get("name") or os.path.basename(s)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return os.path.basename(s)
+    if s.startswith("@"):  # scoped npm package: @scope/name[@version]
+        return "@" + s[1:].split("@", 1)[0]
+    base = s.split("@", 1)[0]
+    if "/" in base:        # path or URL without a name@ prefix
+        base = base.rsplit("/", 1)[-1]
+    return base
+
+# In --dev, force the local asana-workflow path by dropping any existing entry first,
+# so the local clone replaces it instead of being skipped by the dedupe below.
+if dev:
+    plugins = [p for p in plugins if spec_name(p) != "asana-workflow"]
+
+# Add each plugin by canonical name, so an entry already present in ANY spec form
+# (e.g. a pinned or differently-sourced superpowers) is respected instead of duplicated.
+existing = {spec_name(p) for p in plugins}
+for name, entry in (("asana-workflow", cortex_entry), ("superpowers", superpowers_entry)):
+    if name not in existing:
+        plugins.append(entry)
+        existing.add(name)
 config["plugin"] = plugins
 
-mcp = config.get("mcp", {})
-mcp["mobile-mcp"] = {"type": "local", "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"]}
-mcp["chrome-devtools"] = {"type": "local", "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]}
-config["mcp"] = mcp
+# MCP servers are registered at load time by the OpenCode adapter
+# (.opencode/plugins/asana-workflow.js) from the plugin's bundled .mcp.json — the
+# single source of truth (shared with Claude and Codex). Not written here.
 
 perm = config.get("permission", {})
 ext = perm.get("external_directory", {})
@@ -401,9 +441,6 @@ PYEOF
 configure_codex() {
   local SCRIPT_DIR
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local MARKETPLACE_FILE="${SCRIPT_DIR}/.agents/plugins/marketplace.json"
-  local PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.codex-plugin/plugin.json"
-  local MCP_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json"
 
   info "Configuring Codex..."
 
@@ -415,69 +452,118 @@ configure_codex() {
 
   pass "Codex CLI installed ($(codex --version | head -1))"
 
-  if [ ! -f "$MARKETPLACE_FILE" ]; then
-    fail "Missing Codex marketplace: ${MARKETPLACE_FILE}"
-    return 1
-  fi
+  # Default to the remote marketplace (GitHub repo); --dev uses the local clone root.
+  local MP_SOURCE="$MARKETPLACE_REPO"
+  if [ "$DEV" = true ]; then
+    MP_SOURCE="$SCRIPT_DIR"
 
-  if [ ! -f "$PLUGIN_MANIFEST" ]; then
-    fail "Missing Codex plugin manifest: ${PLUGIN_MANIFEST}"
-    return 1
-  fi
-
-  if [ ! -f "$MCP_MANIFEST" ]; then
-    fail "Missing MCP manifest: ${MCP_MANIFEST}"
-    return 1
-  fi
-
-  python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
+    # Validate the local marketplace + plugin manifests before registering them.
+    local MARKETPLACE_FILE="${SCRIPT_DIR}/.agents/plugins/marketplace.json"
+    local PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.codex-plugin/plugin.json"
+    local MCP_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json"
+    for manifest in "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST"; do
+      if [ ! -f "$manifest" ]; then
+        fail "Missing local Codex manifest: ${manifest}"
+        return 1
+      fi
+    done
+    if python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
 import json, sys
-
 for path in sys.argv[1:]:
     with open(path) as f:
         json.load(f)
-
 print("OK")
 PYEOF
+    then
+      pass "Local Codex manifests valid"
+    else
+      fail "Codex plugin metadata is invalid JSON"
+      return 1
+    fi
 
-  if [ $? -eq 0 ]; then
-    pass "Codex marketplace ready at ${MARKETPLACE_FILE}"
-    pass "Codex plugin manifest ready at ${PLUGIN_MANIFEST}"
-    pass "MCP manifest ready at ${MCP_MANIFEST}"
-  else
-    fail "Codex plugin metadata is invalid JSON"
-    return 1
+    # Force a clean re-point to the local clone: remove the installed plugin and the
+    # marketplace first, since `marketplace add`/`upgrade` are idempotent and won't
+    # switch an already-registered source.
+    info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
+    codex plugin remove "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+    codex plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
   fi
 
-  if codex plugin marketplace add "$SCRIPT_DIR" >/dev/null 2>&1; then
-    pass "Codex marketplace added from ${SCRIPT_DIR}"
+  if codex plugin marketplace add "$MP_SOURCE" >/dev/null 2>&1; then
+    pass "Codex marketplace added from ${MP_SOURCE}"
   elif codex plugin marketplace upgrade "$MARKETPLACE_NAME" >/dev/null 2>&1; then
     pass "Codex marketplace already present — upgraded ${MARKETPLACE_NAME}"
   else
     fail "Failed to add or upgrade Codex marketplace"
-    info "Try manually: codex plugin marketplace add ${SCRIPT_DIR}"
+    info "Try manually: codex plugin marketplace add ${MP_SOURCE}"
     return 1
   fi
 
-  # Install declared MCPs alongside the plugin. Recreate our named entries so
-  # reruns update command arguments when this repo changes.
-  if codex mcp get mobile-mcp >/dev/null 2>&1; then
-    codex mcp remove mobile-mcp >/dev/null 2>&1 || true
-  fi
-  if codex mcp add mobile-mcp -- npx -y @mobilenext/mobile-mcp@latest >/dev/null 2>&1; then
-    pass "Codex MCP configured: mobile-mcp"
+  # MCP servers (mobile-mcp, chrome-devtools) are declared in the plugin manifest
+  # (.codex-plugin/plugin.json -> ./.mcp.json) and load automatically when the plugin
+  # is enabled — no `codex mcp add` needed. Verified: they stay available with zero
+  # [mcp_servers] entries in config.toml.
+
+  # Install asana-workflow from our marketplace snapshot (global, in ~/.codex/config.toml).
+  if codex plugin add "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
+    pass "Codex plugin installed: asana-workflow@${MARKETPLACE_NAME}"
   else
-    fail "Failed to configure Codex MCP: mobile-mcp"
+    fail "Failed to install plugin; install manually: codex plugin add asana-workflow@${MARKETPLACE_NAME}"
     return 1
   fi
 
-  if codex mcp get chrome-devtools >/dev/null 2>&1; then
-    codex mcp remove chrome-devtools >/dev/null 2>&1 || true
-  fi
-  if codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest --experimentalScreencast >/dev/null 2>&1; then
-    pass "Codex MCP configured: chrome-devtools"
+  # superpowers is sourced from the official openai-curated catalog — its single
+  # canonical source — NOT from our marketplace. Codex does not dedupe identically
+  # named plugins across marketplaces, so shipping our own copy too would load its
+  # skills twice. `codex plugin add` is idempotent, so this runs unconditionally.
+  # Non-fatal: openai-curated may be unavailable in some environments.
+  if codex plugin add superpowers@openai-curated >/dev/null 2>&1; then
+    pass "Codex dependency installed: superpowers@openai-curated"
   else
-    fail "Failed to configure Codex MCP: chrome-devtools"
+    warn "Could not auto-install superpowers@openai-curated — install it manually:"
+    warn "  codex plugin add superpowers@openai-curated"
+  fi
+
+  return 0
+}
+
+configure_claude() {
+  # Returns: 0 installed, 1 a step failed, 2 claude CLI not found (caller prints manual steps)
+  local SCRIPT_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if ! command -v claude &>/dev/null; then
+    return 2
+  fi
+
+  # Default to the remote GitHub marketplace; --dev uses the local clone.
+  local MP_SOURCE="$MARKETPLACE_REPO"
+  [ "$DEV" = true ] && MP_SOURCE="$SCRIPT_DIR"
+
+  # In --dev, force a clean re-point to the local clone: uninstall the plugin and
+  # remove the marketplace first, since `marketplace add` is idempotent and won't
+  # switch an already-registered source.
+  if [ "$DEV" = true ]; then
+    info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
+    claude plugin uninstall "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+    claude plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+  fi
+
+  info "Adding marketplace ${MARKETPLACE_NAME} (user scope)..."
+  if claude plugin marketplace add "$MP_SOURCE" >/dev/null 2>&1; then
+    pass "Marketplace ${MARKETPLACE_NAME} ready"
+  else
+    fail "Failed to add marketplace; add manually: claude plugin marketplace add ${MP_SOURCE}"
+    return 1
+  fi
+
+  # Installing the plugin auto-resolves its declared dependencies (feature-dev,
+  # superpowers) from claude-plugins-official via allowCrossMarketplaceDependenciesOn.
+  info "Installing asana-workflow plugin (user scope)..."
+  if claude plugin install "asana-workflow@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
+    pass "Plugin installed: asana-workflow@${MARKETPLACE_NAME}"
+  else
+    fail "Failed to install plugin; install manually: claude plugin install asana-workflow@${MARKETPLACE_NAME}"
     return 1
   fi
 
@@ -544,11 +630,8 @@ elif [ "$CODEX" = true ]; then
   echo -e "${GREEN}  Environment ready!${NC}"
   echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  echo "  Codex marketplace and required MCP servers are configured."
-  echo ""
-  echo "  Open /plugins in Codex and install or enable both plugins from siroc-cortex:"
-  echo -e "    ${BOLD}asana-workflow${NC}"
-  echo -e "    ${BOLD}superpowers${NC}"
+  echo "  asana-workflow + superpowers (from openai-curated) are installed, and the"
+  echo "  required MCP servers are configured."
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
@@ -568,10 +651,8 @@ elif [ "$CODEX" = true ]; then
   fi
 else
   # ─────────────────────────────────────────────
-  # Claude Code: show install commands
+  # Claude Code: install marketplace + plugin (user/global scope)
   # ─────────────────────────────────────────────
-  step 5 "Next steps"
-
   if [ "$ERRORS" -gt 0 ]; then
     echo ""
     fail "${ERRORS} error(s) found — fix them and re-run this script"
@@ -579,47 +660,35 @@ else
     exit 1
   fi
 
+  step 5 "Claude Code plugin installation"
   pass "All prerequisites met"
+  configure_claude
+  CLAUDE_RC=$?
 
-  # Fetch marketplace.json to show available plugins
-  MARKETPLACE_JSON=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
-    --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-
+  step 6 "Done"
   echo ""
   echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${GREEN}  Environment ready!${NC}"
   echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  echo "  Open Claude Code and run these commands:"
-  echo ""
-  echo -e "    ${BOLD}1.${NC} Add the marketplace:"
-  echo -e "       ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
-  echo ""
 
-  if [ -n "$MARKETPLACE_JSON" ]; then
-    echo -e "    ${BOLD}2.${NC} Install plugins:"
-    echo "$MARKETPLACE_JSON" | python3 -c "
-import sys, json
-plugins = json.load(sys.stdin)['plugins']
-for p in plugins:
-    name = p['name']
-    desc = p.get('description', '')
-    version = p.get('version', '?')
-    print(f'       \033[0;32m/plugin install {name}@${MARKETPLACE_NAME}\033[0m  (v{version})')
-    if desc:
-        print(f'         {desc}')
-    print()
-" 2>/dev/null
+  if [ "$CLAUDE_RC" -eq 0 ]; then
+    echo "  asana-workflow is installed (user scope); its dependencies (feature-dev,"
+    echo "  superpowers) were resolved automatically."
+    echo ""
+    echo "  Restart Claude Code to load the plugin and skills."
+    echo ""
+    echo "  Manage plugins:"
+    echo -e "    claude plugin list                                — See installed plugins"
+    echo -e "    claude plugin update asana-workflow@${MARKETPLACE_NAME}  — Pull latest version"
+    echo ""
   else
-    echo -e "    ${BOLD}2.${NC} Install plugins:"
-    echo -e "       ${GREEN}/plugin install <plugin-name>@${MARKETPLACE_NAME}${NC}"
+    echo "  Claude Code CLI not found on PATH — finish install from inside Claude Code:"
+    echo ""
+    echo -e "    ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
+    echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
     echo ""
   fi
-
-  echo "  Manage plugins:"
-  echo -e "    /plugin list                              — See installed plugins"
-  echo -e "    /plugin marketplace update ${MARKETPLACE_NAME}  — Pull latest versions"
-  echo ""
 
   if [ "$PROFILE_CHANGED" = true ]; then
     echo ""

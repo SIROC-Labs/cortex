@@ -4,10 +4,10 @@
   "description": "End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
   "author": {
     "name": "SIROC Team",
-    "url": "https://github.com/Siroc-Lab"
+    "url": "https://github.com/SIROC-Labs"
   },
-  "homepage": "https://github.com/Siroc-Lab/cortex",
-  "repository": "https://github.com/Siroc-Lab/cortex",
+  "homepage": "https://github.com/SIROC-Labs/cortex",
+  "repository": "https://github.com/SIROC-Labs/cortex",
   "license": "Proprietary",
   "keywords": ["asana", "workflow", "tasks", "qa", "pull-requests"],
   "skills": "./skills/",
@@ -19,7 +19,7 @@
     "developerName": "SIROC Team",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
-    "websiteURL": "https://github.com/Siroc-Lab/cortex",
+    "websiteURL": "https://github.com/SIROC-Labs/cortex",
     "defaultPrompt": [
       "Start work from this Asana task URL.",
       "Ship the current Asana workflow task.",
