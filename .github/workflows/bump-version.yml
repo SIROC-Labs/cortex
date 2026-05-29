@@ -67,9 +67,12 @@ jobs:
         run: |
           PLUGIN="${{ inputs.plugin }}"
           NEW_VERSION="${{ steps.bump.outputs.new_version }}"
-          PLUGIN_FILE="plugins/${PLUGIN}/.claude-plugin/plugin.json"
-          MARKETPLACE_FILE=".claude-plugin/marketplace.json"
-          PACKAGE_FILE="package.json"
+          # Each agent discovers the plugin through a different manifest; keep their versions in lockstep.
+          PLUGIN_FILE="plugins/${PLUGIN}/.claude-plugin/plugin.json"        # Claude Code: per-plugin manifest
+          MARKETPLACE_FILE=".claude-plugin/marketplace.json"                # Claude Code: marketplace entry
+          PACKAGE_FILE="package.json"                                       # OpenCode: npm manifest (asana-workflow only)
+          CODEX_PLUGIN_FILE="plugins/${PLUGIN}/.codex-plugin/plugin.json"   # Codex: per-plugin manifest (if present)
+          # Note: the Codex marketplace (.agents/plugins/marketplace.json) has no version field, so nothing to bump there.
 
           python3 - "$PLUGIN_FILE" "$NEW_VERSION" <<'PYEOF'
           import sys, json
@@ -96,7 +99,9 @@ jobs:
               f.write('\n')
           PYEOF
 
-          python3 - "$PACKAGE_FILE" "$NEW_VERSION" <<'PYEOF'
+          # package.json is the asana-workflow OpenCode manifest; only bump it for that plugin
+          if [ "$PLUGIN" = "asana-workflow" ]; then
+            python3 - "$PACKAGE_FILE" "$NEW_VERSION" <<'PYEOF'
           import sys, json
           file, ver = sys.argv[1], sys.argv[2]
           with open(file) as f:
@@ -106,6 +111,21 @@ jobs:
               json.dump(data, f, indent=2)
               f.write('\n')
           PYEOF
+          fi
+
+          # Codex per-plugin manifest: same top-level version shape as plugin.json; bump only if the plugin ships one
+          if [ -f "$CODEX_PLUGIN_FILE" ]; then
+            python3 - "$CODEX_PLUGIN_FILE" "$NEW_VERSION" <<'PYEOF'
+          import sys, json
+          file, ver = sys.argv[1], sys.argv[2]
+          with open(file) as f:
+              data = json.load(f)
+          data['version'] = ver
+          with open(file, 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          PYEOF
+          fi
 
       - name: Commit and push
         if: inputs.dry_run != true
@@ -119,8 +139,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add "plugins/${PLUGIN}/.claude-plugin/plugin.json" \
-                  .claude-plugin/marketplace.json \
-                  package.json
+                  .claude-plugin/marketplace.json
+          if [ "$PLUGIN" = "asana-workflow" ]; then
+            git add package.json
+          fi
+          if [ -f "plugins/${PLUGIN}/.codex-plugin/plugin.json" ]; then
+            git add "plugins/${PLUGIN}/.codex-plugin/plugin.json"
+          fi
 
           git commit -m "chore(${PLUGIN}): bump version ${OLD} → ${NEW}"
           git tag "${TAG}"
