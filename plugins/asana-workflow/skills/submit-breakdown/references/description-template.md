@@ -8,6 +8,22 @@ The description does **not** contain an implementation plan. That is produced la
 
 Use Asana HTML formatting (see Formatting Rules below).
 
+### 0. Visual Context (Figma / Screenshot)
+
+**Only include this section when visual references exist.** It renders before Purpose so a developer opening the task sees the design immediately.
+
+**Figma link:** If a Figma URL exists in the aggregated references (task, milestone, or file header), render it as a standalone link at the very top of the description body, before all other content:
+
+```html
+<a href="https://figma.com/...">→ View in Figma</a>
+```
+
+Use the label from the breakdown (e.g. "Figma — Mapping step" → `→ Figma — Mapping step`). If the breakdown says "Not yet available" or has no Figma URL, skip this line entirely — do not render a placeholder.
+
+**Screenshots from a prototype:** Asana's `html_notes` does **not** support `<img>` tags — the API returns an XML parsing error if you include one. Screenshots must be uploaded as file attachments via `POST /attachments` with `parent=<task_gid>`. Asana then displays them as image thumbnails visible immediately below the description. See Phase 3.5 in the skill for when and how to upload them.
+
+Do **not** try to embed screenshot URLs inline in the description. It will fail.
+
 ### 1. Purpose
 
 One sentence: why this task exists and what it unlocks. Pull verbatim from the breakdown task entry's `Purpose:` field.
@@ -86,6 +102,8 @@ For a task entry in the breakdown that looks like:
 inside an `M1` milestone with `References: Sprint plan: https://asana.com/...` and a file header `References: Spec: docs/spec.md, Figma: https://figma.com/file/abc`, the Asana task description becomes:
 
 ```html
+<a href="https://figma.com/file/abc">→ Figma</a>
+
 <strong>Purpose</strong>
 Implements the employee CRUD API so the frontend can list, create, and edit employees.
 <strong>Description</strong>
@@ -128,6 +146,7 @@ Asana renders a subset of HTML. These rules produce clean, compact descriptions.
 - Never use `<h1>`, `<h2>`, or any heading tags — they add excessive whitespace in Asana
 - Never use `<code>` or `<pre>` — Asana renders them poorly
 - Never use `<br>` between sections — use `\n` only
+- **Never use `<img>`** — Asana's `html_notes` parser treats the description as XML and rejects any `<img>` tag (even self-closing `<img />`), returning HTTP 400 `xml_parsing_error`. Upload images as file attachments instead (see Phase 3.5).
 
 ### Spacing
 - One `\n` between `</ul>` and the next `<strong>`
