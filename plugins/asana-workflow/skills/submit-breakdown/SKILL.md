@@ -42,7 +42,7 @@ If either input is missing, ask for it before proceeding.
 1. **Fetch the project** to get sections (these map to milestones).
 2. **Discover custom field GIDs** by fetching the project's custom field settings. The field names are standard but GIDs vary per project:
    - **Platform** — enum: Backend, Frontend, Design, iOS, Android
-   - **Estimate** — number (hours)
+   - **Estimate** — number (minutes)
    - **Category** — enum: Feature Request, Technical Request, Bug, Customer Support, Documentation
    - **Priority** — enum: P0, P1, P2, P3, P4
    - **Product Status** — enum: Requirements, Sizing, **Refinement**, Unassigned, Scheduled, Assigned, Ready, Canceled
@@ -90,7 +90,7 @@ For each task, create it with:
 - **Section** — corresponds to the breakdown's milestone (create the section if missing)
 - **Custom fields:**
   - Platform — from the breakdown task entry
-  - Estimate — from the breakdown task entry's `Estimate:` field, converted from `hh:mm` to decimal hours (e.g., `01:30` → `1.5`)
+  - Estimate — from the breakdown task entry's `Estimate:` field, converted from `hh:mm` to minutes (e.g., `01:30` → `90`)
   - Category — from the breakdown task entry
   - Priority — default `P3`
   - **Product Status** — conditional on the task's Platform (using the enum option GIDs resolved in Phase 1a):
