@@ -63,6 +63,8 @@ For each milestone, propose the tasks — their platform, ordering, and scoping.
 
 Explain the rationale for ordering and scoping decisions. These decisions embody the core value of the breakdown — the "why" matters as much as the "what."
 
+**Write task descriptions in product language.** The `Description:` field must be understandable by anyone on the team — PM, designer, developer, QA — not just the engineer who will implement it. Lead with what the user sees or experiences when this task is done. Do not lead with the implementation approach (which API, which component, which pattern). Those details belong in the refinement step, once the codebase is read. See `references/output-format.md` → "Description" for examples and the full rule.
+
 ### Phase 3.5: Validate and Estimate
 
 After tasks are decomposed and before the user reviews them, walk every task and run two checks:

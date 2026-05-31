@@ -32,7 +32,11 @@ One sentence: why this task exists and what it unlocks. Pull verbatim from the b
 
 ### 2. Description
 
-The 2–5 sentence summary from the breakdown task entry's `Description:` field. State what needs to be built; do not list files or implementation steps — that is handled later during refinement, when the codebase is read.
+The 2–5 sentence summary from the breakdown task entry's `Description:` field, rendered verbatim.
+
+The description must be written in **product language** — what the user sees or experiences, not how it is coded. A PM, designer, or QA engineer reading this task should immediately understand what's being built and why. Implementation details (which endpoint, which hook, which component pattern) are not needed here and will be added during refinement.
+
+If the breakdown description is too developer-centric (leads with a class name, an API call, or a framework pattern), rewrite it in product terms before rendering it into the Asana task. This is the one case where submit-breakdown is allowed to rephrase breakdown content — the goal is a description any team member can understand, not a literal transcription of technical shorthand.
 
 ### 3. Scope
 
