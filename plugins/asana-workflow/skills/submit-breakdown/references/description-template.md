@@ -32,20 +32,19 @@ One sentence: why this task exists and what it unlocks. Pull verbatim from the b
 
 ### 2. Description
 
-The 2–5 sentence summary from the breakdown task entry's `Description:` field, rendered verbatim.
+2–3 sentences from the breakdown task entry's `Description:` field, rendered verbatim (or rewritten per the rule below).
 
 The description must be written in **product language** — what the user sees or experiences, not how it is coded. A PM, designer, or QA engineer reading this task should immediately understand what's being built and why. Implementation details (which endpoint, which hook, which component pattern) are not needed here and will be added during refinement.
 
-If the breakdown description is too developer-centric (leads with a class name, an API call, or a framework pattern), rewrite it in product terms before rendering it into the Asana task. This is the one case where submit-breakdown is allowed to rephrase breakdown content — the goal is a description any team member can understand, not a literal transcription of technical shorthand.
+**Keep it brief and high-level.** Do not embed inline enumerations like `(1) Campaign — …; (2) Creative — …; (3) Parameters — …`. If a task has multiple components, name them at a summary level in prose and let the Acceptance criteria carry the specifics.
 
-### 3. Scope
+If the breakdown description is too developer-centric (leads with a class name, an API call, or a framework pattern) or too long, rewrite it in product terms before rendering it into the Asana task. This is the one case where submit-breakdown is allowed to rephrase breakdown content — the goal is a description any team member can understand, not a literal transcription of technical shorthand.
 
-Pulled from the breakdown task entry's `Description:` and `Out of scope:` fields combined. Two bullet groups:
+### 3. Out of scope
 
-- **In scope:** what this task delivers
-- **Out of scope:** explicit "Do NOT" restrictions from the breakdown's `Out of scope:` field, each suffixed with "— that is a separate task" when it refers to other work in the breakdown
+Optional. Only render this section when the breakdown task entry has an `Out of scope:` field. Each restriction is a bullet, each suffixed with "— that is a separate task" when it refers to other work in the breakdown.
 
-If the breakdown has no `Out of scope:` field, omit the Out of scope bullets entirely.
+Omit this section entirely when the breakdown has no `Out of scope:` field.
 
 ### 4. Acceptance Criteria
 
@@ -106,12 +105,9 @@ inside an `M1` milestone with `References: Sprint plan: https://asana.com/...` a
 Implements the employee CRUD API so the frontend can list, create, and edit employees.
 
 <strong>Description</strong>
-Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
+Adds CRUD endpoints for employees — create, read, update, and soft-delete — so the frontend can manage employee records against a live backend.
 
-<strong>Scope — In scope</strong>
-<ul><li>GET/POST/PUT/DELETE endpoints under /employees</li><li>Soft-delete on DELETE</li><li>404 with error message for unknown IDs</li></ul>
-
-<strong>Scope — Out of scope</strong>
+<strong>Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
 
 <strong>Acceptance criteria</strong>
@@ -138,7 +134,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 Asana renders a subset of HTML. These rules produce clean, compact descriptions.
 
 ### Tags to use
-- `<strong>` for section titles (Purpose, Description, Scope — In scope, etc.)
+- `<strong>` for section titles (Purpose, Description, Out of scope, Acceptance criteria, References)
 - `<em>` for file paths, function names, types, and technical terms
 - `<ul><li>` for bullet lists
 - `<a href="...">` for links (Figma URLs, external docs, dependency Asana links)
@@ -158,8 +154,7 @@ Two section types, two rules — apply them consistently:
 | Figma/screenshot link | inline `<a>` | `\n\n` |
 | Purpose | plain text | `\n\n` |
 | Description | plain text | `\n\n` |
-| Scope — In scope | `<ul>` | `\n` |
-| Scope — Out of scope | `<ul>` | `\n` |
+| Out of scope | `<ul>` | `\n` |
 | Acceptance criteria | `<ul>` | `\n` |
 | References | `<ul>` (last — no trailing separator) | — |
 

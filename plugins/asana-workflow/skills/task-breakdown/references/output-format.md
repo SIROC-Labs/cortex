@@ -50,7 +50,7 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 
 ### T1 — [Platform] — [Category] — [Task Name]
 **Purpose:** [One sentence — why this task exists and what it achieves, from the user's perspective]
-**Description:** [2-5 sentences — what the user sees or experiences when this task is done. Write in product language anyone on the team can understand — PM, designer, developer. Lead with user-facing behaviour, not implementation approach. API endpoints, class names, and technical patterns belong in refinement; not here.]
+**Description:** [2-3 sentences — what the user sees or experiences when this task is done. Write in product language anyone on the team can understand — PM, designer, developer. Lead with user-facing behaviour, not implementation approach. No inline enumerations like (1)…(2)…(3)… — summarise at a high level; let Acceptance criteria carry the specifics. API endpoints, class names, and technical patterns belong in refinement; not here.]
 **Estimate:** [hh:mm in quarter-hour precision — e.g. 00:15, 00:30, 01:00, 01:30, 02:45, 04:00]
 **Acceptance criteria:**
 - [Observable outcome 1]
@@ -147,7 +147,9 @@ When `submit-breakdown` builds the Asana task description, it aggregates referen
 
 ### Description
 
-2–5 sentences that explain the task to anyone on the team — PM, designer, developer, QA. The test: could a product manager read this and immediately understand what's being built and why it matters to the user?
+2–3 sentences that explain the task to anyone on the team — PM, designer, developer, QA. The test: could a product manager read this and immediately understand what's being built and why it matters to the user?
+
+**Keep it brief and high-level.** Do not embed inline enumerations like `(1) Campaign — …; (2) Creative — …`. If a task has multiple components, name them in summary prose and let the Acceptance criteria carry the specifics. A description that lists every domain model, port method, or technical pattern is too long — that detail belongs in refinement.
 
 **Write in product language, not developer language.**
 

@@ -76,7 +76,7 @@ If the user wants to re-refine a task, they must first change its status back to
 
 ### 2b. Per-task context
 
-Read each task's full Asana description. A properly-prepared task already contains Purpose, Description, Scope, Acceptance Criteria, and an aggregated References list — that's the input contract refine-tasks expects. No external file lookup is needed; if the description is missing any of these fields, surface that to the user and ask whether to proceed anyway or abort the task.
+Read each task's full Asana description. A properly-prepared task already contains Purpose, Description, Acceptance Criteria, an optional Out of scope, and an aggregated References list — that's the input contract refine-tasks expects. No external file lookup is needed; if the description is missing any of these fields, surface that to the user and ask whether to proceed anyway or abort the task.
 
 ### 2c. Codebase
 
