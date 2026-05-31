@@ -110,16 +110,22 @@ inside an `M1` milestone with `References: Sprint plan: https://asana.com/...` a
 
 <strong>Purpose</strong>
 Implements the employee CRUD API so the frontend can list, create, and edit employees.
+
 <strong>Description</strong>
 Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
+
 <strong>Scope — In scope</strong>
 <ul><li>GET/POST/PUT/DELETE endpoints under /employees</li><li>Soft-delete on DELETE</li><li>404 with error message for unknown IDs</li></ul>
+
 <strong>Scope — Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
+
 <strong>Dependencies</strong>
 <ul><li><a href="https://app.asana.com/0/1199384720000001/1199384720000123">Setup employee entity + repository</a></li><li><a href="https://app.asana.com/0/1199384720000001/1199384720000124">Employee migration</a></li></ul>
+
 <strong>Acceptance criteria</strong>
 <ul><li>GET /employees returns all employees with name, role, department</li><li>POST /employees creates and returns entity with generated ID</li><li>GET /employees/{id} returns 404 with error message for nonexistent IDs</li><li>DELETE soft-deletes (sets is_active=false)</li></ul>
+
 <strong>References</strong>
 <ul><li>API style guide: <em>docs/api-style.md</em></li><li>Sprint plan: <a href="https://asana.com/...">https://asana.com/...</a></li><li>Spec: <em>docs/spec.md</em></li><li>Figma: <a href="https://figma.com/file/abc">https://figma.com/file/abc</a></li></ul>
 ```
@@ -153,9 +159,22 @@ Asana renders a subset of HTML. These rules produce clean, compact descriptions.
 - **Never use `<img>`** — Asana's `html_notes` parser treats the description as XML and rejects any `<img>` tag (even self-closing `<img />`), returning HTTP 400 `xml_parsing_error`. Upload images as file attachments instead (see Phase 3.5).
 
 ### Spacing
-- One `\n` between `</ul>` and the next `<strong>`
-- Body text starts immediately after the `<strong>` title line
-- No extra blank lines anywhere — keep it compact
+
+Two section types, two rules — apply them consistently:
+
+| Section | Body type | Separator before next `<strong>` |
+|---|---|---|
+| Figma/screenshot link | inline `<a>` | `\n\n` |
+| Purpose | plain text | `\n\n` |
+| Description | plain text | `\n\n` |
+| Scope — In scope | `<ul>` | `\n` |
+| Scope — Out of scope | `<ul>` | `\n` |
+| Acceptance criteria | `<ul>` | `\n` |
+| References | `<ul>` (last — no trailing separator) | — |
+
+**Rule:** `\n\n` after plain text, `\n` after `</ul>`. Body text starts on the line immediately after its `<strong>` title — no blank line between the heading and the content.
+
+Dependencies are **not** written in the description. They are wired natively in Asana via the task dependency graph (Phase 3 Step 2), where they are already visible as blocking relationships. Repeating them in the description text adds no information.
 
 ### Wrapping for Asana API
 Always pass descriptions to `asana_create_task` as `html_notes` wrapped in `<body>...</body>`.
