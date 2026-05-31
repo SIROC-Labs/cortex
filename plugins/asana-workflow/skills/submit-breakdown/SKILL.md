@@ -131,6 +131,60 @@ After all tasks and dependencies are set, summarize so the user knows which task
 
 ---
 
+## Phase 3.5: Visual Assets
+
+After all tasks are created, enrich them with visual context — Figma links (already in the description) and prototype screenshots (uploaded as attachments). This phase is **conditional**: skip it entirely if neither Figma links nor a prototype source exist.
+
+### Figma links
+
+Already handled in Phase 2. If the aggregated references for a task contained a Figma URL, it was rendered as a `→ View in Figma` link at the top of the description. No further action needed here.
+
+If Figma designs become available after submission (common early in a project), the Figma link can be added to the breakdown file's References and re-submitted, or added directly to the task description later.
+
+### Prototype screenshots
+
+When a working prototype exists (an HTML file, a hosted URL, or screenshots from one), uploading screen-level images as attachments helps developers quickly understand what they're building without needing to run the full prototype themselves.
+
+**When to run this phase:**
+- The breakdown's References section links to an Asana task with an HTML prototype attachment, OR
+- The user provides a local prototype file or screenshot folder, OR
+- The user explicitly asks for screenshots to be added.
+
+**How to render screenshots from an HTML prototype:**
+1. Download the prototype HTML file (from an Asana attachment or local path).
+2. Open it using the Chrome DevTools MCP (`new_page` with `file://` URL or hosted URL).
+3. Navigate the prototype to each relevant screen — use `evaluate_script` to drive the UI (click buttons, advance wizard steps) since prototypes are typically JS-heavy SPAs that don't respond to standard accessibility-tree clicks.
+4. Take a `fullPage: true` screenshot per screen and save to a local temp directory within the project working dir (e.g. `docs/cortex/screenshots/`).
+5. Map each screenshot to the tasks it covers (one screenshot may apply to multiple tasks — upload it to each one).
+
+**How to upload to Asana tasks:**
+```
+POST /attachments
+Content-Type: multipart/form-data
+parent: <task_gid>
+file: @/path/to/screenshot.png
+```
+
+Use `curl -F` for multipart uploads — Python's `urllib` doesn't have built-in multipart support and constructing it manually is error-prone. Do NOT write a helper script; make one `curl` invocation per task attachment.
+
+**Screenshot-to-task mapping heuristic:**
+- Wizard step screens → map to all tasks within that milestone (the whole step is one user-facing increment)
+- Modal/overlay screens → map to the specific task that builds that modal
+- Config forms with multiple sections → map the same screenshot to all tasks that build sections of that form
+- Post-publish / terminal state screens → map to the task that builds that state
+
+**Important constraints:**
+- `<img>` tags are NOT supported in Asana `html_notes` — do not attempt to embed screenshot URLs inline. Images must be file attachments. See `references/description-template.md` for details.
+- Asana attachment view URLs contain `&`-separated query parameters with expiry timestamps (`?e=...&v=0&t=...`). These are signed URLs that Asana re-signs when serving to authenticated users; the expiry in the URL does not affect display within Asana.
+- Upload screenshots as attachments *after* the task description is set — the order doesn't affect how Asana displays them, but it keeps the create → enrich flow linear and easier to debug.
+
+**Progress reporting for this phase:**
+> Uploaded screenshot "screen-03-mapping.png" → T4, T5, T6 (3 tasks)
+> Uploaded screenshot "screen-04-validate.png" → T7 (1 task)
+> Skipped T15 (Backend task — no relevant UI screen)
+
+---
+
 ## Phase 4: Cleanup
 
 ### Originating Task Disposition
