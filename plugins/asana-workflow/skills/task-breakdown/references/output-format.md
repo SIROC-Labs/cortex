@@ -131,7 +131,7 @@ A rough estimate of how long an experienced senior software engineer would take 
 
 **Format:** `hh:mm` with quarter-hour precision. Examples: `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`.
 
-This estimate is passed through verbatim by `submit-breakdown` to the Asana Estimate custom field (converted to decimal hours by the API layer). It is later **revised** during the refinement step once the codebase is read. Don't try to be precise here — being honest about the rough phase is the point.
+This estimate is passed through verbatim by `submit-breakdown` to the Asana Estimate custom field (converted to minutes by the API layer). It is later **revised** during the refinement step once the codebase is read. Don't try to be precise here — being honest about the rough phase is the point.
 
 See `references/decomposition-principles.md` → "Rough Estimation" for calibration anchors and weighting factors.
 

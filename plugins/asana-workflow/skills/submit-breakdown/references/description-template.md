@@ -129,7 +129,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 - **Aggregate references unconditionally.** Even if a milestone has only one task, embed the milestone's references in that task — every task must be self-contained when read in isolation.
 - **Preserve labels verbatim.** Reference labels come from the breakdown's References lines exactly. Do not normalize, rename, or "clean up" labels.
 - **Skip empty sections.** If the breakdown has no `Out of scope:` or no task-level `References:`, simply omit those bullets — do not render an empty section.
-- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are breakdown-internal identifiers — they only exist so the breakdown markdown can express dependencies before Asana GIDs exist. Resolve every T-label reference (Dependencies, prose mentions, examples) to the corresponding Asana task link + title. Never write the literal `T1`, `T2`, … into the Asana task description.
+- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are breakdown-internal identifiers — they only exist so the breakdown markdown can express dependencies before Asana GIDs exist. Resolve every T-label reference (prose mentions, examples) to the corresponding Asana task link + title. Never write the literal `T1`, `T2`, … into the Asana task description.
 
 ---
 

@@ -68,7 +68,7 @@ For each task in the breakdown, render the Asana task description by aggregating
 Read `references/description-template.md` for the full structure, content rules, and formatting rules.
 
 Key principles:
-- The description is a faithful render of the breakdown task entry — Purpose, Description, Scope, Dependencies, Acceptance Criteria, References.
+- The description is a faithful render of the breakdown task entry — Purpose, Description, Scope, Acceptance Criteria, References.
 - References aggregate from three levels (task entry, milestone block, file header) and are deduplicated by URL/path.
 - No implementation-plan content. No file paths inferred. No analysis. If the breakdown didn't say it, the description doesn't say it.
 - **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are internal to the breakdown markdown only — they exist solely so the breakdown can express dependencies before Asana GIDs exist. Once tasks are in Asana, the canonical reference is the Asana task link. Any `Depends on: T1, T2` in the breakdown must be resolved to Asana task links in the description; never write the literal `T1` / `T2` into Asana.
