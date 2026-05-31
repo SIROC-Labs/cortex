@@ -47,17 +47,11 @@ Pulled from the breakdown task entry's `Description:` and `Out of scope:` fields
 
 If the breakdown has no `Out of scope:` field, omit the Out of scope bullets entirely.
 
-### 4. Dependencies
-
-Resolved Asana task links — not raw T-labels. Built from the breakdown task entry's `Depends on:` field by looking up each T-label in the T-label → Asana GID map (populated during submit Phase 3 Step 1).
-
-If `Depends on:` is `None`, render this section as `None` (so the reader doesn't wonder whether dependencies were forgotten).
-
-### 5. Acceptance Criteria
+### 4. Acceptance Criteria
 
 The bullet list from the breakdown task entry's `Acceptance criteria:` field, verbatim.
 
-### 6. References (aggregated)
+### 5. References (aggregated)
 
 A single bullet list aggregating references from three levels of the breakdown:
 
@@ -119,9 +113,6 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 
 <strong>Scope — Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
-
-<strong>Dependencies</strong>
-<ul><li><a href="https://app.asana.com/0/1199384720000001/1199384720000123">Setup employee entity + repository</a></li><li><a href="https://app.asana.com/0/1199384720000001/1199384720000124">Employee migration</a></li></ul>
 
 <strong>Acceptance criteria</strong>
 <ul><li>GET /employees returns all employees with name, role, department</li><li>POST /employees creates and returns entity with generated ID</li><li>GET /employees/{id} returns 404 with error message for nonexistent IDs</li><li>DELETE soft-deletes (sets is_active=false)</li></ul>
