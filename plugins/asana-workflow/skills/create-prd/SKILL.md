@@ -1,6 +1,6 @@
 ---
 name: create-prd
-description: Creates a Product Requirements Document from all available resources in the current folder. Use when the user says "/create-prd" or asks to create a PRD.
+description: Creates a Product Requirements Document from one or more content sources. Sources can be passed as arguments — Asana task URL, Jira URL, Notion URL, Google Drive URL, Figma URL, any web URL, a local folder path, or left empty to read the current folder. Use when the user says "/create-prd" or asks to create a PRD.
 ---
 
 # Create PRD
@@ -19,31 +19,48 @@ Produces a complete, well-formatted PRD. Follow the four phases below **in stric
 
 ---
 
-## Phase 1: Read All Resources
+## Phase 1: Ingest All Sources
 
-Before asking the user anything, read every file in the current folder:
+Before asking the user anything, ingest every source provided. Sources come from the skill arguments and/or the current folder.
 
-- **PDFs**: one-pagers, briefs, existing PRDs — read all of them
-- **HTML prototypes**: these are the most valuable source. If the HTML is a bundled app, extract and read the source JS/JSX to understand every screen, state, flow, and edge case
-- **Markdown, docs, notes**: read all of them
-- **Existing PRDs in the folder**: use them for structure reference, not content
+### Source detection
 
-Extract from these materials:
+Inspect each argument or input for its type and fetch accordingly:
+
+| Source type | How to detect | How to ingest |
+|---|---|---|
+| Asana task or project | `app.asana.com` in URL | Use Asana MCP tools (`asana_get_task`, `asana_get_project`, `asana_get_tasks`) to fetch the task/project and all subtasks |
+| Jira issue or board | `atlassian.net/browse/` or `atlassian.net/jira/` | Use Atlassian MCP tools to fetch the issue and linked items |
+| Notion page or database | `notion.so` in URL | Use Notion MCP tools to fetch the page or database content |
+| Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
+| Figma file or frame | `figma.com` in URL | Use Figma MCP (`get_design_context`, `get_metadata`, `get_screenshot`) |
+| Any other URL | starts with `http://` or `https://` | WebFetch the URL and read the content |
+| Local folder path | starts with `/` or `./`, or is a bare directory name | List and read all files in that folder (PDFs, HTML, Markdown, docs) |
+| No argument given | — | Read every file in the current working directory |
+
+**Important:** Only fall back to reading local files when no argument was provided at all. If any URL or remote source is given as an argument, do NOT also read the current working directory — only ingest the explicitly provided sources. Local files are read when: (a) a local path was explicitly passed as an argument, or (b) no argument was given at all.
+
+If multiple sources are provided (e.g. an Asana task URL + a Figma URL + a local folder), ingest all of them before moving on.
+
+### What to extract from each source
+
+From any source, pull out:
 - The core problem being solved
 - What is already shipped vs what is new
-- Every screen and user flow in the prototype
-- Edge cases, error states, and fallback behaviors visible in the prototype
+- Every screen, user flow, state, and edge case
 - Any existing feature flags, TBDs, or open questions already noted
+- Names of stakeholders, owners, or teams mentioned
+- Any referenced external resources (linked docs, specs, designs) — note their URLs
 
 ---
 
-## Phase 2: Collect All Resource URLs
+## Phase 2: Collect Any Remaining Resources
 
-Every resource referenced in this PRD must have a URL — Notion, Figma, Drive, Asana, Loom, or any other hosted document. Ask:
+After ingesting all provided sources, ask:
 
-> "Before we start — I need URLs for every resource we'll reference in the PRD. Which of these exist and can you share the links? Figma designs, backend or API specs, Notion docs, Asana epics, Loom walkthroughs, or anything else?"
+> "Are there any other resources I should read before we start? For example: Figma designs, backend or API specs, Notion docs, Loom walkthroughs, or anything else not already shared?"
 
-If URLs are provided, fetch and read them before continuing.
+If additional URLs or paths are provided, fetch and read them before continuing.
 
 If a resource is referenced but doesn't have a URL yet (e.g. Figma designs not started, backend spec not written), note it — it will appear in the PRD as explicitly missing, not omitted.
 
