@@ -51,7 +51,6 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 ### T1 — [Platform] — [Category] — [Task Name]
 **Purpose:** [One sentence — why this task exists and what it achieves, from the user's perspective]
 **Description:** [2-3 sentences — what the user sees or experiences when this task is done. Write in product language anyone on the team can understand — PM, designer, developer. Lead with user-facing behaviour, not implementation approach. No inline enumerations like (1)…(2)…(3)… — summarise at a high level; let Acceptance criteria carry the specifics. API endpoints, class names, and technical patterns belong in refinement; not here.]
-**Estimate:** [hh:mm in quarter-hour precision — e.g. 00:15, 00:30, 01:00, 01:30, 02:45, 04:00]
 **Acceptance criteria:**
 - [Observable outcome 1]
 - [Observable outcome 2]
@@ -124,16 +123,6 @@ Don't use this field to restate boundaries that are already clear from the task 
 List of T-labels that must be completed before this task can start, or "None."
 
 Dependencies are always between tasks, never between milestones. Cross-milestone dependencies are fine — T12 in M3 can depend on T5 in M2.
-
-### Estimate
-
-A rough estimate of how long an experienced senior software engineer would take to implement this task without AI assistance. Written from the breakdown's own scope/dependency/pattern cues — **no codebase reading at this stage**.
-
-**Format:** `hh:mm` with quarter-hour precision. Examples: `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`.
-
-This estimate is passed through verbatim by `submit-breakdown` to the Asana Estimate custom field (converted to minutes by the API layer). It is later **revised** during the refinement step once the codebase is read. Don't try to be precise here — being honest about the rough phase is the point.
-
-See `references/decomposition-principles.md` → "Rough Estimation" for calibration anchors and weighting factors.
 
 ### References (per task)
 

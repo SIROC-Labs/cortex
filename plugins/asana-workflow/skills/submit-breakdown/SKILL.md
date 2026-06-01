@@ -22,13 +22,13 @@ The goal: a faithful, low-friction upload so the breakdown is visible in Asana a
 
 - `asana-api` skill for all Asana API operations — route every call through it, no raw curl.
 - **Execute API calls directly via the `asana-api` skill — do not write helper scripts.** It is tempting to wrap the per-task creation loop in a Python or Node script that batches the calls. Don't. The agent has direct tool access to every Asana operation needed here (create task, set custom fields, set dependencies, create section, post comment, delete). Wrapping them in a script adds an opaque layer, hides individual call failures, makes progress harder to report, and produces an artifact (the script file) that has no reason to persist. Make the calls one by one as tool invocations; report progress per task.
-- A task breakdown file (output of `task-breakdown`) — markdown with milestones, tasks, dependencies, **and per-task `Estimate:` field**.
+- A task breakdown file (output of `task-breakdown`) — markdown with milestones, tasks, and dependencies.
 - An Asana project URL — the target project where tasks will be created.
 - The target project's Product Status custom field must include a **Refinement** enum option. The skill verifies this before doing anything else and aborts with a clear message if it's missing.
 
 ## Inputs
 
-1. **Breakdown file path** — a markdown file from `task-breakdown` containing tasks grouped by milestone, with per-task: title, platform, category, description, estimate, dependencies, acceptance criteria, and references. The estimate is taken verbatim — this skill does not produce or revise estimates.
+1. **Breakdown file path** — a markdown file from `task-breakdown` containing tasks grouped by milestone, with per-task: title, platform, category, description, dependencies, acceptance criteria, and references.
 2. **Asana project URL** — `app.asana.com/0/<project_gid>/...`
 
 If either input is missing, ask for it before proceeding.
@@ -42,7 +42,6 @@ If either input is missing, ask for it before proceeding.
 1. **Fetch the project** to get sections (these map to milestones).
 2. **Discover custom field GIDs** by fetching the project's custom field settings. The field names are standard but GIDs vary per project:
    - **Platform** — enum: Backend, Frontend, Design, iOS, Android
-   - **Estimate** — number (minutes)
    - **Category** — enum: Feature Request, Technical Request, Bug, Customer Support, Documentation
    - **Priority** — enum: P0, P1, P2, P3, P4
    - **Product Status** — enum: Requirements, Sizing, **Refinement**, Unassigned, Scheduled, Assigned, Ready, Canceled
@@ -90,7 +89,6 @@ For each task, create it with:
 - **Section** — corresponds to the breakdown's milestone (create the section if missing)
 - **Custom fields:**
   - Platform — from the breakdown task entry
-  - Estimate — from the breakdown task entry's `Estimate:` field, converted from `hh:mm` to minutes (e.g., `01:30` → `90`)
   - Category — from the breakdown task entry
   - Priority — default `P3`
   - **Product Status** — conditional on the task's Platform (using the enum option GIDs resolved in Phase 1a):
@@ -119,8 +117,8 @@ For each task that has dependencies in the breakdown:
 ### Progress reporting
 After creating each task, report briefly. Reflect the actual Product Status set (Design → Unassigned, everything else → Refinement):
 
-> Created: "Task title" (M1) — Backend · Refinement · estimate hh:mm
-> Created: "Wireframe employee list" (M1) — Design · Unassigned · estimate hh:mm
+> Created: "Task title" (M1) — Backend · Refinement
+> Created: "Wireframe employee list" (M1) — Design · Unassigned
 
 After all tasks and dependencies are set, summarize so the user knows which tasks need refinement next. Adapt the wording to the actual counts (omit the Design line when there are no Design tasks):
 
