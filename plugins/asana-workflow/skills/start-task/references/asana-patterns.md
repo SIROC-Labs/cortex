@@ -16,7 +16,7 @@ Extract the numeric segment that corresponds to the task.
 Request the following `opt_fields` when fetching task details:
 
 ```
-name,notes,assignee,assignee.name,custom_fields,custom_fields.name,
+name,notes,assignee,assignee.gid,assignee.name,custom_fields,custom_fields.name,
 custom_fields.display_value,custom_fields.enum_value,custom_fields.enum_value.name,
 custom_fields.type,memberships,memberships.project,memberships.project.name,
 memberships.section,memberships.section.name,projects,projects.name
@@ -43,7 +43,39 @@ Include subtasks in downstream context so feature-dev or debugging understands w
 
 Fetch task stories (comments) and filter for `type: "comment"` to get human-written context.
 
-If the task has attachments, list them by name. Note any images (mockups, screenshots) — these may need to be viewed.
+### Attachments
+
+List attachments by calling:
+
+```
+GET /tasks/<task-gid>/attachments?opt_fields=name,resource_subtype,download_url,parent.gid,host
+```
+
+Classify each attachment:
+
+- **Image** — mime type starts with `image/`, or filename extension is `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`. Note in the task summary so the user can open it in Asana if relevant; do not download.
+- **Non-image** — every other attachment (markdown, PDF, plain text, JSON, etc.). Download the file via `download_url`. Include the body in the task context bundle passed to the routed sub-skill in Step 10.
+
+This generic handling lets `start-task` consume any document that earlier-stage skills attach to a task (for example, `implementation-plan.md` from `refine-tasks`) without coupling to a specific filename.
+
+If a non-image attachment is unreasonably large (>200 KB), summarize first 200 KB and note that the body was truncated.
+
+## Fetching the Current User
+
+```
+GET /users/me?opt_fields=gid,name
+```
+
+Returns the authenticated user's GID and name. Use this in Step 2a to compare against `task.assignee.gid`.
+
+## Assigning or Reassigning a Task
+
+```
+PUT /tasks/<task-gid>
+Body: {"data":{"assignee":"me"}}
+```
+
+Use `"me"` as the assignee value — Asana resolves it to the authenticated user automatically.
 
 ## Moving to In Progress
 
@@ -72,6 +104,8 @@ Post a comment on the task (only if one with the flag emoji doesn't already exis
 
 Include the draft PR URL so teammates can find the GitHub PR from Asana immediately. The counterpart is 🚀 posted by `ship-it` when the work ships.
 
+**Posting:** post via the `asana-api` skill. Plain text — Asana auto-links the PR URL.
+
 ## Posting a Blocking Question (Pause)
 
 When pausing a task (see `checkpoints.md` → "Pause Flow"), draft a blocking question and present it for user approval before posting. Never post without explicit approval.
@@ -79,6 +113,8 @@ When pausing a task (see `checkpoints.md` → "Pause Flow"), draft a blocking qu
 Format the comment to @mention the person who should answer:
 
 > @Maria — Need clarification: should the CSV export include filtered-out rows as a separate sheet, or exclude them entirely? This blocks the export logic implementation.
+
+**Posting:** once approved, post via the `asana-api` skill. Plain text.
 
 ## Checking for Answers on Resume
 
@@ -95,6 +131,8 @@ Filter for `type: "comment"` and `created_at` after `last_updated`. Present any 
 When resuming work on a previously blocked task, post a brief comment for team visibility:
 
 > Resuming work on branch `<task-id>/<slug>`
+
+**Posting:** post via the `asana-api` skill. Plain text.
 
 ## All Asana API Calls
 

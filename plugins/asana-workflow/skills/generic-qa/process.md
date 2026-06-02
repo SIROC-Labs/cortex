@@ -163,7 +163,7 @@ After posting the comment, upload all evidence files from the evidence directory
 
 Upload the assertion-point screenshot at minimum. If a recording exists, upload that too.
 
-Format all comments as structured HTML (Asana rich text).
+Author QA comments as structured HTML (Asana rich text — bold section titles, bulleted lists, inline `<code>` for identifiers). Post via the `asana-api` skill.
 
 ## Behavior Rules
 

@@ -129,6 +129,26 @@ Task stays **"In Progress"** → ■ PAUSED
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
+             │  2a · Validate Assignee                    │
+             │  GET /users/me → current user GID          │
+             └───────────────────┬────────────────────────┘
+                                 │
+                        ◆ task.assignee?
+                       ╱         │          ╲
+                  null        current       other
+                   │           user          user
+                   │             │             │
+              auto-assign        │         ask (BLOCKING):
+              → inform           │         "Reassign to you?"
+                   │             │          ╱        ╲
+                   │             │         YES        NO
+                   │             │          │          │
+                   │             │     reassign     ■ STOP
+                   │             │     via API
+                   └─────────────┴──────────┘
+                                 │
+                                 ▼
+             ┌────────────────────────────────────────────┐
              │  3 · Validate Sprint-Readiness             │
              │                                            │
              │  ◻ Active sprint membership   BLOCKING     │
@@ -155,7 +175,8 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  5 · Fetch Comments & Attachments          │
              │  filter stories → comments                 │
-             │  list attachments · note images/mockups    │
+             │  list attachments; download non-image      │
+             │  (e.g., implementation-plan.md)            │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼

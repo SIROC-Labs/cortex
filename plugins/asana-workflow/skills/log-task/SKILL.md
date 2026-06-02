@@ -80,19 +80,7 @@ After loading, you have:
 
 ## Step 3: Discover Custom Fields
 
-Read `references/asana-api-calls.md` for the custom field discovery call and the current user fetch.
-
-Match fields by name using fuzzy, case-insensitive patterns:
-
-| Intent | Match patterns |
-|--------|---------------|
-| Priority | "priority", "urgency", "severity" |
-| Sizing | "size", "sizing", "story points", "points", "t-shirt" |
-| Estimate | "estimate", "estimated time", "time estimate", "effort" |
-| Product Status | "product status", "status", "state" |
-| Assignee | handled natively — not a custom field |
-
-Record each matched field's GID and full enum options list. If a field has no match, skip it gracefully.
+Read **`plugins/asana-workflow/references/asana-custom-field-discovery.md`** for field name matching patterns, the discovery API call, and how to record GIDs. Also read `references/asana-api-calls.md` for the current user fetch.
 
 ---
 

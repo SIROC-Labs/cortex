@@ -66,6 +66,19 @@ Fetch the full task with custom fields, memberships, assignee, and notes via the
 
 Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify memberships per **`plugins/asana-workflow/references/board-resolution.md`**.
 
+### Step 2a: Validate Assignee
+
+Fetch the current user via `GET /users/me` (through the `asana-api` skill) to obtain their GID. Then compare against `task.assignee`:
+
+- **No assignee** — automatically assign the task to the current user via the Asana API. Inform the user (do not ask). Proceed.
+- **Assignee is the current user** — all good. Proceed.
+- **Assignee is someone else** — ask (BLOCKING):
+  > "This task is assigned to [Name]. Reassign it to you before starting?"
+  - **Yes** → Reassign via API, then proceed.
+  - **No** → Stop. Tell the user to resolve the assignment in Asana before retrying.
+
+See **`references/asana-patterns.md`** for the `GET /users/me` call and the task assignee update pattern.
+
 ### Step 3: Validate Sprint-Readiness
 
 Run four validation checks: Active sprint membership, Estimated time, Product Status = Assigned, and ID field presence. See **`references/validation-rules.md`** for check details, failure display format, fix-offer logic, and skip rules. The validation-rules reference loads the board registry cache (see **`plugins/asana-workflow/references/board-resolution.md`**) to resolve the active sprint.
@@ -78,7 +91,9 @@ Fetch subtasks via the `asana-api` skill. Group by status (incomplete = remainin
 
 ### Step 5: Fetch Comments and Attachments
 
-Fetch task stories and filter for comments. List attachments by name, noting any images (mockups, screenshots). See **`references/asana-patterns.md`** for details.
+Fetch task stories and filter for comments. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents via the `asana-api` skill and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
+
+See **`references/asana-patterns.md`** for the download pattern.
 
 Also scan the task description and comments for links to external tools (design files, documents, specs, etc.). For each link found, invoke the appropriate MCP or tool to fetch its content and include it in the context bundle passed to the downstream skill in Step 10.
 
@@ -98,7 +113,9 @@ Present the choice:
 > - **Worktree** _(recommended for parallel work — keeps main directory clean)_
 > - **Current directory**
 
-If the user chooses worktree, use `EnterWorktree` to create an isolated copy. The branch will be created inside the worktree in Step 7.
+If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
+
+The branch will be created inside the worktree in Step 7.
 
 ### Step 6b: Confirm Base Branch (BLOCKING)
 
@@ -155,7 +172,7 @@ Post a start comment on the task with the branch name and draft PR URL. Deduplic
 
 ### Step 10: Route to the Right Workflow
 
-Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachments, fetched external resource content from Step 5, branch name) and route based on **Category** custom field:
+Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
 
 **If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `feature-dev`, `brainstorming`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 

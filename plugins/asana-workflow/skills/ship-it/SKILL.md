@@ -74,7 +74,7 @@ ship-it no longer has a separate QA step — all QA handling lives in pre-ship-c
 
 Invoke `work-summary` to generate a session recap.
 
-Use the returned summary as-is for the PR description and Asana comment. Do not prompt the user to tweak or validate it.
+Use the returned **body** for the PR description and the **Asana summary** for the Asana comment — they are different outputs with different audiences. Do not prompt the user to tweak or validate them.
 
 ### Step 3: Create PR
 
@@ -91,10 +91,10 @@ Handle via the `asana-api` skill. All Asana operations use the task GID from con
 
 1. **Move to "In Review":** Find the Sprint project from the task's memberships, find the "In Review" section, and move the task there. If the section mappings are already in conversation context from start-task, reuse them — do not re-fetch.
 
-2. **Post ship comment:** Post a comment on the task with the work summary and PR link. The comment MUST include the stats line from work-summary (`~Xm | Files changed: N | Commits: N`):
+2. **Post ship comment:** Post a comment on the task using the **Asana summary** from work-summary (the high-level, non-technical 1-3 sentence version — NOT the full technical body). The comment MUST include the stats line from work-summary (`~Xm | Files changed: N | Commits: N`):
 
    ```
-   <work summary body>
+   <asana summary — high-level, non-technical>
 
    ~Xm | Files changed: N | Commits: N
 
@@ -104,6 +104,8 @@ Handle via the `asana-api` skill. All Asana operations use the task GID from con
    ```
 
    The stats line is mandatory. The `🤖 Done` footer is mandatory — it signals AI-assisted work is complete and ready for review.
+
+   **Posting:** post via the `asana-api` skill. Author this comment as **plain text** — Asana auto-links the PR URL, and a flowing prose summary is the right shape for the audience. If an earlier comment in this session was authored as HTML (e.g., a QA verification comment), do not carry that style over; this one is plain text.
 
 **Skip condition:** If no Asana task context is available, skip this step entirely.
 

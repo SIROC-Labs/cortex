@@ -7,6 +7,7 @@ asana-workflow/
 ├── CLAUDE.md              ← you are here
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version, skills array)
+├── bin/                   ← executables exposed on PATH (Claude Code auto-prepends <plugin>/bin/). Name files `asana-<verb>.<ext>` where `<ext>` is `sh` or `py` (use whichever fits the script — Python wins once any non-trivial parsing, JSON, or HTTP is involved); invoke by bare command name from skills.
 ├── references/            ← plugin-wide shared references (board-resolution, qa-routing)
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)
@@ -18,10 +19,17 @@ asana-workflow/
     ├── generic-testing/   ← Shared testing fundamentals & references (not a skill — used by platform-specific testing skills)
     ├── log-task/          ← Create Asana task from conversation-discovered work (bundled)
     ├── mobile-qa/         ← Mobile QA investigation & verification (bundled, mobile-mcp)
+    ├── mobile-testing/    ← Mobile testing patterns & infrastructure (bundled — extends generic-testing)
     ├── pre-ship-check/    ← Readiness gate before shipping (bundled)
     ├── ship-it/           ← Shipping orchestrator (bundled)
     ├── start-task/        ← Entry point for dev workflow (bundled)
     │   └── scripts/       ← skill-local helpers (e.g., checkpoint.sh — checkpoint file I/O)
+    ├── refine-tasks/      ← Codebase-informed refinement: turn Refinement-status Asana tasks into one-shotters with attached implementation plans (bundled)
+    │   └── references/    ← input resolution, implementation plan template
+    ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana as Refinement-status tasks (bundled)
+    │   └── references/    ← description template (thin), formatting rules
+    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps with rough estimates and validation (bundled)
+    │   └── references/    ← discovery guide, decomposition principles, output format
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
 ```
@@ -55,6 +63,18 @@ pre-ship-check
 log-task
   ├── asana-api          (create task, set custom fields, add to projects)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
+
+task-breakdown
+  ├── asana-api          (optional: read existing tasks/projects for context during discovery)
+  └── → hands off to submit-breakdown (Phase 7, optional: user confirms transition)
+
+submit-breakdown           (faithful uploader: breakdown → Asana tasks at Product Status = Refinement)
+  ├── asana-api          (create tasks, set custom fields incl. Refinement enum, wire dependencies)
+  └── → hands off to refine-tasks (tasks created at Refinement status; user runs refine-tasks next)
+
+refine-tasks               (Refinement-status Asana tasks → Unassigned with implementation-plan.md attached)
+  ├── asana-api          (resolve task set, fetch descriptions, upload attachment, update fields, move status)
+  └── (codebase read)    (no other skill dependency — runs in the repo)
 ```
 
 generic-qa (shared markdown, not a skill)
@@ -77,6 +97,12 @@ frontend-testing (bundled skill — extends generic-testing)
   └── references/
       ├── stack-detection.md    (detect frontend runner, framework, coverage, package manager)
       └── infrastructure.md     (Jest/Vitest coverage configs, frontend CI pipeline)
+
+mobile-testing (bundled skill — extends generic-testing; scope: unit + integration on native iOS / native Android / KMP)
+  ├── process.md         (ViewModels, repos, async/time, mocking, DI)
+  └── references/
+      └── infrastructure.md     (coverage configs, JVM/Xcode parallelism, toolchain caching)
+```
 
 ## External Dependencies
 
