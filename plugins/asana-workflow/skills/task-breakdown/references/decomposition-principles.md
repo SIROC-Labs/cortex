@@ -43,6 +43,18 @@ Three rules keep tasks at the right granularity:
 
 - **Clear purpose boundary.** Each task should have a one-sentence "why" that stands alone. If you can't explain why this task exists without referencing another task's internals, the boundaries are wrong.
 
+**When to split a task:**
+
+Three signals that a task should be broken into two or more smaller ones:
+
+1. **The description requires enumeration.** If you can't write the description without a numbered list — "(1) do X, (2) do Y, (3) do Z" — each item is a candidate for its own task. A well-scoped task reads as prose, not a checklist. The `output-format.md` rule against inline enumerations exists precisely because enumeration is a symptom of over-scoping: if the breakdown itself violates that rule, the task is doing too much.
+
+2. **Two sub-features have different complexity profiles.** If one part of the task follows an existing pattern (routine, low-risk) and another involves genuine design decisions or unclear behaviour (novel, higher-risk), separate them. Bundling them means the simpler part can't ship or be tested until the harder part is resolved — a developer is blocked on their own task. Split so each part can be completed and verified independently.
+
+3. **The parts aren't testable as a unit.** If you can clearly describe "done" and write acceptance criteria for the first half without the second half existing, they should be separate tasks. Independent testability is the practical test: can a reviewer verify this task is complete without needing another task to be in place first?
+
+When a task triggers one or more of these signals, propose the split with a brief rationale before writing the breakdown. Don't split mechanically — confirm the sub-tasks each have a clear purpose and would genuinely be planned and reviewed separately.
+
 ## Cleanup Tasks
 
 The final task in a milestone is a **cleanup and review pass** — but only when it earns its place.

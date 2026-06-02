@@ -71,6 +71,7 @@ After tasks are decomposed and before the user reviews them, walk every task and
 
 - *Platform check* — exactly one platform per task. If a task spans multiple platforms (e.g., backend API + frontend UI), propose splitting into separate tasks with a dependency between them.
 - *Size check* — the task is completable in a single session (roughly `00:30`–`04:00`). If a task feels larger, propose a split with reasoning. If much smaller than `00:30`, consider merging with a related task.
+- *Split check* — apply the three split signals from `references/decomposition-principles.md` → "When to split a task": (1) does the description require a numbered list? (2) does it bundle a routine sub-feature with a complex/novel one? (3) can the first half be tested without the second half existing? Any "yes" is a reason to propose a split.
 - *Redundancy check* — the task does not duplicate work already covered by another task in this breakdown.
 
 Surface any issues to the user and resolve them (split / merge / reword) before proceeding.
