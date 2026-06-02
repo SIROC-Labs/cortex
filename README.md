@@ -24,6 +24,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `git-check` | Branch safety, working tree cleanliness, debug artifact detection |
 | `work-summary` | Session recap for standups, handoffs, and PRs |
 | `create-pr` | Full PR lifecycle with Asana linking and reviewer assignment |
+| `update-pr` | Sync PR branch with base branch: fetch → merge → resolve conflicts → push |
 | `asana-api` | Asana REST API patterns and common operations |
 | `log-task` | Creates an Asana task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |

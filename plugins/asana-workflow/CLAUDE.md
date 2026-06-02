@@ -12,6 +12,7 @@ asana-workflow/
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)
     ├── create-pr/         ← PR creation (bundled)
+    ├── update-pr/         ← Sync PR branch with base branch: fetch → merge → resolve → push (bundled)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── generic-qa/        ← Shared QA process & references (not a skill — used by web-qa, mobile-qa)
