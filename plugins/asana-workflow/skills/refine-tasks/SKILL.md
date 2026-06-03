@@ -5,8 +5,8 @@ description: >
   resolves to a deterministic set of Asana tasks (task URLs, a milestone/section
   in a project, a project URL, or a user-described filter), reads the codebase,
   resolves ambiguities, composes a detailed implementation plan per task,
-  attaches it as implementation-plan.md, revises the estimate, and transitions
-  the task from Refinement to Unassigned. Triggers: "refine these tasks",
+  attaches it as implementation-plan.md, and transitions the task from
+  Refinement to Unassigned. Triggers: "refine these tasks",
   "/refine-tasks", "refine M1", "refine milestone X", or providing one or more
   Asana task URLs alongside a request to detail / spec / plan them. Do NOT
   trigger to create new Asana tasks, or to start implementing / executing
@@ -15,7 +15,7 @@ description: >
 
 # Refine Tasks
 
-Take a deterministic set of Asana tasks in **Refinement** product status and produce a codebase-informed implementation plan for each. The plan is attached to the task as `implementation-plan.md`, the estimate is revised based on real code analysis, and the task transitions to **Unassigned** so it is ready for staffing.
+Take a deterministic set of Asana tasks in **Refinement** product status and produce a codebase-informed implementation plan for each. The plan is attached to the task as `implementation-plan.md` and the task transitions to **Unassigned** so it is ready for staffing.
 
 The skill operates on Asana tasks in **Refinement** status — typically produced upstream by a planning/upload workflow — and produces tasks in **Unassigned** status with two artifacts attached to the task:
 
@@ -72,7 +72,6 @@ If the user wants to re-refine a task, they must first change its status back to
 ### 2a. Asana discovery
 
 - Discover Product Status custom field GIDs for `Refinement` and `Unassigned` by name (never hardcode option GIDs). See `references/asana-custom-field-discovery.md` (plugin-level shared reference).
-- Discover the Estimate custom field GID.
 
 ### 2b. Per-task context
 
@@ -86,7 +85,7 @@ Follow the References on each task to read specs, CLAUDE.md files, and source fi
 
 ## Phase 3: Per-task processing (in dependency order)
 
-**Process one task at a time, fully, before moving to the next.** For each task in dependency order, run **all** of steps 3a → 3h end-to-end — ambiguity batch, plan composition, estimate revision, attachment upload, summary comment, Estimate update, status move, progress report — *and only then* start the next task.
+**Process one task at a time, fully, before moving to the next.** For each task in dependency order, run **all** of steps 3a → 3f end-to-end — ambiguity batch, plan composition, attachment upload, summary comment, status move, progress report — *and only then* start the next task.
 
 Do **NOT** batch by step. Specifically, do not:
 
@@ -159,25 +158,7 @@ The plan is **code-free** by design — it provides enough context (file paths, 
 - **How to test** — concrete end-to-end verification commands (shell / curl / manual UI walkthrough) the executor runs at the end
 - **References** — every source consulted
 
-### 3c. Revise the estimate
-
-Recompute the estimate based on the codebase-informed view (number of files, exemplar availability, design decisions, edge cases). Use `hh:mm` quarter-hour precision (`00:15`, `00:30`, `00:45`, `01:00`, …).
-
-**Calibration anchors:**
-
-- `00:15` — a single config change, adding an import, registering a route
-- `00:30` — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
-- `01:00` — a small feature with 2–3 files, clear pattern to follow, no design decisions
-- `02:00` — a feature with 4–6 files, some decisions, moderate acceptance criteria
-- `03:00`–`04:00` — complex feature, new patterns, multiple edge cases, or significant UI work
-
-Estimate honestly — neither inflate to be safe nor compress to look efficient. The refined estimate replaces the rough one set during the upstream decomposition.
-
-If the revised estimate differs from the rough estimate by more than 25%, display the delta in the progress report:
-
-> Refined "Employee list page": estimate 02:15 (was 01:30, +50%), plan attached
-
-### 3d. Upload as Asana attachment
+### 3c. Upload as Asana attachment
 
 Upload the markdown content as an attachment on the task:
 
@@ -187,7 +168,7 @@ Upload the markdown content as an attachment on the task:
 
 **Replacement on re-run.** Before uploading, list the task's existing attachments. If an attachment named `implementation-plan.md` already exists, delete it first (DELETE `/attachments/<attachment_gid>`). Never accumulate duplicate plans.
 
-### 3e. Post a refinement summary as a comment
+### 3d. Post a refinement summary as a comment
 
 After the plan is attached, post an Asana comment on the same task with a **human-readable summary** of what refinement decided. This is the "at-a-glance" view for followers (PM, designer, anyone watching the task) — not the full implementation plan, which is the attachment.
 
@@ -202,9 +183,8 @@ After the plan is attached, post an Asana comment on the same task with a **huma
   - Pattern choices when there were multiple candidates (e.g., "chose A over B for consistency with X")
   - Notable trade-offs or considerations the team should be aware of
   - Edge cases worth flagging to non-implementing readers
-  - Estimate revision when it materially changed (e.g., "doubled from 01:30 to 03:00 — the API contract turned out not to be reusable")
 - **Do NOT include:**
-  - The Purpose / Description / Scope / Acceptance Criteria — they live in the task description already
+  - The Purpose / Description / Out of scope / Acceptance Criteria — they live in the task description already
   - File paths, function signatures, model field lists, step-by-step actions — they live in the attached plan
   - Anything an implementer would need to do the work — that audience reads the attachment, not the comment
 - Keep bullets terse (under ~120 characters each); the comment should fit on a phone screen.
@@ -216,7 +196,7 @@ Both examples below are written in Asana rich text (HTML).
 **Example (substantive refinement):**
 
 ```html
-<body><strong>📋 Refinement summary</strong><ul><li>Pagination: default <code>limit=50</code>, max <code>200</code> — was unspecified in the breakdown</li><li>Pattern choice: custom <code>data-table.tsx</code> (matches the Projects list) rather than Radix</li><li>Empty state: explicit "No employees yet" placeholder, not a hidden list</li><li>Estimate revised: 01:30 → 02:15 (more files than the rough pass anticipated)</li></ul>Full plan: see the attached <em>implementation-plan.md</em>.</body>
+<body><strong>📋 Refinement summary</strong><ul><li>Pagination: default <code>limit=50</code>, max <code>200</code> — was unspecified in the breakdown</li><li>Pattern choice: custom <code>data-table.tsx</code> (matches the Projects list) rather than Radix</li><li>Empty state: explicit "No employees yet" placeholder, not a hidden list</li></ul>Full plan: see the attached <em>implementation-plan.md</em>.</body>
 ```
 
 **Example (mechanical refinement, nothing notable):**
@@ -229,19 +209,15 @@ Always post a comment, even when minimal. The presence of the comment signals to
 
 **Re-runs:** post a fresh comment each time. Re-refinement is a deliberate manual action (user reverts Product Status to Refinement); the resulting timeline of summary comments is expected.
 
-### 3f. Update the Estimate custom field
-
-Set the Estimate custom field to the revised value, converted from `hh:mm` to minutes (e.g., `01:30` → `90`).
-
-### 3g. Move Product Status
+### 3e. Move Product Status
 
 Update the task's Product Status custom field from `Refinement` to `Unassigned` using the enum option GIDs resolved in Phase 2a.
 
-### 3h. Progress report
+### 3f. Progress report
 
 Single-line report per task:
 
-> Refined "Employee list page": estimate 02:15 (was 01:30), plan attached, summary posted
+> Refined "Employee list page": plan attached, summary posted
 
 ---
 
@@ -251,10 +227,10 @@ After processing all tasks, present a summary table and link to the project boar
 
 ```
 Refined 4 tasks:
-  1. Employee entity + repository      01:30 → 01:45  Unassigned
-  2. Employee CRUD API endpoints       02:00 → 02:30  Unassigned
-  3. Employee list page                02:30 → 02:30  Unassigned
-  4. Employee create/edit form         02:45 → 03:00  Unassigned
+  1. Employee entity + repository      Unassigned
+  2. Employee CRUD API endpoints       Unassigned
+  3. Employee list page                Unassigned
+  4. Employee create/edit form         Unassigned
 
 Project: https://app.asana.com/0/<project_gid>/
 Next step: pick any task and begin implementation through your preferred workflow.
@@ -295,6 +271,6 @@ Skipped:
 
 ## Dependencies
 
-- `asana-api` — all Asana API operations route through this skill (resolve task set, fetch descriptions and custom fields, upload the implementation-plan.md attachment, post the Refinement summary comment, update Estimate, move Product Status).
+- `asana-api` — all Asana API operations route through this skill (resolve task set, fetch descriptions and custom fields, upload the implementation-plan.md attachment, post the Refinement summary comment, move Product Status).
 
 This skill has no other skill dependencies. Upstream and downstream agents (whatever they may be) interact with refine-tasks only through Asana state: the input is Refinement-status tasks with a well-formed description; the output is Unassigned-status tasks with `implementation-plan.md` attached.
