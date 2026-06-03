@@ -39,8 +39,8 @@ If a field has no match in the project, skip it gracefully — not all projects 
 
 ## Estimate Field
 
-The Estimate field is a **number** field in Asana. The value is stored as decimal hours (e.g., `1.5` for one and a half hours).
+The Estimate field is a **number** field in Asana. The value is stored as **minutes** (e.g., `90` for one and a half hours).
 
-When displaying estimates in conversation (tables, confirmations, progress updates), use `hh:mm` format for readability (e.g., `01:30`). When writing to Asana, submit the decimal number (e.g., `1.5`).
+When displaying estimates in conversation (tables, confirmations, progress updates), use `hh:mm` format for readability (e.g., `01:30`). When writing to Asana, submit the integer number of minutes (e.g., `90`).
 
-Conversion: `hh:mm` → decimal is `hh + mm/60`. Estimates use 0.25h increments (0.25, 0.50, 0.75, 1.00, ...), so valid `mm` values are `00`, `15`, `30`, `45`.
+Conversion: `hh:mm` → minutes is `hh * 60 + mm`. Examples: `01:30` → `90`, `02:00` → `120`, `03:30` → `210`.

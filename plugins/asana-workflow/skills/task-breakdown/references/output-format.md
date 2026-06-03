@@ -49,9 +49,8 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 [One paragraph: rationale for why these tasks are grouped together and why this milestone is ordered here in the roadmap]
 
 ### T1 — [Platform] — [Category] — [Task Name]
-**Purpose:** [One sentence — why this task exists and what it achieves]
-**Description:** [2-5 sentences — what needs to be built, key decisions, enough to remove ambiguity]
-**Estimate:** [hh:mm in quarter-hour precision — e.g. 00:15, 00:30, 01:00, 01:30, 02:45, 04:00]
+**Purpose:** [One sentence — why this task exists and what it achieves, from the user's perspective]
+**Description:** [2-3 sentences — what the user sees or experiences when this task is done. Write in product language anyone on the team can understand — PM, designer, developer. Lead with user-facing behaviour, not implementation approach. No inline enumerations like (1)…(2)…(3)… — summarise at a high level; let Acceptance criteria carry the specifics. API endpoints, class names, and technical patterns belong in refinement; not here.]
 **Acceptance criteria:**
 - [Observable outcome 1]
 - [Observable outcome 2]
@@ -125,16 +124,6 @@ List of T-labels that must be completed before this task can start, or "None."
 
 Dependencies are always between tasks, never between milestones. Cross-milestone dependencies are fine — T12 in M3 can depend on T5 in M2.
 
-### Estimate
-
-A rough estimate of how long an experienced senior software engineer would take to implement this task without AI assistance. Written from the breakdown's own scope/dependency/pattern cues — **no codebase reading at this stage**.
-
-**Format:** `hh:mm` with quarter-hour precision. Examples: `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`.
-
-This estimate is passed through verbatim by `submit-breakdown` to the Asana Estimate custom field (converted to decimal hours by the API layer). It is later **revised** during the refinement step once the codebase is read. Don't try to be precise here — being honest about the rough phase is the point.
-
-See `references/decomposition-principles.md` → "Rough Estimation" for calibration anchors and weighting factors.
-
 ### References (per task)
 
 Optional. Task-specific URLs, file paths, or documents that go beyond what's already listed in the file's top-level References section or the milestone's References. Examples:
@@ -144,6 +133,24 @@ Optional. Task-specific URLs, file paths, or documents that go beyond what's alr
 - An external doc the implementer must read for this task only
 
 When `submit-breakdown` builds the Asana task description, it aggregates references from three levels: this task's References, the milestone's References, and the file header's References (deduplicated by URL/path). Repetition across tasks is acceptable — each task is meant to be a complete, self-contained refinement input.
+
+### Description
+
+2–3 sentences that explain the task to anyone on the team — PM, designer, developer, QA. The test: could a product manager read this and immediately understand what's being built and why it matters to the user?
+
+**Keep it brief and high-level.** Do not embed inline enumerations like `(1) Campaign — …; (2) Creative — …`. If a task has multiple components, name them in summary prose and let the Acceptance criteria carry the specifics. A description that lists every domain model, port method, or technical pattern is too long — that detail belongs in refinement.
+
+**Write in product language, not developer language.**
+
+| Instead of… | Write… |
+|---|---|
+| "Build a data-fetching layer over GET /v2/parameters" | "When the wizard loads, the app fetches the list of available macro intents and ad servers so the dropdowns in later steps always reflect current options." |
+| "Implement POST /campaigns with idempotency key" | "Clicking 'Publish' submits the campaign to the DCO system; the app prevents double-submission if the user clicks twice." |
+| "Add useCallback memoization to prevent re-renders" | "The mapping table stays responsive even with 300+ rows — this task optimises it so it doesn't lag as the user types." |
+
+The description explains **what the user sees or does** and **why it matters**. Technical approach (which endpoint, which hook, which pattern) is not needed here — that's what refinement is for, once the codebase is read.
+
+One practical check: if your description only makes sense to a developer who already knows the codebase, rewrite it.
 
 ### Acceptance Criteria
 

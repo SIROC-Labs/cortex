@@ -29,7 +29,7 @@ asana-workflow/
     │   └── references/    ← input resolution, implementation plan template
     ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana as Refinement-status tasks (bundled)
     │   └── references/    ← description template (thin), formatting rules
-    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps with rough estimates and validation (bundled)
+    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps with validation (bundled)
     │   └── references/    ← discovery guide, decomposition principles, output format
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
