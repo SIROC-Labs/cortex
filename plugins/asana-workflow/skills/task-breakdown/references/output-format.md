@@ -4,14 +4,16 @@ The breakdown file follows a consistent shape at every level — breakdown, mile
 
 ## File Location
 
-Save to: `docs/cortex/<descriptive-name>-<YYYY-MM-DD>.md`
+Save to: `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<descriptive-name>.md`
 
-The descriptive name is a short slug derived from what the breakdown covers:
-- `management-features-2026-05-20.md`
-- `auth-redesign-2026-05-20.md`
-- `mobile-onboarding-2026-05-20.md`
+Paths are resolved from the git repository root (`git rev-parse --show-toplevel`), not the current working directory. The descriptive name is a short slug derived from what the breakdown covers — all lowercase, hyphen-separated, with the date first so listings sort chronologically:
+- `2026-05-20-management-features.md`
+- `2026-05-20-auth-redesign.md`
+- `2026-05-20-mobile-onboarding.md`
 
-Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; persistence into Asana is handled by `submit-breakdown`.
+If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free.
+
+Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; persistence into Asana is handled by `submit-breakdown`.
 
 ## Template
 
