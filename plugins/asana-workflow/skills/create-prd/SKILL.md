@@ -31,7 +31,7 @@ Inspect each argument or input for its type and fetch accordingly:
 |---|---|---|
 | Asana task or project | `app.asana.com` in URL | Use the `asana-api` skill (the plugin's only sanctioned Asana entry point) to fetch the task/project and all subtasks |
 | Jira issue or board | `atlassian.net/browse/` or `atlassian.net/jira/` | Use Atlassian MCP tools to fetch the issue and linked items |
-| Notion page or database | `notion.so` in URL | Use Notion MCP tools to fetch the page or database content |
+| Notion page or database | `notion.so` or `notion.site` in URL | Use Notion MCP tools to fetch the page or database content |
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
 | Figma file or frame | `figma.com` in URL | Use Figma MCP (`get_design_context`, `get_metadata`, `get_screenshot`) |
 | Any other URL | starts with `http://` or `https://` | WebFetch the URL and read the content |
