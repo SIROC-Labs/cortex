@@ -34,7 +34,9 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   /* Table of contents */
   .toc { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px 24px; margin-bottom: 40px; }
   .toc-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #9CA3AF; margin-bottom: 12px; }
-  .toc ol { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .toc ol { padding-left: 18px; }
+  .toc ol li { margin-bottom: 6px; }
+  .toc ol li:last-child { margin-bottom: 0; }
   .toc a { color: var(--brand); text-decoration: none; font-size: 14px; }
   .toc a:hover { text-decoration: underline; }
 
@@ -44,7 +46,9 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   h3 { font-size: 16px; font-weight: 600; color: #111827; margin: 28px 0 12px; }
   h4 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7280; margin: 20px 0 8px; }
   p { color: #374151; margin-bottom: 12px; }
-  ul, ol { padding-left: 20px; color: #374151; display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  ul, ol { padding-left: 20px; color: #374151; margin-bottom: 12px; }
+  ul li, ol li { margin-bottom: 6px; }
+  ul li:last-child, ol li:last-child { margin-bottom: 0; }
 
   /* Feature cards */
   .feature-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
