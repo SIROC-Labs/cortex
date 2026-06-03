@@ -1,6 +1,6 @@
 ---
 name: create-prd
-description: Creates a Product Requirements Document from one or more content sources. Sources can be passed as arguments — Asana task URL, Jira URL, Notion URL, Google Drive URL, Figma URL, any web URL, a local folder path, or left empty to read the current folder. Use when the user says "/create-prd" or asks to create a PRD.
+description: Creates a Product Requirements Document from one or more content sources. Sources can be passed as arguments — Asana task URL, Jira URL, Notion URL, Google Drive URL, Figma URL, Loom URL, any web URL, a local file or folder path, free-text problem statement, or left empty to read the current folder. Use this skill whenever the user wants to draft, write, or generate a PRD — "/create-prd", "write a PRD", "draft a PRD for X", "create a product requirements doc", "spec this out", "turn this one-pager into a PRD", or pastes a source URL (Asana / Notion / Figma / Drive / Loom / any web link) and asks for a PRD. Also triggers when the user describes a feature in free text and asks for a structured spec.
 ---
 
 # Create PRD
