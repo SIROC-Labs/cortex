@@ -35,7 +35,8 @@ Inspect each argument or input for its type and fetch accordingly:
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
 | Figma file or frame | `figma.com` in URL | Use Figma MCP (`get_design_context`, `get_metadata`, `get_screenshot`) |
 | Any other URL | starts with `http://` or `https://` | WebFetch the URL and read the content |
-| Local folder path | starts with `/` or `./`, or is a bare directory name | List and read all files in that folder (PDFs, HTML, Markdown, docs) |
+| Local file path | path resolves to a regular file (e.g. `./spec.pdf`, `/Users/.../onepager.pdf`) | Read the file directly (PDF, HTML, Markdown, docs) |
+| Local folder path | path resolves to a directory (e.g. `./specs/`, a bare directory name) | List and read all files in that folder (PDFs, HTML, Markdown, docs) |
 | No argument given | — | Read every file in the current working directory |
 
 **Important:** Only fall back to reading local files when no argument was provided at all. If any URL or remote source is given as an argument, do NOT also read the current working directory — only ingest the explicitly provided sources. Local files are read when: (a) a local path was explicitly passed as an argument, or (b) no argument was given at all.
