@@ -11,6 +11,7 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
 ```html
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
+  :root { --brand: #4B55E5; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', -apple-system, sans-serif; font-size: 15px; line-height: 1.65; color: #111827; background: #F9FAFB; }
   .page { max-width: 860px; margin: 0 auto; padding: 48px 32px 120px; }
@@ -18,7 +19,7 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   /* Header */
   .doc-header { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid #E5E7EB; }
   .doc-title { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; color: #0A1B33; margin-bottom: 16px; }
-  .doc-title span { color: #4B55E5; }
+  .doc-title span { color: var(--brand); }
   .doc-meta { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: #6B7280; }
   .doc-meta strong { color: #374151; font-weight: 500; }
 
@@ -34,7 +35,7 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   .toc { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px 24px; margin-bottom: 40px; }
   .toc-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #9CA3AF; margin-bottom: 12px; }
   .toc ol { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
-  .toc a { color: #4B55E5; text-decoration: none; font-size: 14px; }
+  .toc a { color: var(--brand); text-decoration: none; font-size: 14px; }
   .toc a:hover { text-decoration: underline; }
 
   /* Sections */
@@ -48,12 +49,12 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   /* Feature cards */
   .feature-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
   .feature-card h3 { margin-top: 0; font-size: 17px; color: #0A1B33; }
-  .user-story { background: #F0F4FF; border-left: 3px solid #4B55E5; border-radius: 0 8px 8px 0; padding: 12px 16px; font-size: 14px; color: #374151; margin: 12px 0 20px; font-style: italic; }
+  .user-story { background: #F0F4FF; border-left: 3px solid var(--brand); border-radius: 0 8px 8px 0; padding: 12px 16px; font-size: 14px; color: #374151; margin: 12px 0 20px; font-style: italic; }
 
   /* Requirement lists */
   .req-list { display: flex; flex-direction: column; gap: 8px; padding-left: 0; list-style: none; }
   .req-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: #374151; }
-  .req-id { flex-shrink: 0; font-size: 11px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace; color: #4B55E5; background: #EEF2FF; padding: 1px 6px; border-radius: 4px; margin-top: 2px; }
+  .req-id { flex-shrink: 0; font-size: 11px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--brand); background: #EEF2FF; padding: 1px 6px; border-radius: 4px; margin-top: 2px; }
   .figma-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; font-size: 13px; color: #9CA3AF; }
 
   /* Tables */
@@ -79,7 +80,7 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
   /* Links section */
   .links-grid { display: flex; flex-direction: column; gap: 10px; }
   .link-card { display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px 18px; text-decoration: none; color: #111827; transition: border-color 0.15s; }
-  .link-card:hover { border-color: #4B55E5; box-shadow: 0 0 0 1px #4B55E5; }
+  .link-card:hover { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
   .link-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 18px; }
   .link-icon-pdf  { background: #FEE2E2; }
   .link-icon-html { background: #EEF2FF; }
@@ -168,7 +169,7 @@ Paste this inside `<head>` verbatim. Adjust `--brand` only if the product's own 
         <tr>
           <td><strong>Primary metric name</strong><br><small style="color:#9CA3AF">clarifying note if needed</small></td>
           <td>0</td>
-          <td style="font-weight:600;color:#4B55E5">Target value</td>
+          <td style="font-weight:600;color:var(--brand)">Target value</td>
           <td style="font-size:13px;color:#6B7280">Instrumentation or logging source</td>
         </tr>
         <tr>
@@ -234,7 +235,7 @@ One card per feature. Repeat this block inside `<div class="section" id="feature
 
   <!-- If Figma URL exists -->
   <div class="figma-link">
-    🔗 <a href="https://figma.com/..." target="_blank" style="color:#4B55E5">Figma — Feature Name</a>
+    🔗 <a href="https://figma.com/..." target="_blank" style="color:var(--brand)">Figma — Feature Name</a>
   </div>
 
   <!-- If design not yet started — use this instead, never omit the slot -->
