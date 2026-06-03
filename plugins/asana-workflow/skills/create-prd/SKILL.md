@@ -38,6 +38,7 @@ Inspect each argument or input for its type and fetch accordingly:
 | Any other URL | starts with `http://` or `https://` | WebFetch the URL and read the content |
 | Local file path | path resolves to a regular file (e.g. `./spec.pdf`, `/Users/.../onepager.pdf`) | Read the file directly (PDF, HTML, Markdown, docs) |
 | Local folder path | path resolves to a directory (e.g. `./specs/`, a bare directory name) | List and read all files in that folder (PDFs, HTML, Markdown, docs) |
+| Free-text seed | argument is non-empty text and doesn't match any rule above (e.g. `"build a faster checkout"`) | Treat the text as an initial problem-statement seed. Skip URL/file ingestion. Before moving on, ask the user whether to also discover local files in the current working directory — if yes, read them the same way as the "No argument given" row. Carry the seed into Phase 2 and Phase 3, where every detail gets gathered conversationally. |
 | No argument given | — | Read every file in the current working directory |
 
 **Important:** Only fall back to reading local files when no argument was provided at all. If any URL or remote source is given as an argument, do NOT also read the current working directory — only ingest the explicitly provided sources. Local files are read when: (a) a local path was explicitly passed as an argument, or (b) no argument was given at all.
