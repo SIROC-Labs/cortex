@@ -29,7 +29,7 @@ Inspect each argument or input for its type and fetch accordingly:
 
 | Source type | How to detect | How to ingest |
 |---|---|---|
-| Asana task or project | `app.asana.com` in URL | Use Asana MCP tools (`asana_get_task`, `asana_get_project`, `asana_get_tasks`) to fetch the task/project and all subtasks |
+| Asana task or project | `app.asana.com` in URL | Use the `asana-api` skill (the plugin's only sanctioned Asana entry point) to fetch the task/project and all subtasks |
 | Jira issue or board | `atlassian.net/browse/` or `atlassian.net/jira/` | Use Atlassian MCP tools to fetch the issue and linked items |
 | Notion page or database | `notion.so` in URL | Use Notion MCP tools to fetch the page or database content |
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
