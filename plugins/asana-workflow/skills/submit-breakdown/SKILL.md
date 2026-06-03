@@ -131,7 +131,7 @@ After all tasks and dependencies are set, summarize so the user knows which task
 
 ## Phase 3.5: Visual Assets
 
-After all tasks are created, enrich them with visual context — Figma links (already in the description) and prototype screenshots (uploaded as attachments). This phase is **conditional**: skip it entirely if neither Figma links nor a prototype source exist.
+After all tasks are created, enrich them with visual context — Figma links (already in the description) and prototype screenshots (uploaded as attachments). This phase is **conditional**: skip it entirely if no prototype source exists. Figma links alone don't require this phase — they were already rendered into descriptions in Phase 2.
 
 ### Figma links
 
@@ -157,13 +157,13 @@ When a working prototype exists (an HTML file, a hosted URL, or screenshots from
 
 **How to upload to Asana tasks:**
 ```
-POST /attachments
-Content-Type: multipart/form-data
-parent: <task_gid>
-file: @/path/to/screenshot.png
+curl -X POST https://app.asana.com/api/1.0/attachments \
+  -H "Authorization: Bearer $ASANA_PERSONAL_ACCESS_TOKEN" \
+  -F parent=<task_gid> \
+  -F file=@/path/to/screenshot.png
 ```
 
-Use `curl -F` for multipart uploads — Python's `urllib` doesn't have built-in multipart support and constructing it manually is error-prone. Do NOT write a helper script; make one `curl` invocation per task attachment.
+Use `curl -F` for multipart uploads — Python's `urllib` doesn't have built-in multipart support and constructing it manually is error-prone. Do NOT write a helper script; make one `curl` invocation per task attachment. The bearer token is required — Asana returns 401 without it.
 
 **Screenshot-to-task mapping heuristic:**
 - Wizard step screens → map to all tasks within that milestone (the whole step is one user-facing increment)
@@ -175,6 +175,7 @@ Use `curl -F` for multipart uploads — Python's `urllib` doesn't have built-in 
 - `<img>` tags are NOT supported in Asana `html_notes` — do not attempt to embed screenshot URLs inline. Images must be file attachments. See `references/description-template.md` for details.
 - Asana attachment view URLs contain `&`-separated query parameters with expiry timestamps (`?e=...&v=0&t=...`). These are signed URLs that Asana re-signs when serving to authenticated users; the expiry in the URL does not affect display within Asana.
 - Upload screenshots as attachments *after* the task description is set — the order doesn't affect how Asana displays them, but it keeps the create → enrich flow linear and easier to debug.
+- The T-label → GID map built in Phase 3 Step 1 remains valid here — use T-labels internally for screenshot-to-task bookkeeping. The "No T-labels in Asana" rule applies to task description content only, not to in-session mapping.
 
 **Progress reporting for this phase:**
 > Uploaded screenshot "screen-03-mapping.png" → T4, T5, T6 (3 tasks)
@@ -220,6 +221,6 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 ## Dependencies
 
 - `asana-api` — all Asana API operations route through this skill (fetch project / sections / custom fields, create tasks, set custom fields, wire dependencies, post comments, delete tasks).
-- `task-breakdown` — produces the input file this skill consumes. The two skills are intentionally paired: task-breakdown produces a markdown roadmap with rough estimates and validation; submit-breakdown faithfully replicates it into Asana.
+- `task-breakdown` — produces the input file this skill consumes. The two skills are intentionally paired: task-breakdown produces a validated markdown roadmap; submit-breakdown faithfully replicates it into Asana.
 
 This skill has no other skill dependencies. Whatever happens to the Asana tasks after submission (refinement, staffing, implementation) is outside this skill's contract.

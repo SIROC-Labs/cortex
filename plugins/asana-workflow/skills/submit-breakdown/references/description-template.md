@@ -63,6 +63,7 @@ Each bullet preserves the descriptive label from the breakdown (e.g., `Spec: doc
 **Aggregation rules:**
 
 - Deduplicate by exact URL or file path — a reference repeated at multiple levels appears once.
+- **Drop the section-0 Figma URL.** If a Figma URL was rendered as the section-0 visual context link at the top of the description, exclude it from the References list — otherwise it appears twice. Any other Figma URLs (not used in section 0) still belong in References.
 - Preserve order: task-specific first, then milestone-level, then file-header references. (This puts the most-specific source at the top.)
 - Labels come verbatim from the breakdown; do not paraphrase.
 - Repetition *across* tasks in the same milestone is expected and acceptable. Every task is meant to be a complete, self-contained refinement input.
@@ -84,7 +85,6 @@ For a task entry in the breakdown that looks like:
 ### T3 — Backend — Feature Request — Employee CRUD API endpoints
 **Purpose:** Implements the employee CRUD API so the frontend can list, create, and edit employees.
 **Description:** Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
-**Estimate:** 02:00
 **Acceptance criteria:**
 - GET /employees returns all employees with name, role, department
 - POST /employees creates and returns entity with generated ID
@@ -109,12 +109,10 @@ Adds CRUD endpoints for employees — create, read, update, and soft-delete — 
 
 <strong>Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
-
 <strong>Acceptance criteria</strong>
 <ul><li>GET /employees returns all employees with name, role, department</li><li>POST /employees creates and returns entity with generated ID</li><li>GET /employees/{id} returns 404 with error message for nonexistent IDs</li><li>DELETE soft-deletes (sets is_active=false)</li></ul>
-
 <strong>References</strong>
-<ul><li>API style guide: <em>docs/api-style.md</em></li><li>Sprint plan: <a href="https://asana.com/...">https://asana.com/...</a></li><li>Spec: <em>docs/spec.md</em></li><li>Figma: <a href="https://figma.com/file/abc">https://figma.com/file/abc</a></li></ul>
+<ul><li>API style guide: <em>docs/api-style.md</em></li><li>Sprint plan: <a href="https://asana.com/...">https://asana.com/...</a></li><li>Spec: <em>docs/spec.md</em></li></ul>
 ```
 
 ---
