@@ -34,6 +34,7 @@ Inspect each argument or input for its type and fetch accordingly:
 | Notion page or database | `notion.so` or `notion.site` in URL | Use Notion MCP tools to fetch the page or database content |
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
 | Figma file or frame | `figma.com` in URL | Use Figma MCP (`get_design_context`, `get_metadata`, `get_screenshot`) |
+| Loom video | `loom.com` in URL | WebFetch the page and try to extract transcript/summary text. If nothing usable comes back, ask the user to paste the transcript directly, or share a Loom Doc / AI-summary URL — do not proceed treating the Loom URL as ingested |
 | Any other URL | starts with `http://` or `https://` | WebFetch the URL and read the content |
 | Local file path | path resolves to a regular file (e.g. `./spec.pdf`, `/Users/.../onepager.pdf`) | Read the file directly (PDF, HTML, Markdown, docs) |
 | Local folder path | path resolves to a directory (e.g. `./specs/`, a bare directory name) | List and read all files in that folder (PDFs, HTML, Markdown, docs) |
