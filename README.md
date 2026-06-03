@@ -24,12 +24,14 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `git-check` | Branch safety, working tree cleanliness, debug artifact detection |
 | `work-summary` | Session recap for standups, handoffs, and PRs |
 | `create-pr` | Full PR lifecycle with Asana linking and reviewer assignment |
+| `update-pr` | Sync PR branch with base branch: fetch → merge → resolve conflicts → push |
 | `asana-api` | Asana REST API patterns and common operations |
 | `log-task` | Creates an Asana task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
 | `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
+| `create-prd` | Generates a complete PRD from any combination of sources: Asana task URL, Notion page, Figma file, local folder, or any web URL |
 | `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
 | `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
 | `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |

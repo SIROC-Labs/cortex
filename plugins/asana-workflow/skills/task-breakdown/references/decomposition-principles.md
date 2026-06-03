@@ -43,6 +43,18 @@ Three rules keep tasks at the right granularity:
 
 - **Clear purpose boundary.** Each task should have a one-sentence "why" that stands alone. If you can't explain why this task exists without referencing another task's internals, the boundaries are wrong.
 
+**When to split a task:**
+
+Three signals that a task should be broken into two or more smaller ones:
+
+1. **The description requires enumeration.** If you can't write the description without a numbered list — "(1) do X, (2) do Y, (3) do Z" — each item is a candidate for its own task. A well-scoped task reads as prose, not a checklist. The `output-format.md` rule against inline enumerations exists precisely because enumeration is a symptom of over-scoping: if the breakdown itself violates that rule, the task is doing too much.
+
+2. **Two sub-features have different complexity profiles.** If one part of the task follows an existing pattern (routine, low-risk) and another involves genuine design decisions or unclear behaviour (novel, higher-risk), separate them. Bundling them means the simpler part can't ship or be tested until the harder part is resolved — a developer is blocked on their own task. Split so each part can be completed and verified independently.
+
+3. **The parts aren't testable as a unit.** If you can clearly describe "done" and write acceptance criteria for the first half without the second half existing, they should be separate tasks. Independent testability is the practical test: can a reviewer verify this task is complete without needing another task to be in place first?
+
+When a task triggers one or more of these signals, propose the split with a brief rationale before writing the breakdown. Don't split mechanically — confirm the sub-tasks each have a clear purpose and would genuinely be planned and reviewed separately.
+
 ## Cleanup Tasks
 
 The final task in a milestone is a **cleanup and review pass** — but only when it earns its place.
@@ -91,31 +103,3 @@ When a project is design-heavy and designs don't yet exist:
 
 Discuss the tradeoffs with the user and let them choose. The right approach depends on the project's design maturity and team structure.
 
-## Rough Estimation
-
-After tasks are decomposed and before transitioning to submit, produce a rough estimate per task. This is the **honest first guess** — task-breakdown has not read the codebase, so it cannot know whether a task is mechanical replication or an entirely new pattern. The estimate's purpose is to give downstream tools (and the user) a sense of relative effort; it is revised later during the refinement step that reads the codebase.
-
-**Format:** `hh:mm` with quarter-hour precision (e.g., `00:15`, `00:30`, `01:00`, `01:30`, `02:45`, `04:00`).
-
-**What to weigh from the breakdown alone:**
-
-| Factor | Effect |
-|--------|--------|
-| Task description says "same as / follows pattern of <existing thing>" | Reduces time — replication, not design |
-| Task involves a new pattern with no precedent named in the breakdown | Increases time — design decisions, trial and error |
-| Number of files implied by scope (entity + repo + router + tests = ~4 files) | More files = more time |
-| Clear API contract already named (this or a sibling task) | Reduces time |
-| UI work with layout/styling decisions | Increases time |
-| Complex acceptance criteria (edge cases, error states) | Increases time |
-| Depends on multiple prior tasks (context-loading overhead) | Slight increase |
-| Boilerplate-heavy but straightforward (CRUD, config, wiring) | Low estimate — mechanical |
-
-**Calibration anchors:**
-
-- `00:15` — a single config change, adding an import, registering a route
-- `00:30` — a straightforward file following an exact existing pattern (e.g., "copy users router, change to projects")
-- `01:00` — a small feature with 2–3 files, clear pattern to follow, no design decisions
-- `02:00` — a feature with 4–6 files, some decisions, moderate acceptance criteria
-- `03:00`–`04:00` — complex feature, new patterns, multiple edge cases, or significant UI work
-
-Most well-scoped tasks land between `00:30` and `03:00`. If a task estimates above `04:00`, that is a strong signal it should be split.

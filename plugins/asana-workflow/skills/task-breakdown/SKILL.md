@@ -63,33 +63,18 @@ For each milestone, propose the tasks — their platform, ordering, and scoping.
 
 Explain the rationale for ordering and scoping decisions. These decisions embody the core value of the breakdown — the "why" matters as much as the "what."
 
-### Phase 3.5: Validate and Estimate
+**Write task descriptions in product language.** The `Description:` field must be understandable by anyone on the team — PM, designer, developer, QA — not just the engineer who will implement it. Lead with what the user sees or experiences when this task is done. Do not lead with the implementation approach (which API, which component, which pattern). Those details belong in the refinement step, once the codebase is read. See `references/output-format.md` → "Description" for examples and the full rule.
 
-After tasks are decomposed and before the user reviews them, walk every task and run two checks:
+### Phase 3.5: Validate
 
-**1. Validation.** For each task, verify:
+After tasks are decomposed and before the user reviews them, walk every task and run these checks:
+
 - *Platform check* — exactly one platform per task. If a task spans multiple platforms (e.g., backend API + frontend UI), propose splitting into separate tasks with a dependency between them.
 - *Size check* — the task is completable in a single session (roughly `00:30`–`04:00`). If a task feels larger, propose a split with reasoning. If much smaller than `00:30`, consider merging with a related task.
+- *Split check* — apply the three split signals from `references/decomposition-principles.md` → "When to split a task": (1) does the description require a numbered list? (2) does it bundle a routine sub-feature with a complex/novel one? (3) can the first half be tested without the second half existing? Any "yes" is a reason to propose a split.
 - *Redundancy check* — the task does not duplicate work already covered by another task in this breakdown.
 
-Surface any issues to the user and resolve them (split / merge / reword) before estimation.
-
-**2. Rough estimate.** For each task, produce an `hh:mm` rough estimate using the calibration anchors and weighting factors in `references/decomposition-principles.md` → "Rough Estimation". This estimate is written into the task entry's `Estimate:` field in the output markdown.
-
-The estimates are rough by design. They are revised later, during refinement, once the codebase has been read. If a task crosses `04:00`, treat it as a size-check failure and split.
-
-After validation and estimation, present the per-task list to the user as a compact table before moving on:
-
-```
-Estimates (total: 24:30):
-  T1  Setup employee entity + repository    01:30  Backend
-  T2  Employee CRUD API endpoints           02:00  Backend
-  T3  Employee list page                    02:30  Frontend
-  T4  Employee create/edit form             02:45  Frontend
-  ...
-```
-
-If the user adjusts an estimate, update the breakdown entry and continue.
+Surface any issues to the user and resolve them (split / merge / reword) before proceeding.
 
 ### Phase 4: Challenge and Refine
 
@@ -104,11 +89,13 @@ This is collaborative design, not rubber-stamping. The goal is the best decompos
 
 Produce the final markdown file following the format in **`references/output-format.md`**.
 
-**File location:** `docs/cortex/<descriptive-name>-<YYYY-MM-DD>.md`
+**File location:** `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<descriptive-name>.md`
 
-The descriptive name should be a short slug derived from what the breakdown covers (e.g., `management-features-2026-05-20.md`, `auth-redesign-2026-05-20.md`).
+Resolve `<repo-root>` from the git repository root (`git rev-parse --show-toplevel`), not the current working directory. The descriptive name is a short slug derived from what the breakdown covers — all lowercase, hyphen-separated, with the date first so listings sort chronologically (e.g., `2026-05-20-management-features.md`, `2026-05-20-auth-redesign.md`).
 
-Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each Asana task description.
+If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free (e.g., `2026-05-20-management-features-v2.md`).
+
+Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each Asana task description.
 
 ### Phase 6: Originating Task Disposition
 
@@ -143,7 +130,7 @@ If the user declines, stop here. They can run `/submit-breakdown` later with the
 - Does not create Asana tasks or interact with project management tools for writing
 - Does not write code or scaffold projects
 - Does not assign people, set priorities, or manage external IDs
-- Does not produce *refined* estimates — rough estimates only; refined estimates come later during the refinement step, after codebase analysis
+- Does not produce estimates — estimates should come from the team doing the work, after codebase analysis during refinement
 
 It **does** read from Asana (existing tasks, projects, milestones) during discovery to understand current state.
 
