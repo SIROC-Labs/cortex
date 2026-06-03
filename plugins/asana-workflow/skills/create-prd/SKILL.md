@@ -115,11 +115,24 @@ If at any point the user says "leave that as TBD" or "not decided yet", note it 
 
 Only start writing once **every question in Phase 3 has been answered**.
 
+### File location
+
+All PRDs are written under `<repo-root>/docs/cortex/product-requirements/`. Resolve `<repo-root>` from the git repository root (`git rev-parse --show-toplevel`), not the current working directory. Create the directory if it doesn't exist.
+
+Filename: `<YYYY-MM-DD>-<reasonable-title>.<ext>` — all lowercase, hyphen-separated, dated first so listings sort chronologically. Examples:
+
+- `2026-06-03-vast-serving-revamp.md`
+- `2026-06-03-onboarding-redesign.html`
+
+If both HTML and Markdown are produced, they share the same base name and only the extension differs (e.g., `2026-06-03-feature-x.md` and `2026-06-03-feature-x.html` in the same folder).
+
+If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free (e.g., `2026-06-03-feature-x-v2.md`).
+
 ### Output formats
 
-**HTML** (default): A single file named `PRD - [Feature Name].html`. Self-contained with inline styles. Follow every component pattern in `references/html-template.md` exactly — CSS block, section structure, feature cards, tables, scope chips, requirement pills, and link cards. All links must be real `<a>` tags pointing to actual files or URLs. Never write placeholder link text inside an anchor.
+**HTML** (default): Self-contained file with inline styles. Follow every component pattern in `references/html-template.md` exactly — CSS block, section structure, feature cards, tables, scope chips, requirement pills, and link cards. All links must be real `<a>` tags pointing to actual files or URLs. Never write placeholder link text inside an anchor.
 
-**Markdown**: A single file named `PRD - [Feature Name].md`. Use the same section order as HTML. Tables for KPIs, dependencies, open questions. No TBDs in feature bodies — open questions table only.
+**Markdown**: Use the same section order as HTML. Tables for KPIs, dependencies, open questions. No TBDs in feature bodies — open questions table only.
 
 **Plain text / PDF-ready**: Clean prose with clear section headings. Same structure. Tables as plain ASCII. Delivered as `.md` for the user to copy into their tool of choice.
 
