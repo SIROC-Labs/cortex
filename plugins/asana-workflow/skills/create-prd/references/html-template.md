@@ -284,6 +284,8 @@ One card per feature. Repeat this block inside `<div class="section" id="feature
 
 Only include questions that are genuine TBDs — confirmed as unresolved by the user during the interview.
 
+**Owner and Due Date must come from the interview — do not write `TBD` here unless the user explicitly said so.** Copy the *structure* of the example below, not its placeholder values.
+
 ```html
 <div class="section" id="questions">
   <h2>Open Questions</h2>
@@ -295,8 +297,8 @@ Only include questions that are genuine TBDs — confirmed as unresolved by the 
       <tbody>
         <tr>
           <td>The specific question that is unresolved.</td>
-          <td>TBD</td>
-          <td>TBD</td>
+          <td>Jane Doe</td>
+          <td>Aug 15, 2026</td>
           <td><span class="badge badge-open">Open</span></td>
         </tr>
       </tbody>
