@@ -12,6 +12,7 @@ asana-workflow/
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)
     ├── create-pr/         ← PR creation (bundled)
+    ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── generic-qa/        ← Shared QA process & references (not a skill — used by web-qa, mobile-qa)
@@ -63,6 +64,10 @@ pre-ship-check
 log-task
   ├── asana-api          (create task, set custom fields, add to projects)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
+
+create-prd             (standalone: reads sources, interviews user, writes PRD — no skill dependencies)
+  ├── asana-api          (optional: fetch task + attachments when Asana URL is provided)
+  └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
 
 task-breakdown
   ├── asana-api          (optional: read existing tasks/projects for context during discovery)

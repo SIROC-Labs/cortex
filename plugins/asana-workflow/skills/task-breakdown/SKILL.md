@@ -89,11 +89,13 @@ This is collaborative design, not rubber-stamping. The goal is the best decompos
 
 Produce the final markdown file following the format in **`references/output-format.md`**.
 
-**File location:** `docs/cortex/<descriptive-name>-<YYYY-MM-DD>.md`
+**File location:** `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<descriptive-name>.md`
 
-The descriptive name should be a short slug derived from what the breakdown covers (e.g., `management-features-2026-05-20.md`, `auth-redesign-2026-05-20.md`).
+Resolve `<repo-root>` from the git repository root (`git rev-parse --show-toplevel`), not the current working directory. The descriptive name is a short slug derived from what the breakdown covers — all lowercase, hyphen-separated, with the date first so listings sort chronologically (e.g., `2026-05-20-management-features.md`, `2026-05-20-auth-redesign.md`).
 
-Create the `docs/cortex/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each Asana task description.
+If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free (e.g., `2026-05-20-management-features-v2.md`).
+
+Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each Asana task description.
 
 ### Phase 6: Originating Task Disposition
 
