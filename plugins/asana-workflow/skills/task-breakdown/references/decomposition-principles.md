@@ -15,6 +15,17 @@ However, within a milestone, **tasks are platform-specific** (one task = one pla
 
 **Existing projects:** New tasks may belong in existing milestones. Don't create new milestones if the work fits naturally into the current structure. Propose new milestones only when the work represents a genuinely new product increment. Check for existing milestones in Asana sections or previous task-breakdown files.
 
+### Milestone Content Validation
+
+Before milestones are written to the breakdown md, every milestone must pass:
+
+- **Required fields present** — Purpose, Description, Product Requirements (≥1 use case), Acceptance Criteria (≥1 outcome), References (may be empty list, must be declared).
+- **Description is product-language** — same rule as task descriptions: a PM or designer reading it should immediately understand what gets shipped. No class names, endpoints, or framework patterns leading the description.
+- **References are non-trivial** — strip references that point to the breakdown md itself, to any `CLAUDE.md`, to the target Asana project URL, or to other trivially-discoverable resources. Same stripping rules as the task-level references list.
+- **Self-sufficient for expansion** — re-read the Description + Product Requirements + References. If a future session opening this milestone fresh would not have enough context to expand tasks, add what is missing. Common gaps: which platforms are involved, which spec section the milestone implements, which existing entities it depends on.
+
+Surface failures to the user and resolve them before continuing to task expansion.
+
 ## Task Ordering Within Milestones
 
 These ordering rules resolve ambiguity about what should come first. They're not arbitrary — each has a practical reason.
@@ -90,6 +101,14 @@ Dependencies are between **tasks**, never between milestones. Milestones group t
 **Parallelizable work:** Tasks that don't depend on each other can be done concurrently. Call this out explicitly — it helps teams plan and helps solo devs understand where they have flexibility in ordering.
 
 **Blocking risks:** If a task is high-risk or uncertain (e.g., depends on a third-party API with unclear docs, requires a design decision that isn't settled), flag it. High-risk tasks should be prioritized early so surprises surface before they block everything downstream.
+
+### Milestone Dependencies
+
+Milestones form a DAG that is independent of (but consistent with) the task-level DAG. Each milestone declares its `Depends on:` as a list of M-labels (or "None").
+
+- **The milestone DAG is not required to be linear.** A milestone can have multiple parents; the chain may branch.
+- **Task-level dependencies inside a milestone may cross milestone boundaries.** A task in M3 may depend on a task in M1. The milestone DAG records the *minimum* required ordering at the milestone level; the task DAG captures the precise execution order.
+- **Cycles are invalid.** If M2 depends on M3 and M3 depends on M2, the breakdown is rejected. Validation detects this and asks the user to break the cycle before continuing.
 
 ## Design-Driven Decomposition
 
