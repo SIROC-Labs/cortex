@@ -213,7 +213,7 @@ Two section types, two rules — apply them consistently:
 
 **Rule:** `\n\n` after plain text, `\n` after `</ul>`. Body text starts on the line immediately after its `<strong>` title — no blank line between the heading and the content.
 
-Dependencies are **not** written in the description. They are wired natively in Asana via the task dependency graph (Phase 3 Step 2), where they are already visible as blocking relationships. Repeating them in the description text adds no information.
+Dependencies are **not** written in the description. They are wired natively in Asana via the task dependency graph (**Phase 3 Steps 4 and 5**), where they are already visible as blocking relationships. Repeating them in the description text adds no information.
 
 ### Wrapping for Asana API
 Always pass descriptions to `asana_create_task` as `html_notes` wrapped in `<body>...</body>`.

@@ -67,7 +67,7 @@ Path: `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<project-slug>-<mile
 File contents:
 
 - File header (overall title, Delivers, file-level References — copied from the milestone's References if no broader context exists)
-- One milestone block (rendered from the Asana milestone task description, in the rich format from `output-format.md`)
+- One milestone block (rendered from the Asana milestone task description, in the rich format from `references/output-format.md`)
 - The expanded task entries under that milestone block
 
 This is a single-milestone working artifact for `submit-breakdown` to consume.

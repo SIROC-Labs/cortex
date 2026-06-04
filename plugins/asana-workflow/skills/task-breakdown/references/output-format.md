@@ -117,7 +117,7 @@ Use thin blocks only when slotting into an existing milestone. New milestones �
 
 T1, T2, T3... are internal to this document only. They exist solely for expressing dependencies within the breakdown. They carry no meaning outside this file and will not be used by downstream tools as identifiers.
 
-T-labels are assigned sequentially across the entire document, not per-milestone. So if M1 has T1–T5, M2 starts at T6.
+T-labels are assigned sequentially across the entire document, not per-milestone. So if M1 has T1–T5, M2 starts at T6. If a milestone has no tasks in the file (unexpanded), it does not consume any T-labels — the next milestone with tasks starts at the next available T-number.
 
 ### M-labels
 
