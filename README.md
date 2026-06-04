@@ -24,7 +24,6 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `git-check` | Branch safety, working tree cleanliness, debug artifact detection |
 | `work-summary` | Session recap for standups, handoffs, and PRs |
 | `create-pr` | Full PR lifecycle with Asana linking and reviewer assignment |
-| `update-pr` | Sync PR branch with base branch: fetch → merge → resolve conflicts → push |
 | `asana-api` | Asana REST API patterns and common operations |
 | `log-task` | Creates an Asana task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
@@ -35,6 +34,16 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
 | `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
 | `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |
+
+### dev-toolkit
+
+Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository.
+
+**Skills included:**
+
+| Skill | Description |
+|-------|-------------|
+| `update-pr` | Sync PR branch with its base branch: fetch → rebase/merge → resolve conflicts → push |
 
 ## Installation
 
@@ -62,6 +71,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 1. `/plugin marketplace add Siroc-Lab/cortex`
 2. `/plugin install asana-workflow@siroc-cortex`
+3. `/plugin install dev-toolkit@siroc-cortex`
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
@@ -70,6 +80,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 ```
 /plugin marketplace update siroc-cortex
 /plugin update asana-workflow@siroc-cortex
+/plugin update dev-toolkit@siroc-cortex
 ```
 
 ## Contributing

@@ -14,6 +14,12 @@
       "source": "./plugins/asana-workflow",
       "description": "End-to-end Asana-driven development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
       "version": "1.2.2"
+    },
+    {
+      "name": "dev-toolkit",
+      "source": "./plugins/dev-toolkit",
+      "description": "Independent, reusable development utilities",
+      "version": "0.1.0"
     }
   ]
 }
