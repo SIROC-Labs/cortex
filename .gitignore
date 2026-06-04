@@ -33,3 +33,6 @@ plugins/**/evals/
 
 # Docs
 docs/
+
+# Worktrees
+.worktrees/

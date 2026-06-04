@@ -4,7 +4,7 @@ The attached `implementation-plan.md` is a standalone markdown document the down
 
 The plan does **not** contain implementation code. The downstream agent has full codebase access and a single-task focus; it is better positioned than refine-tasks to derive exact syntax, types, and naming from the live codebase at execution time. refine-tasks removes ambiguity about *what* and *why*; the downstream agent writes the code.
 
-The Asana task description still owns the high-level **what** and **why** (Purpose, Scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering - without prescribing the code itself.
+The Asana task description still owns the high-level **what** and **why** (Purpose, Description, Out of scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering - without prescribing the code itself.
 
 ## Plan Header
 
@@ -252,7 +252,7 @@ Every source consulted to write this plan.
 - **Be opinionated.** Where conventions exist, pick the one to follow. Don't offer alternatives.
 - **State technical facts, not predictions.** Only assert file paths and patterns that are real in the current codebase. Describing what a new function/endpoint should do is fine; predicting its body is not.
 - **Resolve cross-task decisions once.** If a sibling task established a pattern, state it as the established choice rather than re-litigating in every plan.
-- **Don't duplicate the Asana description.** Purpose / Scope / Acceptance Criteria already live there. The plan's job is to deepen them with files, patterns, models, signatures, and step ordering.
+- **Don't duplicate the Asana description.** Purpose / Description / Out of scope / Acceptance Criteria already live there. The plan's job is to deepen them with files, patterns, models, signatures, and step ordering.
 - **No T-labels.** `T1`, `T2`, ... are breakdown-internal identifiers. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
 - **No placeholders.** These are plan failures:
   - `TBD`, `TODO`, `fill in details`, `implement later`

@@ -30,9 +30,20 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
 | `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
+| `create-prd` | Generates a complete PRD from any combination of sources: Asana task URL, Notion page, Figma file, local folder, or any web URL |
 | `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
 | `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
 | `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |
+
+### dev-toolkit
+
+Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository.
+
+**Skills included:**
+
+| Skill | Description |
+|-------|-------------|
+| `update-pr` | Sync PR branch with its base branch: fetch → rebase/merge → resolve conflicts → push |
 
 ## Installation
 
@@ -100,6 +111,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 ```
 /plugin marketplace update siroc-cortex
 /plugin update asana-workflow@siroc-cortex
+/plugin update dev-toolkit@siroc-cortex
 ```
 
 ### OpenCode

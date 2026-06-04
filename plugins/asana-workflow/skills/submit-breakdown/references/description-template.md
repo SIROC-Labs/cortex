@@ -8,6 +8,22 @@ The description does **not** contain an implementation plan. That is produced la
 
 Use Asana HTML formatting (see Formatting Rules below).
 
+### 0. Visual Context (Figma / Screenshot)
+
+**Only include this section when visual references exist.** It renders before Purpose so a developer opening the task sees the design immediately.
+
+**Figma link:** If a Figma URL exists in the aggregated references (task, milestone, or file header), render it as a standalone link at the very top of the description body, before all other content:
+
+```html
+<a href="https://figma.com/...">→ View in Figma</a>
+```
+
+Use the label from the breakdown (e.g. "Figma — Mapping step" → `→ Figma — Mapping step`). If the breakdown says "Not yet available" or has no Figma URL, skip this line entirely — do not render a placeholder.
+
+**Screenshots from a prototype:** Asana's `html_notes` does **not** support `<img>` tags — the API returns an XML parsing error if you include one. Screenshots must be uploaded as file attachments via `POST /attachments` with `parent=<task_gid>`. Asana then displays them as image thumbnails visible immediately below the description. See Phase 3.5 in the skill for when and how to upload them.
+
+Do **not** try to embed screenshot URLs inline in the description. It will fail.
+
 ### 1. Purpose
 
 One sentence: why this task exists and what it unlocks. Pull verbatim from the breakdown task entry's `Purpose:` field.
@@ -16,28 +32,25 @@ One sentence: why this task exists and what it unlocks. Pull verbatim from the b
 
 ### 2. Description
 
-The 2–5 sentence summary from the breakdown task entry's `Description:` field. State what needs to be built; do not list files or implementation steps — that is handled later during refinement, when the codebase is read.
+2–3 sentences from the breakdown task entry's `Description:` field, rendered verbatim (or rewritten per the rule below).
 
-### 3. Scope
+The description must be written in **product language** — what the user sees or experiences, not how it is coded. A PM, designer, or QA engineer reading this task should immediately understand what's being built and why. Implementation details (which endpoint, which hook, which component pattern) are not needed here and will be added during refinement.
 
-Pulled from the breakdown task entry's `Description:` and `Out of scope:` fields combined. Two bullet groups:
+**Keep it brief and high-level.** Do not embed inline enumerations like `(1) Campaign — …; (2) Creative — …; (3) Parameters — …`. If a task has multiple components, name them at a summary level in prose and let the Acceptance criteria carry the specifics.
 
-- **In scope:** what this task delivers
-- **Out of scope:** explicit "Do NOT" restrictions from the breakdown's `Out of scope:` field, each suffixed with "— that is a separate task" when it refers to other work in the breakdown
+If the breakdown description is too developer-centric (leads with a class name, an API call, or a framework pattern) or too long, rewrite it in product terms before rendering it into the Asana task. This is the one case where submit-breakdown is allowed to rephrase breakdown content — the goal is a description any team member can understand, not a literal transcription of technical shorthand.
 
-If the breakdown has no `Out of scope:` field, omit the Out of scope bullets entirely.
+### 3. Out of scope
 
-### 4. Dependencies
+Optional. Only render this section when the breakdown task entry has an `Out of scope:` field. Each restriction is a bullet, each suffixed with "— that is a separate task" when it refers to other work in the breakdown.
 
-Resolved Asana task links — not raw T-labels. Built from the breakdown task entry's `Depends on:` field by looking up each T-label in the T-label → Asana GID map (populated during submit Phase 3 Step 1).
+Omit this section entirely when the breakdown has no `Out of scope:` field.
 
-If `Depends on:` is `None`, render this section as `None` (so the reader doesn't wonder whether dependencies were forgotten).
-
-### 5. Acceptance Criteria
+### 4. Acceptance Criteria
 
 The bullet list from the breakdown task entry's `Acceptance criteria:` field, verbatim.
 
-### 6. References (aggregated)
+### 5. References (aggregated)
 
 A single bullet list aggregating references from three levels of the breakdown:
 
@@ -50,6 +63,7 @@ Each bullet preserves the descriptive label from the breakdown (e.g., `Spec: doc
 **Aggregation rules:**
 
 - Deduplicate by exact URL or file path — a reference repeated at multiple levels appears once.
+- **Drop the section-0 Figma URL.** If a Figma URL was rendered as the section-0 visual context link at the top of the description, exclude it from the References list — otherwise it appears twice. Any other Figma URLs (not used in section 0) still belong in References.
 - Preserve order: task-specific first, then milestone-level, then file-header references. (This puts the most-specific source at the top.)
 - Labels come verbatim from the breakdown; do not paraphrase.
 - Repetition *across* tasks in the same milestone is expected and acceptable. Every task is meant to be a complete, self-contained refinement input.
@@ -71,7 +85,6 @@ For a task entry in the breakdown that looks like:
 ### T3 — Backend — Feature Request — Employee CRUD API endpoints
 **Purpose:** Implements the employee CRUD API so the frontend can list, create, and edit employees.
 **Description:** Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
-**Estimate:** 02:00
 **Acceptance criteria:**
 - GET /employees returns all employees with name, role, department
 - POST /employees creates and returns entity with generated ID
@@ -86,20 +99,20 @@ For a task entry in the breakdown that looks like:
 inside an `M1` milestone with `References: Sprint plan: https://asana.com/...` and a file header `References: Spec: docs/spec.md, Figma: https://figma.com/file/abc`, the Asana task description becomes:
 
 ```html
+<a href="https://figma.com/file/abc">→ Figma</a>
+
 <strong>Purpose</strong>
 Implements the employee CRUD API so the frontend can list, create, and edit employees.
+
 <strong>Description</strong>
-Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Return 404 with error message for unknown IDs.
-<strong>Scope — In scope</strong>
-<ul><li>GET/POST/PUT/DELETE endpoints under /employees</li><li>Soft-delete on DELETE</li><li>404 with error message for unknown IDs</li></ul>
-<strong>Scope — Out of scope</strong>
+Adds CRUD endpoints for employees — create, read, update, and soft-delete — so the frontend can manage employee records against a live backend.
+
+<strong>Out of scope</strong>
 <ul><li>Do NOT implement pagination or filtering — that is a separate task.</li><li>Do NOT add role-based access control — that is a separate task.</li></ul>
-<strong>Dependencies</strong>
-<ul><li><a href="https://app.asana.com/0/1199384720000001/1199384720000123">Setup employee entity + repository</a></li><li><a href="https://app.asana.com/0/1199384720000001/1199384720000124">Employee migration</a></li></ul>
 <strong>Acceptance criteria</strong>
 <ul><li>GET /employees returns all employees with name, role, department</li><li>POST /employees creates and returns entity with generated ID</li><li>GET /employees/{id} returns 404 with error message for nonexistent IDs</li><li>DELETE soft-deletes (sets is_active=false)</li></ul>
 <strong>References</strong>
-<ul><li>API style guide: <em>docs/api-style.md</em></li><li>Sprint plan: <a href="https://asana.com/...">https://asana.com/...</a></li><li>Spec: <em>docs/spec.md</em></li><li>Figma: <a href="https://figma.com/file/abc">https://figma.com/file/abc</a></li></ul>
+<ul><li>API style guide: <em>docs/api-style.md</em></li><li>Sprint plan: <a href="https://asana.com/...">https://asana.com/...</a></li><li>Spec: <em>docs/spec.md</em></li></ul>
 ```
 
 ---
@@ -110,7 +123,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 - **Aggregate references unconditionally.** Even if a milestone has only one task, embed the milestone's references in that task — every task must be self-contained when read in isolation.
 - **Preserve labels verbatim.** Reference labels come from the breakdown's References lines exactly. Do not normalize, rename, or "clean up" labels.
 - **Skip empty sections.** If the breakdown has no `Out of scope:` or no task-level `References:`, simply omit those bullets — do not render an empty section.
-- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are breakdown-internal identifiers — they only exist so the breakdown markdown can express dependencies before Asana GIDs exist. Resolve every T-label reference (Dependencies, prose mentions, examples) to the corresponding Asana task link + title. Never write the literal `T1`, `T2`, … into the Asana task description.
+- **No T-labels in the Asana description.** T-labels (`T1`, `T2`, …) are breakdown-internal identifiers — they only exist so the breakdown markdown can express dependencies before Asana GIDs exist. Resolve every T-label reference (prose mentions, examples) to the corresponding Asana task link + title. Never write the literal `T1`, `T2`, … into the Asana task description.
 
 ---
 
@@ -119,7 +132,7 @@ Add GET/POST/PUT/DELETE endpoints under /employees. Soft-delete on DELETE. Retur
 Asana renders a subset of HTML. These rules produce clean, compact descriptions.
 
 ### Tags to use
-- `<strong>` for section titles (Purpose, Description, Scope — In scope, etc.)
+- `<strong>` for section titles (Purpose, Description, Out of scope, Acceptance criteria, References)
 - `<em>` for file paths, function names, types, and technical terms
 - `<ul><li>` for bullet lists
 - `<a href="...">` for links (Figma URLs, external docs, dependency Asana links)
@@ -128,11 +141,24 @@ Asana renders a subset of HTML. These rules produce clean, compact descriptions.
 - Never use `<h1>`, `<h2>`, or any heading tags — they add excessive whitespace in Asana
 - Never use `<code>` or `<pre>` — Asana renders them poorly
 - Never use `<br>` between sections — use `\n` only
+- **Never use `<img>`** — Asana's `html_notes` parser treats the description as XML and rejects any `<img>` tag (even self-closing `<img />`), returning HTTP 400 `xml_parsing_error`. Upload images as file attachments instead (see Phase 3.5).
 
 ### Spacing
-- One `\n` between `</ul>` and the next `<strong>`
-- Body text starts immediately after the `<strong>` title line
-- No extra blank lines anywhere — keep it compact
+
+Two section types, two rules — apply them consistently:
+
+| Section | Body type | Separator before next `<strong>` |
+|---|---|---|
+| Figma/screenshot link | inline `<a>` | `\n\n` |
+| Purpose | plain text | `\n\n` |
+| Description | plain text | `\n\n` |
+| Out of scope | `<ul>` | `\n` |
+| Acceptance criteria | `<ul>` | `\n` |
+| References | `<ul>` (last — no trailing separator) | — |
+
+**Rule:** `\n\n` after plain text, `\n` after `</ul>`. Body text starts on the line immediately after its `<strong>` title — no blank line between the heading and the content.
+
+Dependencies are **not** written in the description. They are wired natively in Asana via the task dependency graph (Phase 3 Step 2), where they are already visible as blocking relationships. Repeating them in the description text adds no information.
 
 ### Wrapping for Asana API
 Always pass descriptions to `asana_create_task` as `html_notes` wrapped in `<body>...</body>`.

@@ -15,6 +15,7 @@
      ```
      /plugin marketplace add /path/to/cortex
      /plugin install asana-workflow@siroc-cortex
+     /plugin install dev-toolkit@siroc-cortex
      ```
    - **OpenCode:** Point your `opencode.json` at the local clone:
      ```json
@@ -31,26 +32,27 @@
 ## Development loop
 
 Skills are Markdown files — no build step. After editing a file, start a new conversation and changes are picked up automatically. If you're already in a session:
-- **Claude Code:** `/plugin reload asana-workflow`
+- **Claude Code:** `/plugin reload <plugin>` (the plugin you edited)
 - **OpenCode:** Restart the agent session
 - **Codex:** Restart the agent session
 
 ## Editing an existing skill
 
-Skills live at `plugins/asana-workflow/skills/<name>/SKILL.md`. Edit the file directly.
+Skills live at `plugins/<plugin>/skills/<name>/SKILL.md`, where `<plugin>` is the plugin folder the skill belongs to. Edit the file directly.
 
 Keep SKILL.md under ~100 lines. For larger reference content, create a `references/` subdirectory and link to it from SKILL.md.
 
 ## Adding a new skill
 
-1. Create `plugins/asana-workflow/skills/<name>/SKILL.md` with YAML frontmatter:
+1. Choose the plugin folder that fits the skill's purpose (browse `plugins/`; each plugin's `CLAUDE.md` describes its scope).
+2. Create `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmatter:
    ```yaml
    ---
    name: skill-name
    description: one-line description of when this skill triggers
    ---
    ```
-2. Start a new Claude Code or Codex session, run `/plugin reload asana-workflow` in Claude Code, or restart OpenCode to test
+3. Start a new Claude Code or Codex session, run `/plugin reload <plugin>` in Claude Code, or restart OpenCode to test
 
 ## Before opening a PR
 
