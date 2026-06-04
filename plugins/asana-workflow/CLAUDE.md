@@ -27,10 +27,10 @@ asana-workflow/
     │   └── scripts/       ← skill-local helpers (e.g., checkpoint.sh — checkpoint file I/O)
     ├── refine-tasks/      ← Codebase-informed refinement: turn Refinement-status Asana tasks into one-shotters with attached implementation plans (bundled)
     │   └── references/    ← input resolution, implementation plan template
-    ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana as Refinement-status tasks (bundled)
-    │   └── references/    ← description template (thin), formatting rules
-    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps with validation (bundled)
-    │   └── references/    ← discovery guide, decomposition principles, output format
+    ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana — sections, milestone tasks (resource_subtype=milestone), implementation tasks (Refinement-status). Idempotent re-runs. (bundled)
+    │   └── references/    ← description template (implementation + milestone), formatting rules
+    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps. First-class milestone blocks (Purpose, Description, Product Requirements, AC, M-label deps). PLAN + EXPAND modes. (bundled)
+    │   └── references/    ← discovery guide (with effort signals), decomposition principles (with milestone validation + DAG), output format (rich + thin milestone blocks), expand-mode flow
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
 ```
@@ -70,12 +70,13 @@ create-prd             (standalone: reads sources, interviews user, writes PRD �
   └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
 
 task-breakdown
-  ├── asana-api          (optional: read existing tasks/projects for context during discovery)
-  └── → hands off to submit-breakdown (Phase 7, optional: user confirms transition)
+  ├── asana-api          (read existing tasks/projects for context during discovery;
+  │                       fetch milestone tasks for EXPAND mode triggers #1 / #2)
+  └── → hands off to submit-breakdown (Phase 8, optional: user confirms transition)
 
-submit-breakdown           (faithful uploader: breakdown → Asana tasks at Product Status = Refinement)
-  ├── asana-api          (create tasks, set custom fields incl. Refinement enum, wire dependencies)
-  └── → hands off to refine-tasks (tasks created at Refinement status; user runs refine-tasks next)
+submit-breakdown           (faithful uploader: breakdown → Asana sections + milestone tasks + implementation tasks; idempotent re-runs)
+  ├── asana-api          (create tasks, set custom fields, wire dependencies, create milestone-subtype tasks, detect existing milestones)
+  └── → hands off to refine-tasks (implementation tasks created at Refinement status; user runs refine-tasks next)
 
 refine-tasks               (Refinement-status Asana tasks → Unassigned with implementation-plan.md attached)
   ├── asana-api          (resolve task set, fetch descriptions, upload attachment, update fields, move status)
