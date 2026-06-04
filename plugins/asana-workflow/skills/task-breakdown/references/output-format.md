@@ -183,6 +183,8 @@ Optional. Only include when there's real risk of scope creep or ambiguity — wh
 
 Don't use this field to restate boundaries that are already clear from the task name and description.
 
+The same rule applies at the milestone level — only include `**Out of scope:**` on a milestone when there is real scope-creep risk or when boundaries between milestones might be misunderstood.
+
 ### Depends On
 
 List of T-labels that must be completed before this task can start, or "None."
