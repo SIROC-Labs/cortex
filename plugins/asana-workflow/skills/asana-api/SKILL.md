@@ -94,6 +94,26 @@ curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
 
 Save the returned `gid` as `<task_gid>`.
 
+### Create Milestone Task
+
+To create a milestone-type task — used as a first-class anchor for a project milestone — set `resource_subtype` to `"milestone"` on the create body. Everything else is identical to Create Task:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": {
+      "name": "<milestone name>",
+      "resource_subtype": "milestone",
+      "workspace": "<workspace_gid>",
+      "html_notes": "<body>...</body>"
+    }
+  }' \
+  "https://app.asana.com/api/1.0/tasks"
+```
+
+Add to project, move to section, and set custom fields exactly as for a regular task. Milestone tasks accept the same `addProject` / `addTask` (section) / custom-field-update calls — they only differ in `resource_subtype`.
+
 ### Add Task to Project
 
 ```bash
