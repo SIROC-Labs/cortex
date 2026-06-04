@@ -1,10 +1,65 @@
 # Task Description Template
 
-Each Asana task description is a **thin, faithful render** of one task entry from the breakdown markdown file, with references aggregated from all three levels of the breakdown so the task is self-contained.
+Each Asana task description is a **thin, faithful render** of one entry from the breakdown markdown — either a task entry (`### Tn ...`) or a milestone block (`## Mn :: ...`). References are aggregated from the levels above so the description is self-contained.
 
-The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same Asana task.
+The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same Asana task. Milestone tasks never have an implementation plan — they are anchors, not work items.
 
-## Description Structure
+## Two Description Types
+
+`submit-breakdown` renders two kinds of Asana task descriptions:
+
+- **Implementation task description** — for regular tasks (`resource_subtype == "default_task"`). Structure: Visual Context, Purpose, Description, Out of scope (optional), Acceptance Criteria, References. Detailed in "Implementation Task Description" below.
+- **Milestone task description** — for milestone tasks (`resource_subtype == "milestone"`). Structure: Purpose, Description, Product Requirements, Out of scope (optional), Acceptance Criteria (milestone-level), References. Detailed in "Milestone Task Description" below.
+
+Use the milestone renderer when the breakdown's milestone block carries the rich fields (Purpose, Description, Product Requirements, Acceptance Criteria, References). Use the implementation-task renderer for entries under `### Tn — ...`.
+
+---
+
+## Milestone Task Description
+
+The Asana milestone task is the canonical context for the milestone — it must be self-sufficient. Render the milestone block's content with this structure (Asana HTML):
+
+```html
+<strong>Purpose</strong>
+<one sentence from milestone block "Purpose:" field>
+
+<strong>Description</strong>
+<paragraph from milestone block "Description:" field>
+
+<strong>Product Requirements</strong>
+<ul><li>use case 1</li><li>use case 2</li>...</ul>
+
+<strong>Out of scope</strong>           ← only when milestone block has "Out of scope:"
+<ul><li>exclusion 1</li>...</ul>
+
+<strong>Acceptance Criteria</strong>
+<ul><li>outcome 1</li><li>outcome 2</li>...</ul>
+
+<strong>References</strong>
+<ul><li>...</li></ul>
+```
+
+### Milestone reference aggregation
+
+References for a milestone task description aggregate from **two** levels:
+
+1. The milestone block's `References:` field (if present)
+2. The file-header `## References` section
+
+Deduplicate by exact URL/path. Preserve order: milestone-specific first, then file-header. Use the same stripping rules as task-level aggregation (no breakdown md, no `CLAUDE.md`, no target project URL, no trivially auto-discoverable refs).
+
+**Never** reference the breakdown markdown file. The milestone task description must remain self-sufficient and portable.
+
+### Milestone description rules
+
+- **No rationale paragraph.** The milestone block's rationale paragraph is md-only — it is not rendered into Asana.
+- **No "Depends on" text.** Milestone-to-milestone dependencies are wired natively via `asana_set_task_dependencies` (see `SKILL.md` Phase 3).
+- **No T-labels.** Same rule as today — T-labels are breakdown-internal identifiers.
+- **Thin milestone blocks render nothing.** A thin milestone block has no `Purpose:` field and points to an existing Asana milestone via `Source:`. submit-breakdown looks up the existing task and skips description rendering entirely. See `SKILL.md` for the lookup procedure.
+
+---
+
+## Implementation Task Description
 
 Use Asana HTML formatting (see Formatting Rules below).
 
