@@ -25,6 +25,7 @@ The goal: a faithful, low-friction upload so the breakdown is visible in Asana a
 - A task breakdown file (output of `task-breakdown`) — markdown with milestones, tasks, and dependencies.
 - An Asana project URL — the target project where tasks will be created.
 - The target project's Product Status custom field must include a **Refinement** enum option. The skill verifies this before doing anything else and aborts with a clear message if it's missing.
+- The `asana-api` skill must document **Create Milestone Task** and **Detect Milestone Subtype** (see `asana-api/SKILL.md`). submit-breakdown depends on these patterns to create and detect milestone-subtype tasks.
 
 ## Inputs
 
@@ -56,6 +57,8 @@ If either input is missing, ask for it before proceeding.
 
 5. **Fetch existing tasks per section** to understand current state — what's done, what exists, what the breakdown says to remove.
 
+6. **Detect existing milestone tasks per section.** For each section, list its tasks with `opt_fields=name,resource_subtype` and identify any task where `resource_subtype == "milestone"`. Build a per-section map: `section_name → milestone_task_gid | None`. This map drives the idempotency check in Phase 3.
+
 This skill does **no codebase discovery**. The references embedded in each task description (aggregated by Phase 2) are what the downstream refinement step will read later.
 
 ---
@@ -77,54 +80,119 @@ Key principles:
 
 ## Phase 3: Submit to Asana
 
-Create tasks in **dependency order** — tasks with no dependencies first, then tasks that depend on those, etc. This ensures GIDs are available for resolving dependency-link references.
+Create objects in **dependency order** — sections first, then milestone tasks, then implementation tasks. Wire dependencies at the end so all GIDs exist.
 
-### Step 1: Create all tasks (NO Asana dependencies yet)
+### Step 1: Ensure each section exists
 
-The Asana `create_task` / `create_tasks` tools do NOT support a dependencies field. Any dependency data passed during creation is silently ignored. Dependencies are wired in a separate step below.
+For each milestone in the breakdown:
 
-For each task, create it with:
-- **Name** — from the breakdown task title (no platform prefix; Platform is a custom field)
-- **Description** (HTML) — composed in Phase 2, passed as `html_notes` wrapped in `<body>...</body>`
-- **Section** — corresponds to the breakdown's milestone (create the section if missing)
-- **Custom fields:**
-  - Platform — from the breakdown task entry
-  - Category — from the breakdown task entry
-  - Priority — default `P3`
-  - **Product Status** — conditional on the task's Platform (using the enum option GIDs resolved in Phase 1a):
-    - If **Platform = `Design`** → set Product Status to **`Unassigned`**. Design tasks are not refinable by Claude (the work is producing Figma files, wireframes, design specs, etc. — outside this tooling's reach), so they bypass the Refinement stage and go straight to the staffing pool.
-    - For every other platform (Backend, Frontend, iOS, Android) → set Product Status to **`Refinement`** so the downstream refinement step can pick them up.
+- Look up the section by milestone name in the project.
+- If missing, create it. Section order follows the milestone order in the breakdown markdown.
 
-Track every returned task GID in a T-label → GID map (e.g., `T1 → "1234567890"`).
+### Step 2: Ensure each milestone task exists
 
-### Step 2: Wire dependencies (separate API calls)
+For each milestone in the breakdown:
 
-After ALL tasks exist, wire dependencies using `asana_set_task_dependencies`. This is a separate tool — not a field on create_task.
+- **Thin milestone block** (no `Purpose:` field, has `Source:` pointing to an existing milestone task):
+  - Resolve the existing milestone task GID via the `Source:` URL. If the URL is missing or invalid, fall back to looking up the section's milestone-subtype task from the Phase 1 step-6 map. Record the GID.
+  - **Do not create** a new milestone task and **do not update** the existing description.
 
-For each task that has dependencies in the breakdown:
-- Look up the dependency T-labels in the T-label → GID map
-- Call `asana_set_task_dependencies` with `task_id` = this task's GID and `dependencies` = array of dependency GIDs
+- **Rich milestone block** (has `Purpose:` field):
+  - Look in the section for an existing task where `name == milestone_name AND resource_subtype == "milestone"`.
+  - **If found** → reuse the GID. Do not update the description (see "Re-run behavior" below).
+  - **If missing** → create with:
+    - `name` = milestone name
+    - `resource_subtype` = `"milestone"`
+    - `html_notes` = rendered milestone description (per `references/description-template.md` → "Milestone Task Description"), wrapped in `<body>...</body>`
+    - Add to project, move to the section.
+    - Custom fields: **Priority only** (default `P3`; override only if the milestone block explicitly specifies one). Do not set Platform, Category, or Product Status.
 
-### Task title rules
-- No platform prefix (Platform is a custom field)
-- Descriptive, concise — taken from the breakdown but cleaned up if needed
+Build an M-label → milestone_task_gid map for use in Step 4.
 
-### Section mapping
-- Each milestone in the breakdown maps to a section in the Asana project.
-- If the section doesn't exist yet, create it.
-- Sections should be ordered to match the milestone order in the breakdown.
+### Step 3: Create implementation tasks
+
+For each implementation task in the breakdown (when present):
+
+- Look in the section for an existing task with `name == task_name AND resource_subtype == "default_task"`.
+- **If found** → reuse the GID and skip create (idempotent re-run).
+- **If missing** → create with:
+  - `name` from the task title (no platform prefix; Platform is a custom field)
+  - `html_notes` = rendered implementation task description (per `references/description-template.md` → "Implementation Task Description")
+  - Section = the milestone's section
+  - Custom fields:
+    - Platform — from the breakdown task entry
+    - Category — from the breakdown task entry
+    - Priority — default `P3`
+    - **Product Status** — conditional on Platform:
+      - Platform `Design` → `Unassigned`
+      - everything else → `Refinement`
+
+Build a T-label → task_gid map.
+
+### Step 4: Wire milestone-level dependencies
+
+For each milestone whose breakdown block has `Depends on: M2, M3`:
+
+```
+asana_set_task_dependencies(
+  task_id      = M-label → GID map[Mn],
+  dependencies = [M-label → GID map[Mi] for each Mi in Depends on]
+)
+```
+
+### Step 5: Wire task-level dependencies
+
+For each implementation task whose entry has `Depends on: T2, T3`:
+
+```
+asana_set_task_dependencies(
+  task_id      = T-label → GID map[Tn],
+  dependencies = [T-label → GID map[Ti] for each Ti in Depends on]
+)
+```
+
+### Re-run behavior
+
+submit-breakdown is **idempotent and non-destructive on re-run**:
+
+- Existing sections, existing milestone tasks, and existing implementation tasks are detected (by match keys below) and reused — they are never re-created and their descriptions are never overwritten.
+- Dependency wiring is re-applied. Asana's `set_task_dependencies` is non-destructive when given the same set, so re-runs are safe.
+- If a milestone block in the md has diverged from the existing Asana milestone task description, log a notice (e.g., `M2 milestone task already exists; its description has diverged from the md (skipping)`) but do not act on it. The user has two ways to push md changes back into Asana: delete the Asana task and re-run, or edit the description manually.
+
+### Idempotency match keys
+
+| Object | Match key |
+|---|---|
+| Section | `name` (within project) |
+| Milestone task | `(section, name, resource_subtype == "milestone")` |
+| Implementation task | `(section, name, resource_subtype == "default_task")` |
+
+### Pre-flight checks (additions)
+
+- **(Existing)** Product Status field on the project must include the `Refinement` enum option.
+- **(New)** The first milestone-task create attempt also acts as a capability probe — if Asana rejects `resource_subtype: "milestone"` with a clear error, abort with: "Asana rejected milestone-subtype task creation. Check project / workspace permissions or contact Asana support." (This rejection is unexpected on standard task types.)
 
 ### Progress reporting
-After creating each task, report briefly. Reflect the actual Product Status set (Design → Unassigned, everything else → Refinement):
 
-> Created: "Task title" (M1) — Backend · Refinement
-> Created: "Wireframe employee list" (M1) — Design · Unassigned
+Report per object as it is created or reused:
 
-After all tasks and dependencies are set, summarize so the user knows which tasks need refinement next. Adapt the wording to the actual counts (omit the Design line when there are no Design tasks):
+```
+Section ready: "Employee Management" (M2)
+Created milestone: "Employee Management" (M2) — section "Employee Management"
+Reused milestone: "Data Layer" (M1) — already in section
+Created: "Setup employee entity" (M2) — Backend · Refinement
+Reused: "Employee list page" (M2) — already in section
+...
+Wired milestone deps: M2 depends on M1
+Wired task deps: T7 depends on T3, T4
+```
 
-> All N tasks created with dependencies wired.
->   • M tasks at Refinement (next step: run the refinement workflow to add implementation plans before staffing)
->   • K Design-platform tasks at Unassigned (Claude can't refine Design work — staff them through your normal design workflow)
+After all objects + dependencies are wired, summarize (adapt to actual counts; omit lines that don't apply):
+
+> All N milestones + M tasks reconciled with Asana.
+>   • <K_new> new milestone tasks, <K_existing> reused
+>   • <M_new> new implementation tasks at Refinement, <D_new> at Unassigned (Design)
+>   • <M_existing> implementation tasks reused
 > [Project URL]
 
 ---
@@ -217,6 +285,7 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 - **Ask confirmation** only for destructive actions — task deletions in Phase 4.
 - **If no questions, proceed silently.** Create the task and move on.
 - **Report progress** — brief status updates so the user knows things are moving.
+- **Report divergence notices but do not act on them.** If the md has changed and an existing milestone/task description differs, log the notice once per object and continue. Do not prompt the user mid-run.
 
 ## Dependencies
 
