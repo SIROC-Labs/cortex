@@ -92,3 +92,25 @@ This is critical for decomposition decisions:
 - Any constraints on who can do what?
 
 This affects task granularity: a solo dev might want larger tasks to reduce overhead, while a team benefits from smaller, parallelizable tasks.
+
+## Effort Assessment Signals
+
+After discovery, the skill proposes one of three sub-modes (Phase 2 of PLAN mode). The proposal is a judgment call informed by discovery — there is no hard cutoff. Use these signals:
+
+**Slot into existing milestone(s)** — choose when:
+- The project has existing milestones (Asana sections with milestone tasks) and the new work plainly belongs in one.
+- Work spans only 1–3 small tasks all addressing the same product area as an existing milestone.
+- No new milestone-level acceptance criteria emerge; the new tasks slot under an existing milestone's existing acceptance set.
+
+**Direct task breakdown (one new milestone)** — choose when:
+- The work is a coherent, small product increment (likely 3–6 tasks).
+- One milestone fully captures what gets shipped. No natural seam splits it further.
+- No part of the work is so large or uncertain that deferring task expansion would be valuable.
+
+**Milestone-first reasoning** — choose when:
+- The work spans clearly distinct product increments — e.g., "auth + user management + dashboards" — that ship independently.
+- 2+ milestones are likely, and reasoning about their boundaries before naming tasks would change the decomposition.
+- Some milestones are well-understood while others are uncertain — the user benefits from authoring milestones now and expanding individual ones later, possibly in separate sessions.
+- The breakdown will produce 10+ tasks total across milestones.
+
+Present the proposed mode with a one-sentence rationale and ask the user to confirm or override. The user always has the final say.
