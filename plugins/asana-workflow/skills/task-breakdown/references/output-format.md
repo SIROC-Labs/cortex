@@ -44,11 +44,30 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 
 ## M1 :: [Milestone Name]
 
-**Delivers:** [One sentence — what product increment becomes usable after this milestone]
-**Source:** [Optional — existing Asana section URL, spec section, etc.]
-**References:** [Optional — URLs, file paths, or docs specific to this milestone that go beyond the file header References]
+[One paragraph: rationale for why this milestone exists at this position, ordering and grouping decisions. **Planning context, md-only — NOT pushed to Asana.**]
 
-[One paragraph: rationale for why these tasks are grouped together and why this milestone is ordered here in the roadmap]
+**Purpose:** [One sentence — why this milestone exists, what it unlocks]
+
+**Description:** [2–4 sentences in product language — what gets built or shipped when this milestone is complete. Rich enough that a future session could expand it into tasks from this + References alone.]
+
+**Product Requirements:**
+- [Use case / scenario this milestone covers — e.g., "Admin can create a new employee with name, role, department"]
+- [Use case 2]
+- ...
+
+**Acceptance Criteria (milestone-level):**
+- [Observable, high-level outcome — e.g., "Employee list page is reachable and shows live data from the backend"]
+- [Outcome 2]
+- ...
+
+**Out of scope:** [Optional — only when there is real scope-creep risk]
+- [Explicit exclusion 1]
+
+**References:** [Optional — milestone-specific URLs, repo file paths, specs, Figma frames, external docs. Never the breakdown md file itself.]
+
+**Depends on:** [List of M-labels or "None"]
+
+**Source:** [Optional — existing Asana section URL, spec section, or Asana task URL]
 
 ### T1 — [Platform] — [Category] — [Task Name]
 **Purpose:** [One sentence — why this task exists and what it achieves, from the user's perspective]
@@ -76,6 +95,22 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 - **Action:** Delete | Complete
 ```
 
+## Thin Milestone Block (Slot-Into-Existing Mode)
+
+When the breakdown is adding tasks to an **existing** Asana milestone (PLAN sub-mode "slot into existing milestones"), the milestone block is **thin** — it omits the rich fields because the milestone already exists in Asana and is not being authored or updated.
+
+```markdown
+## M1 :: Employee Management
+**Source:** https://app.asana.com/.../task/<existing-milestone-task-gid>
+
+### T1 — Backend — Feature Request — ...
+...
+```
+
+A milestone block is recognized as **thin** by the absence of a `Purpose:` line. `submit-breakdown` looks up the existing milestone task via the `Source:` URL (or by section name as fallback), skips creation, and proceeds to create the implementation tasks under it.
+
+Use thin blocks only when slotting into an existing milestone. New milestones — even when there is only one — use the full rich block.
+
 ## Field Reference
 
 ### T-labels
@@ -83,6 +118,34 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 T1, T2, T3... are internal to this document only. They exist solely for expressing dependencies within the breakdown. They carry no meaning outside this file and will not be used by downstream tools as identifiers.
 
 T-labels are assigned sequentially across the entire document, not per-milestone. So if M1 has T1–T5, M2 starts at T6.
+
+### M-labels
+
+M1, M2, M3... are internal to this document only. They exist solely for expressing milestone-to-milestone dependencies within the breakdown. They carry no meaning outside this file.
+
+M-labels are assigned sequentially across the milestone list. They are an independent namespace from T-labels — M1 and T1 are not related.
+
+### Milestone Purpose
+
+One sentence: why this milestone exists in the roadmap and what it unlocks. Pull through to the Asana milestone task description verbatim.
+
+### Milestone Description
+
+2–4 sentences in product language describing what gets built or shipped when the milestone is complete. The bar is: a future session reading only this Description plus the milestone References should be able to expand the milestone into tasks. Lead with user-facing behavior, not implementation approach.
+
+### Product Requirements
+
+Bulleted list of use cases / scenarios this milestone covers, drawn from the spec or PRD. This is what makes the milestone description self-sufficient for later expansion — each bullet names a concrete user-facing behavior that any task derivation must collectively cover.
+
+### Acceptance Criteria (milestone-level)
+
+Observable, high-level outcomes a reviewer can check to say "this milestone is done." Distinct from per-task acceptance criteria — milestone-level ACs are about the milestone's product increment, not individual task outcomes.
+
+### Milestone Depends On
+
+List of M-labels that must complete before this milestone can start, or "None." Milestone dependencies form a DAG — they are not required to be linear. Cross-milestone task dependencies (T → T) are independent of milestone dependencies (M → M); both are tracked.
+
+Validation rejects M-label cycles. If a cycle is detected, the breakdown is invalid and must be revised.
 
 ### Platform
 
