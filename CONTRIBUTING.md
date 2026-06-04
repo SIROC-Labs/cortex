@@ -7,36 +7,38 @@
    ```bash
    bash setup.sh
    ```
-3. In Claude Code, add the local marketplace and install the plugin:
+3. In Claude Code, add the local marketplace and install the plugins:
    ```
    /plugin marketplace add /path/to/cortex
    /plugin install asana-workflow@siroc-cortex
+   /plugin install dev-toolkit@siroc-cortex
    ```
 
 ## Development loop
 
-Skills are Markdown files — no build step. After editing a file, start a new Claude Code conversation and changes are picked up automatically. If you're already in a session, run:
+Skills are Markdown files — no build step. After editing a file, start a new Claude Code conversation and changes are picked up automatically. If you're already in a session, reload the plugin you edited:
 
 ```
-/plugin reload asana-workflow
+/plugin reload <plugin>     # the plugin you edited
 ```
 
 ## Editing an existing skill
 
-Skills live at `plugins/asana-workflow/skills/<name>/SKILL.md`. Edit the file directly.
+Skills live at `plugins/<plugin>/skills/<name>/SKILL.md`, where `<plugin>` is the plugin folder the skill belongs to. Edit the file directly.
 
 Keep SKILL.md under ~100 lines. For larger reference content, create a `references/` subdirectory and link to it from SKILL.md.
 
 ## Adding a new skill
 
-1. Create `plugins/asana-workflow/skills/<name>/SKILL.md` with YAML frontmatter:
+1. Choose the plugin folder that fits the skill's purpose (browse `plugins/`; each plugin's `CLAUDE.md` describes its scope).
+2. Create `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmatter:
    ```yaml
    ---
    name: skill-name
    description: one-line description of when this skill triggers
    ---
    ```
-2. Start a new Claude Code session or run `/plugin reload asana-workflow` to test
+3. Start a new Claude Code session or run `/plugin reload <plugin>` to test
 
 ## Before opening a PR
 
