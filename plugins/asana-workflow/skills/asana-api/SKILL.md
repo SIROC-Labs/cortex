@@ -132,6 +132,30 @@ curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
   "https://app.asana.com/api/1.0/tasks/<task-gid>?opt_fields=name,notes,assignee,assignee.name,custom_fields,custom_fields.name,custom_fields.display_value,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.type,memberships,memberships.project,memberships.project.name,memberships.section,memberships.section.name,projects,projects.name"
 ```
 
+### Detect Milestone Subtype
+
+Tasks carry a `resource_subtype` field indicating whether they are a regular task or a milestone. Always include it in `opt_fields` when fetching a task that might be a milestone:
+
+```bash
+curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
+  "https://app.asana.com/api/1.0/tasks/<task-gid>?opt_fields=name,resource_subtype,memberships.section.name,notes,html_notes"
+```
+
+Possible values:
+
+- `"milestone"` → milestone task (first-class anchor for a section's milestone)
+- `"default_task"` → regular implementation task
+- `"approval"` / `"section_task"` → other subtypes, rarely encountered in this workflow
+
+To find an existing milestone task inside a section, list the section's tasks and filter client-side:
+
+```bash
+curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
+  "https://app.asana.com/api/1.0/sections/<section-gid>/tasks?opt_fields=name,resource_subtype"
+```
+
+Match `resource_subtype == "milestone"` on the returned list.
+
 ### Move Task to Section
 
 Move tasks between board columns (e.g., "In Progress", "In Review"):
