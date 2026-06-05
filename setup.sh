@@ -638,8 +638,10 @@ fi
 # Claude Code and Codex are marketplace-based: the user can install everything now
 # or register the marketplace only and pick plugins themselves. OpenCode has no
 # marketplace, so its plugins are always installed directly (no question needed).
+# --dev always installs all: it re-points the install at the local clone, and a
+# dev re-point with nothing installed afterwards is never what a contributor wants.
 INSTALL_PLUGINS=true
-if [ "$OPENCODE" != true ]; then
+if [ "$OPENCODE" != true ] && [ "$DEV" != true ]; then
   echo ""
   read -rp "  Install all plugins now (asana-workflow, dev-toolkit)? [Y/n] " PLUGINS_REPLY || true
   PLUGINS_REPLY=${PLUGINS_REPLY:-Y}
