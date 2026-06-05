@@ -17,7 +17,9 @@ This validates prerequisites and adds the `SIROC-Labs/cortex` marketplace (remot
 default — no local clone needed; pass `--dev` to source from your working copy
 instead).
 
-The setup script then installs the plugins for you with `codex plugin add`:
+The setup script asks whether to install all plugins now or only register the
+marketplace so you can choose plugins yourself. When installing, it runs
+`codex plugin add` for you:
 `asana-workflow` and `dev-toolkit` from the `siroc-cortex` marketplace, and the
 required `superpowers` dependency from the official `openai-curated` catalog
 (its single canonical source — Codex does not dedupe identically named plugins

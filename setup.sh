@@ -203,7 +203,9 @@ fi
 # ─────────────────────────────────────────────
 step 2 "Git SSH configuration"
 
-SSH_OUTPUT=$(ssh -T git@github.com 2>&1 || true)
+# </dev/null: ssh would otherwise consume the script's stdin, eating answers
+# meant for later prompts when the script runs with piped/redirected input.
+SSH_OUTPUT=$(ssh -T git@github.com </dev/null 2>&1 || true)
 if echo "$SSH_OUTPUT" | grep -qi "successfully authenticated"; then
   pass "SSH authentication to GitHub works"
 else
@@ -374,6 +376,7 @@ configure_opencode() {
   local CONFIG_FILE="${CONFIG_DIR}/opencode.json"
 
   info "Configuring OpenCode..."
+  info "Marketplaces are not supported by OpenCode — installing the plugins directly..."
 
   # Ensure config directory exists
   mkdir -p "$CONFIG_DIR"
@@ -536,6 +539,15 @@ PYEOF
   # is enabled — no `codex mcp add` needed. Verified: they stay available with zero
   # [mcp_servers] entries in config.toml.
 
+  if [ "$INSTALL_PLUGINS" != true ]; then
+    info "Skipping plugin install — choose from the marketplace:"
+    info "  codex plugin add asana-workflow@${MARKETPLACE_NAME}"
+    info "  codex plugin add dev-toolkit@${MARKETPLACE_NAME}"
+    info "  codex plugin add superpowers@openai-curated   (required by asana-workflow)"
+    info "  Or browse with /plugins inside Codex."
+    return 0
+  fi
+
   # Install our plugins from the marketplace snapshot (global, in ~/.codex/config.toml).
   if codex plugin add "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
     pass "Codex plugin installed: asana-workflow@${MARKETPLACE_NAME}"
@@ -587,6 +599,14 @@ configure_claude() {
     return 1
   fi
 
+  if [ "$INSTALL_PLUGINS" != true ]; then
+    info "Skipping plugin install — choose from the marketplace:"
+    info "  Inside Claude Code: /plugin  → browse ${MARKETPLACE_NAME}"
+    info "  Or from the shell:  claude plugin install <plugin>@${MARKETPLACE_NAME}"
+    info "  Available: asana-workflow, dev-toolkit (dependencies auto-resolve on install)"
+    return 0
+  fi
+
   # Installing the plugin auto-resolves its declared dependencies (feature-dev,
   # superpowers) from claude-plugins-official via allowCrossMarketplaceDependenciesOn.
   info "Installing asana-workflow plugin (user scope)..."
@@ -613,6 +633,20 @@ if [ "$ERRORS" -gt 0 ]; then
   fail "${ERRORS} error(s) found — fix them and re-run this script"
   echo ""
   exit 1
+fi
+
+# Claude Code and Codex are marketplace-based: the user can install everything now
+# or register the marketplace only and pick plugins themselves. OpenCode has no
+# marketplace, so its plugins are always installed directly (no question needed).
+INSTALL_PLUGINS=true
+if [ "$OPENCODE" != true ]; then
+  echo ""
+  read -rp "  Install all plugins now (asana-workflow, dev-toolkit)? [Y/n] " PLUGINS_REPLY || true
+  PLUGINS_REPLY=${PLUGINS_REPLY:-Y}
+  if [[ ! "$PLUGINS_REPLY" =~ ^[Yy]$ ]]; then
+    INSTALL_PLUGINS=false
+    info "Plugins will not be installed — the marketplace will be registered so you can choose."
+  fi
 fi
 
 if [ "$ALL" = true ]; then
@@ -679,8 +713,13 @@ elif [ "$CODEX" = true ]; then
 
   step 6 "Done"
   ready_banner
-  echo "  asana-workflow, dev-toolkit + superpowers (from openai-curated) are installed;"
-  echo "  the declared MCP servers load automatically from the plugin manifest."
+  if [ "$INSTALL_PLUGINS" = true ]; then
+    echo "  asana-workflow, dev-toolkit + superpowers (from openai-curated) are installed;"
+    echo "  the declared MCP servers load automatically from the plugin manifest."
+  else
+    echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
+    echo -e "    ${GREEN}codex plugin add <plugin>@${MARKETPLACE_NAME}${NC}"
+  fi
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
@@ -699,10 +738,16 @@ else
   ready_banner
 
   if [ "$CLAUDE_RC" -eq 0 ]; then
-    echo "  asana-workflow and dev-toolkit are installed (user scope); asana-workflow's"
-    echo "  dependencies (feature-dev, superpowers) were resolved automatically."
-    echo ""
-    echo "  Restart Claude Code to load the plugins and skills."
+    if [ "$INSTALL_PLUGINS" = true ]; then
+      echo "  asana-workflow and dev-toolkit are installed (user scope); asana-workflow's"
+      echo "  dependencies (feature-dev, superpowers) were resolved automatically."
+      echo ""
+      echo "  Restart Claude Code to load the plugins and skills."
+    else
+      echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
+      echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
+      echo -e "    ${GREEN}/plugin install dev-toolkit@${MARKETPLACE_NAME}${NC}"
+    fi
     echo ""
     echo "  Manage plugins:"
     echo -e "    claude plugin list                                — See installed plugins"

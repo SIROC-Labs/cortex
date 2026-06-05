@@ -98,7 +98,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 **GitHub token** — Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
 
-**Plugin installation** — Once all prerequisites pass:
+**Plugin installation** — Once all prerequisites pass, the script asks whether to install all plugins now or only register the marketplace so you can pick plugins yourself (Claude Code and Codex; OpenCode has no marketplace, so its plugins always install directly):
 - Claude Code: installs the marketplace, `asana-workflow`, and `dev-toolkit` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
 - OpenCode: merges the plugin configuration into `opencode.json` and clears the cache (the adapter registers both asana-workflow and dev-toolkit skills)
 - Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `asana-workflow`, `dev-toolkit` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
