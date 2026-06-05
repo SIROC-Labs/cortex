@@ -35,7 +35,7 @@ Each skill lives at `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmat
 
 ## Multi-Agent Support
 
-The `asana-workflow` plugin supports Claude Code, OpenCode, and Codex (`dev-toolkit` is Claude Code-only for now):
+Both plugins (`asana-workflow`, `dev-toolkit`) support Claude Code, OpenCode, and Codex:
 
 - **Claude Code** — `bash setup.sh` or `/plugin install asana-workflow@siroc-cortex`
 - **OpenCode** — `bash setup.sh --opencode` (see `.opencode/INSTALL.md`)

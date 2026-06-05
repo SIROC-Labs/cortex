@@ -31,6 +31,9 @@ Add `asana-workflow` and its required `superpowers` dependency to your
 }
 ```
 
+The `dev-toolkit` plugin ships in the same repo package — the adapter registers
+its skills automatically; no extra `plugin` entry is needed.
+
 ### Required MCP servers for QA
 
 The QA MCP servers (`mobile-mcp`, `chrome-devtools`) are registered automatically

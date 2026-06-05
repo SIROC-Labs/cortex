@@ -25,6 +25,7 @@
      ```bash
      codex plugin marketplace add /path/to/cortex
      codex plugin add asana-workflow@siroc-cortex
+     codex plugin add dev-toolkit@siroc-cortex
      codex plugin add superpowers@openai-curated
      ```
      `superpowers` comes from the official `openai-curated` catalog, not from `siroc-cortex`.

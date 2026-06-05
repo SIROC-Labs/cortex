@@ -15,6 +15,17 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"
+    },
+    {
+      "name": "dev-toolkit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/dev-toolkit"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT"
+      },
+      "category": "Developer Tools"
     }
   ]
 }

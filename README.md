@@ -38,7 +38,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 
 ### dev-toolkit
 
-Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository. Currently Claude Code-only (not registered with the OpenCode adapter or the Codex marketplace).
+Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository.
 
 **Skills included:**
 
@@ -99,9 +99,9 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 **GitHub token** — Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
 
 **Plugin installation** — Once all prerequisites pass:
-- Claude Code: installs the marketplace and `asana-workflow` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
-- OpenCode: merges the plugin configuration into `opencode.json` and clears the cache
-- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `asana-workflow` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
+- Claude Code: installs the marketplace, `asana-workflow`, and `dev-toolkit` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
+- OpenCode: merges the plugin configuration into `opencode.json` and clears the cache (the adapter registers both asana-workflow and dev-toolkit skills)
+- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `asana-workflow`, `dev-toolkit` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
@@ -130,9 +130,10 @@ Update with the Codex CLI:
 ```bash
 codex plugin marketplace upgrade siroc-cortex
 codex plugin add asana-workflow@siroc-cortex
+codex plugin add dev-toolkit@siroc-cortex
 ```
 
-Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run `codex plugin add asana-workflow@siroc-cortex` instead — `marketplace upgrade` only applies to the remote Git marketplace.
+Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run the `codex plugin add` commands instead — `marketplace upgrade` only applies to the remote Git marketplace.
 
 ## Contributing
 

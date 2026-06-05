@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pluginsDir = path.resolve(__dirname, "../../plugins/asana-workflow")
 const skillsDir = path.resolve(pluginsDir, "skills")
+// dev-toolkit ships in the same repo package, so this adapter registers it too.
+const devToolkitDir = path.resolve(__dirname, "../../plugins/dev-toolkit")
+const devToolkitSkillsDir = path.resolve(devToolkitDir, "skills")
 
 const TOOL_MAPPING = `
 ## OpenCode Runtime — Tool Mapping
@@ -63,6 +66,8 @@ The asana-workflow plugin root is at: ${pluginsDir}
 
 Skills live at: ${skillsDir}
 
+The dev-toolkit plugin (same repo) has its skills at: ${devToolkitSkillsDir}
+
 When a skill instructs you to read a reference file, resolve paths as follows:
 
 - Paths starting with \`plugins/asana-workflow/\` are relative to the
@@ -109,6 +114,7 @@ export const AsanaWorkflowPlugin = async () => {
       config.skills ??= {}
       config.skills.paths ??= []
       config.skills.paths.push(skillsDir)
+      config.skills.paths.push(devToolkitSkillsDir)
 
       config.permission ??= {}
       config.permission.external_directory ??= {}
@@ -118,6 +124,7 @@ export const AsanaWorkflowPlugin = async () => {
       config.permission.external_directory["~/.config/opencode/opencode.json"] = "allow"
       // ^ dependency check reads opencode.json to verify superpowers is installed
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
+      config.permission.external_directory[`${devToolkitDir}/*`] = "allow"
       // ^ skill reference files live inside the plugin install (read at runtime by skills)
       config.permission.external_directory["/tmp/qa-evidence/*"] = "allow"
       // ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations

@@ -18,10 +18,10 @@ default — no local clone needed; pass `--dev` to source from your working copy
 instead).
 
 The setup script then installs the plugins for you with `codex plugin add`:
-`asana-workflow` from the `siroc-cortex` marketplace, and the required
-`superpowers` dependency from the official `openai-curated` catalog (its single
-canonical source — Codex does not dedupe identically named plugins across
-marketplaces, so it is not shipped in `siroc-cortex`). The QA MCP servers
+`asana-workflow` and `dev-toolkit` from the `siroc-cortex` marketplace, and the
+required `superpowers` dependency from the official `openai-curated` catalog
+(its single canonical source — Codex does not dedupe identically named plugins
+across marketplaces, so it is not shipped in `siroc-cortex`). The QA MCP servers
 declared in `plugins/asana-workflow/.mcp.json` load automatically when the
 plugin is enabled — no `codex mcp add` step.
 
@@ -51,6 +51,7 @@ Then install the plugins from the shell:
 
 ```bash
 codex plugin add asana-workflow@siroc-cortex
+codex plugin add dev-toolkit@siroc-cortex
 codex plugin add superpowers@openai-curated
 ```
 

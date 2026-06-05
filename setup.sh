@@ -138,6 +138,7 @@ add_to_profile() {
 repoint_dev() {
   info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
   "$1" plugin "$2" "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+  "$1" plugin "$2" "dev-toolkit@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
   "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
 }
 
@@ -495,14 +496,15 @@ configure_codex() {
     # Validate the local marketplace + plugin manifests before registering them.
     local MARKETPLACE_FILE="${SCRIPT_DIR}/.agents/plugins/marketplace.json"
     local PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.codex-plugin/plugin.json"
+    local DEVTOOLKIT_MANIFEST="${SCRIPT_DIR}/plugins/dev-toolkit/.codex-plugin/plugin.json"
     local MCP_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json"
-    for manifest in "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST"; do
+    for manifest in "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$DEVTOOLKIT_MANIFEST" "$MCP_MANIFEST"; do
       if [ ! -f "$manifest" ]; then
         fail "Missing local Codex manifest: ${manifest}"
         return 1
       fi
     done
-    if python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
+    if python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$DEVTOOLKIT_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
 import json, sys
 for path in sys.argv[1:]:
     with open(path) as f:
@@ -534,12 +536,18 @@ PYEOF
   # is enabled — no `codex mcp add` needed. Verified: they stay available with zero
   # [mcp_servers] entries in config.toml.
 
-  # Install asana-workflow from our marketplace snapshot (global, in ~/.codex/config.toml).
+  # Install our plugins from the marketplace snapshot (global, in ~/.codex/config.toml).
   if codex plugin add "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
     pass "Codex plugin installed: asana-workflow@${MARKETPLACE_NAME}"
   else
     fail "Failed to install plugin; install manually: codex plugin add asana-workflow@${MARKETPLACE_NAME}"
     return 1
+  fi
+
+  if codex plugin add "dev-toolkit@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
+    pass "Codex plugin installed: dev-toolkit@${MARKETPLACE_NAME}"
+  else
+    warn "Could not install dev-toolkit — install manually: codex plugin add dev-toolkit@${MARKETPLACE_NAME}"
   fi
 
   # superpowers is sourced from the official openai-curated catalog — its single
@@ -587,6 +595,13 @@ configure_claude() {
   else
     fail "Failed to install plugin; install manually: claude plugin install asana-workflow@${MARKETPLACE_NAME}"
     return 1
+  fi
+
+  info "Installing dev-toolkit plugin (user scope)..."
+  if claude plugin install "dev-toolkit@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
+    pass "Plugin installed: dev-toolkit@${MARKETPLACE_NAME}"
+  else
+    warn "Could not install dev-toolkit — install manually: claude plugin install dev-toolkit@${MARKETPLACE_NAME}"
   fi
 
   return 0
@@ -664,8 +679,8 @@ elif [ "$CODEX" = true ]; then
 
   step 6 "Done"
   ready_banner
-  echo "  asana-workflow + superpowers (from openai-curated) are installed; the"
-  echo "  declared MCP servers load automatically from the plugin manifest."
+  echo "  asana-workflow, dev-toolkit + superpowers (from openai-curated) are installed;"
+  echo "  the declared MCP servers load automatically from the plugin manifest."
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
@@ -684,10 +699,10 @@ else
   ready_banner
 
   if [ "$CLAUDE_RC" -eq 0 ]; then
-    echo "  asana-workflow is installed (user scope); its dependencies (feature-dev,"
-    echo "  superpowers) were resolved automatically."
+    echo "  asana-workflow and dev-toolkit are installed (user scope); asana-workflow's"
+    echo "  dependencies (feature-dev, superpowers) were resolved automatically."
     echo ""
-    echo "  Restart Claude Code to load the plugin and skills."
+    echo "  Restart Claude Code to load the plugins and skills."
     echo ""
     echo "  Manage plugins:"
     echo -e "    claude plugin list                                — See installed plugins"
@@ -698,6 +713,7 @@ else
     echo ""
     echo -e "    ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
     echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
+    echo -e "    ${GREEN}/plugin install dev-toolkit@${MARKETPLACE_NAME}${NC}"
     echo ""
   fi
 fi
