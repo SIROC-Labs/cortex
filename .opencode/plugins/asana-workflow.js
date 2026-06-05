@@ -104,12 +104,12 @@ ${BOOTSTRAP}
 export const AsanaWorkflowPlugin = async () => {
   return {
     config: async (config) => {
-      if (!config.skills) config.skills = { paths: [] }
-      if (!config.skills.paths) config.skills.paths = []
+      config.skills ??= {}
+      config.skills.paths ??= []
       config.skills.paths.push(skillsDir)
 
-      if (!config.permission) config.permission = {}
-      if (!config.permission.external_directory) config.permission.external_directory = {}
+      config.permission ??= {}
+      config.permission.external_directory ??= {}
       // Whitelist paths the plugin needs to read/write outside the project directory
       config.permission.external_directory["~/.cortex/asana-workflow/*"] = "allow"
       // ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)

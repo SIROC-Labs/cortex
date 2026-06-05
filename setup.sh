@@ -23,25 +23,25 @@ MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
-OP_ENCODE=false
+OPENCODE=false
 CODEX=false
 ALL=false
 DEV=false
 for arg in "$@"; do
   case "$arg" in
-    --opencode) OP_ENCODE=true ;;
+    --opencode) OPENCODE=true ;;
     --codex) CODEX=true ;;
     --all) ALL=true ;;
     --dev) DEV=true ;;
   esac
 done
 
-if [ "$OP_ENCODE" = true ] && [ "$CODEX" = true ]; then
+if [ "$OPENCODE" = true ] && [ "$CODEX" = true ]; then
   echo "Use either --opencode or --codex, not both." >&2
   exit 1
 fi
 
-if [ "$ALL" = true ] && { [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ]; }; then
+if [ "$ALL" = true ] && { [ "$OPENCODE" = true ] || [ "$CODEX" = true ]; }; then
   echo "Use --all on its own (optionally with --dev), not with --opencode/--codex." >&2
   exit 1
 fi
@@ -60,14 +60,12 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 info() { echo -e "  ${BLUE}→${NC} $1"; }
 step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
-TOTAL_STEPS=5
-
-if [ "$OP_ENCODE" = true ] || [ "$CODEX" = true ] || [ "$ALL" = true ]; then
-  TOTAL_STEPS=6
-fi
+TOTAL_STEPS=6
 
 ERRORS=0
 PROFILE_CHANGED=false
+EXIT_CODE=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect shell profile
 if [ -f "$HOME/.zshrc" ]; then
@@ -133,6 +131,38 @@ add_to_profile() {
 # in a bash script can fail on zsh-specific syntax and kill the script.
 # add_to_profile already exports the var for the current session.
 # The end-of-script banner tells the user to reload for future sessions.
+
+# In --dev, force a clean re-point to the local clone: remove the installed plugin
+# and the marketplace first, since `marketplace add` is idempotent and won't switch
+# an already-registered source. $1 = CLI, $2 = its plugin-removal subcommand.
+repoint_dev() {
+  info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
+  "$1" plugin "$2" "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+  "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+}
+
+ready_banner() {
+  echo ""
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}  Environment ready!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+}
+
+print_reload_banner() {
+  [ "$PROFILE_CHANGED" = true ] || return 0
+  echo ""
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+  echo ""
+  echo -e "${YELLOW}  Run one of the following:${NC}"
+  echo ""
+  echo -e "${BOLD}    source ${PROFILE}${NC}"
+  echo ""
+  echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+}
 
 echo -e "${BOLD}SIROC Cortex — Setup${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -349,8 +379,6 @@ configure_opencode() {
 
   # Add plugins and merge mcpServers into opencode.json. Default to the remote
   # git+ URL; only in --dev mode pass the local clone path to use instead.
-  local SCRIPT_DIR
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local DEV_ROOT=""
   [ "$DEV" = true ] && DEV_ROOT="$SCRIPT_DIR"
 
@@ -449,9 +477,6 @@ PYEOF
 }
 
 configure_codex() {
-  local SCRIPT_DIR
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
   info "Configuring Codex..."
 
   if ! command -v codex &>/dev/null; then
@@ -491,12 +516,7 @@ PYEOF
       return 1
     fi
 
-    # Force a clean re-point to the local clone: remove the installed plugin and the
-    # marketplace first, since `marketplace add`/`upgrade` are idempotent and won't
-    # switch an already-registered source.
-    info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
-    codex plugin remove "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
-    codex plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+    repoint_dev codex remove
   fi
 
   if codex plugin marketplace add "$MP_SOURCE" >/dev/null 2>&1; then
@@ -539,9 +559,6 @@ PYEOF
 
 configure_claude() {
   # Returns: 0 installed, 1 a step failed, 2 claude CLI not found (caller prints manual steps)
-  local SCRIPT_DIR
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
   if ! command -v claude &>/dev/null; then
     return 2
   fi
@@ -550,13 +567,8 @@ configure_claude() {
   local MP_SOURCE="$MARKETPLACE_REPO"
   [ "$DEV" = true ] && MP_SOURCE="$SCRIPT_DIR"
 
-  # In --dev, force a clean re-point to the local clone: uninstall the plugin and
-  # remove the marketplace first, since `marketplace add` is idempotent and won't
-  # switch an already-registered source.
   if [ "$DEV" = true ]; then
-    info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
-    claude plugin uninstall "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
-    claude plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+    repoint_dev claude uninstall
   fi
 
   info "Adding marketplace ${MARKETPLACE_NAME} (user scope)..."
@@ -580,6 +592,14 @@ configure_claude() {
   return 0
 }
 
+# All install paths require a clean prerequisite check
+if [ "$ERRORS" -gt 0 ]; then
+  echo ""
+  fail "${ERRORS} error(s) found — fix them and re-run this script"
+  echo ""
+  exit 1
+fi
+
 if [ "$ALL" = true ]; then
   # ─────────────────────────────────────────────
   # All agents: install each independently. One agent's failure never blocks the
@@ -587,13 +607,6 @@ if [ "$ALL" = true ]; then
   # non-zero return (and suspends `set -e` inside the function) instead of aborting
   # the script. A per-agent success/failure summary is printed at the end.
   # ─────────────────────────────────────────────
-  if [ "$ERRORS" -gt 0 ]; then
-    echo ""
-    fail "${ERRORS} error(s) found — fix them and re-run this script"
-    echo ""
-    exit 1
-  fi
-
   step 5 "Installing for all supported agents"
 
   # rc convention: 0 = installed, 2 = skipped (agent CLI absent), other = failed.
@@ -622,116 +635,44 @@ if [ "$ALL" = true ]; then
   done
   if [ "$FAILED" -gt 0 ]; then
     warn "${FAILED} agent install(s) failed — see messages above. The other agents were unaffected."
+    EXIT_CODE=1
   else
     echo "  Restart each installed agent to load the plugin and skills."
   fi
   echo ""
-
-  if [ "$PROFILE_CHANGED" = true ]; then
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-    echo ""
-    echo -e "${YELLOW}  Run one of the following:${NC}"
-    echo ""
-    echo -e "${BOLD}    source ${PROFILE}${NC}"
-    echo ""
-    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-  fi
-
-  [ "$FAILED" -eq 0 ] || exit 1
-elif [ "$OP_ENCODE" = true ]; then
+elif [ "$OPENCODE" = true ]; then
   # ─────────────────────────────────────────────
   # OpenCode: configure plugin and show instructions
   # ─────────────────────────────────────────────
-  if [ "$ERRORS" -gt 0 ]; then
-    echo ""
-    fail "${ERRORS} error(s) found — fix them and re-run this script"
-    echo ""
-    exit 1
-  fi
-
   step 5 "OpenCode plugin configuration"
   configure_opencode
 
   step 6 "Done"
-  echo ""
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${GREEN}  Environment ready!${NC}"
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
+  ready_banner
   echo "  Restart OpenCode to pick up the changes."
   echo ""
   echo "  Verify by asking: list available skills"
   echo ""
   echo "  To update later, re-run: bash setup.sh --opencode"
   echo ""
-
-  if [ "$PROFILE_CHANGED" = true ]; then
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-    echo ""
-    echo -e "${YELLOW}  Run one of the following:${NC}"
-    echo ""
-    echo -e "${BOLD}    source ${PROFILE}${NC}"
-    echo ""
-    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-  fi
 elif [ "$CODEX" = true ]; then
   # ─────────────────────────────────────────────
   # Codex: configure marketplace, declared MCPs, and show instructions
   # ─────────────────────────────────────────────
-  if [ "$ERRORS" -gt 0 ]; then
-    echo ""
-    fail "${ERRORS} error(s) found — fix them and re-run this script"
-    echo ""
-    exit 1
-  fi
-
   step 5 "Codex plugin configuration"
   configure_codex
 
   step 6 "Done"
-  echo ""
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${GREEN}  Environment ready!${NC}"
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo "  asana-workflow + superpowers (from openai-curated) are installed, and the"
-  echo "  required MCP servers are configured."
+  ready_banner
+  echo "  asana-workflow + superpowers (from openai-curated) are installed; the"
+  echo "  declared MCP servers load automatically from the plugin manifest."
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
-
-  if [ "$PROFILE_CHANGED" = true ]; then
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-    echo ""
-    echo -e "${YELLOW}  Run one of the following:${NC}"
-    echo ""
-    echo -e "${BOLD}    source ${PROFILE}${NC}"
-    echo ""
-    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-  fi
 else
   # ─────────────────────────────────────────────
   # Claude Code: install marketplace + plugin (user/global scope)
   # ─────────────────────────────────────────────
-  if [ "$ERRORS" -gt 0 ]; then
-    echo ""
-    fail "${ERRORS} error(s) found — fix them and re-run this script"
-    echo ""
-    exit 1
-  fi
-
   step 5 "Claude Code plugin installation"
   pass "All prerequisites met"
   # Capture the return without tripping `set -e` (a bare call would abort on
@@ -740,11 +681,7 @@ else
   configure_claude || CLAUDE_RC=$?
 
   step 6 "Done"
-  echo ""
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${GREEN}  Environment ready!${NC}"
-  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
+  ready_banner
 
   if [ "$CLAUDE_RC" -eq 0 ]; then
     echo "  asana-workflow is installed (user scope); its dependencies (feature-dev,"
@@ -763,18 +700,7 @@ else
     echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
     echo ""
   fi
-
-  if [ "$PROFILE_CHANGED" = true ]; then
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-    echo ""
-    echo -e "${YELLOW}  Run one of the following:${NC}"
-    echo ""
-    echo -e "${BOLD}    source ${PROFILE}${NC}"
-    echo ""
-    echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-  fi
 fi
+
+print_reload_banner
+exit "$EXIT_CODE"

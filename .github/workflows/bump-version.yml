@@ -74,7 +74,9 @@ jobs:
           CODEX_PLUGIN_FILE="plugins/${PLUGIN}/.codex-plugin/plugin.json"   # Codex: per-plugin manifest (if present)
           # Note: the Codex marketplace (.agents/plugins/marketplace.json) has no version field, so nothing to bump there.
 
-          python3 - "$PLUGIN_FILE" "$NEW_VERSION" <<'PYEOF'
+          # Write NEW_VERSION into a JSON file's top-level "version" field
+          set_version() {
+            python3 - "$1" "$NEW_VERSION" <<'PYEOF'
           import sys, json
           file, ver = sys.argv[1], sys.argv[2]
           with open(file) as f:
@@ -84,6 +86,9 @@ jobs:
               json.dump(data, f, indent=2)
               f.write('\n')
           PYEOF
+          }
+
+          set_version "$PLUGIN_FILE"
 
           python3 - "$MARKETPLACE_FILE" "$PLUGIN" "$NEW_VERSION" <<'PYEOF'
           import sys, json
@@ -101,30 +106,12 @@ jobs:
 
           # package.json is the asana-workflow OpenCode manifest; only bump it for that plugin
           if [ "$PLUGIN" = "asana-workflow" ]; then
-            python3 - "$PACKAGE_FILE" "$NEW_VERSION" <<'PYEOF'
-          import sys, json
-          file, ver = sys.argv[1], sys.argv[2]
-          with open(file) as f:
-              data = json.load(f)
-          data['version'] = ver
-          with open(file, 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-          PYEOF
+            set_version "$PACKAGE_FILE"
           fi
 
           # Codex per-plugin manifest: same top-level version shape as plugin.json; bump only if the plugin ships one
           if [ -f "$CODEX_PLUGIN_FILE" ]; then
-            python3 - "$CODEX_PLUGIN_FILE" "$NEW_VERSION" <<'PYEOF'
-          import sys, json
-          file, ver = sys.argv[1], sys.argv[2]
-          with open(file) as f:
-              data = json.load(f)
-          data['version'] = ver
-          with open(file, 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-          PYEOF
+            set_version "$CODEX_PLUGIN_FILE"
           fi
 
       - name: Commit and push
