@@ -132,13 +132,31 @@ add_to_profile() {
 # add_to_profile already exports the var for the current session.
 # The end-of-script banner tells the user to reload for future sessions.
 
-# In --dev, force a clean re-point to the local clone: remove the installed plugin
+# Resolve the plugin list from the marketplace manifest — the single source of
+# truth. --dev reads the local clone (the install source); otherwise fetch from
+# the remote repo, so a standalone setup.sh (no clone) works and the list always
+# matches what actually gets installed. Requires gh access, verified in Step 1.
+resolve_plugins() {
+  local manifest_json=""
+  if [ "$DEV" = true ] && [ -f "${SCRIPT_DIR}/.claude-plugin/marketplace.json" ]; then
+    manifest_json=$(cat "${SCRIPT_DIR}/.claude-plugin/marketplace.json")
+  else
+    manifest_json=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
+      -H "Accept: application/vnd.github.raw" 2>/dev/null) || true
+  fi
+  printf '%s' "$manifest_json" \
+    | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins']))" 2>/dev/null
+}
+
+# In --dev, force a clean re-point to the local clone: remove the installed plugins
 # and the marketplace first, since `marketplace add` is idempotent and won't switch
 # an already-registered source. $1 = CLI, $2 = its plugin-removal subcommand.
 repoint_dev() {
   info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
-  "$1" plugin "$2" "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
-  "$1" plugin "$2" "dev-toolkit@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+  local plugin
+  for plugin in $PLUGINS; do
+    "$1" plugin "$2" "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+  done
   "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
 }
 
@@ -496,18 +514,20 @@ configure_codex() {
   if [ "$DEV" = true ]; then
     MP_SOURCE="$SCRIPT_DIR"
 
-    # Validate the local marketplace + plugin manifests before registering them.
-    local MARKETPLACE_FILE="${SCRIPT_DIR}/.agents/plugins/marketplace.json"
-    local PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.codex-plugin/plugin.json"
-    local DEVTOOLKIT_MANIFEST="${SCRIPT_DIR}/plugins/dev-toolkit/.codex-plugin/plugin.json"
-    local MCP_MANIFEST="${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json"
-    for manifest in "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$DEVTOOLKIT_MANIFEST" "$MCP_MANIFEST"; do
+    # Validate the local marketplace + per-plugin manifests before registering them.
+    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json")
+    local p
+    for p in $PLUGINS; do
+      MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
+    done
+    local manifest
+    for manifest in "${MANIFESTS[@]}"; do
       if [ ! -f "$manifest" ]; then
         fail "Missing local Codex manifest: ${manifest}"
         return 1
       fi
     done
-    if python3 - "$MARKETPLACE_FILE" "$PLUGIN_MANIFEST" "$DEVTOOLKIT_MANIFEST" "$MCP_MANIFEST" <<'PYEOF'
+    if python3 - "${MANIFESTS[@]}" <<'PYEOF'
 import json, sys
 for path in sys.argv[1:]:
     with open(path) as f:
@@ -541,26 +561,27 @@ PYEOF
 
   if [ "$INSTALL_PLUGINS" != true ]; then
     info "Skipping plugin install — choose from the marketplace:"
-    info "  codex plugin add asana-workflow@${MARKETPLACE_NAME}"
-    info "  codex plugin add dev-toolkit@${MARKETPLACE_NAME}"
+    local p
+    for p in $PLUGINS; do
+      info "  codex plugin add ${p}@${MARKETPLACE_NAME}"
+    done
     info "  codex plugin add superpowers@openai-curated   (required by asana-workflow)"
     info "  Or browse with /plugins inside Codex."
     return 0
   fi
 
   # Install our plugins from the marketplace snapshot (global, in ~/.codex/config.toml).
-  if codex plugin add "asana-workflow@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
-    pass "Codex plugin installed: asana-workflow@${MARKETPLACE_NAME}"
-  else
-    fail "Failed to install plugin; install manually: codex plugin add asana-workflow@${MARKETPLACE_NAME}"
-    return 1
-  fi
-
-  if codex plugin add "dev-toolkit@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
-    pass "Codex plugin installed: dev-toolkit@${MARKETPLACE_NAME}"
-  else
-    warn "Could not install dev-toolkit — install manually: codex plugin add dev-toolkit@${MARKETPLACE_NAME}"
-  fi
+  local plugin
+  for plugin in $PLUGINS; do
+    if codex plugin add "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
+      pass "Codex plugin installed: ${plugin}@${MARKETPLACE_NAME}"
+    elif [ "$plugin" = "$PRIMARY_PLUGIN" ]; then
+      fail "Failed to install plugin; install manually: codex plugin add ${plugin}@${MARKETPLACE_NAME}"
+      return 1
+    else
+      warn "Could not install ${plugin} — install manually: codex plugin add ${plugin}@${MARKETPLACE_NAME}"
+    fi
+  done
 
   # superpowers is sourced from the official openai-curated catalog — its single
   # canonical source — NOT from our marketplace. Codex does not dedupe identically
@@ -603,26 +624,24 @@ configure_claude() {
     info "Skipping plugin install — choose from the marketplace:"
     info "  Inside Claude Code: /plugin  → browse ${MARKETPLACE_NAME}"
     info "  Or from the shell:  claude plugin install <plugin>@${MARKETPLACE_NAME}"
-    info "  Available: asana-workflow, dev-toolkit (dependencies auto-resolve on install)"
+    info "  Available: ${PLUGINS_LABEL} (dependencies auto-resolve on install)"
     return 0
   fi
 
-  # Installing the plugin auto-resolves its declared dependencies (feature-dev,
+  # Installing a plugin auto-resolves its declared dependencies (e.g. feature-dev,
   # superpowers) from claude-plugins-official via allowCrossMarketplaceDependenciesOn.
-  info "Installing asana-workflow plugin (user scope)..."
-  if claude plugin install "asana-workflow@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
-    pass "Plugin installed: asana-workflow@${MARKETPLACE_NAME}"
-  else
-    fail "Failed to install plugin; install manually: claude plugin install asana-workflow@${MARKETPLACE_NAME}"
-    return 1
-  fi
-
-  info "Installing dev-toolkit plugin (user scope)..."
-  if claude plugin install "dev-toolkit@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
-    pass "Plugin installed: dev-toolkit@${MARKETPLACE_NAME}"
-  else
-    warn "Could not install dev-toolkit — install manually: claude plugin install dev-toolkit@${MARKETPLACE_NAME}"
-  fi
+  local plugin
+  for plugin in $PLUGINS; do
+    info "Installing ${plugin} plugin (user scope)..."
+    if claude plugin install "${plugin}@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
+      pass "Plugin installed: ${plugin}@${MARKETPLACE_NAME}"
+    elif [ "$plugin" = "$PRIMARY_PLUGIN" ]; then
+      fail "Failed to install plugin; install manually: claude plugin install ${plugin}@${MARKETPLACE_NAME}"
+      return 1
+    else
+      warn "Could not install ${plugin} — install manually: claude plugin install ${plugin}@${MARKETPLACE_NAME}"
+    fi
+  done
 
   return 0
 }
@@ -635,6 +654,17 @@ if [ "$ERRORS" -gt 0 ]; then
   exit 1
 fi
 
+# Plugin list comes from the marketplace manifest, never hardcoded here.
+PLUGINS=$(resolve_plugins)
+if [ -z "$PLUGINS" ]; then
+  echo ""
+  fail "Could not resolve the plugin list from the marketplace manifest"
+  info "Check repo access: gh api repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json"
+  exit 1
+fi
+PRIMARY_PLUGIN=${PLUGINS%% *}   # first marketplace entry — its install failure is fatal
+PLUGINS_LABEL=${PLUGINS// /, }
+
 # Claude Code and Codex are marketplace-based: the user can install everything now
 # or register the marketplace only and pick plugins themselves. OpenCode has no
 # marketplace, so its plugins are always installed directly (no question needed).
@@ -643,7 +673,7 @@ fi
 INSTALL_PLUGINS=true
 if [ "$OPENCODE" != true ] && [ "$DEV" != true ]; then
   echo ""
-  read -rp "  Install all plugins now (asana-workflow, dev-toolkit)? [Y/n] " PLUGINS_REPLY || true
+  read -rp "  Install all plugins now (${PLUGINS_LABEL})? [Y/n] " PLUGINS_REPLY || true
   PLUGINS_REPLY=${PLUGINS_REPLY:-Y}
   if [[ ! "$PLUGINS_REPLY" =~ ^[Yy]$ ]]; then
     INSTALL_PLUGINS=false
@@ -716,7 +746,7 @@ elif [ "$CODEX" = true ]; then
   step 6 "Done"
   ready_banner
   if [ "$INSTALL_PLUGINS" = true ]; then
-    echo "  asana-workflow, dev-toolkit + superpowers (from openai-curated) are installed;"
+    echo "  ${PLUGINS_LABEL} + superpowers (from openai-curated) are installed;"
     echo "  the declared MCP servers load automatically from the plugin manifest."
   else
     echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
@@ -741,26 +771,28 @@ else
 
   if [ "$CLAUDE_RC" -eq 0 ]; then
     if [ "$INSTALL_PLUGINS" = true ]; then
-      echo "  asana-workflow and dev-toolkit are installed (user scope); asana-workflow's"
-      echo "  dependencies (feature-dev, superpowers) were resolved automatically."
+      echo "  ${PLUGINS_LABEL} are installed (user scope); declared dependencies"
+      echo "  (feature-dev, superpowers) were resolved automatically."
       echo ""
       echo "  Restart Claude Code to load the plugins and skills."
     else
       echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
-      echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
-      echo -e "    ${GREEN}/plugin install dev-toolkit@${MARKETPLACE_NAME}${NC}"
+      for plugin in $PLUGINS; do
+        echo -e "    ${GREEN}/plugin install ${plugin}@${MARKETPLACE_NAME}${NC}"
+      done
     fi
     echo ""
     echo "  Manage plugins:"
     echo -e "    claude plugin list                                — See installed plugins"
-    echo -e "    claude plugin update asana-workflow@${MARKETPLACE_NAME}  — Pull latest version"
+    echo -e "    claude plugin update ${PRIMARY_PLUGIN}@${MARKETPLACE_NAME}  — Pull latest version"
     echo ""
   else
     echo "  Claude Code CLI not found on PATH — finish install from inside Claude Code:"
     echo ""
     echo -e "    ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
-    echo -e "    ${GREEN}/plugin install asana-workflow@${MARKETPLACE_NAME}${NC}"
-    echo -e "    ${GREEN}/plugin install dev-toolkit@${MARKETPLACE_NAME}${NC}"
+    for plugin in $PLUGINS; do
+      echo -e "    ${GREEN}/plugin install ${plugin}@${MARKETPLACE_NAME}${NC}"
+    done
     echo ""
   fi
 fi
