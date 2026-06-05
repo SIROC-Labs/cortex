@@ -22,9 +22,7 @@ Take an Asana task, validate it's ready for development, understand the work, se
 ## Prerequisites
 
 - `asana-api` skill for all Asana API operations — handles token resolution and setup guidance.
-- Access to required external workflow skills (see `references/skill-dependencies.md`):
-  - Claude Code: `feature-dev:feature-dev` and `superpowers:*`
-  - OpenCode/Codex: `superpowers:*`
+- Access to required external workflow skills — varies by runtime; checked in Step 0 (see `references/skill-dependencies.md`).
 
 ## Argument Parsing
 

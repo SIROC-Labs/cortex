@@ -71,7 +71,7 @@ See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default — no clone needed; pass `--dev` to use your local working copy), installs `asana-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`, and configures the required MCP servers declared by the plugin. Restart Codex afterwards — no `/plugins` step needed.
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default — no clone needed; pass `--dev` to use your local working copy), and installs `asana-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`. The MCP servers declared by the plugin load automatically. Restart Codex afterwards — no `/plugins` step needed.
 
 See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
 
@@ -100,7 +100,7 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 **Plugin installation** — Once all prerequisites pass:
 - Claude Code: installs the marketplace and `asana-workflow` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
 - OpenCode: merges the plugin configuration into `opencode.json` and clears the cache
-- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone), installs `asana-workflow` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`, and configures declared MCP servers
+- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `asana-workflow` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 

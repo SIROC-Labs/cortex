@@ -33,23 +33,12 @@ Add `asana-workflow` and its required `superpowers` dependency to your
 
 ### Required MCP servers for QA
 
-The workflow expects the declared QA MCP servers to be configured alongside the
-plugin:
-
-```json
-{
-  "mcp": {
-    "mobile-mcp": {
-      "type": "local",
-      "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"]
-    },
-    "chrome-devtools": {
-      "type": "local",
-      "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--experimentalScreencast"]
-    }
-  }
-}
-```
+The QA MCP servers (`mobile-mcp`, `chrome-devtools`) are registered automatically
+by the plugin adapter from `plugins/asana-workflow/.mcp.json` (the single source
+of truth) when the plugin loads — no manual `mcp` config needed. If one is
+unavailable, add it to `opencode.json` under `"mcp"` as
+`{ "type": "local", "command": [<command>, <args>...] }` using the command and
+args from `.mcp.json`.
 
 ## Updating
 

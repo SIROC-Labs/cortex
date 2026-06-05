@@ -13,17 +13,17 @@ Run the setup script:
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by
+This validates prerequisites and adds the `SIROC-Labs/cortex` marketplace (remote by
 default — no local clone needed; pass `--dev` to source from your working copy
-instead), and configures the required MCP servers declared by the plugin.
+instead).
 
 The setup script then installs the plugins for you with `codex plugin add`:
 `asana-workflow` from the `siroc-cortex` marketplace, and the required
 `superpowers` dependency from the official `openai-curated` catalog (its single
 canonical source — Codex does not dedupe identically named plugins across
-marketplaces, so it is not shipped in `siroc-cortex`). The setup script also
-registers the required QA MCP servers from `plugins/asana-workflow/.mcp.json`
-with `codex mcp add`.
+marketplaces, so it is not shipped in `siroc-cortex`). The QA MCP servers
+declared in `plugins/asana-workflow/.mcp.json` load automatically when the
+plugin is enabled — no `codex mcp add` step.
 
 Restart Codex afterwards to pick up the plugins and skills — no `/plugins` step
 is required.
@@ -76,12 +76,9 @@ The required MCP manifest is:
 plugins/asana-workflow/.mcp.json
 ```
 
-Register the declared MCPs if you are installing manually:
-
-```bash
-codex mcp add mobile-mcp -- npx -y @mobilenext/mobile-mcp@latest
-codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest --experimentalScreencast
-```
+The MCP servers declared there load automatically when the plugin is enabled.
+If one is unavailable, register it manually with `codex mcp add <name> -- <command> <args>`
+using the command and args from `.mcp.json` (the single source of truth).
 
 ## Verify
 

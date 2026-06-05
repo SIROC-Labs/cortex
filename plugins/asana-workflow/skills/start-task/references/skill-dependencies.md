@@ -40,11 +40,9 @@ The QA skills require the MCP servers declared by the plugin:
 - `mobile-mcp`
 - `chrome-devtools`
 
-For OpenCode, run `bash setup.sh --opencode`; it writes both MCP server entries
-into `opencode.json`. For Codex, the MCP servers are declared in
-`plugins/asana-workflow/.mcp.json` and referenced by the `.codex-plugin/plugin.json`
-`mcpServers` field; `bash setup.sh --codex` also registers them with
-`codex mcp add` so they are available after setup.
+Both are declared in `plugins/asana-workflow/.mcp.json` — the single source of
+truth shared by all runtimes. Claude Code and Codex load them automatically from
+the plugin manifest; for OpenCode the adapter registers them at load time.
 
 ## How to Check If Dependencies Are Installed
 
@@ -76,40 +74,18 @@ and tell the user to install it: `codex plugin add superpowers@openai-curated`
 
 At the very beginning of start-task (before fetching the Asana task), check which routing path may be needed and confirm the relevant plugin is installed.
 
-### If running under Claude Code
+**Missing dependencies are hard blockers across all runtimes.** Stop, warn the user (⚠️ the plugin/server is required but doesn't appear to be installed), give them the recovery command from the table below, and tell them to install it, restart the agent, then re-run start-task. Do not continue inline.
 
-**If `feature-dev` is missing:**
+| Missing | Claude Code | OpenCode | Codex |
+|---|---|---|---|
+| `superpowers` | `/plugin install superpowers@claude-plugins-official` | `bash setup.sh --opencode` | `bash setup.sh --codex` or `codex plugin add superpowers@openai-curated` |
+| `feature-dev` | `/plugin install feature-dev@claude-plugins-official` | n/a — see below | n/a — see below |
+| Declared MCP servers | Reinstall `asana-workflow` | `bash setup.sh --opencode` | Reinstall or reload `asana-workflow` |
 
-> ⚠️ The `feature-dev` plugin is required for feature and tech debt tasks but doesn't appear to be installed.
-> Install it with: `/plugin install feature-dev@claude-plugins-official`
-> Install it now, then re-run `/start-task`.
-
-**If `superpowers` is missing:**
-
-> ⚠️ The `superpowers` plugin is required for bug tasks (via `fix-bug`) and for the brainstorm workflow on non-bug tasks, but doesn't appear to be installed.
-> Install it with: `/plugin install superpowers@claude-plugins-official`
-> Install it now, then re-run `/start-task`.
-
-### If running under OpenCode
-
-**feature-dev:** DOES NOT EXIST under OpenCode. Route feature implementation to
+**feature-dev under OpenCode:** DOES NOT EXIST. Route feature implementation to
 `superpowers:subagent-driven-development`.
 
-**If `superpowers` is missing:**
-
-> ⚠️ The `superpowers` plugin is required but doesn't appear in `opencode.json`.
-> Run `bash setup.sh --opencode`, restart OpenCode, then re-run start-task.
-
-**If declared MCP servers are missing:**
-
-> ⚠️ Required MCP servers are missing from `opencode.json`.
-> Run `bash setup.sh --opencode`, restart OpenCode, then re-run start-task.
-
-**Behavior:** These checks are hard blockers. Do not continue inline.
-
-### If running under Codex
-
-**feature-dev:** The Claude plugin dependency is not a Codex dependency. For
+**feature-dev under Codex:** The Claude plugin dependency is not a Codex dependency. For
 Codex feature implementation, inspect the Asana notes, comments, subtasks, and
 attachments for both a usable spec and a usable implementation plan:
 
@@ -124,18 +100,6 @@ in the handoff. This is the Codex development skill for executing from a spec
 and plan. If either is missing, do not invoke a feature-dev substitute; implement
 inline in the current Codex session, while keeping the normal QA and ship-it
 steps.
-
-**If `superpowers` is missing:**
-
-> ⚠️ The `superpowers` plugin is required but does not appear to be installed.
-> Run `bash setup.sh --codex` (or `codex plugin add superpowers@openai-curated`), restart Codex, then re-run start-task.
-
-**If declared MCP servers are missing:**
-
-> ⚠️ Required MCP servers from `plugins/asana-workflow/.mcp.json` are unavailable.
-> Reinstall or reload the `asana-workflow` plugin, restart Codex, then re-run start-task.
-
-**Behavior:** These checks are hard blockers. Do not continue inline.
 
 ## Bundled Skills (No Installation Needed)
 
