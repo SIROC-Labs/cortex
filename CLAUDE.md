@@ -21,7 +21,7 @@ Required in `~/.zshrc` (or set by `setup.sh`):
 
 ## Plugin Versioning
 
-Do not manually edit version fields in `plugin.json`, `marketplace.json`, or `package.json`. Version bumps are done via the GitHub Actions workflow (`bump-version.yml`): Actions → Bump Plugin Version → choose plugin and semver level (patch/minor/major).
+Do not manually edit version fields in `plugin.json`, `marketplace.json`, `package.json`, or `.codex-plugin/plugin.json`. Version bumps are done via the GitHub Actions workflow (`bump-version.yml`): Actions → Bump Plugin Version → choose plugin and semver level (patch/minor/major). The workflow keeps all of a plugin's manifests in lockstep.
 
 ## Skill Development
 
@@ -35,7 +35,7 @@ Each skill lives at `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmat
 
 ## Multi-Agent Support
 
-This plugin supports Claude Code, OpenCode, and Codex:
+The `asana-workflow` plugin supports Claude Code, OpenCode, and Codex (`dev-toolkit` is Claude Code-only for now):
 
 - **Claude Code** — `bash setup.sh` or `/plugin install asana-workflow@siroc-cortex`
 - **OpenCode** — `bash setup.sh --opencode` (see `.opencode/INSTALL.md`)

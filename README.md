@@ -38,7 +38,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 
 ### dev-toolkit
 
-Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository.
+Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository. Currently Claude Code-only (not registered with the OpenCode adapter or the Codex marketplace).
 
 **Skills included:**
 
