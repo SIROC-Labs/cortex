@@ -13,6 +13,8 @@ asana-workflow/
     ├── asana-api/         ← Asana API operations (bundled)
     ├── create-pr/         ← PR creation (bundled)
     ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
+    ├── create-spec/       ← Technical-spec generation from a PRD, ticket, design, free-text, or the current folder. Uses superpowers:brainstorming for the interview (bundled)
+    │   └── references/    ← output format (heading levels, minimum 7 sections, optional sections)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── generic-qa/        ← Shared QA process & references (not a skill — used by web-qa, mobile-qa)
@@ -69,6 +71,11 @@ create-prd             (standalone: reads sources, interviews user, writes PRD �
   ├── asana-api          (optional: fetch task + attachments when Asana URL is provided)
   └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
 
+create-spec            (PRD / ticket / design / free-text → technical spec markdown at docs/cortex/specs/)
+  ├── [external] superpowers:brainstorming  (interview phase — one question at a time, multiple choice, section-by-section approval)
+  ├── asana-api          (optional: fetch task + attachments when Asana URL is provided as the input)
+  └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
+
 task-breakdown
   ├── asana-api          (read existing tasks/projects for context during discovery;
   │                       fetch milestone tasks for EXPAND mode triggers #1 / #2)
@@ -118,7 +125,7 @@ Skills NOT bundled — must be installed separately:
 |---|---|---|
 | `feature-dev:feature-dev` | `feature-dev@claude-plugins-official` | start-task (Step 10, non-bug) |
 | `superpowers:systematic-debugging` | `superpowers@claude-plugins-official` | fix-bug (Step 1) |
-| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | start-task (Step 10, brainstorm workflow) |
+| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | start-task (Step 10, brainstorm workflow); create-spec (Phase 3, interview) |
 | `superpowers:using-git-worktrees` | `superpowers@claude-plugins-official` | start-task (Step 6a, optional) |
 
 ## Development Workflow
