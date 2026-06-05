@@ -279,17 +279,18 @@ Task stays **"In Progress"** → ■ PAUSED
                        │        │     │        │
                        │        │     └────┬───┘
                        │        │          │
-                       │        │    ◆ workflow_choice?
-                       │        │   ╱     │       ╲
-                       │        │  brn   fdev     none
-                       │        │   │     │         │
-                       │        │  sup:  runtime   ask
-                       │        │  brn   routing   brn/fdev
-                       │        │   │     │          │
-                       │        │   │     │          │
-                       │        │   └─────┴──────┬───┘
-                       │        │                │
-                       │        │     (external skill, returns to Step 11)
+                       │        │   ┌──────┴────────────────┐
+                       │        │   │  implement-feature    │
+                       │        │   │  detect plan file →   │
+                       │        │   │  resolve binding via  │
+                       │        │   │  runtime-bindings.md  │
+                       │        │   │  (asks operator when  │
+                       │        │   │  several apply;       │
+                       │        │   │  workflow_choice      │
+                       │        │   │  pre-answers)         │
+                       │        │   └──────┬────────────────┘
+                       │        │          │
+                       │        │     (development skill returns to Step 11)
                        │        │                │
                        │        └────── bug path to Step 11 (QA)
                        │                         │

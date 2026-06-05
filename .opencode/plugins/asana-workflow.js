@@ -29,8 +29,10 @@ const EXTERNAL_DEPS = `
 Skills reference external plugins. Handle them as follows under OpenCode:
 
 - **feature-dev@claude-plugins-official**: DOES NOT EXIST under OpenCode.
-  When any skill says to invoke \`feature-dev:feature-dev\`, translate that to
-  \`superpowers:subagent-driven-development\`.
+  Non-bug implementation routing is owned by the asana-workflow
+  \`implement-feature\` skill, which resolves the development skill for the
+  current runtime (you are "OpenCode") from
+  plugins/asana-workflow/references/runtime-bindings.md.
 
 - **superpowers**: REQUIRED. It must be installed alongside asana-workflow in
   opencode.json. Invoke its skills normally via the native skill tool. If it is

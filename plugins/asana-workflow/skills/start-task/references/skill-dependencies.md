@@ -16,7 +16,7 @@
 - **Claude Code plugin:** `superpowers@claude-plugins-official`
 - **OpenCode plugin:** `superpowers@git+https://github.com/obra/superpowers.git`
 - **Codex plugin:** `superpowers@openai-curated` (the official catalog; not shipped in `siroc-cortex`)
-- **Used for:** Brainstorming, systematic debugging, TDD, OpenCode feature implementation, and Codex feature implementation when a usable spec and implementation plan are present
+- **Used for:** Design brainstorming, systematic debugging, TDD, and implementation-plan execution (`subagent-driven-development`) — see `plugins/asana-workflow/references/runtime-bindings.md` for the capability mapping per runtime
 - **Install:**
   ```
   /plugin install superpowers@claude-plugins-official
@@ -61,8 +61,8 @@ cat ~/.claude/plugins/installed_plugins.json | grep -E '"feature-dev|"superpower
 
 Check `opencode.json` for the `plugin` array. `superpowers` should appear as
 `"superpowers@git+https://github.com/obra/superpowers.git"`. `feature-dev` is
-not available for OpenCode; route feature implementation to
-`superpowers:subagent-driven-development`.
+not available for OpenCode — non-bug routing is handled by `implement-feature`
+via the runtime-bindings table.
 
 ### If running under Codex
 
@@ -82,24 +82,12 @@ At the very beginning of start-task (before fetching the Asana task), check whic
 | `feature-dev` | `/plugin install feature-dev@claude-plugins-official` | n/a — see below | n/a — see below |
 | Declared MCP servers | Reinstall `asana-workflow` | `bash setup.sh --opencode` | Reinstall or reload `asana-workflow` |
 
-**feature-dev under OpenCode:** DOES NOT EXIST. Route feature implementation to
-`superpowers:subagent-driven-development`.
-
-**feature-dev under Codex:** The Claude plugin dependency is not a Codex dependency. For
-Codex feature implementation, inspect the Asana notes, comments, subtasks, and
-attachments for both a usable spec and a usable implementation plan:
-
-- **Spec present:** concrete behavior, acceptance criteria, UX/API contract, or
-  explicit constraints.
-- **Plan present:** ordered steps, affected files/modules, migration notes, or
-  test strategy.
-
-If both are present, route implementation to
-`superpowers:subagent-driven-development` and include the spec and plan excerpts
-in the handoff. This is the Codex development skill for executing from a spec
-and plan. If either is missing, do not invoke a feature-dev substitute; implement
-inline in the current Codex session, while keeping the normal QA and ship-it
-steps.
+**feature-dev under OpenCode/Codex:** DOES NOT EXIST — `feature-dev` appears only
+in the Claude Code cells of the bindings table. Non-bug routing is owned by
+`asana-workflow:implement-feature`, which resolves the capability to enter at
+(`CREATE_PLAN`, `EXECUTE_PLAN`, `EXECUTE_INLINE`) and its per-runtime binding —
+detecting attached implementation plans along the way — via
+`plugins/asana-workflow/references/runtime-bindings.md`.
 
 ## Bundled Skills (No Installation Needed)
 

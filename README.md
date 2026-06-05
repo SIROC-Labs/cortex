@@ -27,6 +27,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `asana-api` | Asana REST API patterns and common operations |
 | `log-task` | Creates an Asana task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
+| `implement-feature` | Routes implementation work to the right development skill per runtime — plan-aware (create plan / execute plan / implement inline); works standalone or invoked from `start-task` |
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
 | `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
