@@ -1,0 +1,37 @@
+# Validation Checklist
+
+Run validation before writing files (per phase) and again before invoking `submit-breakdown`. Each rule below is a hard check — failures surface to the user inline, list each rule that failed with the offending line/section, and block Phase 5/6 file writes or Phase 8 submit until all failures are resolved. No silent skips.
+
+## On breakdown.md
+
+- Each `## M{N} ::` block has `**Purpose:**` and `**Description:**` (required).
+- `**Description:**` is product-language (no class names, endpoint paths, framework patterns leading the prose).
+- `**References:**` (if present) contains only codebase paths, public URLs, Figma URLs — no input-doc paths.
+- `**Attachments:**` lists existing files in the same folder.
+- `**Depends on:**` M-labels all resolve to other `## M{N} ::` blocks in this file (no dangling refs, no cycles).
+- M-labels are sequential from M1, no gaps.
+
+## On each M{N}-milestone-spec.md
+
+- Has `## Product Requirements` with ≥1 bullet.
+- Has `## Acceptance Criteria` with ≥1 bullet.
+- Has `## Technical Spec` with at least `### Summary`, `### Technical Context`, `### Architecture Notes`, `### Testing Strategy`, `### References & Links`.
+- No reference to the input PRD path / input spec path / any uncommitted file.
+- No `TBD` / `TODO` / `???` placeholders — explicit `### Open Questions` only.
+- File is self-sufficient: a reader without the original PRD can understand what to build.
+
+## On the bundle as a whole
+
+- Every `**Attachments:**` entry in `breakdown.md` points to an existing file in the folder.
+- Every `M{N}-milestone-spec.md` in the folder is referenced by exactly one milestone block.
+
+## On failure
+
+Surface failures to the user inline, listing each rule that failed with the offending line/section. Block writing the file (Phase 5/6) or invoking `submit-breakdown` (Phase 8) until all failures are resolved. No silent skips. Format suggestion:
+
+```
+Validation failed (3 issues):
+- breakdown.md / M2 :: Billing — missing **Purpose:** field (line 27)
+- breakdown.md / M3 :: Reporting — **Description:** uses framework language ("React component"); rewrite in product language (line 39)
+- M2-milestone-spec.md — no `## Acceptance Criteria` section
+```
