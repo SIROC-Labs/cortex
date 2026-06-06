@@ -31,7 +31,9 @@ asana-workflow/
     │   └── references/    ← input resolution, implementation plan template
     ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana — sections, milestone tasks (resource_subtype=milestone), implementation tasks (Refinement-status). Idempotent re-runs. (bundled)
     │   └── references/    ← description template (implementation + milestone), formatting rules
-    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps. First-class milestone blocks (Purpose, Description, Product Requirements, AC, M-label deps). PLAN + EXPAND modes. (bundled)
+    ├── milestone-breakdown/   ← Strategic decomposition of specs into milestone-based roadmaps. Outputs a folder: `breakdown.md` (thin rich blocks for Asana descriptions) + per-milestone `M{N}-milestone-spec.md` (uploaded as Asana attachments so milestones are atomic). Milestone-first mode only; never authors tasks. (bundled)
+    │   └── references/        ← discovery guide (with landscape inspection + protectionism), decomposition principles (milestone design + DAG), output format (templates + parsing contract), validation checklist
+    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps. First-class milestone blocks (Purpose, Description, Product Requirements, AC, M-label deps). PLAN + EXPAND modes. (Note: milestone-first authoring is being migrated to the milestone-breakdown skill; this skill will retain task-level concerns only after a future cleanup pass.) (bundled)
     │   └── references/    ← discovery guide (with effort signals), decomposition principles (with milestone validation + DAG), output format (rich + thin milestone blocks), expand-mode flow
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
@@ -76,13 +78,18 @@ create-spec            (PRD / ticket / design / free-text → technical spec mar
   ├── asana-api          (optional: fetch task + attachments when Asana URL is provided as the input)
   └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
 
+milestone-breakdown        (strategic decomposition: spec → milestone bundle of breakdown.md + per-milestone milestone-spec.md files; milestone-first only)
+  ├── asana-api                          (existing-project landscape inspection: fetch sections + milestone tasks; classify expanded vs unexpanded)
+  ├── [external] superpowers:brainstorming  (decomposition interview at Phase 3)
+  └── → hands off to submit-breakdown    (Phase 8, optional: user confirms transition)
+
 task-breakdown
   ├── asana-api          (read existing tasks/projects for context during discovery;
   │                       fetch milestone tasks for EXPAND mode triggers #1 / #2)
   └── → hands off to submit-breakdown (Phase 8, optional: user confirms transition)
 
-submit-breakdown           (faithful uploader: breakdown → Asana sections + milestone tasks + implementation tasks; idempotent re-runs)
-  ├── asana-api          (create tasks, set custom fields, wire dependencies, create milestone-subtype tasks, detect existing milestones)
+submit-breakdown           (faithful uploader: accepts either a single .md file from task-breakdown OR a folder bundle from milestone-breakdown; creates Asana sections + milestone tasks; uploads milestone-spec.md attachments for bundle input; idempotent re-runs)
+  ├── asana-api          (create tasks, set custom fields, wire dependencies, create milestone-subtype tasks, detect existing milestones, upload attachments)
   └── → hands off to refine-tasks (implementation tasks created at Refinement status; user runs refine-tasks next)
 
 refine-tasks               (Refinement-status Asana tasks → Unassigned with implementation-plan.md attached)
@@ -125,7 +132,7 @@ Skills NOT bundled — must be installed separately:
 |---|---|---|
 | `feature-dev:feature-dev` | `feature-dev@claude-plugins-official` | start-task (Step 10, non-bug) |
 | `superpowers:systematic-debugging` | `superpowers@claude-plugins-official` | fix-bug (Step 1) |
-| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | start-task (Step 10, brainstorm workflow); create-spec (Phase 3, interview) |
+| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | start-task (Step 10, brainstorm workflow); create-spec (Phase 3, interview); milestone-breakdown (Phase 3, decomposition interview) |
 | `superpowers:using-git-worktrees` | `superpowers@claude-plugins-official` | start-task (Step 6a, optional) |
 
 ## Development Workflow
