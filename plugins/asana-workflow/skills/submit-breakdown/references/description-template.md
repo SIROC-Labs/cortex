@@ -59,6 +59,23 @@ Deduplicate by exact URL/path. Preserve order: milestone-specific first, then fi
 
 ---
 
+## Milestone Task Description (bundle input — milestone-breakdown)
+
+When the input is a milestone-breakdown bundle, the milestone task's `html_notes` is the **body** of the milestone block — verbatim, in canonical order:
+
+1. `**Purpose:**` line
+2. `**Description:**` line (or paragraph if multi-line)
+3. `**Out of scope:**` line / paragraph (omit when absent)
+4. `**References:**` line / list (omit when absent)
+
+No T-labels, no aggregated references from the file header (the bundle keeps milestone-level references self-contained), no implementation-task content (bundles don't have tasks).
+
+The bundle's `**Depends on:**`, `**Source:**`, and `**Attachments:**` fields are routed elsewhere by submit-breakdown (Phase 3 Steps 0–2) and never appear in the task description.
+
+Render the four body fields as Asana rich text (HTML), wrapped in `<body>...</body>`. Preserve the `**Field:**` labels — they aid scanability when reading the description in the Asana UI.
+
+---
+
 ## Implementation Task Description
 
 Use Asana HTML formatting (see Formatting Rules below).
