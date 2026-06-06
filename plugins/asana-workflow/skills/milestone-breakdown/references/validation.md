@@ -5,9 +5,9 @@ Run validation before writing files (per phase) and again before invoking `submi
 ## On breakdown.md
 
 - Each `## M{N} ::` block has `**Purpose:**` and `**Description:**` (required).
-- `**Description:**` is product-language (no class names, endpoint paths, framework patterns leading the prose).
+- `**Description:**` is product-language (no class names, endpoint paths, or framework patterns anywhere in the prose).
 - `**References:**` (if present) contains only codebase paths, public URLs, Figma URLs — no input-doc paths.
-- `**Attachments:**` lists existing files in the same folder.
+- `**Attachments:**` lists existing files in the same folder (re-checked at bundle level — see below).
 - `**Depends on:**` M-labels all resolve to other `## M{N} ::` blocks in this file (no dangling refs, no cycles).
 - M-labels are sequential from M1, no gaps.
 
