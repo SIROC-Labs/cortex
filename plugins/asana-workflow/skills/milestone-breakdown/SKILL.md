@@ -38,13 +38,23 @@ See `references/discovery-guide.md` for the source-detection table and questioni
 
 ### Phase 2 — Existing-Landscape Surfacing
 
-If an Asana project URL is among inputs, fetch its sections + milestone tasks, classify each milestone as **expanded** (has `default_task` children) or **unexpanded**, and surface the landscape to the user. Enforce the protectionism rule: never modify an expanded milestone.
+If an Asana project URL is among inputs, fetch its sections + milestone tasks, classify each milestone as **expanded** (has `default_task` children) or **unexpanded**, and surface the landscape to the user. Confirm with the user that operations will target only unexpanded + new milestones, then enforce the protectionism rule: never modify an expanded milestone.
 
 See `references/discovery-guide.md` → "Existing-Landscape Inspection".
 
 ### Phase 3 — Decomposition Interview
 
-Drive via `superpowers:brainstorming`. Topic universe scoped to milestone-level decisions (boundaries, ordering, scope per milestone, cross-milestone deps, platform coverage, design-dependency strategy). One question at a time. Treat the user as a technical expert. Probe for what the user did not raise.
+Drive via `superpowers:brainstorming`. Topic universe scoped to milestone-level decisions:
+
+- Boundaries — how many milestones, what each delivers, where the seams are
+- Ordering — which milestone unblocks the most downstream work
+- Scope per milestone — what's in, what's out
+- Cross-milestone dependencies — including the ones the user did not name
+- Platform coverage per milestone (Backend, Frontend, iOS, Android, Design)
+- Design-dependency strategy — designs ready / parallel tracks / design-as-you-go
+- For existing projects: which unexpanded milestones to refine, which to leave alone, which new ones to add
+
+One question at a time. Treat the user as a technical expert. Probe for what the user did not raise.
 
 See `references/decomposition-principles.md` for milestone-design rules.
 
@@ -54,13 +64,13 @@ Present a single structured message: proposed milestone list (M-labels, names, o
 
 ### Phase 5 — Author breakdown.md
 
-Write `breakdown.md` with one `## M{N} :: <Name>` block per milestone. Body fields: Purpose, Description, Out of scope (optional), References (optional). Metadata fields: Depends on, Source (optional), Attachments.
+Write `breakdown.md` with one `## M{N} :: <Name>` block per milestone. Body fields: Purpose, Description, Out of scope (optional), References (optional). Metadata fields: Depends on, Source (optional), Attachments. Md-only rationale paragraphs (free-text prose immediately after a header) capture planning context and are ignored by `submit-breakdown`.
 
 See `references/output-format.md` → "breakdown.md template".
 
 ### Phase 6 — Extract per-milestone specs
 
-For each milestone, automatically generate `M{N}-milestone-spec.md` from the ingested material plus interview answers. Template: Product Requirements + Acceptance Criteria + Technical Spec (nested create-spec 7-section structure). Copy-paste verbatim subsections from inputs where appropriate. Inline product rules where they motivate technical choices. References allowed: codebase paths, public URLs, Figma URLs only.
+For each milestone, automatically generate `M{N}-milestone-spec.md` from the ingested material plus interview answers. Template: Product Requirements + Acceptance Criteria + Technical Spec (nested create-spec 7-section structure). Copy-paste verbatim subsections from inputs where appropriate. Inline product rules where they motivate technical choices. References allowed: codebase paths, public URLs, Figma URLs only. If material is genuinely missing for a milestone, add an explicit `### Open Questions` section to the spec — do not loop back into another interview round.
 
 See `references/output-format.md` → "M{N}-milestone-spec.md template".
 
@@ -78,7 +88,7 @@ Offer `submit-breakdown`:
 
 If yes, invoke `asana-workflow:submit-breakdown` via the Skill tool with the folder path.
 
-## What this skill does NOT do
+## What This Skill Does NOT Do
 
 - Author tasks under milestones (that is `task-breakdown` EXPAND mode in a later session).
 - Touch expanded milestones in an existing Asana project.
@@ -86,7 +96,7 @@ If yes, invoke `asana-workflow:submit-breakdown` via the Skill tool with the fol
 - Run code, scaffold projects, or modify application sources.
 - Create or modify Asana resources directly — that's `submit-breakdown`.
 
-## Reference files
+## Reference Files
 
 - `references/discovery-guide.md` — input sources, existing-landscape inspection, protectionism rule, questioning strategy
 - `references/decomposition-principles.md` — milestone design, ordering, deps DAG, design-driven decomposition
