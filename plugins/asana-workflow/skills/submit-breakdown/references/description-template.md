@@ -70,7 +70,7 @@ When the input is a milestone-breakdown bundle, the milestone task's `html_notes
 
 No T-labels, no aggregated references from the file header (the bundle keeps milestone-level references self-contained), no implementation-task content (bundles don't have tasks).
 
-The bundle's `**Depends on:**`, `**Source:**`, and `**Attachments:**` fields are routed elsewhere by submit-breakdown (Phase 3 Steps 0–2) and never appear in the task description.
+The bundle's `**Depends on:**`, `**Source:**`, and `**Attachments:**` fields are routed elsewhere by submit-breakdown (Phase 3 Steps 0, 0.5, 2, and 4 — see SKILL.md) and never appear in the task description.
 
 Render the four body fields as Asana rich text (HTML), wrapped in `<body>...</body>`. Preserve the `**Field:**` labels — they aid scanability when reading the description in the Asana UI.
 
