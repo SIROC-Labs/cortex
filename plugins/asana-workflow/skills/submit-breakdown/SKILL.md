@@ -76,7 +76,7 @@ For each task in the breakdown, render the Asana task description by aggregating
 
 ### Parsing milestone blocks (new bundle contract)
 
-When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block in `breakdown.md` is parsed with a fixed field-routing table. See `references/breakdown-parser.md` for the canonical rules.
+When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block in `breakdown.md` is parsed with a fixed field-routing table. See `references/breakdown-parser.md` (the canonical parsing rules — same contract as `milestone-breakdown/references/output-format.md` "Parsing Contract").
 
 | Field | Role | Pushed to Asana description? |
 |---|---|---|
@@ -84,7 +84,7 @@ When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block i
 | `**Description:**` | Body | Yes |
 | `**Out of scope:**` (optional) | Body | Yes |
 | `**References:**` (optional) | Body | Yes |
-| `**Depends on:**` | Dependency metadata | No — wires native Asana task dependencies |
+| `**Depends on:**` | Dependency metadata | No — parsed for M-labels, used to wire native Asana task dependencies |
 | `**Source:**` (optional) | Refine-path metadata | No — detects "update existing milestone" path |
 | `**Attachments:**` | Attachment metadata | No — file list uploaded as Asana attachments |
 
@@ -138,6 +138,8 @@ On a collision, surface to the user:
 
 This runs before any writes so no partial state is left.
 
+After all collision decisions are resolved, recompute `next_asana_label` and rebuild the `markdown_label → asana_label` map using only the milestones remaining in the submit batch (Skips drop their assignments; Renames keep them under the new name).
+
 ### Step 1: Ensure each section exists
 
 For each milestone in the breakdown:
@@ -154,7 +156,13 @@ For each milestone in the breakdown:
   - **Do not create** a new milestone task and **do not update** the existing description.
 
 - **Rich milestone block** (has `Purpose:` field):
-  - **For bundle input with a `**Source:**` URL:** enter the refine path. Resolve the source task GID from the URL. Verify `resource_subtype == "milestone"`; otherwise error. Verify the source task's section contains zero `default_task` children — if any exist, refuse with: "Milestone '<name>' at <url> is expanded; bundle input cannot modify expanded milestones." Otherwise: **update** the source task's `html_notes` with the rendered body (verbatim push), **replace** its `milestone-spec.md` attachment (delete old by name match, upload new), and skip the rest of this step.
+  - **For bundle input with a `**Source:**` URL (refine path):**
+    1. Resolve the source task GID from the URL. Error if missing or invalid.
+    2. Verify `resource_subtype == "milestone"`; otherwise error.
+    3. Verify the source task's section contains zero `default_task` children. If any exist, refuse with: `"Milestone '<name>' at <url> is expanded; bundle input cannot modify expanded milestones."`
+    4. Update the source task's `html_notes` with the rendered body (verbatim push).
+    5. Replace its `milestone-spec.md` attachment (delete old by name match, upload new — see attachment-upload block below).
+    6. Skip the rest of this step.
   - Look in the section for an existing task where `name == milestone_name AND resource_subtype == "milestone"`.
   - **If found** → reuse the GID. Do not update the description (see "Re-run behavior" below).
   - **If missing** → create with:
@@ -164,7 +172,7 @@ For each milestone in the breakdown:
     - Add to project, move to the section.
     - Custom fields: **Priority only** (default `P3`; override only if the milestone block explicitly specifies one). Do not set Platform, Category, or Product Status.
 
-  After the milestone task exists (newly created OR reused via Source refine path), upload any files listed in the block's `**Attachments:**` field as Asana attachments on that task:
+  After the milestone task GID is known (newly created, found on re-run, OR resolved via Source refine path), upload any files listed in the block's `**Attachments:**` field as Asana attachments on that task:
 
   - For each file path in the list: resolve relative to `breakdown.md`'s folder.
   - Rename to `milestone-spec.md` on upload (strip any `M{N}-` prefix — local-only ordering).
