@@ -31,7 +31,7 @@ Read `CLAUDE.md` / `AGENTS.md` at repo root and in all affected directories. Rea
 
 Do not read prior specs, prior PRDs, prior task breakdowns, or other planning documents found anywhere under `docs/*/specs/`, `docs/*/product-requirements/`, `docs/*/task-breakdowns/`, `docs/*/milestone-breakdown/`, `specs/`, `prds/`, or sibling planning directories. Prior planning documents are frequently stale, superseded, or aspirational. Reading them risks importing outdated assumptions or dropped scope into the new breakdown without you being able to tell which is which. Source code reflects current reality; old planning docs do not.
 
-## Existing-Landscape Inspection
+## Existing-Landscape Surfacing
 
 When an Asana project URL is among the inputs, inspect the existing milestone landscape before proposing anything new.
 
@@ -48,10 +48,11 @@ When an Asana project URL is among the inputs, inspect the existing milestone la
    M3: Billing            — unexpanded (touchable)
    ```
 
-5. Ask the user (verbatim): *"I'll add new milestones and may refine M3. Expanded milestones are read-only context. OK?"*
+5. Ask the user (verbatim): *"I'll add new milestones and may refine [name unexpanded milestones from the landscape table above]. Expanded milestones are read-only context. OK?"*
+   *(Replace the bracketed text with the actual unexpanded milestone names. If no unexpanded milestones exist, drop "and may refine ..." entirely.)*
 6. Wait for explicit confirmation before continuing.
 
-New milestones append to the existing project sequence. Markdown M-labels stay sequential from M1 (they are local-only); `submit-breakdown` assigns the actual Asana M-labels at push time.
+New milestones append to the existing project sequence. Markdown M-labels are always sequential from M1 regardless of what M-labels already exist in Asana — they are local-only identifiers. `submit-breakdown` remaps them to the correct Asana M-labels at push time (e.g., if Asana already has M1–M3, the markdown's M1, M2 will be pushed as Asana M4, M5).
 
 ## Protectionism Rule
 
@@ -65,7 +66,7 @@ If the user explicitly asks to touch an expanded milestone, instruct them to use
 
 Don't interrogate the user with a rigid question sequence. Instead:
 
-- **Batch related questions** — when you already know enough to ask them together, ask about all related aspects in one message.
+- **Batch related questions** — e.g., if scope, boundary, and ordering for the same milestone are all open, ask about them in one message rather than three sequential questions.
 - **Skip the obvious** — if the spec is clearly a CLI tool, don't ask about Figma or mobile.
 - **Infer from context** — if the user dropped a repo URL, explore it (`CLAUDE.md`, file structure, git log) before asking what's already built.
 - **One round of questions at a time** — ask what you need, wait for the answer, then ask follow-ups based on what you learned.
