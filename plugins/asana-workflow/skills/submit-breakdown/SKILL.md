@@ -9,7 +9,10 @@ description: >
   Asana", "publish this plan", or after completing a task-breakdown and the user
   says "let's push it". Also triggers when the user provides a breakdown file
   path and an Asana project URL together. Do NOT trigger on requests to create
-  a single Asana task, or to start working on an existing task.
+  a single Asana task, or to start working on an existing task. Also accepts a
+  folder produced by `milestone-breakdown` containing `breakdown.md` plus
+  per-milestone `M{N}-milestone-spec.md` files (uploaded as Asana attachments
+  on the corresponding milestone tasks).
 ---
 
 # Submit Breakdown
@@ -29,7 +32,11 @@ The goal: a faithful, low-friction upload so the breakdown is visible in Asana a
 
 ## Inputs
 
-1. **Breakdown file path** — a markdown file from `task-breakdown` containing tasks grouped by milestone, with per-task: title, platform, category, description, dependencies, acceptance criteria, and references.
+1. **Breakdown input** — either:
+   - a markdown file produced by `task-breakdown` (single-file input, legacy contract), or
+   - a folder produced by `milestone-breakdown` containing `breakdown.md` plus one or more `M{N}-milestone-spec.md` files (new bundle contract).
+
+   Detection: if the input path resolves to a file, treat as single-file legacy input; if it resolves to a directory, look for `breakdown.md` inside — if present, treat as a milestone-breakdown bundle; otherwise error with: "No breakdown.md found in <path>. Expected a folder bundle."
 2. **Asana project URL** — `app.asana.com/0/<project_gid>/...`
 
 If either input is missing, ask for it before proceeding.
@@ -67,6 +74,24 @@ This skill does **no codebase discovery**. The references embedded in each task 
 
 For each task in the breakdown, render the Asana task description by aggregating fields from the breakdown.
 
+### Parsing milestone blocks (new bundle contract)
+
+When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block in `breakdown.md` is parsed with a fixed field-routing table. See `references/breakdown-parser.md` for the canonical rules.
+
+| Field | Role | Pushed to Asana description? |
+|---|---|---|
+| `**Purpose:**` | Body | Yes |
+| `**Description:**` | Body | Yes |
+| `**Out of scope:**` (optional) | Body | Yes |
+| `**References:**` (optional) | Body | Yes |
+| `**Depends on:**` | Dependency metadata | No — wires native Asana task dependencies |
+| `**Source:**` (optional) | Refine-path metadata | No — detects "update existing milestone" path |
+| `**Attachments:**` | Attachment metadata | No — file list uploaded as Asana attachments |
+
+Body fields render in canonical order: Purpose → Description → Out of scope → References.
+
+Free-text paragraphs immediately after the `## M{N} ::` header are ignored (rationale, md-only).
+
 Read `references/description-template.md` for the full structure, content rules, and formatting rules.
 
 Key principles:
@@ -81,6 +106,37 @@ Key principles:
 ## Phase 3: Submit to Asana
 
 Create objects in **dependency order** — sections first, then milestone tasks, then implementation tasks. Wire dependencies at the end so all GIDs exist.
+
+### Step 0: Discover existing Asana M-labels (bundle input only)
+
+For bundle input, before creating any new sections or milestone tasks:
+
+1. Fetch all sections in the project + their milestone-subtype tasks (already done in Phase 1 Step 6).
+2. For each existing milestone task, parse the leading `M{N}:` prefix from its name (e.g., `"M3: Billing"` → `3`). Validate that the section name carries the same prefix; if not, log a warning and use the task-name label.
+3. Compute `next_asana_label = max(existing labels, default 0) + 1`. New milestones (those without a `**Source:**` field) will be assigned Asana M-labels sequentially starting from `next_asana_label`.
+4. Build a `markdown_label → asana_label` map for the new milestones in this submit batch. For example, if existing project has M1, M2, M3 and the markdown has M1 (new), M2 (new), M3 (new), the map is `{M1→M4, M2→M5, M3→M6}`.
+
+Apply the Asana labels at write time:
+- **Section name:** `"M{asana_label}: {milestone_name}"`
+- **Milestone task name:** `"M{asana_label}: {milestone_name}"`
+
+The body push is unaffected — body fields don't contain cross-milestone M-label references (per the parsing contract).
+
+For legacy single-file input (task-breakdown output): skip this step. Today's behavior already uses sequential M-labels from M1 because each project is typically created fresh.
+
+### Step 0.5: Detect name collisions (bundle input only)
+
+Before creating any new milestone task: for each milestone block in the bundle whose `**Source:**` is absent, check whether its name matches an existing Asana milestone task in the project (case-insensitive).
+
+On a collision, surface to the user:
+
+> "Milestone '<name>' already exists in this project (M{N}, <expanded|unexpanded>). Skip / Rename / Abort?"
+
+- **Skip** → drop this milestone from the submit batch; continue with others.
+- **Rename** → prompt for a new name; retry the check.
+- **Abort** → cancel the whole submit run.
+
+This runs before any writes so no partial state is left.
 
 ### Step 1: Ensure each section exists
 
@@ -98,6 +154,7 @@ For each milestone in the breakdown:
   - **Do not create** a new milestone task and **do not update** the existing description.
 
 - **Rich milestone block** (has `Purpose:` field):
+  - **For bundle input with a `**Source:**` URL:** enter the refine path. Resolve the source task GID from the URL. Verify `resource_subtype == "milestone"`; otherwise error. Verify the source task's section contains zero `default_task` children — if any exist, refuse with: "Milestone '<name>' at <url> is expanded; bundle input cannot modify expanded milestones." Otherwise: **update** the source task's `html_notes` with the rendered body (verbatim push), **replace** its `milestone-spec.md` attachment (delete old by name match, upload new), and skip the rest of this step.
   - Look in the section for an existing task where `name == milestone_name AND resource_subtype == "milestone"`.
   - **If found** → reuse the GID. Do not update the description (see "Re-run behavior" below).
   - **If missing** → create with:
@@ -106,6 +163,13 @@ For each milestone in the breakdown:
     - `html_notes` = rendered milestone description (per `references/description-template.md` → "Milestone Task Description"), wrapped in `<body>...</body>`
     - Add to project, move to the section.
     - Custom fields: **Priority only** (default `P3`; override only if the milestone block explicitly specifies one). Do not set Platform, Category, or Product Status.
+
+  After the milestone task exists (newly created OR reused via Source refine path), upload any files listed in the block's `**Attachments:**` field as Asana attachments on that task:
+
+  - For each file path in the list: resolve relative to `breakdown.md`'s folder.
+  - Rename to `milestone-spec.md` on upload (strip any `M{N}-` prefix — local-only ordering).
+  - On re-runs: if an attachment named `milestone-spec.md` already exists on the task, delete it first, then upload the new one (replace, not duplicate).
+  - Use `curl -F` for the multipart upload (per existing screenshot-upload pattern in Phase 3.5).
 
 Build an M-label → milestone_task_gid map for use in Step 4.
 
@@ -128,6 +192,18 @@ For each implementation task in the breakdown (when present):
       - everything else → `Refinement`
 
 Build a T-label → task_gid map.
+
+### Milestones-only mode (bundle input)
+
+A milestone-breakdown bundle contains zero implementation task entries — only milestone blocks. In this mode:
+
+- Phase 3 Step 3 is a no-op for that milestone (no implementation tasks to create).
+- Phase 3 Step 5 (wire task-level dependencies) is also a no-op for that milestone.
+- Phase 3 Step 4 (wire milestone-level dependencies) still runs.
+
+Implementation tasks are created in a later session via `task-breakdown` EXPAND mode + a subsequent `submit-breakdown` run.
+
+Legacy single-file input (task-breakdown output) continues to include implementation tasks under each milestone — Phase 3 Steps 3 and 5 apply as before.
 
 ### Step 4: Wire milestone-level dependencies
 
@@ -291,5 +367,6 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 
 - `asana-api` — all Asana API operations route through this skill (fetch project / sections / custom fields, create tasks, set custom fields, wire dependencies, post comments, delete tasks).
 - `task-breakdown` — produces the input file this skill consumes. The two skills are intentionally paired: task-breakdown produces a validated markdown roadmap; submit-breakdown faithfully replicates it into Asana.
+- `milestone-breakdown` — produces folder bundles this skill consumes. The two skills are intentionally paired: milestone-breakdown produces a folder of `breakdown.md` + per-milestone spec files; submit-breakdown faithfully replicates it into Asana with M-label discovery, attachment upload, and milestones-only support.
 
 This skill has no other skill dependencies. Whatever happens to the Asana tasks after submission (refinement, staffing, implementation) is outside this skill's contract.
