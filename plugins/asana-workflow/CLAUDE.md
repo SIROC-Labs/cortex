@@ -140,7 +140,7 @@ Skills NOT bundled — must be installed separately:
 ### Adding a new skill
 
 1. Create `skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`)
-2. Add the skill to `.claude-plugin/plugin.json` under `"skills"`
+2. Skills are auto-discovered from the `skills/` directory — no manifest update required. Do NOT edit `plugin.json` or `marketplace.json` version fields (versioning is via the GitHub Action `bump-version.yml`).
 3. Add optional `references/` files and reference them from SKILL.md
 4. **Update this CLAUDE.md** — add the skill to the Plugin Structure diagram above, and add a Skill Relationships entry if it invokes or hands off to other skills
 5. **Update the repo `README.md`** if the skill is user-invokable (has a slash command or responds to user trigger phrases directly) — add a row to the asana-workflow skill table. Internal helpers like `asana-api` or `git-check` stay out of the user-facing table.

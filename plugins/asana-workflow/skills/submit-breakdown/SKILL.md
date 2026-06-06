@@ -140,6 +140,12 @@ This runs before any writes so no partial state is left.
 
 After all collision decisions are resolved, recompute `next_asana_label` and rebuild the `markdown_label → asana_label` map using only the milestones remaining in the submit batch (Skips drop their assignments; Renames keep them under the new name).
 
+**Dangling dependency check:** After collision resolutions are applied (Skip / Rename / Abort), for each remaining milestone with a `**Depends on:**` field, verify every referenced markdown M-label still resolves to a milestone in the batch (either still present, or matched to an existing Asana milestone). If any reference points to a skipped milestone, surface to the user:
+
+> "Milestone `<remaining>` depends on `<skipped>`, which was just skipped. Skip `<remaining>` too / Drop the dependency / Abort?"
+
+Resolve before continuing to writes.
+
 ### Step 1: Ensure each section exists
 
 For each milestone in the breakdown:
@@ -168,7 +174,9 @@ For each milestone in the breakdown:
   - **If missing** → create with:
     - `name` = milestone name
     - `resource_subtype` = `"milestone"`
-    - `html_notes` = rendered milestone description (per `references/description-template.md` → "Milestone Task Description"), wrapped in `<body>...</body>`
+    - `html_notes` = rendered milestone description, wrapped in `<body>...</body>`. Template selection:
+      - **Bundle input:** `references/description-template.md` → "Milestone Task Description (bundle input — milestone-breakdown)" — body is the four bundle body fields only.
+      - **Legacy single-file input:** `references/description-template.md` → "Milestone Task Description" — includes Product Requirements + Acceptance Criteria.
     - Add to project, move to the section.
     - Custom fields: **Priority only** (default `P3`; override only if the milestone block explicitly specifies one). Do not set Platform, Category, or Product Status.
 
@@ -242,6 +250,7 @@ submit-breakdown is **idempotent and non-destructive on re-run**:
 - Existing sections, existing milestone tasks, and existing implementation tasks are detected (by match keys below) and reused — they are never re-created and their descriptions are never overwritten.
 - Dependency wiring is re-applied. Asana's `set_task_dependencies` is non-destructive when given the same set, so re-runs are safe.
 - If a milestone block in the md has diverged from the existing Asana milestone task description, log a notice (e.g., `M2 milestone task already exists; its description has diverged from the md (skipping)`) but do not act on it. The user has two ways to push md changes back into Asana: delete the Asana task and re-run, or edit the description manually.
+- **Bundle attachments are replaced on every re-run** (delete old by name match, upload new) — this is intentional. The local `M{N}-milestone-spec.md` is the source of truth; if it has been edited since the last submit, the attachment is updated. This is asymmetric with description handling: descriptions are frozen on re-run, attachments are not. If you need both to update, delete the milestone task and re-run, or use a Source-refine path.
 
 ### Idempotency match keys
 
@@ -327,7 +336,7 @@ Use `curl -F` for multipart uploads — Python's `urllib` doesn't have built-in 
 - `<img>` tags are NOT supported in Asana `html_notes` — do not attempt to embed screenshot URLs inline. Images must be file attachments. See `references/description-template.md` for details.
 - Asana attachment view URLs contain `&`-separated query parameters with expiry timestamps (`?e=...&v=0&t=...`). These are signed URLs that Asana re-signs when serving to authenticated users; the expiry in the URL does not affect display within Asana.
 - Upload screenshots as attachments *after* the task description is set — the order doesn't affect how Asana displays them, but it keeps the create → enrich flow linear and easier to debug.
-- The T-label → GID map built in Phase 3 Step 1 remains valid here — use T-labels internally for screenshot-to-task bookkeeping. The "No T-labels in Asana" rule applies to task description content only, not to in-session mapping.
+- The T-label → GID map built in Phase 3 Step 3 remains valid here — use T-labels internally for screenshot-to-task bookkeeping. The "No T-labels in Asana" rule applies to task description content only, not to in-session mapping.
 
 **Progress reporting for this phase:**
 > Uploaded screenshot "screen-03-mapping.png" → T4, T5, T6 (3 tasks)

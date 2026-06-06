@@ -40,7 +40,7 @@ See `references/discovery-guide.md` for the source-detection table and questioni
 
 If an Asana project URL is among inputs, fetch its sections + milestone tasks, classify each milestone as **expanded** (has `default_task` children) or **unexpanded**, and surface the landscape to the user. Confirm with the user that operations will target only unexpanded + new milestones, then enforce the protectionism rule: never modify an expanded milestone.
 
-See `references/discovery-guide.md` → "Existing-Landscape Inspection".
+See `references/discovery-guide.md` → "Existing-Landscape Surfacing".
 
 ### Phase 3 — Decomposition Interview
 

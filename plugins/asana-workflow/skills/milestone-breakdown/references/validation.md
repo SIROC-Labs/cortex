@@ -1,6 +1,6 @@
 # Validation Checklist
 
-Run validation before writing files (per phase) and again before invoking `submit-breakdown`. Each rule below is a hard check — failures surface to the user inline, list each rule that failed with the offending line/section, and block Phase 5/6 file writes or Phase 8 submit until all failures are resolved. No silent skips.
+Run validation after generating files in Phase 5 (`breakdown.md`) and Phase 6 (each `M{N}-milestone-spec.md`), and again before invoking `submit-breakdown` (Phase 8). Each rule below is a hard check — failures surface to the user inline, list each rule that failed with the offending line/section, and block Phase 5/6 file writes or Phase 8 submit until all failures are resolved. No silent skips.
 
 ## On breakdown.md
 

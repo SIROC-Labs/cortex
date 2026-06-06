@@ -23,7 +23,7 @@ Inspect each argument (or the current working directory if no argument was given
 | Free-text seed | non-empty text not matching any rule above | Treat as a problem-statement seed. Ask the user whether to also inspect the current working directory |
 | No argument given | — | Inspect the current working directory and read what looks relevant |
 
-When multiple inputs are given (e.g., PRD path + Figma URL + Asana project URL), ingest all of them before continuing. An Asana project URL triggers the Existing-Landscape Inspection step below.
+When multiple inputs are given (e.g., PRD path + Figma URL + Asana project URL), ingest all of them before continuing. An Asana project URL triggers the Existing-Landscape Surfacing step below.
 
 ## Repository Walk
 
