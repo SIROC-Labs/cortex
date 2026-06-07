@@ -1,12 +1,14 @@
 ---
 name: refine-tasks
 description: >
-  Turns Refinement-status Asana tasks into one-shotters. Given any input that
-  resolves to a deterministic set of Asana tasks (task URLs, a milestone/section
-  in a project, a project URL, or a user-described filter), reads the codebase,
-  resolves ambiguities, composes a detailed implementation plan per task,
-  attaches it as implementation-plan.md, and transitions the task from
-  Refinement to Unassigned. Triggers: "refine these tasks",
+  Standalone, ad-hoc refinement path for Refinement-status Asana tasks that did
+  NOT come through `task-breakdown` (which now produces implementation plans
+  inline). Turns Refinement-status Asana tasks into one-shotters. Given any
+  input that resolves to a deterministic set of Asana tasks (task URLs, a
+  milestone/section in a project, a project URL, or a user-described filter),
+  reads the codebase, resolves ambiguities, composes a detailed implementation
+  plan per task, attaches it as implementation-plan.md, and transitions the
+  task from Refinement to Unassigned. Triggers: "refine these tasks",
   "/refine-tasks", "refine M1", "refine milestone X", or providing one or more
   Asana task URLs alongside a request to detail / spec / plan them. Do NOT
   trigger to create new Asana tasks, or to start implementing / executing
@@ -14,6 +16,8 @@ description: >
 ---
 
 # Refine Tasks
+
+`task-breakdown` now generates per-task `implementation-plan.md` files inline, so tasks created through it land in Asana already at **Unassigned** with a plan attached. This skill exists for the **ad-hoc later refinement** path: Refinement-status tasks that did not come through `task-breakdown` — manual `log-task` creations, hand-edited descriptions, legacy pre-inline-plan tasks, or tasks the user explicitly wants re-refined.
 
 Take a deterministic set of Asana tasks in **Refinement** product status and produce a codebase-informed implementation plan for each. The plan is attached to the task as `implementation-plan.md` and the task transitions to **Unassigned** so it is ready for staffing.
 
@@ -142,7 +146,7 @@ When you skip the prompt for a task, note it briefly in that task's progress lin
 
 ### 3b. Compose the implementation plan
 
-Generate the `implementation-plan.md` content for this task. Use **`references/implementation-plan-template.md`** for the full structure, content rules, and self-review checklist.
+Generate the `implementation-plan.md` content for this task. Use **`plugins/asana-workflow/references/implementation-plan-template.md`** (plugin-level shared reference, also used by `task-breakdown`) for the full structure, content rules, and self-review checklist.
 
 The plan is **code-free** by design — it provides enough context (file paths, models, signatures, exemplar patterns, decisions) for the downstream agent implementing the task to derive the actual implementation from the live codebase. refine-tasks removes ambiguity about *what* and *why*; the downstream session writes the code. High-level structure:
 
@@ -267,7 +271,7 @@ Skipped:
 ## Reference Files
 
 - **`references/input-resolution.md`** — how to interpret each input shape into a deterministic GID list
-- **`references/implementation-plan-template.md`** — structure and content rules for the attached `implementation-plan.md`
+- **`plugins/asana-workflow/references/implementation-plan-template.md`** — structure and content rules for the attached `implementation-plan.md` (plugin-level shared reference, also used by `task-breakdown`)
 
 ## Dependencies
 

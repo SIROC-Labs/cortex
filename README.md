@@ -33,7 +33,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `create-prd` | Generates a complete PRD from any combination of sources: Asana task URL, Notion page, Figma file, local folder, or any web URL |
 | `create-spec` | Produces a technical specification (architecture, data, contracts, behaviors, testing) from a PRD, ticket, design artifact, free-text problem statement, or the current folder |
 | `milestone-breakdown` | Produces a milestone-based roadmap as a folder of `breakdown.md` + per-milestone spec files. Each milestone in Asana is self-sufficient (description + attached spec) so future task expansion needs no extra context |
-| `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
+| `task-breakdown` | Task-level subdivision of one coherent scope via a brainstorming interview. Produces a folder bundle (`breakdown.md` + per-task implementation plans) ready for upload. Never authors milestones — redirects to `milestone-breakdown` when scope spans multiple milestones |
 | `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
 | `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |
 

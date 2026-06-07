@@ -34,9 +34,13 @@ The goal: a faithful, low-friction upload so the breakdown is visible in Asana a
 
 1. **Breakdown input** — either:
    - a markdown file produced by `task-breakdown` (single-file input, legacy contract), or
-   - a folder produced by `milestone-breakdown` containing `breakdown.md` plus one or more `M{N}-milestone-spec.md` files (new bundle contract).
+   - a folder bundle containing `breakdown.md` plus one or more attachment files. Two bundle shapes are supported:
+     - **Milestone bundle** (from `milestone-breakdown`) — M-blocks only, with `M{N}-milestone-spec.md` attachments.
+     - **Task bundle** (from `task-breakdown`) — T-blocks only, with `T{N}-<slug>-implementation-plan.md` attachments, and an optional top-level `**Target milestone:**` line pointing at an existing Asana milestone task URL.
 
-   Detection: if the input path resolves to a file, treat as single-file legacy input; if it resolves to a directory, look for `breakdown.md` inside — if present, treat as a milestone-breakdown bundle; otherwise error with: "No breakdown.md found in <path>. Expected a folder bundle."
+   Detection: if the input path resolves to a file, treat as single-file legacy input; if it resolves to a directory, look for `breakdown.md` inside — if present, parse it; otherwise error with: "No breakdown.md found in <path>. Expected a folder bundle."
+
+   The parser is **polymorphic** — it accepts M-only bundles, T-only bundles (with or without `**Target milestone:**`), or mixed M+T content. The block types present in `breakdown.md` determine which Phase 3 steps run; see `references/breakdown-parser.md` for the contract.
 2. **Asana project URL** — `app.asana.com/0/<project_gid>/...`
 
 If either input is missing, ask for it before proceeding.
@@ -66,6 +70,21 @@ If either input is missing, ask for it before proceeding.
 
 6. **Detect existing milestone tasks per section.** For each section, list its tasks with `opt_fields=name,resource_subtype` and identify any task where `resource_subtype == "milestone"`. Build a per-section map: `section_name → milestone_task_gid | None`. This map drives the idempotency check in Phase 3.
 
+### 1b. Resolve the optional `**Target milestone:**` line
+
+If `breakdown.md` starts with a top-level `**Target milestone:** <asana-url>` line:
+
+1. Resolve the URL to a task GID via `asana-api`. Fetch the task with `opt_fields=name,resource_subtype,memberships.section.name,memberships.project.name`.
+2. Verify `resource_subtype == "milestone"`. If not, abort: "Target milestone URL `<url>` does not point to a milestone-subtype task."
+3. Verify the task lives in the supplied project. If the project doesn't match, abort with a clear mismatch message.
+4. Surface to the user and confirm before any write:
+
+   > These tasks will be slotted under '<milestone name>' (M{N}) in project <project name>. Proceed? [Y/n]
+
+5. On confirmation, store `target_milestone_gid` + its section GID — every T-block in the bundle is routed into that section, and every T-task's milestone-level wiring uses this GID.
+
+If the line is absent, do not error here — the T-block fallback prompt in Phase 3 Step 3 covers the no-context case.
+
 This skill does **no codebase discovery**. The references embedded in each task description (aggregated by Phase 2) are what the downstream refinement step will read later.
 
 ---
@@ -74,9 +93,17 @@ This skill does **no codebase discovery**. The references embedded in each task 
 
 For each task in the breakdown, render the Asana task description by aggregating fields from the breakdown.
 
-### Parsing milestone blocks (new bundle contract)
+### Parsing blocks (polymorphic bundle contract)
 
-When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block in `breakdown.md` is parsed with a fixed field-routing table. See `references/breakdown-parser.md` (the canonical parsing rules — same contract as `milestone-breakdown/references/output-format.md` "Parsing Contract").
+A bundle's `breakdown.md` may contain a top-level metadata line, M-blocks, T-blocks, or any mix. The parser handles each independently. See `references/breakdown-parser.md` for the canonical rules.
+
+**File-level metadata (optional, parsed but never pushed to any description):**
+
+| Line | Role |
+|---|---|
+| `**Target milestone:** <asana-url>` | Routes all T-blocks in the bundle under the resolved milestone (see Phase 1b). |
+
+**M-block field routing (`## M{N} :: <Name>`):**
 
 | Field | Role | Pushed to Asana description? |
 |---|---|---|
@@ -86,11 +113,23 @@ When the input is a milestone-breakdown bundle, each `## M{N} :: <Name>` block i
 | `**References:**` (optional) | Body | Yes |
 | `**Depends on:**` | Dependency metadata | No — parsed for M-labels, used to wire native Asana task dependencies |
 | `**Source:**` (optional) | Refine-path metadata | No — detects "update existing milestone" path |
-| `**Attachments:**` | Attachment metadata | No — file list uploaded as Asana attachments |
+| `**Attachments:**` | Attachment metadata | No — file list uploaded as Asana attachments (renamed to `milestone-spec.md`) |
 
 Body fields render in canonical order: Purpose → Description → Out of scope → References.
 
-Free-text paragraphs immediately after the `## M{N} ::` header are ignored (rationale, md-only).
+**T-block field routing (`## T{N} :: <Name>`):**
+
+| Field | Role | Pushed to Asana description? |
+|---|---|---|
+| `**Purpose:**` | Body | Yes |
+| `**Description:**` | Body | Yes |
+| `**Out of scope:**` (optional) | Body | Yes |
+| `**Acceptance criteria:**` | Body | Yes |
+| `**References:**` (optional) | Body | Yes |
+| `**Depends on:**` | Dependency metadata | No — parsed for T-labels, used to wire native Asana task dependencies |
+| `**Attachments:**` | Attachment metadata | No — file list uploaded as Asana attachments (renamed to `implementation-plan.md` on upload) |
+
+Free-text paragraphs immediately after a `## M{N} ::` or `## T{N} ::` header are ignored (rationale, md-only).
 
 Read `references/description-template.md` for the full structure, content rules, and formatting rules.
 
@@ -191,35 +230,58 @@ Build an M-label → milestone_task_gid map for use in Step 4.
 
 ### Step 3: Create implementation tasks
 
+Resolve each T-block's parent milestone before creating tasks:
+
+- **T-block sits inside a wrapping `## M{N} :: ...` block in the same `breakdown.md`** → use that milestone's section + GID (already built by Steps 1 and 2).
+- **T-blocks have no wrapping M-block, but Phase 1b resolved a `**Target milestone:**`** → use the resolved `target_milestone_gid` + its section.
+- **T-blocks have no wrapping M-block AND no `**Target milestone:**`** → prompt the user interactively, once per submit run, before any T-task is created:
+
+  > "Which Asana milestone should these N tasks go under?"
+  >
+  > 1. <milestone name 1> (M1 — <section>)
+  > 2. <milestone name 2> (M2 — <section>)
+  > ...
+  > N. (cancel)
+
+  Build the list from Phase 1 Step 6's per-section milestone map. If the project URL was not supplied or has no milestone-subtype tasks, ask for the project URL first, then re-fetch. Store the user's choice as `target_milestone_gid` + its section GID for the rest of the run.
+
 For each implementation task in the breakdown (when present):
 
-- Look in the section for an existing task with `name == task_name AND resource_subtype == "default_task"`.
-- **If found** → reuse the GID and skip create (idempotent re-run).
+- Look in the resolved section for an existing task with `name == task_name AND resource_subtype == "default_task"`.
+- **If found** → reuse the GID (idempotent re-run). Still re-run the per-block attachment upload below — attachments are replaced on every submit.
 - **If missing** → create with:
   - `name` from the task title (no platform prefix; Platform is a custom field)
   - `html_notes` = rendered implementation task description (per `references/description-template.md` → "Implementation Task Description")
-  - Section = the milestone's section
+  - Section = the resolved section (wrapping M-block, `**Target milestone:**`, or interactive pick)
   - Custom fields:
     - Platform — from the breakdown task entry
     - Category — from the breakdown task entry
     - Priority — default `P3`
-    - **Product Status** — conditional on Platform:
+    - **Product Status** — set after the per-block attachment upload below, using this decision matrix:
       - Platform `Design` → `Unassigned`
-      - everything else → `Refinement`
+      - Plan attached (an attachment named `implementation-plan.md` is present on the task after the upload step) → `Unassigned`
+      - Otherwise → `Refinement`
+
+After the task GID is known (newly created or reused), upload any files listed in the T-block's `**Attachments:**` field as Asana attachments on the task:
+
+- For each file path in the list: resolve relative to `breakdown.md`'s folder.
+- **Rename to `implementation-plan.md` on upload** (strip the `T{N}-<slug>-` prefix — local-only ordering).
+- On re-runs: if an attachment named `implementation-plan.md` already exists on the task, delete it first, then upload the new one (replace, not duplicate).
+- Use `curl -F` for the multipart upload (per existing screenshot-upload pattern in Phase 3.5).
+
+Set Product Status after the attachment upload completes so the decision can observe the final attachment list.
 
 Build a T-label → task_gid map.
 
-### Milestones-only mode (bundle input)
+### Block-presence routing (polymorphic bundle)
 
-A milestone-breakdown bundle contains zero implementation task entries — only milestone blocks. In this mode:
+Each Phase 3 step is gated on the block types present in `breakdown.md`:
 
-- Phase 3 Step 3 is a no-op for that milestone (no implementation tasks to create).
-- Phase 3 Step 5 (wire task-level dependencies) is also a no-op for that milestone.
-- Phase 3 Step 4 (wire milestone-level dependencies) still runs.
+- **M-only bundle (from `milestone-breakdown`):** Steps 0, 0.5, 1, 2, 4 run; Steps 3 and 5 are no-ops.
+- **T-only bundle (from `task-breakdown`):** Steps 0, 0.5, 1, 2, 4 are no-ops (no M-blocks to create or wire); Step 3 (with the Phase 1b / interactive parent-milestone resolution) and Step 5 run.
+- **Mixed bundle (legacy single-file or hand-mixed):** all steps run as written.
 
-Implementation tasks are created in a later session via `task-breakdown` EXPAND mode + a subsequent `submit-breakdown` run.
-
-Legacy single-file input (task-breakdown output) continues to include implementation tasks under each milestone — Phase 3 Steps 3 and 5 apply as before.
+Legacy single-file input (old task-breakdown output) is treated as a mixed bundle — implementation tasks sit under each milestone block, Phase 3 Steps 3 and 5 apply as before.
 
 ### Step 4: Wire milestone-level dependencies
 
@@ -284,7 +346,7 @@ After all objects + dependencies are wired, summarize (adapt to actual counts; o
 
 > All N milestones + M tasks reconciled with Asana.
 >   • <K_new> new milestone tasks, <K_existing> reused
->   • <M_new> new implementation tasks at Refinement, <D_new> at Unassigned (Design)
+>   • <M_new> new implementation tasks at Refinement, <U_new> at Unassigned (Design or plan-attached)
 >   • <M_existing> implementation tasks reused
 > [Project URL]
 
@@ -383,7 +445,7 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 ## Dependencies
 
 - `asana-api` — all Asana API operations route through this skill (fetch project / sections / custom fields, create tasks, set custom fields, wire dependencies, post comments, delete tasks).
-- `task-breakdown` — produces the input file this skill consumes. The two skills are intentionally paired: task-breakdown produces a validated markdown roadmap; submit-breakdown faithfully replicates it into Asana.
+- `task-breakdown` — produces folder bundles this skill consumes. The two skills are intentionally paired: task-breakdown produces a folder of `breakdown.md` (T-blocks, with an optional `**Target milestone:**` line) + per-task `T{N}-<slug>-implementation-plan.md` attachments; submit-breakdown faithfully replicates it into Asana, uploading the per-T-block attachments (renamed to `implementation-plan.md`) and driving the Product Status decision on each T-task from attachment presence.
 - `milestone-breakdown` — produces folder bundles this skill consumes. The two skills are intentionally paired: milestone-breakdown produces a folder of `breakdown.md` + per-milestone spec files; submit-breakdown faithfully replicates it into Asana with M-label discovery, attachment upload, and milestones-only support.
 
 This skill has no other skill dependencies. Whatever happens to the Asana tasks after submission (refinement, staffing, implementation) is outside this skill's contract.

@@ -80,6 +80,18 @@ Render the four body fields as Asana rich text (HTML), wrapped in `<body>...</bo
 
 Use Asana HTML formatting (see Formatting Rules below).
 
+The description body itself is the same regardless of bundle shape — the structure below applies to T-tasks from a single-file legacy breakdown, from a `task-breakdown` folder bundle, and from a hand-mixed input. Only the **Product Status** custom field is decided differently per the matrix in the next subsection.
+
+### Product Status decision matrix (T-tasks only)
+
+The Product Status custom field is set after the task is created and after any per-T-block `**Attachments:**` are uploaded. Decision order (first match wins):
+
+- **Platform = `Design`** → `Unassigned`. Design tasks skip refinement.
+- **Plan attached** (after the per-block attachment upload, the task has an attachment named `implementation-plan.md`) → `Unassigned`. The plan is the refinement output; the task is ready for staffing.
+- **Otherwise** → `Refinement`. The task still needs codebase-informed refinement before staffing.
+
+The description body does not change based on the decision — only the custom-field assignment does.
+
 ### 0. Visual Context (Figma / Screenshot)
 
 **Only include this section when visual references exist.** It renders before Purpose so a developer opening the task sees the design immediately.

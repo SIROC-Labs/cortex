@@ -1,38 +1,16 @@
 # Decomposition Principles
 
-These rules govern how work is broken into milestones and tasks. They exist because decomposition decisions have downstream consequences — a bad ordering creates blockers, a bad scope creates tasks that are either too vague to start or too small to be worth tracking.
+These rules govern how a single coherent scope is broken into implementation tasks. Bad ordering creates blockers; bad scope creates tasks that are either too vague to start or too small to be worth tracking.
 
-## Milestone Design
+This skill never authors milestone content. Milestone design, milestone-level acceptance criteria, the milestone DAG, and milestone validation live exclusively in `milestone-breakdown`. If the scope is genuinely multi-milestone, the seam check in `references/discovery-guide.md` routes the user there.
 
-Each milestone delivers a **usable increment of the product** — not a technical layer.
-
-- **Bad:** "M1: All backend, M2: All frontend" — this means nothing works until M2 is done
-- **Good:** "M1: Auth (backend + frontend), M2: User management (backend + frontend)" — each milestone delivers something a user can interact with
-
-However, within a milestone, **tasks are platform-specific** (one task = one platform). The milestone groups them by product value; the tasks separate them by execution context.
-
-**Ordering milestones:** Consider both product value and implementation dependency. The milestone that unblocks the most downstream work should come first, unless there's a compelling product reason to prioritize differently.
-
-**Existing projects:** New tasks may belong in existing milestones. Don't create new milestones if the work fits naturally into the current structure. Propose new milestones only when the work represents a genuinely new product increment. Check for existing milestones in Asana sections or previous task-breakdown files.
-
-### Milestone Content Validation
-
-Before milestones are written to the breakdown md, every milestone must pass:
-
-- **Required fields present** — Purpose, Description, Product Requirements (≥1 use case), Acceptance Criteria (≥1 outcome), References (may be empty list, must be declared).
-- **Description is product-language** — same rule as task descriptions: a PM or designer reading it should immediately understand what gets shipped. No class names, endpoints, or framework patterns leading the description.
-- **References are non-trivial** — strip references that point to the breakdown md itself, to any `CLAUDE.md`, to the target Asana project URL, or to other trivially-discoverable resources. Same stripping rules as the task-level references list.
-- **Self-sufficient for expansion** — re-read the Description + Product Requirements + References. If a future session opening this milestone fresh would not have enough context to expand tasks, add what is missing. Common gaps: which platforms are involved, which spec section the milestone implements, which existing entities it depends on.
-
-Surface failures to the user and resolve them before continuing to task expansion.
-
-## Task Ordering Within Milestones
+## Task Ordering
 
 These ordering rules resolve ambiguity about what should come first. They're not arbitrary — each has a practical reason.
 
 1. **Foundational entities before dependent entities.** If Projects reference Users, build Users first. Otherwise you'll be building the Project form with placeholder user data, then reworking it when Users exist.
 
-2. **Read before write.** List and detail views before create/edit/delete forms, per entity. Read views are simpler, validate the data model, and give immediate visual feedback that the backend is working.
+2. **Read before write.** List and detail views before create / edit / delete forms, per entity. Read views are simpler, validate the data model, and give immediate visual feedback that the backend is working.
 
 3. **Data before visualization.** Seed data or API endpoints before the UI that displays them. You can't build a chart without data to chart.
 
@@ -54,11 +32,11 @@ Three rules keep tasks at the right granularity:
 
 - **Clear purpose boundary.** Each task should have a one-sentence "why" that stands alone. If you can't explain why this task exists without referencing another task's internals, the boundaries are wrong.
 
-**When to split a task:**
+### When to Split a Task
 
 Three signals that a task should be broken into two or more smaller ones:
 
-1. **The description requires enumeration.** If you can't write the description without a numbered list — "(1) do X, (2) do Y, (3) do Z" — each item is a candidate for its own task. A well-scoped task reads as prose, not a checklist. The `output-format.md` rule against inline enumerations exists precisely because enumeration is a symptom of over-scoping: if the breakdown itself violates that rule, the task is doing too much.
+1. **The description requires enumeration.** If you can't write the description without a numbered list — "(1) do X, (2) do Y, (3) do Z" — each item is a candidate for its own task. A well-scoped task reads as prose, not a checklist. The `output-format.md` rule against inline enumerations exists precisely because enumeration is a symptom of over-scoping.
 
 2. **Two sub-features have different complexity profiles.** If one part of the task follows an existing pattern (routine, low-risk) and another involves genuine design decisions or unclear behaviour (novel, higher-risk), separate them. Bundling them means the simpler part can't ship or be tested until the harder part is resolved — a developer is blocked on their own task. Split so each part can be completed and verified independently.
 
@@ -68,57 +46,53 @@ When a task triggers one or more of these signals, propose the split with a brie
 
 ## Cleanup Tasks
 
-The final task in a milestone is a **cleanup and review pass** — but only when it earns its place.
+The final task in a bundle is often a **cleanup and review pass** — but only when it earns its place.
 
 **When to include a cleanup task:**
-- The milestone has 3+ tasks delivering interconnected functionality
+- The bundle has 3+ tasks delivering interconnected functionality
 - Multiple tasks touch shared concerns (routing, state management, styling)
-- The milestone delivers a user-facing increment where consistency matters
+- The bundle delivers a user-facing increment where consistency matters
 
 **When to skip it:**
-- The milestone has 1–2 simple tasks
+- The bundle has 1–2 simple tasks
 - The work is purely infrastructure or config with no shared surface
 - The tasks are independent and don't create consistency concerns
 
 **What a cleanup task covers:**
-- Review work from the milestone for consistency (naming, patterns, error handling)
+- Review work from the bundle for consistency (naming, patterns, error handling)
 - Extract shared components or utilities that emerged across tasks
 - Fix rough edges, remove dead code, tighten up what was built quickly
-- Ensure the milestone delivers a cohesive increment, not a bag of features
-- Light testing of cross-task interactions within the milestone
+- Ensure the bundle delivers a cohesive increment, not a bag of features
+- Light testing of cross-task interactions within the bundle
 
 The cleanup task description should reference specific concerns likely to arise from the preceding tasks, not be a generic "clean things up."
 
-## Dependencies
+## Task Dependencies
 
-Dependencies are between **tasks**, never between milestones. Milestones group tasks by product value and effort — they're not dependency nodes. Cross-milestone task dependencies are fine (e.g., T12 in M3 depends on T5 in M2).
+Dependencies are between **tasks**, expressed via T-labels (T1, T2, T3...). T-labels are sequential across the entire bundle and are local-only identifiers (they carry no meaning outside the breakdown file).
 
-**Expressing dependencies:**
-- Use T-labels (T1, T2, T3...) purely for cross-referencing within the document
-- These are internal labels only — they carry no meaning outside the breakdown file
-- Every task's `Depends on:` field is either a list of T-labels or "None"
+- Every task's `Depends on:` field is either a list of T-labels or absent.
+- **Parallelizable work:** Tasks that don't depend on each other can be done concurrently. Call this out explicitly if it would help the user — it informs staffing and ordering.
+- **Blocking risks:** If a task is high-risk or uncertain (e.g., depends on a third-party API with unclear docs, requires a design decision that isn't settled), flag it. High-risk tasks should be prioritized early so surprises surface before they block everything downstream.
 
-**Parallelizable work:** Tasks that don't depend on each other can be done concurrently. Call this out explicitly — it helps teams plan and helps solo devs understand where they have flexibility in ordering.
+## Platform Splits
 
-**Blocking risks:** If a task is high-risk or uncertain (e.g., depends on a third-party API with unclear docs, requires a design decision that isn't settled), flag it. High-risk tasks should be prioritized early so surprises surface before they block everything downstream.
+Exactly one platform per task. The allowed values:
 
-### Milestone Dependencies
+- **Backend** — server-side logic, APIs, database, infrastructure
+- **Frontend** — web application UI
+- **iOS** — native or cross-platform iOS app
+- **Android** — native or cross-platform Android app
+- **Design** — Figma files, wireframes, design specs, design system work
 
-Milestones form a DAG that is independent of (but consistent with) the task-level DAG. Each milestone declares its `Depends on:` as a list of M-labels (or "None").
+A "single feature" that spans Backend + Frontend + Design becomes three tasks. Group related tasks visually in the markdown (sequential T-labels) but never collapse them into one.
 
-- **The milestone DAG is not required to be linear.** A milestone can have multiple parents; the chain may branch.
-- **Task-level dependencies inside a milestone may cross milestone boundaries.** A task in M3 may depend on a task in M1. The milestone DAG records the *minimum* required ordering at the milestone level; the task DAG captures the precise execution order.
-- **Cycles are invalid.** If M2 depends on M3 and M3 depends on M2, the breakdown is rejected. Validation detects this and asks the user to break the cycle before continuing.
+## Design-Within-Scope Decomposition
 
-## Design-Driven Decomposition
+If the scope under task-breakdown legitimately includes design work alongside implementation, follow these rules:
 
-When a project is design-heavy and designs don't yet exist:
+- **Design task before frontend task** that depends on it. Express via `Depends on:`.
+- **Design tasks have Platform = Design.** They produce Figma frames, not code.
+- **Design-as-you-go is the default for a single scope.** Design tasks are interleaved within the task list, each preceding the implementation task it unblocks.
 
-**Option A: Design-first milestone.** Create M1 as a design milestone with Design-platform tasks for each major UI area. Implementation milestones follow. Choose this when the product vision is unclear and design exploration is needed before committing to implementation.
-
-**Option B: Parallel tracks.** Design and backend proceed in parallel. Frontend tasks are deferred or placed in later milestones with explicit dependencies on the corresponding design tasks. Choose this when the backend architecture is clear and design is mainly about UI specifics.
-
-**Option C: Design-as-you-go.** Design tasks are interleaved within milestones, each preceding its corresponding frontend implementation task. Choose this for projects with an established design system where design work is incremental rather than exploratory.
-
-Discuss the tradeoffs with the user and let them choose. The right approach depends on the project's design maturity and team structure.
-
+If the design effort is large enough to warrant its own milestone (e.g., "design the entire feature suite before any implementation"), that's a multi-milestone signal — the seam check should fire and route the user to `milestone-breakdown`.
