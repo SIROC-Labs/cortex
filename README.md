@@ -14,6 +14,35 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 
 > For the complete `start-task` lifecycle map (init, checkpointing, routing, QA sub-flow, pause/resume, ship), see [FLOW.md](plugins/asana-workflow/skills/start-task/FLOW.md).
 
+**How the skills compose**
+
+The plugin splits work into two complementary pipelines, each with one skill per layer:
+
+```mermaid
+flowchart LR
+  subgraph Planning [Planning · idea → decomposed Asana]
+    direction LR
+    A[create-prd] --> B[create-spec]
+    B --> C[milestone-breakdown]
+    C --> D[submit-breakdown]
+    D --> E[(Asana milestones)]
+    E --> F[task-breakdown]
+    F --> G[submit-breakdown]
+    G --> H[(Asana tasks)]
+  end
+  subgraph Execution [Execution · Asana task → shipped PR]
+    direction LR
+    I[start-task] --> J[feature-dev / fix-bug]
+    J --> K[ship-it]
+    K --> L[Shipped PR]
+  end
+  H --> I
+```
+
+**Planning** decomposes an idea or PRD into Asana milestones (each with a self-sufficient spec attached), then into Asana tasks (each with an implementation plan attached, landing at `Unassigned`). Every layer is a separate skill so the team can stop, edit, and resume at any boundary. **Execution** takes a single Asana task and rides it to a shipped PR — git setup, routing to the right sub-workflow, pre-checks, and PR creation.
+
+Side entries: `log-task` captures work discovered mid-conversation into a new Asana task; `refine-tasks` is the ad-hoc path for refining tasks that didn't come through `task-breakdown`.
+
 **Skills included:**
 
 | Skill | Description |
