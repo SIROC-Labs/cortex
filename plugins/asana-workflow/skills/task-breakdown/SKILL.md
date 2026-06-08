@@ -45,7 +45,7 @@ Drive via `superpowers:brainstorming`. Topic universe scoped to task-level decis
 - UX / behavior specifics
 - Naming, file structure, module placement
 - Migration / backwards compatibility
-- Test scope per task
+- Verification path per task — "if this were the only task done, how would you confirm it works by running the app?" Surface this for every task, especially infrastructure-leaning ones.
 - Trade-offs the user hasn't named
 
 One question at a time. Treat the user as a technical expert. Capture any milestone reference the user names — it becomes the optional `**Target milestone:**` metadata.
@@ -67,6 +67,8 @@ See `references/output-format.md` for the `breakdown.md` grammar and the `**Targ
 ### Phase 6 — Self-Review Pass
 
 Validate inline: no placeholders, real file paths in plans, no dangling T-deps, no redundant tasks, no off-limits references (input PRDs, prior breakdowns, `CLAUDE.md`, target Asana project URL). Fix inline before handoff.
+
+**Testability check (run per task):** For each task, confirm at least one acceptance criterion is verifiable by running the app and observing behavior — not just by reading code or running typecheck. If a task's only verification path is "read the implementation" or "typecheck passes," it is infrastructure-only and must be absorbed into the first consumer task that exercises it. Apply the Infrastructure Tasks rule from `references/decomposition-principles.md` before handoff.
 
 ### Phase 7 — Handoff
 

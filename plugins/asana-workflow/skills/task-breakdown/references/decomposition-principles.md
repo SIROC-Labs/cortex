@@ -44,6 +44,18 @@ Three signals that a task should be broken into two or more smaller ones:
 
 When a task triggers one or more of these signals, propose the split with a brief rationale before writing the breakdown. Don't split mechanically — confirm the sub-tasks each have a clear purpose and would genuinely be planned and reviewed separately.
 
+## Infrastructure Tasks
+
+A task is **infrastructure-only** when all its acceptance criteria can only be verified by reading the code or running a typecheck — there is no observable behavior to exercise in the running app. Examples: a standalone API client setup, a type-definitions file, a service layer with no UI consumer yet.
+
+Infrastructure-only tasks should not exist as standalone tasks. They fail the independent testability test: someone checking the work can only read code; they cannot confirm behavior by running the app.
+
+**Rule: absorb infrastructure into its first consumer.** When a task is infrastructure-only, merge it into the first task that exercises it in the running app. That task then owns both the plumbing and the observable behavior, and its acceptance criteria can be verified end-to-end.
+
+**Corollary for "implement as needed":** types, service methods, and query hooks belong in the task that first uses them — not in a shared upfront task. Each subsequent task adds only what it needs. This keeps every task independently runnable and avoids building API surface that won't be exercised until much later.
+
+The one exception: if the infrastructure genuinely unblocks multiple tasks that will be worked in parallel by different developers *in the same sprint*, a standalone infrastructure task may be worth the tradeoff. Call this out explicitly, confirm with the user, and add a note explaining why it can't be absorbed.
+
 ## Cleanup Tasks
 
 The final task in a bundle is often a **cleanup and review pass** — but only when it earns its place.
