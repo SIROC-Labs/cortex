@@ -97,6 +97,13 @@ See **`references/asana-patterns.md`** for the download pattern.
 
 Also scan the task description and comments for links to external tools (design files, documents, specs, etc.). For each link found, invoke the appropriate MCP or tool to fetch its content and include it in the context bundle passed to the downstream skill in Step 10.
 
+**Figma links require the two-step fetch defined in `references/design-context.md`.** Do not stop at `get_metadata` — that only gives node hierarchy. The required sequence is:
+1. `get_metadata` → identify the specific component/frame node IDs being built (not the top-level page).
+2. `get_design_context` per component node → exact CSS/Tailwind class strings, color tokens, spacing, typography, shadows.
+3. Paste the full `get_design_context` output verbatim into a **`## Design Context`** section of the context bundle.
+
+This section is the source of truth for every styling decision downstream. It must be present in the bundle before Step 10 runs.
+
 ### Step 6: Check for Existing Work
 
 Before creating a branch, check if work already exists for this task ID. See **`references/git-workflow.md`** for the detection commands.
@@ -187,8 +194,11 @@ Compile full task context (name, notes, custom fields, task ID, subtasks, commen
     > 1. Brainstorm the design first (`superpowers:brainstorming`)
     > 2. Go straight to implementation (`feature-dev:feature-dev`)"
     Wait for explicit answer before routing. No default assumed.
-  - **Handoff instruction:** When passing context to `feature-dev` or `brainstorming`, include:
+  - **Handoff instruction:** When passing context to `feature-dev` or `brainstorming`, always include:
     > "When this workflow is complete, return to `start-task` for non-bug QA verification and the ship-it handoff. Do not end the session — there are more steps."
+
+    **If the context bundle contains a `## Design Context` section**, also include the pixel-perfect contract from **`references/design-context.md`** → "Handoff: Pixel-Perfect Contract" verbatim. Do not paraphrase it. The downstream skill's implementers must see the exact contract wording.
+
 - **Category missing** — Prompt: "Is this a bug fix or a feature?" then apply the routing above.
 
 The branch is already created and checked out — the downstream skill works on it directly.
@@ -268,4 +278,5 @@ Triggered either by a step going into `State = blocked` during the flow or by th
 - **`references/asana-patterns.md`** — URL formats, API fields, section moves, comment posting
 - **`references/git-workflow.md`** — Existing work detection, branch creation, naming convention
 - **`references/checkpoints.md`** — Checkpoint file format, initialization, per-step updates, resume flow, lifecycle end, edge cases
+- **`references/design-context.md`** — Figma fetch protocol (Step 5) and pixel-perfect contract wording (Step 10 handoff)
 - **`plugins/asana-workflow/references/qa-routing.md`** — QA skill resolution and the QA sub-flow (plugin-level shared reference with pre-ship-check)
