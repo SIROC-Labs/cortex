@@ -52,6 +52,7 @@ Drive via `superpowers:brainstorming`. Topic universe scoped to milestone-level 
 - Cross-milestone dependencies — including the ones the user did not name
 - Platform coverage per milestone (Backend, Frontend, iOS, Android, Design)
 - Design-dependency strategy — designs ready / parallel tracks / design-as-you-go
+- Demonstrability per milestone — "when this milestone is done, how do you demo it to a stakeholder or PM?" Surface this for every milestone, especially infrastructure-leaning ones.
 - For existing projects: which unexpanded milestones to refine, which to leave alone, which new ones to add
 
 One question at a time. Treat the user as a technical expert. Probe for what the user did not raise.
@@ -77,6 +78,8 @@ See `references/output-format.md` → "M{N}-milestone-spec.md template".
 ### Phase 7 — Self-Review Pass
 
 For each generated file, scan for placeholders, contradictions, off-limits references (input doc paths), product-language violations in `**Description:**`, dangling M-label deps. Fix inline.
+
+**Demonstrability check (run per milestone):** For each milestone, confirm at least one acceptance criterion in its `M{N}-milestone-spec.md` is observable by a non-technical stakeholder — something they can see, use, or be shown a demo of. If every criterion is purely technical (service layer, typecheck, schema migration), the milestone is infrastructure-only and must be absorbed or justified per the Infrastructure Milestones rule in `references/decomposition-principles.md` before handoff.
 
 See `references/validation.md` for the full checklist.
 

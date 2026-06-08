@@ -15,6 +15,7 @@ Run validation after generating files in Phase 5 (`breakdown.md`) and Phase 6 (e
 
 - Has `## Product Requirements` with ≥1 bullet.
 - Has `## Acceptance Criteria` with ≥1 bullet.
+- **At least one acceptance criterion is stakeholder-demonstrable** — observable by a non-technical reader (something they can see, use, or be shown). Criteria that are purely technical ("API client initialised", "typecheck passes", "schema migrated") do not satisfy this rule on their own. If no criterion passes this check, the milestone is infrastructure-only and must be absorbed or justified before submission (see `decomposition-principles.md` → "Infrastructure Milestones").
 - Has `## Technical Spec` with at least `### Summary`, `### Technical Context`, `### Architecture Notes`, `### Testing Strategy`, `### References & Links`.
 - No reference to the input PRD path / input spec path / any uncommitted file.
 - No `TBD` / `TODO` / `???` placeholders — explicit `### Open Questions` only.

@@ -33,6 +33,19 @@ When a project is design-heavy and designs don't yet exist:
 
 Discuss the tradeoffs with the user and let them choose. The right approach depends on the project's design maturity and team structure.
 
+## Infrastructure Milestones
+
+A milestone is **infrastructure-only** when all its acceptance criteria describe invisible technical work — nothing a non-technical stakeholder can observe, use, or demo. Examples: "API client set up", "database schema migrated", "shared service layer implemented".
+
+Infrastructure-only milestones violate the "usable increment" principle from Milestone Design. They fail the demonstrability test: when the milestone closes, there is nothing to show.
+
+**Rule: absorb or justify.** When a proposed milestone is infrastructure-only, choose one of:
+
+1. **Absorb it** into the first milestone that makes the infrastructure visible — that milestone then owns both the plumbing and the user-observable output, and its acceptance criteria can be demonstrated end-to-end.
+2. **Justify it explicitly** — if the infrastructure genuinely unblocks multiple parallel milestone tracks that different teams will work on concurrently, a standalone infrastructure milestone may be worth the tradeoff. Call this out, confirm with the user, and require at least one stakeholder-observable criterion (e.g., "staging environment responds to health check", "admin can log in via the new auth layer") so there is something to verify at close.
+
+Never accept "typecheck passes" or "service layer exports types" as the sole acceptance criterion for a milestone.
+
 ## What This Skill Does NOT Decompose
 
 - **No task-level decomposition** — that is `task-breakdown` EXPAND mode in a later session.
