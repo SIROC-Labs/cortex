@@ -77,3 +77,4 @@ These skills are included in the `asana-workflow` plugin itself:
 | `asana-workflow:ship-it` | Shipping orchestrator |
 | `asana-workflow:web-qa` | Web QA investigation & verification |
 | `asana-workflow:mobile-qa` | Mobile QA investigation & verification |
+| `asana-workflow:backend-qa` | Backend (API/service) QA investigation & verification |
