@@ -11,6 +11,8 @@ asana-workflow/
 ├── references/            ← plugin-wide shared references (board-resolution, qa-routing)
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)
+    ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
+    ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
     ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
@@ -43,7 +45,7 @@ Each skill follows: `skills/<name>/SKILL.md` + optional `references/` subdirecto
 start-task
   ├── asana-api          (fetch task, update status)
   ├── git-check          (validate git state)
-  ├── web-qa / mobile-qa (bug QA loop via QA sub-flow; resolution per plugin references/qa-routing.md)
+  ├── web-qa / mobile-qa / backend-qa (bug QA loop via QA sub-flow; resolution per plugin references/qa-routing.md)
   ├── [external] feature-dev:feature-dev    (route non-bug tasks)
   └── fix-bug                   (route bug tasks through orchestrator)
 
@@ -59,7 +61,7 @@ ship-it
 
 pre-ship-check
   ├── git-check                 (git state)
-  └── web-qa / mobile-qa        (QA verification prompt on non-bug tasks; resolution per plugin references/qa-routing.md)
+  └── web-qa / mobile-qa / backend-qa  (QA verification prompt on non-bug tasks; resolution per plugin references/qa-routing.md)
 
 log-task
   ├── asana-api          (create task, set custom fields, add to projects)
@@ -92,6 +94,9 @@ web-qa (extends generic-qa)
 mobile-qa (extends generic-qa, mobile-mcp)
   └── references/        (mobile-mcp tooling, app+device discovery, accessibility tree/gestures/logs)
 
+backend-qa (extends generic-qa)
+  └── references/        (HTTP/logs/DB/Sentry tooling, base-URL discovery + manual auth bootstrap, request/log/DB/trace investigation)
+
 generic-testing (shared markdown, not a skill — universal fundamentals)
   ├── process.md         (the 10 non-negotiables: determinism, behavior-over-implementation, AAA, etc.)
   └── references/
@@ -107,6 +112,13 @@ mobile-testing (bundled skill — extends generic-testing; scope: unit + integra
   ├── process.md         (ViewModels, repos, async/time, mocking, DI)
   └── references/
       └── infrastructure.md     (coverage configs, JVM/Xcode parallelism, toolchain caching)
+
+backend-testing (bundled skill — extends generic-testing; integration-first via testcontainers)
+  ├── process.md         (decision rule, DB isolation, test data, async/task orchestration, auth, generic-container tree)
+  └── references/
+      ├── stack-detection.md    (detect language/runner/container library + orchestration framework)
+      ├── contract-testing.md   (spec-driven fakes for external services + drift guard)
+      └── infrastructure.md     (heavy-local/light-CI split, test tagging, PR evidence contract)
 ```
 
 ## External Dependencies
