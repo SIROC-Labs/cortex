@@ -45,5 +45,3 @@ Before investigating, confirm the tools you need actually work:
 3. **DB** (if side effects are in scope) — the connection string connects and a trivial `select 1` succeeds.
 
 If a needed tool fails, tell the operator what's missing and how to provide it — don't caveat the report around a missing tool.
-
-> Sentry and error tracking are not QA tools here — they belong to debugging and bug-fixing (`fix-bug` / `systematic-debugging`). QA observes the running app directly via the three tools above.
