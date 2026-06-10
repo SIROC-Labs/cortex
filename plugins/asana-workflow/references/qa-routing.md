@@ -12,18 +12,20 @@ Determine which QA skill to invoke. Applies to **all task categories** — bugs 
 
 Check in order:
 
-1. **CLAUDE.md** — look for a `qa-skill:` declaration (e.g., `qa-skill: web-qa`, `qa-skill: mobile-qa`, or `qa-skill: none`). If found, use it.
+1. **CLAUDE.md** — look for a `qa-skill:` declaration (e.g., `qa-skill: web-qa`, `qa-skill: mobile-qa`, `qa-skill: backend-qa`, or `qa-skill: none`). If found, use it.
 2. **Project signals** — infer from project files:
    - `package.json` (without React Native), `vite.config.*`, `next.config.*` → `web-qa`
    - `.xcodeproj`, `.xcworkspace`, `Info.plist` → `mobile-qa`
    - `build.gradle`, `build.gradle.kts`, `AndroidManifest.xml` → `mobile-qa`
    - `app.json` / `app.config.js` with React Native/Expo → `mobile-qa`
-   - No UI framework detected (pure backend, CLI, API, library, infrastructure) → `none`
+   - A backend web framework that serves HTTP (FastAPI/Flask/Django, Express/Nest, Spring, Gin/Echo, Rails) — or an `openapi.json`/`Dockerfile` exposing a port — and no client UI → `backend-qa`
+   - No served surface at all (pure CLI, library, infrastructure) → `none`
 3. **Ambiguous** — ask the operator (blocking):
    > "Which QA skill should I use?
    > 1. `web-qa` (browser-based, Chrome DevTools MCP)
    > 2. `mobile-qa` (simulator/emulator/device, mobile testing MCP)
-   > 3. `none` (no visual UI to verify — backend, API, CLI, library)"
+   > 3. `backend-qa` (running API/service — HTTP, logs, DB, Sentry)
+   > 4. `none` (nothing to verify at runtime — pure CLI, library)"
 
 Reuse the resolved QA skill for all QA invocations in the task.
 
