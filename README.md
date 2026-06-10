@@ -44,7 +44,7 @@ Independent, reusable development utilities. A home for self-contained skills th
 | Skill | Description |
 |-------|-------------|
 | `update-pr` | Sync PR branch with its base branch: fetch → rebase/merge → resolve conflicts → push |
-| `cso` | Chief Security Officer audit: secrets archaeology, dependency supply chain, CI/CD, infra, webhooks, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE. Daily (8/10 gate) and `--comprehensive` (2/10) modes |
+| `cso` | Chief Security Officer audit: secrets archaeology, dependency supply chain, CI/CD, infra, webhooks, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE, and mobile app security (iOS/Android). Detects Python/FastAPI, React/React Native, Swift, Kotlin. Daily (8/10 gate) and `--comprehensive` (2/10) modes |
 
 ## Installation
 

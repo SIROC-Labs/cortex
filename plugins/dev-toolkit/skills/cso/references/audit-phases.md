@@ -1,4 +1,4 @@
-**Scope gate (read first).** This section holds every scope-dependent phase (2-11), but you run ONLY the phases your resolved mode selected back in `## Mode Resolution` (in the main SKILL.md). Phases 0, 1, 12, 13, 14 always run; Phases 2-11 are scope-gated. "Execute in full" means work through this section applying that selection, NOT run a phase your mode did not select just because its prose lives here. Example: `--owasp` runs Phase 9 from this section, not Phases 2-8/10/11.
+**Scope gate (read first).** This section holds every scope-dependent phase (2-11 and 15), but you run ONLY the phases your resolved mode selected back in `## Mode Resolution` (in the main SKILL.md). Phases 0, 1, 12, 13, 14 always run; Phases 2-11 and 15 are scope-gated. "Execute in full" means work through this section applying that selection, NOT run a phase your mode did not select just because its prose lives here. Example: `--owasp` runs Phase 9 from this section, not Phases 2-8/10/11/15; `--mobile` runs Phase 15 only. Phase 15 (mobile) is part of a full audit but produces no findings unless Phase 0 detected an iOS / Android / React Native stack.
 
 ### Phase 2: Secrets Archaeology
 
@@ -264,3 +264,46 @@ INTERNAL (breach = embarrassment):
 PUBLIC:
   - Marketing content, documentation, public APIs
 ```
+
+### Phase 15: Mobile Application Security (iOS & Android)
+
+For native and React Native mobile apps. Scope to the mobile stacks detected in Phase 0 (Swift/iOS, Kotlin or Java/Android, React Native). **Static analysis only — parse manifests/plists and trace code. Do NOT install, run, or instrument the app on a device or emulator.**
+
+**Android — `AndroidManifest.xml`:**
+- `android:debuggable="true"` shipped in a release build (lets anyone attach a debugger / read memory)
+- `android:allowBackup="true"` (allows `adb backup` extraction of all app data on non-rooted devices)
+- `android:usesCleartextTraffic="true"` or a missing/permissive network security config (HTTP traffic allowed)
+- Exported components (`android:exported="true"` on `activity`/`service`/`receiver`/`provider`) reachable by other apps without a signature-level permission — exposed IPC surface
+- Custom URL schemes / deep links (`<intent-filter>` with `<data android:scheme>`) without verification — task hijacking, link spoofing, unvalidated navigation
+- Over-broad `<uses-permission>` (e.g. `READ_SMS`, `ACCESS_FINE_LOCATION`, `QUERY_ALL_PACKAGES`) with no functional justification
+
+**Android — code & resources:**
+- Hardcoded secrets in `strings.xml`, `gradle.properties`, `build.gradle(.kts)`, `local.properties`, or committed keystores
+- Insecure `WebView`: `setJavaScriptEnabled(true)` combined with `addJavascriptInterface(...)` (native bridge → RCE), `setAllowFileAccess`/`setAllowUniversalAccessFromFileURLs`, or loading untrusted URLs
+- Secrets/tokens in plain `SharedPreferences` (should use `EncryptedSharedPreferences` / Android Keystore)
+- Disabled TLS validation: a custom `TrustManager` that trusts all certs, or a `HostnameVerifier` returning `true`
+- Sensitive data written to logs via `Log.d/v/i/e`
+
+**iOS — `Info.plist`:**
+- App Transport Security weakened: `NSAllowsArbitraryLoads = true`, `NSExceptionAllowsInsecureHTTPLoads`, `NSExceptionMinimumTLSVersion` downgraded
+- URL schemes (`CFBundleURLTypes`) handled without validating the caller/parameters — URL scheme hijacking
+- `UIFileSharingEnabled` / `LSSupportsOpeningDocumentsInPlace` exposing the app container over iTunes/Files
+- Privacy-permission usage strings requested without a justified feature
+
+**iOS — code:**
+- Hardcoded secrets in source, `.plist`, `.xcconfig`, or asset catalogs
+- Credentials/tokens in `UserDefaults` instead of the Keychain
+- Deprecated `UIWebView`, or `WKWebView.evaluateJavaScript` fed untrusted input
+- Disabled TLS: a `URLSession`/`NSURLConnection` delegate that accepts any server trust (`URLSession(...:didReceive challenge:)` returning `.useCredential` with the raw `serverTrust`)
+- Sensitive data persisted without `NSFileProtection` (data readable when device is locked / via backup)
+
+**React Native (if detected):**
+- Secrets in the JS bundle or `.env` — the bundle ships to the device and is trivially extractable; `react-native-config` values are **compiled into the binary and are NOT secret**
+- Tokens in `AsyncStorage` (unencrypted) instead of `react-native-keychain` / encrypted storage
+- Dev menu / remote debugging enabled in a release build
+
+**Verification:** Confirm the build variant. A finding in a `debug`/`dev` variant that is correctly stripped from `release` is downgraded, not dropped.
+
+**Severity:** CRITICAL for hardcoded secrets in a shipped binary / `addJavascriptInterface` exposed to untrusted web content / `NSAllowsArbitraryLoads` or disabled TLS validation in production. HIGH for exported components without permissions / `allowBackup`+`debuggable` in release / secrets in `UserDefaults`/`SharedPreferences` / cleartext traffic. MEDIUM for over-permissioning / deprecated `UIWebView` / verbose logging of non-credential data.
+
+**FP rules:** `debuggable`, dev menus, and ATS exceptions confined to a `debug`/`dev` build variant (not `release`) are excluded. ATS exceptions for explicitly-documented localhost/dev endpoints in debug configs are excluded. `exported="true"` on the launcher `activity` (the `MAIN`/`LAUNCHER` intent filter) is required and NOT a finding. Public client-side keys designed to ship in the app (e.g. Firebase config, which is not a secret) are not findings — but verify they are not privileged server keys mislabeled as client config.

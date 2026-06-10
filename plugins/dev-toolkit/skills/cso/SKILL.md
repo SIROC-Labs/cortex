@@ -1,6 +1,6 @@
 ---
 name: cso
-version: 0.1.0
+version: 0.2.0
 description: Use when asked to run a security audit, security review, threat model, pentest-style review, find vulnerabilities, check for leaked secrets, run an OWASP Top 10 or STRIDE assessment, or assess a codebase's security posture. Infrastructure-first audit covering secrets archaeology, dependency supply chain, CI/CD, infrastructure, webhooks, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE, and data classification.
 ---
 
@@ -29,13 +29,14 @@ This skill is agent-agnostic — it relies only on capabilities every coding age
 - `/cso --diff` — branch changes only (combinable with any above)
 - `/cso --supply-chain` — dependency audit only (Phases 0, 3, 12-14)
 - `/cso --owasp` — OWASP Top 10 only (Phases 0, 9, 12-14)
+- `/cso --mobile` — mobile app security only (Phases 0, 1, 15, 12-14) — iOS & Android
 - `/cso --scope auth` — focused audit on a specific domain
 
 ## Mode Resolution
 
-1. If no flags → run ALL phases 0-14, daily mode (8/10 confidence gate).
-2. If `--comprehensive` → run ALL phases 0-14, comprehensive mode (2/10 confidence gate). Combinable with scope flags.
-3. Scope flags (`--infra`, `--code`, `--skills`, `--supply-chain`, `--owasp`, `--scope`) are **mutually exclusive**. If multiple scope flags are passed, **error immediately**: "Error: --infra and --code are mutually exclusive. Pick one scope flag, or run `/cso` with no flags for a full audit." Do NOT silently pick one — security tooling must never ignore user intent.
+1. If no flags → run ALL phases 0-15, daily mode (8/10 confidence gate). (Phase 15 only produces findings when a mobile stack was detected in Phase 0; otherwise it's a no-op.)
+2. If `--comprehensive` → run ALL phases 0-15, comprehensive mode (2/10 confidence gate). Combinable with scope flags.
+3. Scope flags (`--infra`, `--code`, `--skills`, `--supply-chain`, `--owasp`, `--mobile`, `--scope`) are **mutually exclusive**. If multiple scope flags are passed, **error immediately**: "Error: --infra and --code are mutually exclusive. Pick one scope flag, or run `/cso` with no flags for a full audit." Do NOT silently pick one — security tooling must never ignore user intent.
 4. `--diff` is combinable with ANY scope flag AND with `--comprehensive`.
 5. When `--diff` is active, each phase constrains scanning to files/configs changed on the current branch vs the base branch. For git history scanning (Phase 2), `--diff` limits to commits on the current branch only.
 6. Phases 0, 1, 12, 13, 14 ALWAYS run regardless of scope flag.
@@ -49,7 +50,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 | When | Read this section |
 |------|-------------------|
-| running the scope-dependent audit phases (Phases 2-11) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census | `references/audit-phases.md` |
+| running the scope-dependent audit phases (Phases 2-11 and 15) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census | `references/audit-phases.md` |
 ---
 
 ## Instructions
@@ -68,6 +69,9 @@ ls Cargo.toml 2>/dev/null && echo "STACK: Rust"
 ls pom.xml build.gradle 2>/dev/null && echo "STACK: JVM"
 ls composer.json 2>/dev/null && echo "STACK: PHP"
 find . -maxdepth 1 \( -name '*.csproj' -o -name '*.sln' \) 2>/dev/null | grep -q . && echo "STACK: .NET"
+find . -maxdepth 3 \( -name '*.xcodeproj' -o -name '*.xcworkspace' -o -name 'Package.swift' -o -name 'Podfile' \) 2>/dev/null | grep -q . && echo "STACK: iOS/Swift"
+find . -maxdepth 4 -name 'AndroidManifest.xml' 2>/dev/null | grep -q . && echo "STACK: Android"
+find . -maxdepth 3 \( -name 'build.gradle' -o -name 'build.gradle.kts' \) 2>/dev/null | grep -q . && echo "STACK: Gradle/JVM (Android or server)"
 ```
 
 **Framework detection:**
@@ -83,6 +87,10 @@ grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK: Rails"
 grep -q "gin-gonic" go.mod 2>/dev/null && echo "FRAMEWORK: Gin"
 grep -q "spring-boot" pom.xml build.gradle 2>/dev/null && echo "FRAMEWORK: Spring Boot"
 grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
+grep -q '"react"' package.json 2>/dev/null && echo "FRAMEWORK: React"
+grep -q "react-native" package.json 2>/dev/null && echo "FRAMEWORK: React Native"
+find . -maxdepth 3 -name '*.swift' 2>/dev/null | grep -q . && echo "FRAMEWORK: SwiftUI/UIKit (iOS)"
+find . -maxdepth 4 -name '*.kt' 2>/dev/null | grep -q . && echo "FRAMEWORK: Kotlin (Android)"
 ```
 
 **Soft gate, not hard gate:** Stack detection determines scan PRIORITY, not scan SCOPE. In subsequent phases, PRIORITIZE scanning for detected languages/frameworks first and most thoroughly. However, do NOT skip undetected languages entirely — after the targeted scan, run a brief catch-all pass with high-signal patterns (SQL injection, command injection, hardcoded secrets, SSRF) across ALL file types. A Python service nested in `ml/` that wasn't detected at root still gets basic coverage.
@@ -111,6 +119,12 @@ find . -maxdepth 4 -name "*.tf" -o -name "*.tfvars" -o -name "kustomization.yaml
 ls .env .env.* 2>/dev/null
 ```
 
+**Mobile surface (if iOS/Android detected in Phase 0):**
+```bash
+find . -maxdepth 5 \( -name 'AndroidManifest.xml' -o -name 'Info.plist' \) 2>/dev/null
+```
+Count Android exported components (`android:exported="true"`), iOS URL schemes (`CFBundleURLTypes`), WebView usages, and granted permissions — these are the mobile attack surface (IPC, deep links, embedded web content).
+
 **Output:**
 ```
 ATTACK SURFACE MAP
@@ -134,7 +148,7 @@ INFRASTRUCTURE SURFACE
   Secret management:     [env vars | KMS | vault | unknown]
 ```
 
-> **STOP.** Before running the scope-dependent audit phases (Phases 2-11) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census, read `references/audit-phases.md` and execute it
+> **STOP.** Before running the scope-dependent audit phases (Phases 2-11 and 15) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census, read `references/audit-phases.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ### Phase 12: False Positive Filtering + Active Verification
@@ -365,7 +379,7 @@ Write findings to `.security-audit/{date}-{HHMMSS}.json` using this schema:
   "mode": "daily | comprehensive",
   "scope": "full | infra | code | skills | supply-chain | owasp",
   "diff_mode": false,
-  "phases_run": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+  "phases_run": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   "attack_surface": {
     "code": { "public_endpoints": 0, "authenticated": 0, "admin": 0, "api": 0, "uploads": 0, "integrations": 0, "background_jobs": 0, "websockets": 0 },
     "infrastructure": { "ci_workflows": 0, "webhook_receivers": 0, "container_configs": 0, "iac_configs": 0, "deploy_targets": 0, "secret_management": "unknown" }
