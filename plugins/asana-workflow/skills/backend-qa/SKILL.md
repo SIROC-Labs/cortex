@@ -19,9 +19,9 @@ Read and follow `../generic-qa/process.md` as the QA process. This skill provide
 
 ## Platform Bindings
 
-- **Testing tool:** HTTP client + logs + DB access + Sentry MCP — see `references/tooling.md`
+- **Testing tool:** HTTP client + logs + DB access — see `references/tooling.md`
 - **SUT discovery:** base-URL based, with a manual auth bootstrap — see `references/discovery.md`
-- **Investigation techniques:** request/response, log correlation, DB snapshots, traces — see `references/investigation.md`
+- **Investigation techniques:** request/response, log correlation, DB snapshots — see `references/investigation.md`
 
 ## Backend-specific rules
 
@@ -34,6 +34,6 @@ Read and follow `../generic-qa/process.md` as the QA process. This skill provide
 - **`../generic-qa/process.md`** — Universal QA flow (the process to follow)
 - **`../generic-qa/references/reporting.md`** — Confidence levels, report structure
 - **`../generic-qa/references/investigation.md`** — Generic investigation guidance
-- **`references/tooling.md`** — HTTP client, log access, DB access, Sentry MCP, evidence saving
+- **`references/tooling.md`** — HTTP client, log access, DB access, evidence saving
 - **`references/discovery.md`** — base-URL discovery and manual auth bootstrap
 - **`references/investigation.md`** — backend observation techniques and the brief-evidence rule

@@ -7,8 +7,7 @@ Backend-specific observation. For generic guidance (source cross-referencing, co
 1. **Reproduce via the API.** Send the request that triggers the behavior in question; save the transcript.
 2. **Correlate the logs.** Find the log lines for that request (match on request-id/trace-id); save the excerpt.
 3. **Confirm the side effect in the DB.** Snapshot the affected rows before and after; prove the write happened or didn't.
-4. **Pull the error context** (if it's a failure). Get the matching Sentry issue + trace ID.
-5. **Cross-reference source** (if available) to explain *why* — trace the request to the handler and the exact line that produces the behavior.
+4. **Cross-reference source** (if available) to explain *why* — trace the request to the handler and the exact line that produces the behavior.
 
 ## What counts as the assertion point
 
@@ -25,7 +24,7 @@ Headline block (goes in the report and, at ship time, the PR body):
 Request:  POST /api/orders → 422 (expected 201)
 Cause:    missing-tenant validation rejects valid payload — orders/service.py:88
 DB:       no row written (orders count unchanged: 1041 → 1041)
-Sentry:   PROJ-1234 · trace 9f2c…
+Logs:     ValidationError logged at req-id 7f3a (orders/service.py:88)
 Verdict:  ❌ Bug confirmed
 Details:  transcript · before/after snapshot · logs → Asana task XYZ-123
 ```

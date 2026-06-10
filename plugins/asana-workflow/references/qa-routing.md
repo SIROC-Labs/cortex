@@ -24,7 +24,7 @@ Check in order:
    > "Which QA skill should I use?
    > 1. `web-qa` (browser-based, Chrome DevTools MCP)
    > 2. `mobile-qa` (simulator/emulator/device, mobile testing MCP)
-   > 3. `backend-qa` (running API/service — HTTP, logs, DB, Sentry)
+   > 3. `backend-qa` (running API/service — HTTP, logs, DB)
    > 4. `none` (nothing to verify at runtime — pure CLI, library)"
 
 Reuse the resolved QA skill for all QA invocations in the task.

@@ -95,7 +95,7 @@ mobile-qa (extends generic-qa, mobile-mcp)
   └── references/        (mobile-mcp tooling, app+device discovery, accessibility tree/gestures/logs)
 
 backend-qa (extends generic-qa)
-  └── references/        (HTTP/logs/DB/Sentry tooling, base-URL discovery + manual auth bootstrap, request/log/DB/trace investigation)
+  └── references/        (HTTP/logs/DB tooling, base-URL discovery + manual auth bootstrap, request/log/DB investigation)
 
 generic-testing (shared markdown, not a skill — universal fundamentals)
   ├── process.md         (the 10 non-negotiables: determinism, behavior-over-implementation, AAA, etc.)
