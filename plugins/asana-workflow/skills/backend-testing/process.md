@@ -100,6 +100,7 @@ A finished backend-testing deliverable is:
 
 - **Integration tests** covering the endpoints/flows changed, running against real containerized dependencies, with spec-driven fakes standing in for external services.
 - **Unit tests** only where there is isolated pure logic worth proving in isolation.
+- **Stale tests removed.** When a behaviour becomes covered by an integration test, delete the superseded test that mocked it (assertions on call args, operator dicts, or generated query strings) — don't leave both. Keep only genuinely-valuable pure-logic units, and preserve any unique behaviour the deleted test covered as an integration test.
 - **Deterministic** — no `sleep`, no shared state, passes in any order and in parallel.
 - **A green run captured as PR evidence** — the brief evidence block from `references/infrastructure.md`, not a wall of logs.
 
@@ -108,6 +109,8 @@ A finished backend-testing deliverable is:
 | Anti-pattern | Why it's wrong | Fix |
 |---|---|---|
 | Mocking the DB / repository | Proves the mock, not the query | Real DB in a container |
+| Asserting on the generated SQL / query string (substring match) | A query that is never executed can't be proven correct — won't catch a parse error, a wrong join, a shadowed alias, or wrong rows | Execute it against a real engine in a container; assert on the rows returned |
+| Asserting on the operator dict / call args passed to a mock DB | Proves the code built a dict, not that the store accepts or correctly applies it | Real DB in a container; assert on what was actually persisted/returned |
 | In-memory DB standing in for the real one | Different SQL dialect/behavior | Same engine, containerized |
 | `sleep(2)` waiting for a job | Non-deterministic, slow | Poll for the outcome with a timeout |
 | Eager mode as the only async test | Bypasses broker/serialization/retries | At least one real broker+worker integration test |
