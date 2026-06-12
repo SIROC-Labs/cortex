@@ -20,6 +20,8 @@ For every behavior you are about to test, ask one question:
 
 If you find yourself mocking a repository, a DB driver, or an HTTP client to unit-test a handler, stop — that is an integration test wearing a disguise. Boot the real thing in a container instead.
 
+**Classify by what the code does, not by its name or directory.** A class named `*DataSource`, `*Repository`, or `*Client` that does no I/O — e.g. it transforms inputs the caller passes in — is pure logic and gets a unit test; conversely a plainly-named helper that opens a socket is a boundary. Read the body, not the label.
+
 ## Database Integration
 
 Real DB in a container, never an in-memory substitute that behaves differently from production.
@@ -40,6 +42,7 @@ Build data with factories/builders, not hand-rolled literals copied between test
 
 - A factory produces a valid default; each test overrides only the fields it cares about.
 - Seed through the application's real write path or a factory that mirrors it — not raw SQL that can drift from constraints.
+- **When you must hand-seed (bypassing the write path), match production's stored *encoding*, not just the field names.** A query can behave differently or error on a wrong type/representation — a date stored as an ISO string vs a unix int, a number as decimal vs double, an id as ObjectId vs string. Real example: a Mongo `$toDate` aggregation rejects an int32 with `ConversionFailure` because production stores the date as an ISO string; seeding the int passes a mock and fails the real engine. Confirm what production actually writes before seeding.
 - Setup/teardown is per-test (`beforeEach`/fixtures), never accumulated across tests.
 
 ## Async, Jobs, and Messaging
@@ -93,6 +96,7 @@ Containers are the #1 source of slow and flaky backend suites. Manage them:
 - **Explicit wait strategies.** A container that "started" is not a container that's "ready." Wait on a health signal, never a sleep.
 - **Image pinning.** Pin image tags (`postgres:16`, not `postgres:latest`) so the suite is reproducible and the evidence block can name exact versions.
 - **Heavy suites run local, not in CI** — see `references/infrastructure.md`.
+- **Match the event-loop (or equivalent resource) scope to the lifetime of long-lived async clients.** When you boot the real app once per session and its DI holds a persistent async HTTP client (cached/singleton), a per-test event loop closes under the connections the client opened on the first test → the second test fails (`RuntimeError: Event loop is closed` in Python asyncio). Use a session-scoped loop matching the session-scoped app/containers, or rebuild the clients per test. The general rule: a long-lived resource and the loop/context it's bound to must share a lifetime.
 
 ## Expected Output
 
@@ -100,7 +104,7 @@ A finished backend-testing deliverable is:
 
 - **Integration tests** covering the endpoints/flows changed, running against real containerized dependencies, with spec-driven fakes standing in for external services.
 - **Unit tests** only where there is isolated pure logic worth proving in isolation.
-- **Stale tests removed.** When a behaviour becomes covered by an integration test, delete the superseded test that mocked it (assertions on call args, operator dicts, or generated query strings) — don't leave both. Keep only genuinely-valuable pure-logic units, and preserve any unique behaviour the deleted test covered as an integration test.
+- **Stale tests removed — but only after verifying the replacement exists.** When a behaviour becomes covered by an integration test, delete the superseded test that mocked it (assertions on call args, operator dicts, or generated query strings) — don't leave both. Keep only genuinely-valuable pure-logic units, and preserve any unique behaviour the deleted test covered as an integration test. **Before deleting, open the sibling and confirm it actually exercises that behaviour** — "covered elsewhere" is a claim to verify, not assume. A mock test asserting on `get_by_email` is not replaced by an integration test that only covers `update`; deleting it silently drops coverage. Also beware the **thinner-sibling trap**: a freshly-written integration test is often narrower than the mock it replaces — beef it up (sorting, pagination, filters, error/empty paths, unsupported-input rejection) to parity *first*, then delete.
 - **Deterministic** — no `sleep`, no shared state, passes in any order and in parallel.
 - **A green run captured as PR evidence** — the brief evidence block from `references/infrastructure.md`, not a wall of logs.
 
@@ -119,3 +123,4 @@ A finished backend-testing deliverable is:
 | Unit-testing a handler with everything mocked | Tests wiring, not behavior | Integration test through real HTTP |
 | Fake that returns hand-typed JSON | Drifts from the real contract | Spec-driven fake, schema-validated |
 | Committing a real auth token | Leaks secrets, breaks in CI | Mint in-test, or gitignored local secret |
+| Deleting a mock test because coverage is "presumably elsewhere" | The assumed sibling may not exist or may cover a different method — coverage silently drops | Open the sibling, confirm it exercises the same behaviour, then delete |
