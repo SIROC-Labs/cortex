@@ -23,10 +23,16 @@ produces a coverage verdict. It does not write code or drive a running service.
 [backend-testing/process.md](../backend-testing/process.md) and
 [generic-testing/process.md](../generic-testing/process.md). Hold the suite to it:
 
-- **Integration-first.** Datasources, queries, and HTTP clients are exercised against real
-  dependencies in containers, not mocks. A test that asserts on a generated SQL string, or on the
-  operator dict passed to a mocked DB, proves nothing — it cannot catch a query that fails to
-  parse, dedups wrong, or returns the wrong rows. Flag these as coverage gaps even when they're green.
+- **Integration is a hard gate, not a preference.** If a changed behaviour *can* be proven with an
+  integration test, it *must* be — datasources, queries, HTTP clients, caches, and queues are
+  exercised against real dependencies in containers. A test that asserts on a generated SQL string,
+  on the operator dict passed to a mocked DB, or on a mocked cache/boundary proves nothing — it
+  cannot catch a query that fails to parse, a serialization that drops a field, a missing TTL, or a
+  wrong miss→hit interaction. **A unit test that mocks a boundary to cover behaviour that belongs in
+  an integration test is itself a high-severity gap — fail the QA even when it is green.**
+- **A boundary the change *adds* needs its own integration test.** A new cache layer, serialization
+  round-trip, or wrapper is untested even if the datasource it wraps is integration-tested elsewhere.
+  "Covered downstream" never covers the new boundary's round-trip and wiring.
 - **Unit tests only for isolated pure logic** (no I/O).
 - **External third-party services** are faked with a spec-driven fake (e.g. WireMock) plus a
   schema-drift guard — not hand-mocked.

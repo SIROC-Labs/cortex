@@ -9,18 +9,37 @@ How to test a backend. Universal fundamentals live in `../generic-testing/proces
 - **External services are replaced by spec-driven fakes** — see `references/contract-testing.md`. The fake runs in a container, seeded from the external contract; responses are schema-validated so the fake can't drift.
 - **Unit tests cover only isolated internal business logic** — pure functions and domain logic with no I/O. Anything touching I/O or a boundary is an integration test.
 
-## The Decision Rule
+## The Decision Rule (HARD GATE)
+
+**If a behaviour *can* be proven with an integration test, it *must* be.** A unit test is permitted **only** for isolated pure logic, and only as the *last* resort — never as a convenient stand-in for an integration test you could have written. This is a gate, not a preference: a mock-based test of boundary behaviour is a **defect to remove**, not coverage to keep.
 
 For every behavior you are about to test, ask one question:
 
-> Does it touch I/O or a boundary (DB, HTTP, queue, cache, filesystem, clock, external API)?
+> Does it touch I/O or a boundary (DB, HTTP, queue, cache, filesystem, clock, external API) — or *orchestrate* something that does?
 
-- **Yes → integration test** against a real container (or a spec-driven fake for external boundaries).
-- **No, it's pure logic → unit test.**
+- **Yes → integration test** against a real container (or a spec-driven fake for external boundaries). Required. If you think you "can't" containerize it, work the tree in *Dependencies With No Testcontainers Module* before you reach for a mock — "can't" almost always means "haven't yet."
+- **No, it's genuinely pure logic (no I/O, deterministic, takes its inputs as arguments) → unit test.**
 
-If you find yourself mocking a repository, a DB driver, or an HTTP client to unit-test a handler, stop — that is an integration test wearing a disguise. Boot the real thing in a container instead.
+If you find yourself mocking a repository, a DB driver, an HTTP client, a **cache**, or a queue to unit-test the code above it, stop — that is an integration test wearing a disguise. Boot the real thing in a container instead.
 
 **Classify by what the code does, not by its name or directory.** A class named `*DataSource`, `*Repository`, or `*Client` that does no I/O — e.g. it transforms inputs the caller passes in — is pure logic and gets a unit test; conversely a plainly-named helper that opens a socket is a boundary. Read the body, not the label.
+
+### A new boundary needs its own integration test
+
+When a change *adds* a boundary — a cache read/write, a serialization round-trip, a new query, a new external call — that boundary is a new behaviour and needs a real integration test, **even if the thing it wraps is already integration-tested.** "The underlying datasource is covered elsewhere" does not cover the wrapper you just added: the serialize → store → TTL → read → deserialize round-trip, the cache↔DB miss-then-populate-then-hit interaction, and the wiring are exactly what breaks and exactly what a mock hides.
+
+### Rationalizations that do not pass the gate
+
+| Rationalization | Why it fails | Do instead |
+|---|---|---|
+| "The cold path reuses a datasource that's already integration-tested, so the cache/orchestration layer doesn't need its own." | The wrapper is a new boundary. The round-trip, TTL, and miss→hit interaction are untested. | Integration-test the new boundary with a real container (real Redis, real broker, …). |
+| "The repo already tests this kind of thing with mocks (e.g. an existing mocked cache interactor), so I'll match the pattern." | An existing substandard test is not a licence — matching it propagates the gap. | Write the integration test; migrate the old mocked one when you touch it (see *Expected Output*). |
+| "Mocking the cache/DB to assert it was called is a fail-open spy, which is allowed." | The spy carve-out covers **only** asserting a call did/didn't happen as the observable contract (a best-effort side-effect). It does **not** cover the data round-trip or the cache↔DB interaction — those are I/O. | Spy for the fire/suppress contract; integration-test the round-trip. |
+| "It's just orchestration logic, so mocks are fine." | Orchestration that reads/writes a boundary *is* integration. Only a pure transformation extracted out of it is a unit. | Extract the pure bit → unit; test the orchestration against real dependencies. |
+| "There's no Testcontainers module for it." | Almost never true — drop to a generic container off the official image. | See *Dependencies With No Testcontainers Module*. |
+| "Integration tests are slow / need Docker, the unit test is green now." | Speed is not honesty. A green mock that can't catch a parse error, a wrong serialization, or a missing TTL is false confidence. | Heavy suite runs local; keep it real. |
+
+**A unit test that violates this gate is not "extra coverage" — it is a liability:** it goes green for the wrong reasons and hides the failure the integration test would catch. Replace it (per *Expected Output*), don't accumulate it.
 
 ## Database Integration
 
@@ -103,8 +122,8 @@ Containers are the #1 source of slow and flaky backend suites. Manage them:
 A finished backend-testing deliverable is:
 
 - **Integration tests** covering the endpoints/flows changed, running against real containerized dependencies, with spec-driven fakes standing in for external services.
-- **Unit tests** only where there is isolated pure logic worth proving in isolation.
-- **Stale tests removed — but only after verifying the replacement exists.** When a behaviour becomes covered by an integration test, delete the superseded test that mocked it (assertions on call args, operator dicts, or generated query strings) — don't leave both. Keep only genuinely-valuable pure-logic units, and preserve any unique behaviour the deleted test covered as an integration test. **Before deleting, open the sibling and confirm it actually exercises that behaviour** — "covered elsewhere" is a claim to verify, not assume. A mock test asserting on `get_by_email` is not replaced by an integration test that only covers `update`; deleting it silently drops coverage. Also beware the **thinner-sibling trap**: a freshly-written integration test is often narrower than the mock it replaces — beef it up (sorting, pagination, filters, error/empty paths, unsupported-input rejection) to parity *first*, then delete.
+- **Unit tests** only where there is isolated pure logic worth proving in isolation. A unit test that mocks a boundary (DB, HTTP, queue, cache) to cover behaviour the *Decision Rule* sends to integration is a **gate violation**, not a deliverable — it must be migrated and removed under the rule below.
+- **Gate-violating and stale tests removed — but only after verifying the replacement exists.** When a behaviour becomes covered by an integration test, delete the superseded test that mocked it (assertions on call args, operator dicts, generated query strings, or a mocked boundary) — don't leave both. Keep only genuinely-valuable pure-logic units, and preserve any unique behaviour the deleted test covered as an integration test. **Before deleting, open the sibling and confirm it actually exercises that behaviour** — "covered elsewhere" is a claim to verify, not assume. A mock test asserting on `get_by_email` is not replaced by an integration test that only covers `update`; deleting it silently drops coverage. Also beware the **thinner-sibling trap**: a freshly-written integration test is often narrower than the mock it replaces — beef it up (sorting, pagination, filters, error/empty paths, unsupported-input rejection) to parity *first*, then delete.
 - **Deterministic** — no `sleep`, no shared state, passes in any order and in parallel.
 - **A green run captured as PR evidence** — the brief evidence block from `references/infrastructure.md`, not a wall of logs.
 

@@ -50,10 +50,14 @@ Produce an explicit gap list. Each gap is one of:
 |---|---|---|
 | **Uncovered behaviour** | a changed branch/query/mapping with no test hitting it | high |
 | **Mock-masking** | I/O behaviour "covered" only by a mock or SQL-string assertion | high — green but blind |
+| **Gate violation (mockable-as-integration)** | a *unit* test mocks a boundary (DB, HTTP, queue, cache) to cover behaviour that could and should be an integration test — green, but it can't catch a parse error, a bad serialization, or a wrong round-trip | high — green but blind |
+| **Untested new boundary** | the change *adds* a boundary (cache read/write + TTL, serialization round-trip, new query/client) with no integration test, even though the datasource it wraps is tested elsewhere | high |
 | **Skipped integration** | the real-dependency test exists but is excluded/skipped in the run | high |
 | **Zero-value test** | re-asserts a stub, a library feature, or a trivial invariant | noise — don't count it |
 | **Weak assertion** | runs the real path but asserts too little to catch a regression | medium |
 | **Missing error path** | success covered, error/edge/empty-input branch not | medium |
+
+**Applying the hard gate.** For every changed behaviour that touches or orchestrates a boundary, the question is not "is there a test?" but "is there an *integration* test?" A green unit test built on mocks does **not** discharge the requirement — it is a *gate violation* (high), and the verdict is **Fail** until a real-dependency test exists. The fix is replace-then-remove: write the integration test to parity, then delete the mocked unit test (hand off to [backend-testing](../../backend-testing/SKILL.md)). Do not let the mock and the integration test coexist.
 
 For a de-mocking / integration-migration change specifically, the headline question is: **did a
 mock-based test get replaced by one that exercises the real dependency, or just deleted?** A dropped

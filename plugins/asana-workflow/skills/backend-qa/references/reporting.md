@@ -12,10 +12,13 @@ One of:
   no high-severity gaps.
 - **⚠️ Pass with gaps** — suites green, but medium gaps remain (weak assertions, missing error paths).
   List them; they are follow-ups, not blockers.
-- **❌ Fail** — at least one of: a high-severity gap (uncovered behaviour, mock-masking, skipped
-  integration), a failing test on a changed behaviour, or a suite that never ran.
+- **❌ Fail** — at least one of: a high-severity gap (uncovered behaviour, mock-masking, **gate
+  violation — a unit test mocking a boundary that should be an integration test**, **untested new
+  boundary**, skipped integration), a failing test on a changed behaviour, or a suite that never ran.
 
-Green tests with a high-severity coverage gap is a **Fail**, not a pass — state this plainly.
+Green tests with a high-severity coverage gap is a **Fail**, not a pass — state this plainly. A
+boundary covered only by a green mocked unit test is a Fail: the integration test is mandatory, and
+the mock must be replaced-then-removed, not kept alongside it.
 
 ## Coverage by area
 
