@@ -134,6 +134,21 @@ Coverage tells you what code ran during tests. It does not tell you if the asser
 **What to cover first:** Business logic, error handling, data transformations, security boundaries.
 **What to skip:** Boilerplate, generated code, simple pass-through wrappers, framework glue.
 
+### 11. Every Test Must Be Able to Fail for a Real Reason
+
+A test earns its place only if you can name **(a)** the specific behavior it pins and **(b)** a plausible code change it would catch *that no other test already catches*. If you can't name both, don't write it — and delete it if it exists. Tests are a liability as well as an asset: a zero-value test is permanent maintenance cost, noise when it breaks, and false confidence — with no upside. Adding a test "for coverage" is a reason to *not* add it.
+
+**Never write or keep:**
+- **Tautological** — asserts a stub/mock returns exactly what it was configured to return.
+- **Framework re-tests** — re-asserts the language/library/framework's own behavior (that the ORM persists a field, that the validator validates, that an enum's `.value` is the literal you wrote, that the router routes).
+- **Trivial invariants** — asserts a function with no meaningful return is `None`; exercises a no-logic constructor / getter / property.
+- **Duplicates** — the same behavior+condition is already pinned by another test.
+- **Coverage-only smoke** — calls the code and asserts nothing meaningful, or only that it "didn't raise" when not-raising isn't the contract.
+
+**The carve-out:** a fail-open / fail-closed **spy** ("X was / wasn't called") is real when the call *is* the observable contract — a best-effort side-effect fired, or a non-essential one was suppressed on failure. That's behavior, not an implementation mirror.
+
+**The cheap test:** before adding a test, write its one-line reason — "fails if `<specific change>`." If the test would still pass after you delete its assertions, or after you replace the implementation under test with `return <the stubbed value>`, it proves nothing. Delete it. This is the operational form of #10: a green line with a meaningless assertion is worse than an uncovered one, because it lies.
+
 ## Testing Infrastructure
 
 Tests without infrastructure are unenforceable. The system must prove the tests are trustworthy, not just the developer.
@@ -186,12 +201,15 @@ Tests without infrastructure are unenforceable. The system must prove the tests 
 | Retrying until green | Hides flakiness | Fix the flake or quarantine |
 | Sleep-based synchronization | Non-deterministic, slow | Await events, use polling with timeout |
 | Asserting on error messages | Breaks on copy changes | Assert on error types/codes |
+| Zero-value / tautological test | Maintenance cost and false confidence, catches no real bug | Delete it; keep only tests that fail on a specific behavior change |
 
 ## Red Flags
 
 You are off-track if:
 - Test setup is longer than the test itself
 - You can't explain what behavior a test proves
+- A test would still pass if you deleted its assertions or replaced the code under test with `return <stubbed value>`
+- You're adding a test "to bump coverage" rather than to pin a behavior
 - A test name uses "and" or is a method name
 - Tests break when you refactor without changing behavior
 - You're adding `retry` or `flaky` annotations instead of fixing
