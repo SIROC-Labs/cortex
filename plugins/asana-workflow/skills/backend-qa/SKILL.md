@@ -1,39 +1,74 @@
 ---
 name: backend-qa
-version: 0.1.0
+version: 0.2.0
 description: >
-  Use when the operator asks to investigate a specific question or problem in a running backend /
-  API / service — triggers include "QA this API", "why does this endpoint return X", "test this
-  flow", "/backend-qa", or any specific question about a running backend's behavior. Requires a
-  running backend (local or staging) reachable over HTTP.
-argument-hint: <base-url-or-question>
+  Use when the operator wants to confirm a backend change is adequately tested before it ships —
+  triggers include "QA this branch", "QA this PR", "is this tested enough", "do we have enough
+  tests", "verify test coverage", "confirm the tests pass", "/backend-qa", or any request to
+  audit/gate the unit + integration coverage of a backend change. Verifies an existing test
+  suite; to author missing tests, use [backend-testing](../backend-testing/SKILL.md).
+argument-hint: <branch | PR | module | what-to-verify>
 ---
 
 # Backend QA
 
-Investigate questions and problems in running **backend** applications — APIs, services, and workers — and produce concise evidence.
+Confirm that a backend change — a branch, a PR, a module — carries **enough unit and integration
+tests**, that those tests **pass**, and **report what is covered and why it matters**. This is a
+verification gate, not an authoring task: backend-qa reads the change and its tests, runs them, and
+produces a coverage verdict. It does not write code or drive a running service.
 
-## Base Process
+## The bar you verify against
 
-Read and follow `../generic-qa/process.md` as the QA process. This skill provides the backend platform bindings below.
+"Enough" is not a coverage percentage. It is the testing standard defined in
+[backend-testing/process.md](../backend-testing/process.md) and
+[generic-testing/process.md](../generic-testing/process.md). Hold the suite to it:
 
-## Platform Bindings
+- **Integration-first.** Datasources, queries, and HTTP clients are exercised against real
+  dependencies in containers, not mocks. A test that asserts on a generated SQL string, or on the
+  operator dict passed to a mocked DB, proves nothing — it cannot catch a query that fails to
+  parse, dedups wrong, or returns the wrong rows. Flag these as coverage gaps even when they're green.
+- **Unit tests only for isolated pure logic** (no I/O).
+- **External third-party services** are faked with a spec-driven fake (e.g. WireMock) plus a
+  schema-drift guard — not hand-mocked.
+- **No zero-value tests.** A test that re-asserts a stub, a library feature, or a trivial invariant
+  is not coverage. Don't count it; call it out.
 
-- **Testing tool:** HTTP client + logs + DB access — see `references/tooling.md`
-- **SUT discovery:** base-URL based, with a manual auth bootstrap — see `references/discovery.md`
-- **Investigation techniques:** request/response, log correlation, DB snapshots — see `references/investigation.md`
+## The flow
 
-## Backend-specific rules
+1. **Scope the change** — follow [references/coverage-audit.md](references/coverage-audit.md). Resolve
+   exactly what is under QA (branch diff vs base, PR files, named module) and enumerate the
+   behaviours that changed.
+2. **Inventory the tests** — map each changed behaviour to the test(s) that exercise it. Classify
+   each as unit / integration / contract, and judge whether it meets the bar above.
+3. **Find the gaps** — behaviours with no test, behaviours covered only by a mock/string-assertion
+   where an integration test is required, and any zero-value tests inflating the count.
+4. **Run the suites** — follow [references/running-tests.md](references/running-tests.md). Run the
+   fast suite **and** the heavy integration suite (real containers). Confirm green; investigate every
+   failure or skip — a skipped integration test is not a pass.
+5. **Report** — follow [references/reporting.md](references/reporting.md). Lead with the verdict,
+   then per-area "what's tested / why it matters / gaps", then the run evidence.
 
-- **Writes are allowed, against non-prod only.** Driving the API — including `POST`/`PUT`/`DELETE` — is the point of backend QA. Run against a local or staging environment. **Never run destructive operations against production data.** Source and deployment stay read-only.
-- **Auth bootstrap is blocking.** Protected endpoints need a token the operator obtains manually once; the agent reuses it for the session. See `references/discovery.md`.
-- **Evidence is brief.** The report leads with the answer and verdict; the evidence is one compact block; raw artifacts are linked, never dumped. See `references/investigation.md`.
+## Rules
 
-## Reference Files
+- **Read-only on code and deployment.** Backend-qa runs the test suite; it does not modify
+  production code or tests, and it never drives or mutates a running service. If tests are missing,
+  report the gap and hand off to [backend-testing](../backend-testing/SKILL.md) — do not write them here.
+- **Green is necessary, not sufficient.** A passing suite that mocks the database, skips the
+  integration tests, or pins library behaviour is a failing QA. Coverage adequacy and test honesty
+  are part of the verdict, not just the exit code.
+- **Run the integration tests for real.** They are often excluded from the default/CI run by design
+  ([references/running-tests.md](references/running-tests.md)). If Docker is unavailable, that is a
+  blocker to surface — not a reason to pass on the fast suite alone.
+- **"Why it matters" is mandatory in the report.** For each covered area, state the failure it
+  guards against. Coverage with no articulated risk is noise.
 
-- **`../generic-qa/process.md`** — Universal QA flow (the process to follow)
-- **`../generic-qa/references/reporting.md`** — Confidence levels, report structure
-- **`../generic-qa/references/investigation.md`** — Generic investigation guidance
-- **`references/tooling.md`** — HTTP client, log access, DB access, evidence saving
-- **`references/discovery.md`** — base-URL discovery and manual auth bootstrap
-- **`references/investigation.md`** — backend observation techniques and the brief-evidence rule
+## Reference files
+
+- [references/coverage-audit.md](references/coverage-audit.md) — scope the change, map behaviours to
+  tests, the gap taxonomy.
+- [references/running-tests.md](references/running-tests.md) — discover and run the unit vs
+  integration suites, interpret pass/fail/skip, handle flakes.
+- [references/reporting.md](references/reporting.md) — the QA report contract.
+- [backend-testing/SKILL.md](../backend-testing/SKILL.md) — the authoring skill; the standard
+  backend-qa verifies against, and where gaps are remediated.
+- [generic-testing/process.md](../generic-testing/process.md) — universal testing fundamentals.
