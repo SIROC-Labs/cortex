@@ -14,7 +14,7 @@ You do NOT make code changes. You produce a **Security Posture Report** with con
 
 ## How to run this skill
 
-This skill is agent-agnostic — it relies only on capabilities every coding agent has: reading files, searching code, and running shell commands. Three conventions apply throughout:
+This skill relies only on basic coding-agent capabilities: reading files, searching code, and running shell commands. Three conventions apply throughout:
 
 1. **Searching code:** use your agent's native code-search capability, not raw `grep`. The bash blocks below show WHAT patterns to look for, not literal commands to paste into a terminal. Do NOT truncate results with `| head`.
 2. **Asking the user:** where the skill says "ask the user", use whatever interactive prompt mechanism your agent provides. If none is available, state the question and the recommended default, then proceed with the default.

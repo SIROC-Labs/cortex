@@ -226,6 +226,51 @@ See **Phase 4 (CI/CD Pipeline Security)** for pipeline protection analysis.
 - Internal service reachability from user-controlled URLs?
 - Allowlist/blocklist enforcement on outbound requests?
 
+#### Code-focused expansion
+
+Run these checks as part of Phase 9. They are intentionally code-level: do not turn
+them into external posture findings unless the exploit path is visible in source.
+
+**Unsafe deserialization and parsing:**
+- Search for unsafe object deserialization: `pickle`, `yaml.load`, `Marshal.load`, `ObjectInputStream`, `BinaryFormatter`, `eval`, `Function`, `new Function`.
+- Check XML parsers for XXE risk: external entity resolution, network fetches, or DTD processing enabled on attacker-controlled XML.
+- Check JSON/YAML/msgpack/protobuf/custom parsers that consume request bodies, uploads, queue messages, webhook payloads, or LLM/tool output without a schema or type guard.
+- Severity: CRITICAL for attacker-controlled deserialization that can instantiate objects or execute code; HIGH for XXE or parser behavior that can read files, make network requests, or bypass authorization; MEDIUM for missing schemas on security-sensitive inputs.
+- FP rules: safe loaders (`safe_load`, schema-bound decoders, generated protobuf decoders with validated message types) are not findings. Parsing trusted config files at process startup is not a finding unless that config is user-controlled.
+
+**Sensitive data exposure in responses:**
+- Search serializers, API responses, GraphQL resolvers, controller returns, and DTO mappers for full-model returns, `select *`, object spreading, `toJSON()` / `asdict()` / `model_dump()` without explicit field allowlists.
+- Check whether responses can expose secrets, password hashes, refresh tokens, API tokens, auth provider IDs, internal notes, billing fields, PII, or cross-tenant data.
+- For GraphQL, verify sensitive fields have resolver-level authorization, not just hidden UI usage.
+- Severity: CRITICAL for credential/token exposure; HIGH for PII or cross-tenant data exposure; MEDIUM for internal metadata exposure with plausible attacker value.
+- FP rules: public profile fields and intentionally public IDs are not findings. Do not flag "returns email" unless the endpoint's audience should not receive that email.
+
+**Error handling leaks:**
+- Search for exception messages, stack traces, SQL errors, validation internals, upstream response bodies, or auth-provider errors returned directly to clients.
+- Check auth flows for distinguishable errors that enable account enumeration (`user not found` vs `bad password`, reset-password existence leaks, invite lookup leaks).
+- Check environment gates around debug mode: ensure production cannot accidentally return verbose errors due to default env values or inverted flags.
+- Severity: HIGH when errors expose secrets, tokens, SQL, filesystem paths, or tenant/user existence in sensitive flows; MEDIUM for stack traces/internal implementation details reachable by unauthenticated users.
+- FP rules: detailed errors in tests, local-only debug routes, CLI tools, or authenticated admin diagnostics are not findings unless reachable in production paths.
+
+**File upload and file handling:**
+- Search upload handlers, image/PDF processors, object-storage writes, download endpoints, and filesystem access using attacker-controlled filenames, paths, URLs, MIME types, or storage keys.
+- Check for extension-only validation, missing content sniffing, path traversal (`../`), user-controlled destination paths, executable uploads, archive extraction (zip slip), oversized files, and server-side processing of untrusted documents without sandboxing.
+- Check download/serve paths for authorization and tenant scoping; object keys must not be guessable or accepted from the client without ownership validation.
+- Severity: CRITICAL for arbitrary file write/read, executable upload, or unauthenticated cross-tenant downloads; HIGH for path traversal, unsafe archive extraction, or dangerous processor invocation; MEDIUM for weak type validation with plausible abuse.
+- FP rules: local dev upload fixtures and test-only processors are excluded. Public asset uploads are not findings unless they can execute, overwrite, expose private data, or run through vulnerable processors.
+
+**Dangerous framework escape hatches:**
+- Search for framework APIs that bypass default protections:
+  - React/Vue/Svelte: `dangerouslySetInnerHTML`, `v-html`, raw HTML rendering.
+  - Rails: `html_safe`, `raw`, `constantize`, `send`, `permit!`, raw SQL.
+  - Django: `mark_safe`, `format_html` misuse, raw SQL, `extra`, disabled CSRF.
+  - FastAPI/Pydantic: `extra="allow"` or permissive models on security-sensitive endpoints.
+  - Node: `child_process`, dynamic `require`/`import`, prototype pollution sinks, unsafe template rendering.
+  - Mobile: WebView JavaScript bridges, insecure storage, disabled TLS validation.
+- Verify attacker-controlled data reaches the escape hatch before reporting.
+- Severity: CRITICAL for attacker-controlled HTML/script execution, command execution, or native bridge abuse; HIGH for protection bypasses in authenticated user-controlled paths; MEDIUM for risky escape hatches with constrained input.
+- FP rules: escape hatches fed only compile-time constants or trusted templates are not findings. Framework defaults are usually safe; report the explicit bypass, not absence of extra hardening.
+
 ### Phase 10: STRIDE Threat Model
 
 For each major component identified in Phase 0, evaluate:
