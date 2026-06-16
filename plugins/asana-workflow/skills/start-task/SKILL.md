@@ -22,16 +22,18 @@ Take an Asana task, validate it's ready for development, understand the work, se
 ## Prerequisites
 
 - `asana-api` skill for all Asana API operations — handles token resolution and setup guidance.
-- Access to `feature-dev:feature-dev`, `superpowers:systematic-debugging`, and optionally `superpowers:brainstorming` skills (external — see `references/skill-dependencies.md`).
+- Access to required external workflow skills — varies by runtime; checked in Step 0 (see `references/skill-dependencies.md`).
 
 ## Argument Parsing
 
 Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers to them by name instead of re-parsing.
 
+**Default: `fast_mode` is OFF.** Only set `fast_mode` when the user's actual `$ARGUMENTS` message contains the word "fast" or "fast mode". Do NOT infer fast mode from this skill file's description, examples, or body text — those are instructions for you, not user input.
+
 | Flag | Set when `$ARGUMENTS` contains | Effect |
 |------|-------------------------------|--------|
 | `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
-| `workflow_choice` | `brainstorm` or `feature-dev` | Non-bug routing at Step 10; if neither, Step 10 asks the operator |
+| `workflow_choice` | `brainstorm` or `feature-dev` | Passed through to `implement-feature` at Step 10; if unset, `implement-feature` asks the operator |
 
 `fast_mode` is mutually exclusive with `workflow_choice` (fast skips routing entirely).
 
@@ -39,22 +41,22 @@ Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers 
 
 Set when `fast_mode` flag is active (see Argument Parsing above).
 
-Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `feature-dev`, `brainstorming`, `fix-bug`, or QA skill is invoked — implement the solution immediately using built-in tools (Read, Edit, Bash, Grep, etc.) and reason about it directly in this conversation.
+Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `implement-feature` (or its downstream development skills), `fix-bug`, or QA skill is invoked — implement the solution immediately using the agent's native file, shell, and edit tools, and reason about it directly in this conversation.
 
 **What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, Asana status move/comment, and the ship-it handoff — runs as normal.
 
 ## The Flow
 
-**Before Step 0:** Initialize (or resume) the checkpoint by running `${CLAUDE_PLUGIN_ROOT}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
-Before doing anything else, check whether the external skills required for routing are installed. These are **not bundled** with this plugin.
+Before doing anything else, check whether external skills required for routing are installed for the current runtime. These are **not bundled** with this plugin and are **mandatory**.
 
-- **`feature-dev@claude-plugins-official`** — required for non-bug tasks using the `feature-dev` workflow
-- **`superpowers@claude-plugins-official`** — required for Bug tasks (`fix-bug` uses `systematic-debugging`) and for non-bug tasks using the `brainstorm` workflow
+- **Claude Code:** `feature-dev@claude-plugins-official` and `superpowers@claude-plugins-official`
+- **OpenCode/Codex:** `superpowers`
 
-If either is missing, warn the user and ask whether to install now or continue. This is an **advisory blocking step** — wait for the user's answer before proceeding. See **`references/skill-dependencies.md`** for check instructions, install commands, and warning message templates.
+If any required dependency for the current runtime is missing, stop before Step 1 and tell the user which setup command or plugin install is required. Do not continue inline. See **`references/skill-dependencies.md`** for runtime-specific check instructions and warning behavior.
 
 ### Step 1: Get the Asana Task URL
 
@@ -113,7 +115,7 @@ Present the choice:
 > - **Worktree** _(recommended for parallel work — keeps main directory clean)_
 > - **Current directory**
 
-If the user chooses worktree, use `EnterWorktree` to create an isolated copy. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
+If the user chooses worktree, create an isolated copy using the first available option in this order: (1) a native worktree tool if the agent provides one (e.g. `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), (2) otherwise `git worktree add <path> -b <branch>` directly, where `<path>` is anchored to the main repo root (a sibling of it, e.g. `"$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')/../<repo>-<task-id>"`) — never a cwd-relative path, so it can't nest inside another worktree. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
 
 The branch will be created inside the worktree in Step 7.
 
@@ -174,21 +176,12 @@ Post a start comment on the task with the branch name and draft PR URL. Deduplic
 
 Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
 
-**If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `feature-dev`, `brainstorming`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
+**If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `implement-feature`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 
 **Otherwise:**
 
 - **"Bug"** — Follow the QA sub-flow: verify → fix → verify loop.
-- **Anything else** (Feature Request, Tech Debt, etc.):
-  - If `workflow_choice` is `brainstorm` — invoke `superpowers:brainstorming` with the full context.
-  - If `workflow_choice` is `feature-dev` — invoke `feature-dev:feature-dev` with the full context.
-  - If `workflow_choice` is unset — ask (blocking):
-    > "How do you want to approach this?
-    > 1. Brainstorm the design first (`superpowers:brainstorming`)
-    > 2. Go straight to implementation (`feature-dev:feature-dev`)"
-    Wait for explicit answer before routing. No default assumed.
-  - **Handoff instruction:** When passing context to `feature-dev` or `brainstorming`, include:
-    > "When this workflow is complete, return to `start-task` for non-bug QA verification and the ship-it handoff. Do not end the session — there are more steps."
+- **Anything else** (Feature Request, Tech Debt, etc.) — invoke `asana-workflow:implement-feature` with the full context bundle and the `workflow_choice` flag (if set). It detects an attached implementation plan, resolves the development skill for the current runtime via `plugins/asana-workflow/references/runtime-bindings.md`, asks the operator when more than one approach applies, and returns here when implementation is complete.
 - **Category missing** — Prompt: "Is this a bug fix or a feature?" then apply the routing above.
 
 The branch is already created and checked out — the downstream skill works on it directly.
@@ -249,7 +242,7 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 
 `ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the Asana task to "In Review", and post a completion comment.
 
-After `ship-it` returns successfully, delete `~/.claude/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
+After `ship-it` returns successfully, delete `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
 ## Pause Flow
 

@@ -25,10 +25,9 @@
 
 set -euo pipefail
 
-# User-global location, mirroring the convention used by log-task's project
-# registry cache (~/.claude/asana-workflow/<project-key>.json). CWD-independent,
-# survives worktree entry/exit, not subject to accidental git commits.
-CHECKPOINTS_DIR="${HOME}/.claude/asana-workflow/checkpoints"
+# User-global location. CWD-independent, survives worktree entry/exit,
+# not subject to accidental git commits. Shared across all agent runtimes.
+CHECKPOINTS_DIR="${HOME}/.cortex/asana-workflow/checkpoints"
 
 now() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"

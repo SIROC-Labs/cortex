@@ -23,7 +23,7 @@ After loading the cache, merge any URL overrides parsed in Step 0:
 If any override was applied, save the updated cache and report:
 ```
 Sprint board updated: ENG | Sprint 27.x  (was: ENG | Sprint 26.x)
-Config saved to ~/.claude/asana-workflow/<project-key>.json
+Config saved to ~/.cortex/asana-workflow/<project-key>.json
 ```
 
 ## Resolve a Project URL to Name + Workspace GID

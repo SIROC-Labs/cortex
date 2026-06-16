@@ -8,13 +8,14 @@ asana-workflow/
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version, skills array)
 ├── bin/                   ← executables exposed on PATH (Claude Code auto-prepends <plugin>/bin/). Name files `asana-<verb>.<ext>` where `<ext>` is `sh` or `py` (use whichever fits the script — Python wins once any non-trivial parsing, JSON, or HTTP is involved); invoke by bare command name from skills.
-├── references/            ← plugin-wide shared references (board-resolution, qa-routing)
+├── references/            ← plugin-wide shared references (board-resolution, qa-routing, runtime-bindings)
 └── skills/
     ├── asana-api/         ← Asana API operations (bundled)
     ├── create-pr/         ← PR creation (bundled)
     ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
+    ├── implement-feature/ ← Non-bug routing orchestrator: plan detection + runtime-bindings resolution (bundled)
     ├── generic-qa/        ← Shared QA process & references (not a skill — used by web-qa, mobile-qa)
     ├── frontend-testing/  ← Frontend testing patterns & infrastructure (bundled)
     ├── generic-testing/   ← Shared testing fundamentals & references (not a skill — used by platform-specific testing skills)
@@ -44,12 +45,19 @@ start-task
   ├── asana-api          (fetch task, update status)
   ├── git-check          (validate git state)
   ├── web-qa / mobile-qa (bug QA loop via QA sub-flow; resolution per plugin references/qa-routing.md)
-  ├── [external] feature-dev:feature-dev    (route non-bug tasks)
+  ├── implement-feature  (route non-bug tasks per plugin references/runtime-bindings.md)
   └── fix-bug                   (route bug tasks through orchestrator)
 
+implement-feature          (thin router: detects implementation-plan.md, resolves capability bindings)
+  ├── [external] superpowers:brainstorming                (CREATE_PLAN — all runtimes)
+  ├── [external] superpowers:subagent-driven-development  (EXECUTE_PLAN — all runtimes)
+  ├── [external] feature-dev:feature-dev                  (CREATE_PLAN / EXECUTE_PLAN — Claude Code only, operator choice)
+  ├── (native tools)                                      (EXECUTE_INLINE — all runtimes)
+  └── → returns control to its invoker  (from start-task: QA verify + ship; standalone: reports and stops)
+
 fix-bug
-  ├── [external] superpowers:systematic-debugging  (root cause investigation)
-  ├── [external] superpowers:test-driven-development  (TDD hard gate)
+  ├── [external] superpowers:systematic-debugging     (DIAGNOSE_AND_FIX_BUG — root cause investigation)
+  ├── [external] superpowers:test-driven-development  (APPLY_TDD — TDD hard gate)
   └── → returns to start-task  (for QA verify + ship)
 
 ship-it
@@ -115,10 +123,13 @@ Skills NOT bundled — must be installed separately:
 
 | Skill | Plugin | Used By |
 |---|---|---|
-| `feature-dev:feature-dev` | `feature-dev@claude-plugins-official` | start-task (Step 10, non-bug) |
-| `superpowers:systematic-debugging` | `superpowers@claude-plugins-official` | fix-bug (Step 1) |
-| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | start-task (Step 10, brainstorm workflow) |
-| `superpowers:using-git-worktrees` | `superpowers@claude-plugins-official` | start-task (Step 6a, optional) |
+| `feature-dev:feature-dev` | `feature-dev@claude-plugins-official` | implement-feature (`CREATE_PLAN` / `EXECUTE_PLAN`, Claude Code only) |
+| `superpowers:systematic-debugging` | `superpowers@claude-plugins-official` | fix-bug (`DIAGNOSE_AND_FIX_BUG`) |
+| `superpowers:test-driven-development` | `superpowers@claude-plugins-official` | fix-bug (`APPLY_TDD`) |
+| `superpowers:brainstorming` | `superpowers@claude-plugins-official` | implement-feature (`CREATE_PLAN`) |
+| `superpowers:subagent-driven-development` | `superpowers@claude-plugins-official` | implement-feature (`EXECUTE_PLAN`) |
+
+Capability-to-skill resolution per runtime lives in `references/runtime-bindings.md`.
 
 ## Development Workflow
 

@@ -20,7 +20,7 @@ If multiple sprints pass both checks, pick the one with the latest `due_on`.
 
 ### Location
 
-`~/.claude/asana-workflow/<project-key>.json` — NOT in the repo, NOT committed.
+`~/.cortex/asana-workflow/<project-key>.json` — NOT in the repo, NOT committed.
 
 ### Project Key Derivation
 
@@ -135,7 +135,7 @@ Paginate if `next_page` is present in the response. Filter results to projects w
 Every skill that needs board information follows this sequence:
 
 1. Derive the project key
-2. Read `~/.claude/asana-workflow/<project-key>.json`
+2. Read `~/.cortex/asana-workflow/<project-key>.json`
 3. If file missing → run Full Discovery
 4. If file exists → check sprint freshness (`active_sprint.due_on < today`?)
    - If stale → run Sprint Auto-Refresh

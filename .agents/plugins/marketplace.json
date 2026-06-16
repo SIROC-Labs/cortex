@@ -1,0 +1,31 @@
+{
+  "name": "siroc-cortex",
+  "interface": {
+    "displayName": "SIROC Cortex"
+  },
+  "plugins": [
+    {
+      "name": "asana-workflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/asana-workflow"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "dev-toolkit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/dev-toolkit"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

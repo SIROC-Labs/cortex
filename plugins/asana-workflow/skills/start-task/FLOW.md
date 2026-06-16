@@ -16,7 +16,7 @@ Usage: `/start-task <url> [brainstorm | feature-dev | fast]`
 
 ## Checkpointing
 
-Every run writes to `~/.claude/asana-workflow/checkpoints/<task-gid>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
+Every run writes to `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
 
 ## Pause Flow
 
@@ -45,7 +45,7 @@ Task stays **"In Progress"** → ■ PAUSED
 ```
              ┌────────────────────────────────────────────┐
              │  INIT / RESUME  (before Step 0)            │
-             │  ls ~/.claude/asana-workflow/checkpoints/  │
+             │  ls ~/.cortex/asana-workflow/checkpoints/  │
              │     <task-gid>.md                          │
              └───────────────────┬────────────────────────┘
                                  │
@@ -91,19 +91,19 @@ Task stays **"In Progress"** → ■ PAUSED
                                      │
                                      ▼
              ┌────────────────────────────────────────────┐
-             │  0 · Skill Dependencies  (advisory)        │
-             │  feature-dev@claude-plugins-official       │
-             │  superpowers@claude-plugins-official       │
+             │  0 · Skill Dependencies  (mandatory)       │
+             │  Claude: feature-dev + superpowers         │
+             │  OpenCode/Codex: superpowers + MCPs        │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ installed?
                            ╱             ╲
                          NO               YES
                           │                │
-                    warn + ask             │
-                    ╱        ╲            │
-                install    continue        │
-                    └──────────►──────────┘
+                    block + setup          │
+                    rerun start-task       │
+                          │                │
+                          └─────X          │
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
@@ -207,7 +207,7 @@ Task stays **"In Progress"** → ■ PAUSED
                            ╱             ╲
                          YES              NO
                           │                │
-                    EnterWorktree          │
+                    create worktree        │
                           └───────────────┘
                                  │
                                  ▼
@@ -279,17 +279,18 @@ Task stays **"In Progress"** → ■ PAUSED
                        │        │     │        │
                        │        │     └────┬───┘
                        │        │          │
-                       │        │    ◆ workflow_choice?
-                       │        │   ╱     │       ╲
-                       │        │  brn   fdev     none
-                       │        │   │     │         │
-                       │        │  sup:  feat-dev  ask
-                       │        │  brn   :feature  brn/fdev
-                       │        │   │     -dev       │
-                       │        │   │     │          │
-                       │        │   └─────┴──────┬───┘
-                       │        │                │
-                       │        │     (external skill, returns to Step 11)
+                       │        │   ┌──────┴────────────────┐
+                       │        │   │  implement-feature    │
+                       │        │   │  detect plan file →   │
+                       │        │   │  resolve binding via  │
+                       │        │   │  runtime-bindings.md  │
+                       │        │   │  (asks operator when  │
+                       │        │   │  several apply;       │
+                       │        │   │  workflow_choice      │
+                       │        │   │  pre-answers)         │
+                       │        │   └──────┬────────────────┘
+                       │        │          │
+                       │        │     (development skill returns to Step 11)
                        │        │                │
                        │        └────── bug path to Step 11 (QA)
                        │                         │

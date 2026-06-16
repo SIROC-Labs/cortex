@@ -3,10 +3,48 @@ set -euo pipefail
 
 # SIROC Cortex — Setup Script
 # Validates prerequisites, fetches available plugins, and installs selected ones
+#
+# Usage:
+#   bash setup.sh              Claude Code setup (default)
+#   bash setup.sh --opencode    OpenCode setup
+#   bash setup.sh --codex       Codex setup
+#   bash setup.sh --all         Install for every supported agent (each isolated;
+#                               one agent failing never blocks the others; prints
+#                               a per-agent success/failure summary at the end)
+#   bash setup.sh --dev         Developer install: point at this local clone
+#                               instead of the remote repo (combine with an
+#                               agent flag or --all, e.g. `bash setup.sh --all --dev`)
+#
+# By default the install is "normal": the marketplace/plugin source is the remote
+# SIROC-Labs/cortex repo, so no local clone of the repo is required. Pass --dev to
+# source from this working copy instead.
 
-MARKETPLACE_REPO="Siroc-Lab/cortex"
+MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
+
+OPENCODE=false
+CODEX=false
+ALL=false
+DEV=false
+for arg in "$@"; do
+  case "$arg" in
+    --opencode) OPENCODE=true ;;
+    --codex) CODEX=true ;;
+    --all) ALL=true ;;
+    --dev) DEV=true ;;
+  esac
+done
+
+if [ "$OPENCODE" = true ] && [ "$CODEX" = true ]; then
+  echo "Use either --opencode or --codex, not both." >&2
+  exit 1
+fi
+
+if [ "$ALL" = true ] && { [ "$OPENCODE" = true ] || [ "$CODEX" = true ]; }; then
+  echo "Use --all on its own (optionally with --dev), not with --opencode/--codex." >&2
+  exit 1
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -22,9 +60,12 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 info() { echo -e "  ${BLUE}→${NC} $1"; }
 step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
-TOTAL_STEPS=5
+TOTAL_STEPS=6
+
 ERRORS=0
 PROFILE_CHANGED=false
+EXIT_CODE=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect shell profile
 if [ -f "$HOME/.zshrc" ]; then
@@ -91,6 +132,57 @@ add_to_profile() {
 # add_to_profile already exports the var for the current session.
 # The end-of-script banner tells the user to reload for future sessions.
 
+# Resolve the plugin list from the marketplace manifest — the single source of
+# truth. --dev reads the local clone (the install source); otherwise fetch from
+# the remote repo, so a standalone setup.sh (no clone) works and the list always
+# matches what actually gets installed. Requires gh access, verified in Step 1.
+resolve_plugins() {
+  local manifest_json=""
+  if [ "$DEV" = true ] && [ -f "${SCRIPT_DIR}/.claude-plugin/marketplace.json" ]; then
+    manifest_json=$(cat "${SCRIPT_DIR}/.claude-plugin/marketplace.json")
+  else
+    manifest_json=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
+      -H "Accept: application/vnd.github.raw" 2>/dev/null) || true
+  fi
+  printf '%s' "$manifest_json" \
+    | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins']))" 2>/dev/null
+}
+
+# In --dev, force a clean re-point to the local clone: remove the installed plugins
+# and the marketplace first, since `marketplace add` is idempotent and won't switch
+# an already-registered source. $1 = CLI, $2 = its plugin-removal subcommand.
+repoint_dev() {
+  info "Dev mode: re-pointing ${MARKETPLACE_NAME} to the local clone"
+  local plugin
+  for plugin in $PLUGINS; do
+    "$1" plugin "$2" "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
+  done
+  "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+}
+
+ready_banner() {
+  echo ""
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}  Environment ready!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+}
+
+print_reload_banner() {
+  [ "$PROFILE_CHANGED" = true ] || return 0
+  echo ""
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
+  echo ""
+  echo -e "${YELLOW}  Run one of the following:${NC}"
+  echo ""
+  echo -e "${BOLD}    source ${PROFILE}${NC}"
+  echo ""
+  echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+}
+
 echo -e "${BOLD}SIROC Cortex — Setup${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -129,7 +221,9 @@ fi
 # ─────────────────────────────────────────────
 step 2 "Git SSH configuration"
 
-SSH_OUTPUT=$(ssh -T git@github.com 2>&1 || true)
+# </dev/null: ssh would otherwise consume the script's stdin, eating answers
+# meant for later prompts when the script runs with piped/redirected input.
+SSH_OUTPUT=$(ssh -T git@github.com </dev/null 2>&1 || true)
 if echo "$SSH_OUTPUT" | grep -qi "successfully authenticated"; then
   pass "SSH authentication to GitHub works"
 else
@@ -174,7 +268,7 @@ if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
   echo ""
   while true; do
-    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT
+    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT || true
     if [ -n "$ASANA_TOKEN_INPUT" ]; then
       add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
       break
@@ -207,7 +301,7 @@ fi
 # Optional: additional Asana accounts
 if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   echo ""
-  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE
+  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE || true
   ADD_MORE=${ADD_MORE:-N}
   if [[ "$ADD_MORE" =~ ^[Yy]$ ]]; then
     while true; do
@@ -291,10 +385,268 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Step 5: Next steps
+# Step 5: OpenCode configuration
 # ─────────────────────────────────────────────
-step 5 "Next steps"
 
+configure_opencode() {
+  local CONFIG_DIR="${HOME}/.config/opencode"
+  local CACHE_DIR="${HOME}/.cache/opencode/node_modules"
+  local CONFIG_FILE="${CONFIG_DIR}/opencode.json"
+
+  info "Configuring OpenCode..."
+  info "Marketplaces are not supported by OpenCode — installing the plugins directly..."
+
+  # Ensure config directory exists
+  mkdir -p "$CONFIG_DIR"
+
+  # Add plugins and merge mcpServers into opencode.json. Default to the remote
+  # git+ URL; only in --dev mode pass the local clone path to use instead.
+  local DEV_ROOT=""
+  [ "$DEV" = true ] && DEV_ROOT="$SCRIPT_DIR"
+
+  python3 - "$CONFIG_FILE" "$DEV_ROOT" <<'PYEOF'
+import json, sys, os
+
+config_path = sys.argv[1]
+cortex_entry = "asana-workflow@git+https://github.com/SIROC-Labs/cortex.git"
+superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
+
+# In --dev mode, argv[2] is the local clone path; use it instead of the git+ URL.
+script_root = sys.argv[2] if len(sys.argv) > 2 else ""
+dev = bool(script_root and os.path.isfile(os.path.join(script_root, "package.json")))
+if dev:
+    cortex_entry = script_root
+
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    config = {}
+
+plugins = config.get("plugin", [])
+
+def spec_name(spec):
+    # Resolve a plugin spec to its plugin name so we dedupe across spec forms
+    # (git+ URL, pinned #ref, plain npm name, or local clone path).
+    s = str(spec).strip().rstrip("/")
+    # Local clone path: the dir basename (e.g. "cortex") is NOT the plugin name,
+    # so read the real name from its package.json.
+    expanded = os.path.expanduser(s)
+    if os.path.isdir(expanded):
+        try:
+            with open(os.path.join(expanded, "package.json")) as f:
+                return json.load(f).get("name") or os.path.basename(s)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return os.path.basename(s)
+    if s.startswith("@"):  # scoped npm package: @scope/name[@version]
+        return "@" + s[1:].split("@", 1)[0]
+    base = s.split("@", 1)[0]
+    if "/" in base:        # path or URL without a name@ prefix
+        base = base.rsplit("/", 1)[-1]
+    return base
+
+# In --dev, force the local asana-workflow path by dropping any existing entry first,
+# so the local clone replaces it instead of being skipped by the dedupe below.
+if dev:
+    plugins = [p for p in plugins if spec_name(p) != "asana-workflow"]
+
+# Add each plugin by canonical name, so an entry already present in ANY spec form
+# (e.g. a pinned or differently-sourced superpowers) is respected instead of duplicated.
+existing = {spec_name(p) for p in plugins}
+for name, entry in (("asana-workflow", cortex_entry), ("superpowers", superpowers_entry)):
+    if name not in existing:
+        plugins.append(entry)
+        existing.add(name)
+config["plugin"] = plugins
+
+# MCP servers are registered at load time by the OpenCode adapter
+# (.opencode/plugins/asana-workflow.js) from the plugin's bundled .mcp.json — the
+# single source of truth (shared with Claude and Codex). Not written here.
+
+perm = config.get("permission", {})
+ext = perm.get("external_directory", {})
+# Whitelist paths the plugin needs to read/write outside the project directory
+ext["~/.cortex/asana-workflow/*"] = "allow"
+# ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
+ext["~/.config/opencode/opencode.json"] = "allow"
+# ^ dependency check reads opencode.json to verify superpowers is installed
+ext["/tmp/qa-evidence/*"] = "allow"
+# ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
+perm["external_directory"] = ext
+config["permission"] = perm
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+
+print("OK")
+PYEOF
+
+  if [ $? -eq 0 ]; then
+    pass "opencode.json configured at ${CONFIG_FILE}"
+  else
+    fail "Failed to configure opencode.json"
+    return 1
+  fi
+
+  # Clear plugin cache to force fresh install on restart
+  if [ -d "$CACHE_DIR" ]; then
+    rm -rf "${CACHE_DIR}/asana-workflow" 2>/dev/null || true
+    info "Plugin cache cleared"
+  fi
+
+  return 0
+}
+
+configure_codex() {
+  info "Configuring Codex..."
+
+  if ! command -v codex &>/dev/null; then
+    fail "Codex CLI not installed"
+    info "Install Codex, then re-run: bash setup.sh --codex"
+    return 2
+  fi
+
+  pass "Codex CLI installed ($(codex --version | head -1))"
+
+  # Default to the remote marketplace (GitHub repo); --dev uses the local clone root.
+  local MP_SOURCE="$MARKETPLACE_REPO"
+  if [ "$DEV" = true ]; then
+    MP_SOURCE="$SCRIPT_DIR"
+
+    # Validate the local marketplace + per-plugin manifests before registering them.
+    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json")
+    local p
+    for p in $PLUGINS; do
+      MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
+    done
+    local manifest
+    for manifest in "${MANIFESTS[@]}"; do
+      if [ ! -f "$manifest" ]; then
+        fail "Missing local Codex manifest: ${manifest}"
+        return 1
+      fi
+    done
+    if python3 - "${MANIFESTS[@]}" <<'PYEOF'
+import json, sys
+for path in sys.argv[1:]:
+    with open(path) as f:
+        json.load(f)
+print("OK")
+PYEOF
+    then
+      pass "Local Codex manifests valid"
+    else
+      fail "Codex plugin metadata is invalid JSON"
+      return 1
+    fi
+
+    repoint_dev codex remove
+  fi
+
+  if codex plugin marketplace add "$MP_SOURCE" >/dev/null 2>&1; then
+    pass "Codex marketplace added from ${MP_SOURCE}"
+  elif codex plugin marketplace upgrade "$MARKETPLACE_NAME" >/dev/null 2>&1; then
+    pass "Codex marketplace already present — upgraded ${MARKETPLACE_NAME}"
+  else
+    fail "Failed to add or upgrade Codex marketplace"
+    info "Try manually: codex plugin marketplace add ${MP_SOURCE}"
+    return 1
+  fi
+
+  # MCP servers (mobile-mcp, chrome-devtools) are declared in the plugin manifest
+  # (.codex-plugin/plugin.json -> ./.mcp.json) and load automatically when the plugin
+  # is enabled — no `codex mcp add` needed. Verified: they stay available with zero
+  # [mcp_servers] entries in config.toml.
+
+  if [ "$INSTALL_PLUGINS" != true ]; then
+    info "Skipping plugin install — choose from the marketplace:"
+    local p
+    for p in $PLUGINS; do
+      info "  codex plugin add ${p}@${MARKETPLACE_NAME}"
+    done
+    info "  codex plugin add superpowers@openai-curated   (required by asana-workflow)"
+    info "  Or browse with /plugins inside Codex."
+    return 0
+  fi
+
+  # Install our plugins from the marketplace snapshot (global, in ~/.codex/config.toml).
+  local plugin
+  for plugin in $PLUGINS; do
+    if codex plugin add "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1; then
+      pass "Codex plugin installed: ${plugin}@${MARKETPLACE_NAME}"
+    elif [ "$plugin" = "$PRIMARY_PLUGIN" ]; then
+      fail "Failed to install plugin; install manually: codex plugin add ${plugin}@${MARKETPLACE_NAME}"
+      return 1
+    else
+      warn "Could not install ${plugin} — install manually: codex plugin add ${plugin}@${MARKETPLACE_NAME}"
+    fi
+  done
+
+  # superpowers is sourced from the official openai-curated catalog — its single
+  # canonical source — NOT from our marketplace. Codex does not dedupe identically
+  # named plugins across marketplaces, so shipping our own copy too would load its
+  # skills twice. `codex plugin add` is idempotent, so this runs unconditionally.
+  # Non-fatal: openai-curated may be unavailable in some environments.
+  if codex plugin add superpowers@openai-curated >/dev/null 2>&1; then
+    pass "Codex dependency installed: superpowers@openai-curated"
+  else
+    warn "Could not auto-install superpowers@openai-curated — install it manually:"
+    warn "  codex plugin add superpowers@openai-curated"
+  fi
+
+  return 0
+}
+
+configure_claude() {
+  # Returns: 0 installed, 1 a step failed, 2 claude CLI not found (caller prints manual steps)
+  if ! command -v claude &>/dev/null; then
+    return 2
+  fi
+
+  # Default to the remote GitHub marketplace; --dev uses the local clone.
+  local MP_SOURCE="$MARKETPLACE_REPO"
+  [ "$DEV" = true ] && MP_SOURCE="$SCRIPT_DIR"
+
+  if [ "$DEV" = true ]; then
+    repoint_dev claude uninstall
+  fi
+
+  info "Adding marketplace ${MARKETPLACE_NAME} (user scope)..."
+  if claude plugin marketplace add "$MP_SOURCE" >/dev/null 2>&1; then
+    pass "Marketplace ${MARKETPLACE_NAME} ready"
+  else
+    fail "Failed to add marketplace; add manually: claude plugin marketplace add ${MP_SOURCE}"
+    return 1
+  fi
+
+  if [ "$INSTALL_PLUGINS" != true ]; then
+    info "Skipping plugin install — choose from the marketplace:"
+    info "  Inside Claude Code: /plugin  → browse ${MARKETPLACE_NAME}"
+    info "  Or from the shell:  claude plugin install <plugin>@${MARKETPLACE_NAME}"
+    info "  Available: ${PLUGINS_LABEL} (dependencies auto-resolve on install)"
+    return 0
+  fi
+
+  # Installing a plugin auto-resolves its declared dependencies (e.g. feature-dev,
+  # superpowers) from claude-plugins-official via allowCrossMarketplaceDependenciesOn.
+  local plugin
+  for plugin in $PLUGINS; do
+    info "Installing ${plugin} plugin (user scope)..."
+    if claude plugin install "${plugin}@${MARKETPLACE_NAME}" --scope user >/dev/null 2>&1; then
+      pass "Plugin installed: ${plugin}@${MARKETPLACE_NAME}"
+    elif [ "$plugin" = "$PRIMARY_PLUGIN" ]; then
+      fail "Failed to install plugin; install manually: claude plugin install ${plugin}@${MARKETPLACE_NAME}"
+      return 1
+    else
+      warn "Could not install ${plugin} — install manually: claude plugin install ${plugin}@${MARKETPLACE_NAME}"
+    fi
+  done
+
+  return 0
+}
+
+# All install paths require a clean prerequisite check
 if [ "$ERRORS" -gt 0 ]; then
   echo ""
   fail "${ERRORS} error(s) found — fix them and re-run this script"
@@ -302,58 +654,148 @@ if [ "$ERRORS" -gt 0 ]; then
   exit 1
 fi
 
-pass "All prerequisites met"
+# Plugin list comes from the marketplace manifest, never hardcoded here.
+PLUGINS=$(resolve_plugins)
+if [ -z "$PLUGINS" ]; then
+  echo ""
+  fail "Could not resolve the plugin list from the marketplace manifest"
+  info "Check repo access: gh api repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json"
+  exit 1
+fi
+PRIMARY_PLUGIN=${PLUGINS%% *}   # first marketplace entry — its install failure is fatal
+PLUGINS_LABEL=${PLUGINS// /, }
 
-# Fetch marketplace.json to show available plugins
-MARKETPLACE_JSON=$(gh api "repos/${MARKETPLACE_REPO}/contents/.claude-plugin/marketplace.json" \
-  --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+# Claude Code and Codex are marketplace-based: the user can install everything now
+# or register the marketplace only and pick plugins themselves. OpenCode has no
+# marketplace, so its plugins are always installed directly (no question needed).
+# --dev always installs all: it re-points the install at the local clone, and a
+# dev re-point with nothing installed afterwards is never what a contributor wants.
+INSTALL_PLUGINS=true
+if [ "$OPENCODE" != true ] && [ "$DEV" != true ]; then
+  echo ""
+  read -rp "  Install all plugins now (${PLUGINS_LABEL})? [Y/n] " PLUGINS_REPLY || true
+  PLUGINS_REPLY=${PLUGINS_REPLY:-Y}
+  if [[ ! "$PLUGINS_REPLY" =~ ^[Yy]$ ]]; then
+    INSTALL_PLUGINS=false
+    info "Plugins will not be installed — the marketplace will be registered so you can choose."
+  fi
+fi
 
-echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  Environment ready!${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "  Open Claude Code and run these commands:"
-echo ""
-echo -e "    ${BOLD}1.${NC} Add the marketplace:"
-echo -e "       ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
-echo ""
+if [ "$ALL" = true ]; then
+  # ─────────────────────────────────────────────
+  # All agents: install each independently. One agent's failure never blocks the
+  # others — each configure_* is called in an `|| rc=$?` context, which captures a
+  # non-zero return (and suspends `set -e` inside the function) instead of aborting
+  # the script. A per-agent success/failure summary is printed at the end.
+  # ─────────────────────────────────────────────
+  step 5 "Installing for all supported agents"
 
-if [ -n "$MARKETPLACE_JSON" ]; then
-  echo -e "    ${BOLD}2.${NC} Install plugins:"
-  echo "$MARKETPLACE_JSON" | python3 -c "
-import sys, json
-plugins = json.load(sys.stdin)['plugins']
-for p in plugins:
-    name = p['name']
-    desc = p.get('description', '')
-    version = p.get('version', '?')
-    print(f'       \033[0;32m/plugin install {name}@${MARKETPLACE_NAME}\033[0m  (v{version})')
-    if desc:
-        print(f'         {desc}')
-    print()
-" 2>/dev/null
+  # rc convention: 0 = installed, 2 = skipped (agent CLI absent), other = failed.
+  CLAUDE_RC=0;   echo ""; info "── Claude Code ──"; configure_claude   || CLAUDE_RC=$?
+  OPENCODE_RC=0; echo ""; info "── OpenCode ──";    configure_opencode || OPENCODE_RC=$?
+  CODEX_RC=0;    echo ""; info "── Codex ──";       configure_codex    || CODEX_RC=$?
+
+  agent_status() {
+    case "$1" in
+      0) echo -e "${GREEN}✔ installed${NC}" ;;
+      2) echo -e "${YELLOW}⏭ skipped (CLI not found)${NC}" ;;
+      *) echo -e "${RED}✘ failed${NC}" ;;
+    esac
+  }
+
+  step 6 "Summary"
+  echo ""
+  echo -e "  Claude Code   $(agent_status "$CLAUDE_RC")"
+  echo -e "  OpenCode      $(agent_status "$OPENCODE_RC")"
+  echo -e "  Codex         $(agent_status "$CODEX_RC")"
+  echo ""
+
+  FAILED=0
+  for rc in "$CLAUDE_RC" "$OPENCODE_RC" "$CODEX_RC"; do
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then FAILED=$((FAILED + 1)); fi
+  done
+  if [ "$FAILED" -gt 0 ]; then
+    warn "${FAILED} agent install(s) failed — see messages above. The other agents were unaffected."
+    EXIT_CODE=1
+  else
+    echo "  Restart each installed agent to load the plugin and skills."
+  fi
+  echo ""
+elif [ "$OPENCODE" = true ]; then
+  # ─────────────────────────────────────────────
+  # OpenCode: configure plugin and show instructions
+  # ─────────────────────────────────────────────
+  step 5 "OpenCode plugin configuration"
+  configure_opencode
+
+  step 6 "Done"
+  ready_banner
+  echo "  Restart OpenCode to pick up the changes."
+  echo ""
+  echo "  Verify by asking: list available skills"
+  echo ""
+  echo "  To update later, re-run: bash setup.sh --opencode"
+  echo ""
+elif [ "$CODEX" = true ]; then
+  # ─────────────────────────────────────────────
+  # Codex: configure marketplace, declared MCPs, and show instructions
+  # ─────────────────────────────────────────────
+  step 5 "Codex plugin configuration"
+  configure_codex
+
+  step 6 "Done"
+  ready_banner
+  if [ "$INSTALL_PLUGINS" = true ]; then
+    echo "  ${PLUGINS_LABEL} + superpowers (from openai-curated) are installed;"
+    echo "  the declared MCP servers load automatically from the plugin manifest."
+  else
+    echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
+    echo -e "    ${GREEN}codex plugin add <plugin>@${MARKETPLACE_NAME}${NC}"
+  fi
+  echo ""
+  echo "  Restart Codex to pick up the plugin metadata and skills."
+  echo ""
 else
-  echo -e "    ${BOLD}2.${NC} Install plugins:"
-  echo -e "       ${GREEN}/plugin install <plugin-name>@${MARKETPLACE_NAME}${NC}"
-  echo ""
+  # ─────────────────────────────────────────────
+  # Claude Code: install marketplace + plugin (user/global scope)
+  # ─────────────────────────────────────────────
+  step 5 "Claude Code plugin installation"
+  pass "All prerequisites met"
+  # Capture the return without tripping `set -e` (a bare call would abort on
+  # a non-zero return before we could read it).
+  CLAUDE_RC=0
+  configure_claude || CLAUDE_RC=$?
+
+  step 6 "Done"
+  ready_banner
+
+  if [ "$CLAUDE_RC" -eq 0 ]; then
+    if [ "$INSTALL_PLUGINS" = true ]; then
+      echo "  ${PLUGINS_LABEL} are installed (user scope); declared dependencies"
+      echo "  (feature-dev, superpowers) were resolved automatically."
+      echo ""
+      echo "  Restart Claude Code to load the plugins and skills."
+    else
+      echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
+      for plugin in $PLUGINS; do
+        echo -e "    ${GREEN}/plugin install ${plugin}@${MARKETPLACE_NAME}${NC}"
+      done
+    fi
+    echo ""
+    echo "  Manage plugins:"
+    echo -e "    claude plugin list                                — See installed plugins"
+    echo -e "    claude plugin update ${PRIMARY_PLUGIN}@${MARKETPLACE_NAME}  — Pull latest version"
+    echo ""
+  else
+    echo "  Claude Code CLI not found on PATH — finish install from inside Claude Code:"
+    echo ""
+    echo -e "    ${GREEN}/plugin marketplace add ${MARKETPLACE_REPO}${NC}"
+    for plugin in $PLUGINS; do
+      echo -e "    ${GREEN}/plugin install ${plugin}@${MARKETPLACE_NAME}${NC}"
+    done
+    echo ""
+  fi
 fi
 
-echo "  Manage plugins:"
-echo -e "    /plugin list                              — See installed plugins"
-echo -e "    /plugin marketplace update ${MARKETPLACE_NAME}  — Pull latest versions"
-echo ""
-
-if [ "$PROFILE_CHANGED" = true ]; then
-  echo ""
-  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${YELLOW}${BOLD}  ⚠  IMPORTANT: Reload your shell to apply changes!${NC}"
-  echo ""
-  echo -e "${YELLOW}  Run one of the following:${NC}"
-  echo ""
-  echo -e "${BOLD}    source ${PROFILE}${NC}"
-  echo ""
-  echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
-  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-fi
+print_reload_banner
+exit "$EXIT_CODE"

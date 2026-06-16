@@ -65,7 +65,7 @@ When confident, announce the inferred variant and proceed immediately — do not
 
 Load the board registry cache following `references/board-config.md`, which delegates to the shared `board-resolution.md` module.
 
-1. Load cache from `~/.claude/asana-workflow/<project-key>.json`
+1. Load cache from `~/.cortex/asana-workflow/<project-key>.json`
 2. If cache missing → Full Discovery runs automatically (queries workspace, classifies all boards, writes cache)
 3. If cache exists → sprint freshness check runs automatically (refreshes if `due_on` is past)
 4. Merge any URL overrides from Step 0 (see `references/board-config.md` for merge rules)
