@@ -12,7 +12,8 @@ dev-toolkit/
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version) — skills are auto-discovered
 └── skills/
-    └── update-pr/         ← Sync a PR branch with its base (fetch → rebase/merge → resolve → push)
+    ├── update-pr/         ← Sync a PR branch with its base (fetch → rebase/merge → resolve → push)
+    └── cso/               ← Chief Security Officer audit (secrets, deps, CI/CD, OWASP, STRIDE, LLM/AI) + references/audit-phases.md
 ```
 
 Each skill follows: `skills/<name>/SKILL.md` + optional `references/` subdirectory.

@@ -1,6 +1,6 @@
 # SIROC Cortex
 
-Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces).
+Central repository for SIROC's AI context: skills, agents, hooks, and orchestration logic. Distributed as a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces), an OpenCode plugin, and a Codex plugin marketplace.
 
 ## Marketplace
 
@@ -27,6 +27,7 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `asana-api` | Asana REST API patterns and common operations |
 | `log-task` | Creates an Asana task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
+| `implement-feature` | Routes implementation work to the right development skill per runtime — plan-aware (create plan / execute plan / implement inline); works standalone or invoked from `start-task` |
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
 | `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
 | `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
@@ -46,8 +47,11 @@ Independent, reusable development utilities. A home for self-contained skills th
 | Skill | Description |
 |-------|-------------|
 | `update-pr` | Sync PR branch with its base branch: fetch → rebase/merge → resolve conflicts → push |
+| `cso` | Chief Security Officer audit: secrets archaeology, dependency supply chain, CI/CD, infra, webhooks, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE, and mobile app security (iOS/Android). Detects Python/FastAPI, React/React Native, Swift, Kotlin. Daily (8/10 gate) and `--comprehensive` (2/10) modes |
 
 ## Installation
+
+### Claude Code
 
 Run the setup script — it validates prerequisites, configures tokens, and guides you through plugin installation:
 
@@ -55,11 +59,39 @@ Run the setup script — it validates prerequisites, configures tokens, and guid
 bash setup.sh
 ```
 
+### OpenCode
+
+```bash
+bash setup.sh --opencode
+```
+
+This validates prerequisites and merges the required configuration into your `opencode.json`.
+
+See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed instructions.
+
+### Codex
+
+```bash
+bash setup.sh --codex
+```
+
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default — no clone needed; pass `--dev` to use your local working copy), and installs `asana-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`. The MCP servers declared by the plugin load automatically. Restart Codex afterwards — no `/plugins` step needed.
+
+See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
+
+### All agents
+
+```bash
+bash setup.sh --all
+```
+
+Installs for every supported agent in one run. Each agent is installed independently — if one fails (or its CLI isn't installed), the others still proceed — and a per-agent success/failure summary is printed at the end. Add `--dev` to source from your local clone.
+
 ### What the Script Does
 
-**GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `Siroc-Lab/cortex` repo.
+**GitHub CLI** — Checks that `gh` is installed, authenticated, and has access to the private `SIROC-Labs/cortex` repo.
 
-**Git SSH** — Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite Claude Code needs:
+**Git SSH** — Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite:
 
 ```bash
 git config --global url."git@github.com:".insteadOf "https://github.com/"
@@ -69,21 +101,42 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 **GitHub token** — Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
 
-**Plugin installation** — Once all prerequisites pass, prints the exact Claude Code commands to run:
-
-1. `/plugin marketplace add Siroc-Lab/cortex`
-2. `/plugin install asana-workflow@siroc-cortex`
-3. `/plugin install dev-toolkit@siroc-cortex`
+**Plugin installation** — Once all prerequisites pass, the script asks whether to install all plugins now or only register the marketplace so you can pick plugins yourself (Claude Code and Codex; OpenCode has no marketplace, so its plugins always install directly):
+- Claude Code: installs the marketplace, `asana-workflow`, and `dev-toolkit` (user scope) via the `claude` CLI — dependencies (`feature-dev`, `superpowers`) auto-resolve; falls back to printing `/plugin` commands if the CLI isn't on PATH
+- OpenCode: merges the plugin configuration into `opencode.json` and clears the cache (the adapter registers both asana-workflow and dev-toolkit skills)
+- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `asana-workflow`, `dev-toolkit` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
 
 > If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
 ## Updating
+
+### Claude Code
 
 ```
 /plugin marketplace update siroc-cortex
 /plugin update asana-workflow@siroc-cortex
 /plugin update dev-toolkit@siroc-cortex
 ```
+
+### OpenCode
+
+```bash
+bash setup.sh --opencode
+```
+
+The script is idempotent — it re-merges the latest configuration and clears the plugin cache.
+
+### Codex
+
+Update with the Codex CLI:
+
+```bash
+codex plugin marketplace upgrade siroc-cortex
+codex plugin add asana-workflow@siroc-cortex
+codex plugin add dev-toolkit@siroc-cortex
+```
+
+Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run the `codex plugin add` commands instead — `marketplace upgrade` only applies to the remote Git marketplace.
 
 ## Contributing
 
