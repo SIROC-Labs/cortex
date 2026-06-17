@@ -171,7 +171,7 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 | 9a. Move to In Progress | `Moved`, `Already in progress`, or `Failed: <reason>` |
 | 9b. Post Start Comment | `Posted` or `Skipped (duplicate)` |
 | 10. Route to Workflow | `fix-bug`, `brainstorm`, `feature-dev`, or `fast` |
-| QA: Resolve | `web-qa`, `mobile-qa`, `none`, or skipped reason |
+| QA: Resolve | `web-qa`, `mobile-qa`, `backend-qa`, `none`, or skipped reason |
 | QA: Investigate Bug | `Confirmed`, `Cannot reproduce`, or skipped reason |
 | QA: Fix Bug | `Fix ready`, `Failed: <reason>`, or skipped reason |
 | QA: Verify Fix | `Pass`, `Fail`, or skipped reason |

@@ -317,16 +317,18 @@ Details in `plugins/asana-workflow/references/qa-routing.md`. Skipped entirely w
              │  1. CLAUDE.md  qa-skill: declaration       │
              │  2. project signals:                       │
              │     package.json (no React Native) /       │
-             │     vite.config / next.config  → web-qa    │
+             │     vite.config / next.config → web-qa     │
              │     .xcodeproj / .xcworkspace /            │
              │     Info.plist / build.gradle /            │
              │     build.gradle.kts /                     │
-             │     AndroidManifest.xml      → mobile-qa   │
+             │     AndroidManifest.xml     → mobile-qa    │
              │     app.json / app.config.js               │
-             │     + React Native / Expo    → mobile-qa   │
-             │     no UI framework          → none        │
-             │  3. ambiguous → ask: web-qa / mobile-qa /  │
-             │                      none                  │
+             │     + React Native / Expo   → mobile-qa    │
+             │     FastAPI / Express / Spring /           │
+             │     openapi.json, API only  → backend-qa   │
+             │     no served surface       → none         │
+             │  3. ambiguous → ask: web-qa /              │
+             │     mobile-qa / backend-qa / none          │
              └───────────────────┬────────────────────────┘
                                  │
                      ◆ resolved skill == none

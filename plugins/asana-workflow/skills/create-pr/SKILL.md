@@ -28,6 +28,7 @@ All inputs are optional. When missing, derive them automatically or prompt the u
 | Summary (bullets) | From `work-summary` output | Generated from `git log $BASE..HEAD --oneline` and `git diff $BASE...HEAD --stat` |
 | What Changed | From `work-summary` output | Generated from git diff |
 | How to Test | From `work-summary` output (may be absent) | Omitted unless obvious from changes |
+| Testing / QA evidence | From the QA gate (`✅ QA Verification` posted in session by pre-ship-check / a QA skill) plus `work-summary` test results | Generated from the test/lint/build runs done this session |
 | Asana task URL | Passed by `ship-it` | Prompt user: "Is there an Asana task URL for this? (press Enter to skip)" |
 | Reviewers | Passed by caller or from CLAUDE.md defaults | From CLAUDE.md defaults, or prompt user |
 | orchestrator | `true` when called from ship-it | absent |
@@ -112,6 +113,9 @@ Build the PR body from available sections. **Omit any section that has no conten
 ## What changed
 <concrete list of changes — files, endpoints, components affected>
 
+## Testing
+<QA verification verdict + the test/lint/build evidence that backs it>
+
 ## How to test
 <step-by-step testing instructions>
 
@@ -120,6 +124,8 @@ Build the PR body from available sections. **Omit any section that has no conten
 ```
 
 Rules:
+- **The PR description is the authoritative record of QA — it must carry the verification evidence, even when the same evidence was posted to the Asana task.** Reviewers read the PR, not Asana; QA evidence that lives only in an Asana comment is invisible at review time. The Asana comment is a notification, the PR `## Testing` section is the record.
+- Populate `## Testing` from the QA gate and `work-summary`: name the regression/added tests, the suites run with their pass counts (distinguish integration vs unit — an integration run against real containers is stronger evidence than a unit run), lint/build status, and the QA verdict (e.g. `backend-qa: PASS`). Omit the section only when there is genuinely no test or QA signal — and when omitting, say why in the Summary.
 - If no "How to test" content is available, omit the entire section (header and body).
 - If no Asana URL was provided, omit the entire "Asana Task" section.
 - Keep bullets concise and specific. Name files, endpoints, components — not vague descriptions.
@@ -160,6 +166,11 @@ gh pr create --title "<concise title>" --assignee @me --body "$(cat <<'EOF'
 ## What changed
 - Added endpoint GET /admin/foo
 - Fixed validation in bar.ts
+
+## Testing
+- Added `test_admin_foo_returns_paginated_codes` (integration, against real DB container) — watched fail before the fix, passes after.
+- Suites: 42 integration passed (0 skipped); 1027 unit passed. Lint clean.
+- backend-qa: PASS — change adequately covered, no regressions.
 
 ## How to test
 1. Start the server
