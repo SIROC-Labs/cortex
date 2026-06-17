@@ -8,7 +8,9 @@
     "version": "1.0.0",
     "pluginRoot": "./plugins"
   },
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "allowCrossMarketplaceDependenciesOn": [
+    "claude-plugins-official"
+  ],
   "plugins": [
     {
       "name": "asana-workflow",
@@ -30,7 +32,7 @@
       "name": "dev-toolkit",
       "source": "./plugins/dev-toolkit",
       "description": "Independent, reusable development utilities",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }

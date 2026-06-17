@@ -1,6 +1,6 @@
 {
   "name": "dev-toolkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Independent, reusable development utilities",
   "author": {
     "name": "SIROC Team",
@@ -9,7 +9,11 @@
   "homepage": "https://github.com/SIROC-Labs/cortex",
   "repository": "https://github.com/SIROC-Labs/cortex",
   "license": "Proprietary",
-  "keywords": ["dev-tools", "git", "pull-requests"],
+  "keywords": [
+    "dev-tools",
+    "git",
+    "pull-requests"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Dev Toolkit",
@@ -17,7 +21,10 @@
     "longDescription": "Self-contained development skills that aren't tied to any particular workflow and work in any repository.",
     "developerName": "SIROC Team",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "websiteURL": "https://github.com/SIROC-Labs/cortex",
     "defaultPrompt": [
       "Update this PR branch with its base branch."
