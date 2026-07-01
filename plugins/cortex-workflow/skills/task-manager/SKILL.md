@@ -36,7 +36,7 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `get_current_user()` — the authenticated user.
 - `find_task(ref)` — resolve a URL or id to a task handle.
 - `get_task(task)` — name, kind (`task`/`milestone`), description, assignee, fields, status, board membership.
-- `create_task(title, description, board?, assignee?, fields?, kind?)` — `fields` is an optional map of `field_name → value` (from `references/workflow/fields.md`) applied at creation in one shot. `kind` ∈ `task` (default) | `milestone` — a milestone is a first-class anchor task; the provider realizes the kind natively (Asana milestone subtype, Jira issue type).
+- `create_task(title, description, board?, assignee?, fields?, kind?, milestone?)` — `fields` is an optional map of `field_name → value` (from `references/workflow/fields.md`) applied at creation in one shot. `kind` ∈ `task` (default) | `milestone` — a milestone is a first-class anchor task; the provider realizes the kind natively (Asana milestone subtype, Jira issue type). `milestone` (a milestone ref) makes the new task a **member of** that milestone; the provider realizes membership natively (Asana: same board grouping as the anchor; Jira: epic link).
 - `delete_task(task)` — permanently remove a task.
 - `add_to_board(task, board)`
 - `add_dependency(task, depends_on)` — mark `task` as blocked by / dependent on another task. The native relationship/link **type** (e.g. Jira "Blocks") may be provider-configured.
@@ -50,6 +50,9 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `get_subtasks(task)` / `get_comments(task)` / `get_attachments(task)` — list a task's subtasks / comments / attachments.
 - `list_fields(board)` — canonical fields available on a board.
 - `list_tasks(board)` — enumerate the tasks on a board/sprint; each carries its `kind` (`task`/`milestone`) so callers can find milestone anchors without provider terms.
+- `list_milestones(board)` — the board's milestones, each `{ref, name, expanded}` (`expanded` = has ≥1 member task). For the backlog-board landscape (which milestones exist, which are already broken into tasks).
+- `milestone_tasks(milestone)` — the member tasks of a milestone.
+- `ensure_milestone(board, name)` — idempotently create the milestone if missing; return its ref. Reuses an existing one; never overwrites its description (set that with `set_description`).
 - `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`).
 
 ## Rules
