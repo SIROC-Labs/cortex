@@ -1,10 +1,43 @@
 # Task Description Template
 
-Each task description is a **thin, faithful render** of one task entry from the breakdown markdown file, with references aggregated from all three levels of the breakdown so the task is self-contained.
+Each task description is a **thin, faithful render** of one block from the breakdown — either an implementation-task entry (`### Tn ...` / `## Tn ::`) or a milestone block (`## Mn :: ...`) — with references aggregated from the levels above so it is self-contained.
 
-The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task.
+The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task. Milestones never carry an implementation plan — they are anchors, not work items.
 
-## Description Structure
+Author all descriptions in **Markdown**; the provider renders them (see Formatting Rules below). Do not hand-write provider markup.
+
+## Two description types
+
+- **Implementation-task description** — for regular tasks (`kind == task`). Structure: Visual Context, Purpose, Description, Out of scope (optional), Acceptance Criteria, References. Detailed in "Implementation Task Description Structure" below.
+- **Milestone description** — for milestone anchors (`kind == milestone`). Set only on **newly created** milestones (existing ones are frozen; expanded ones are protected — see SKILL.md Phase 3 Step 1). Structure below.
+
+## Milestone Description
+
+The milestone anchor is the canonical context for the milestone — it must be self-sufficient. Render the milestone block's body fields in canonical order, omitting any that are absent:
+
+```markdown
+**Purpose**
+<one sentence from the block's Purpose field>
+
+**Description**
+<paragraph from the block's Description field>
+
+**Out of scope**
+- <exclusion 1>
+- ...
+
+**References**
+- <ref 1>
+- ...
+```
+
+Milestone description rules:
+- **No rationale paragraph.** The block's free-text rationale is md-only — not rendered.
+- **No "Depends on" text and no M-labels.** Milestone-to-milestone dependencies are wired natively via `add_dependency` (SKILL.md Phase 3 Step 4).
+- **References** aggregate the block's `References:` field plus the file-header `## References` (dedup by URL/path, milestone-specific first), using the same stripping rules as task-level aggregation below.
+- **Never overwrite an existing milestone's description.** submit-breakdown only sets this on milestones it just created.
+
+## Implementation Task Description Structure
 
 Author the description in Markdown; the provider renders it (see Formatting Rules below).
 
@@ -124,6 +157,10 @@ Adds CRUD endpoints for employees — create, read, update, and soft-delete — 
 ```
 
 ---
+
+## Product Status is not part of the body
+
+The description body is the same regardless of a task's Product Status — the status is a field, set via `set_status` after creation and after any attachment upload (SKILL.md Phase 3 Step 3 carries the decision matrix: Design or plan-attached → `Unassigned`; otherwise → `Refinement`). Do not encode status into the description text.
 
 ## Content Rules
 

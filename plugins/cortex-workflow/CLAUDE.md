@@ -17,7 +17,8 @@ cortex-workflow/
     ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
-    ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
+    ├── create-prd/        ← PRD generation from a task URL, Notion, Figma, local files, or any URL (bundled)
+    ├── create-spec/       ← Technical spec authoring from any source (interview-driven → docs/cortex/specs/) (bundled)
     ├── product-one-pager/ ← Product one-pager/brief generation & review against a senior-PM + product-owner bar (bundled)
     │   └── references/    ← MCP integration state machine, acceptance rubric
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
@@ -35,9 +36,11 @@ cortex-workflow/
     │   └── scripts/       ← skill-local helpers (e.g., checkpoint.sh — checkpoint file I/O)
     ├── refine-tasks/      ← Codebase-informed refinement: turn Refinement-status Asana tasks into one-shotters with attached implementation plans (bundled)
     │   └── references/    ← input resolution, implementation plan template
-    ├── submit-breakdown/  ← Faithfully replicate a task breakdown into Asana as Refinement-status tasks (bundled)
-    │   └── references/    ← description template (thin), formatting rules
-    ├── task-breakdown/    ← Strategic decomposition of specs into milestone-based task roadmaps with validation (bundled)
+    ├── milestone-breakdown/ ← Milestone-level roadmap: breakdown.md + per-milestone specs; reads existing milestone landscape (bundled)
+    │   └── references/    ← discovery guide, decomposition principles, output format, validation
+    ├── submit-breakdown/  ← The only writer: replicate a breakdown bundle (milestones + tasks) into the task manager (bundled)
+    │   └── references/    ← breakdown parser, description template
+    ├── task-breakdown/    ← Task-level subdivision of one scope into implementation tasks + plans (bundled)
     │   └── references/    ← discovery guide, decomposition principles, output format
     ├── web-qa/            ← Web QA investigation & verification (bundled)
     └── work-summary/      ← Session summary (bundled)
@@ -88,13 +91,22 @@ create-prd             (standalone: reads sources, interviews user, writes PRD �
   ├── task-manager       (optional: fetch task + attachments when a task URL is provided)
   └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
 
-task-breakdown
-  ├── task-manager       (optional: read existing tasks/boards for context during discovery)
-  └── → hands off to submit-breakdown (Phase 7, optional: user confirms transition)
+create-spec            (standalone: reads any source, interviews user, writes docs/cortex/specs/…md — no tracker writes)
+  ├── task-manager       (optional: fetch task + subtasks + comments + attachments when a task URL is the source)
+  └── (external MCPs)    (Notion, Figma, Drive, Loom, WebFetch — source ingestion)
 
-submit-breakdown           (faithful uploader: breakdown → tasks at Product Status = Refinement)
-  ├── task-manager       (create tasks, set fields incl. Refinement status, wire dependencies)
-  └── → hands off to refine-tasks (tasks created at Refinement status; user runs refine-tasks next)
+milestone-breakdown        (milestone-level roadmap → docs/cortex/milestone-breakdown/…; no tracker writes)
+  ├── task-manager       (read the existing milestone landscape: list_milestones / milestone_tasks; expanded milestones are read-only)
+  └── → hands off to submit-breakdown (optional: user confirms push)
+
+task-breakdown             (task-level subdivision → docs/cortex/task-breakdowns/…; no tracker writes)
+  ├── task-manager       (optional: resolve a Target-milestone URL / read context during discovery)
+  ├── → redirects to milestone-breakdown when the scope spans multiple milestones (seam-check; user decides)
+  └── → hands off to submit-breakdown (optional: user confirms push)
+
+submit-breakdown           (the only writer: replicates a breakdown bundle — milestones + tasks — into the task manager)
+  ├── task-manager       (ensure_milestone, create_task(kind/milestone/fields), set_status, set_description, upload_attachment, add_dependency; idempotent via list_milestones/milestone_tasks)
+  └── → hands off to refine-tasks (implementation tasks created at Refinement status; user runs refine-tasks next)
 
 refine-tasks               (Refinement-status tasks → Unassigned with implementation-plan.md attached)
   ├── task-manager       (resolve task set, fetch descriptions, upload attachment, set fields, set status)

@@ -1,141 +1,98 @@
 ---
 name: task-breakdown
+version: 0.1.0
 description: >
-  Decomposes product work into a milestone-based roadmap of implementation tasks. Use this skill
-  whenever the user wants to plan, organize, or structure implementation work — "break down this spec",
-  "plan this project", "create a task breakdown", "roadmap this", "/task-breakdown", or provides a spec
-  document (markdown, PDF, task/project URL, Figma link) and wants to figure out how to organize
-  the implementation. Also use when the user wants to restructure, revise, or extend an existing task
-  breakdown. Works for both greenfield projects (new spec to full breakdown) AND incremental work on
-  existing projects (change requests, new features, bug batches slotted into existing milestones).
+  Subdivides one coherent scope into implementation tasks. Produces a folder bundle —
+  `breakdown.md` (T-blocks only) plus one per-task `T{N}-<slug>-implementation-plan.md`
+  attachment — ready for `submit-breakdown` to push to the task manager, with planned
+  tasks landing `Unassigned`. Drives the interview via `superpowers:brainstorming`.
+  Never authors milestone content: if the seam check detects multi-milestone scope, it
+  redirects the user to `milestone-breakdown` (user always has final say). Use this skill
+  whenever the user wants to break a single scope into tasks — "break this into tasks",
+  "task-breakdown", "/task-breakdown", "plan the tasks under M3", or provides a milestone
+  task URL / project URL + milestone name / local spec / free text / current directory and
+  wants implementation tasks. Reads source code + convention files only during discovery —
+  never prior breakdowns, specs, PRDs, or planning docs.
 ---
 
 # Task Breakdown
 
-Decompose product work into a milestone-based roadmap of implementation tasks. The output is a markdown file listing milestones, tasks within each milestone, and — critically — the rationale for why work is divided this way.
+Subdivide one coherent scope into implementation tasks. Output is a folder bundle under
+`<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<slug>/`:
 
-This is about **strategic decomposition**, not detailed task specs. Each task gets a purpose, description, and acceptance criteria — but not implementation plans or file lists. A separate downstream skill will later read this breakdown to produce detailed specs and create tasks in project management tools.
+- **`breakdown.md`** — an optional `**Target milestone:**` metadata line plus one `## T{N} :: <title>` block per task (Purpose, Description, Acceptance criteria, optional Depends on, Attachments).
+- **`T{N}-<slug>-implementation-plan.md`** — one per task. Cites real codebase paths and pattern exemplars surfaced during discovery and the brainstorming interview. `submit-breakdown` renames the file to `implementation-plan.md` at upload time.
 
-The breakdown file is a **bridge document**: it must contain all references (spec files, task URLs, Figma links, external docs) that the downstream skill will need for full context.
+A bundle produced here is push-ready: every task with a plan attachment lands `Unassigned`. Tasks without a plan land `Refinement`. No separate `refine-tasks` pass is needed for tasks created via this skill.
 
-## The Flow
+All task-manager reads (resolving a milestone URL, reading existing tasks for context) go through the neutral `task-manager` seam. This skill never writes to the task manager — that is `submit-breakdown`.
 
-This is a conversational skill — not a one-shot generator. Work through these phases in order, but adapt to what the user brings. If they arrive with a complete spec and clear context, move quickly through discovery. If they're still figuring things out, spend more time there.
+## Single Unified Flow
 
-### Phase 1: Discover
+No PLAN / EXPAND modes. No sub-modes. One flow.
 
-Gather all relevant context before proposing any structure. The goal is a complete picture of what exists, what needs to be built, and across which platforms.
+### Phase 1 — Ingest, Codebase Discovery, Seam Check
 
-Read **`references/discovery-guide.md`** for the full discovery checklist. The key areas:
+Accept any input shape — milestone task URL, project URL + milestone name, local spec file, free text, current working directory. Task and project URLs are ingested **through the `task-manager` seam**, never by naming a provider.
 
-1. **Specification sources** — collect every spec, doc, URL, and file path. Read all of them.
-2. **Existing project state** — new project or existing? What's already built? Are there existing milestones?
-3. **Platform inventory** — which platforms (Backend, Frontend, iOS, Android, Design) are involved and what's their current state?
-4. **Design state** — do designs exist? Is a Figma file available? Do designs need to be created before implementation can start?
-5. **External dependencies** — third-party APIs, services, infrastructure needs.
-6. **Team context** — who's doing the work? This affects task granularity.
+Walk the repo for `CLAUDE.md` / `AGENTS.md` plus current source in the areas the work will touch. **Never read prior breakdowns, specs, PRDs, or planning docs** — source code and convention files only. See `references/discovery-guide.md` for the source-detection table, the off-limits paths, and the questioning strategy.
 
-Be smart about discovery. Batch related questions. Skip areas that are obviously irrelevant. But never propose a breakdown until you have enough context to make informed decomposition decisions.
+Apply the **seam-check heuristic** (signals: multiple independent feature surfaces, heavy multi-platform scope, named phases / sub-projects, user language referencing "milestones / phases / tracks / roadmap"). If the seam check fires, surface what you detected and offer to redirect to `milestone-breakdown`. The user always has final say. See `references/discovery-guide.md` → "Seam Check".
 
-**Every URL, file path, and reference discovered here must appear in the output's References section.**
+### Phase 2 — Brainstorming Interview
 
-### Phase 2: Propose Milestone Structure
+Drive via `superpowers:brainstorming`. Topic universe scoped to task-level decisions:
 
-Before breaking down individual tasks, propose the milestone structure and get alignment:
+- Scope edges — what's in, what's out, where the task list ends
+- Pattern selection from the codebase — which existing pattern each task follows
+- UX / behavior specifics
+- Naming, file structure, module placement
+- Migration / backwards compatibility
+- Verification path per task — "if this were the only task done, how would you confirm it works by running the app?" Surface this for every task, especially infrastructure-leaning ones.
+- Trade-offs the user hasn't named
 
-- How many milestones (or which existing milestones to extend)?
-- What does each milestone deliver as a usable product increment?
-- Why this ordering?
+One question at a time. Treat the user as a technical expert. Capture any milestone reference the user names — it becomes the optional `**Target milestone:**` metadata.
 
-For design-heavy projects, consider whether design needs its own milestone before implementation, or whether design and backend can be parallelized while frontend is deferred.
+### Phase 3 — Task List Proposal & Approval
 
-Present the rationale for your structure. Get user feedback before proceeding.
+Synthesize the structured task list: T-labels (sequential across the whole bundle), names, one-line Purpose, Description, Acceptance criteria, and the intent for the neutral Platform, Priority, and Category fields, plus Depends on. See `references/decomposition-principles.md` for ordering, scoping, platform splits, and cleanup-task rules; field vocabulary comes from `plugins/cortex-workflow/references/workflow/fields.md`. Present in a single message. Wait for explicit "go". Iterate on push-back.
 
-### Phase 3: Break Down Each Milestone
+### Phase 4 — Batch Plan Generation
 
-For each milestone, propose the tasks — their platform, ordering, and scoping. Read **`references/decomposition-principles.md`** for the rules governing:
+For each T-task, generate `T{N}-<slug>-implementation-plan.md` from the shared template at `plugins/cortex-workflow/skills/refine-tasks/references/implementation-plan-template.md`. Plans cite real codebase paths and pattern exemplars from Phase 1. The "Resolved decisions" section is sourced from the Phase 2 brainstorm transcript — no re-asking, no re-litigating.
 
-- **Milestone design** — each milestone delivers a usable increment, not a technical layer
-- **Task ordering** — foundational before dependent, read before write, backend before frontend, design before implementation
-- **Task scoping** — one platform per task, completable in a single session (`00:30`–`04:00`)
-- **Dependencies** — explicit cross-references using T-labels, identify parallelizable work, flag blocking risks
-- **Cleanup tasks** — when and why to include a milestone cleanup/review task
+### Phase 5 — Write the Bundle
 
-Explain the rationale for ordering and scoping decisions. These decisions embody the core value of the breakdown — the "why" matters as much as the "what."
+Write `breakdown.md` plus each `T{N}-<slug>-implementation-plan.md` to `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<slug>/`. Resolve `<repo-root>` via `git rev-parse --show-toplevel`. If the folder already exists, append `-v2`, `-v3`, … until the name is free.
 
-**Write task descriptions in product language.** The `Description:` field must be understandable by anyone on the team — PM, designer, developer, QA — not just the engineer who will implement it. Lead with what the user sees or experiences when this task is done. Do not lead with the implementation approach (which API, which component, which pattern). Those details belong in the refinement step, once the codebase is read. See `references/output-format.md` → "Description" for examples and the full rule.
+See `references/output-format.md` for the `breakdown.md` grammar and the `**Target milestone:**` convention.
 
-### Phase 3.5: Validate
+### Phase 6 — Self-Review Pass
 
-After tasks are decomposed and before the user reviews them, walk every task and run these checks:
+Validate inline: no placeholders, real file paths in plans, no dangling T-deps, no redundant tasks, no off-limits references (input PRDs, prior breakdowns, `CLAUDE.md`, target project URL). Fix inline before handoff.
 
-- *Platform check* — exactly one platform per task. If a task spans multiple platforms (e.g., backend API + frontend UI), propose splitting into separate tasks with a dependency between them.
-- *Size check* — the task is completable in a single session (roughly `00:30`–`04:00`). If a task feels larger, propose a split with reasoning. If much smaller than `00:30`, consider merging with a related task.
-- *Split check* — apply the three split signals from `references/decomposition-principles.md` → "When to split a task": (1) does the description require a numbered list? (2) does it bundle a routine sub-feature with a complex/novel one? (3) can the first half be tested without the second half existing? Any "yes" is a reason to propose a split.
-- *Redundancy check* — the task does not duplicate work already covered by another task in this breakdown.
+**Testability check (run per task):** For each task, confirm at least one acceptance criterion is verifiable by running the app and observing behavior — not just by reading code or running typecheck. If a task's only verification path is "read the implementation" or "typecheck passes," it is infrastructure-only and must be absorbed into the first consumer task that exercises it. Apply the Infrastructure Tasks rule from `references/decomposition-principles.md` before handoff.
 
-Surface any issues to the user and resolve them (split / merge / reword) before proceeding.
+### Phase 7 — Handoff
 
-### Phase 4: Challenge and Refine
+Surface the bundle path and offer `submit-breakdown`:
 
-If the user suggests a different ordering or structure, evaluate it against the decomposition principles:
+> "Bundle saved to `<folder>`. Submit to the task manager now? [Y/n]"
 
-- If it's valid — agree and explain why it works
-- If it violates a dependency or principle — push back with clear reasoning ("Projects depend on Users for the assigned_user_ids relationship. Building Users first means the Project detail page can link to real User pages from day one.")
-
-This is collaborative design, not rubber-stamping. The goal is the best decomposition, not the first one.
-
-### Phase 5: Write the Breakdown
-
-Produce the final markdown file following the format in **`references/output-format.md`**.
-
-**File location:** `<repo-root>/docs/cortex/task-breakdowns/<YYYY-MM-DD>-<descriptive-name>.md`
-
-Resolve `<repo-root>` from the git repository root (`git rev-parse --show-toplevel`), not the current working directory. The descriptive name is a short slug derived from what the breakdown covers — all lowercase, hyphen-separated, with the date first so listings sort chronologically (e.g., `2026-05-20-management-features.md`, `2026-05-20-auth-redesign.md`).
-
-If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free (e.g., `2026-05-20-management-features-v2.md`).
-
-Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each task description.
-
-### Phase 6: Originating Task Disposition
-
-When the breakdown was triggered from a single task (e.g., a requirements-stage task that said "build feature X"), that originating task is now superseded by the breakdown's tasks. It needs to be dealt with.
-
-**When this applies:** The input to task-breakdown was a task URL (not a project URL, not a local spec file). That task is the "originating task."
-
-**When this does NOT apply:** The input was a spec file, a project URL, or multiple sources. Skip this phase.
-
-If an originating task exists, ask the user:
-
-> "The originating task `<task-name>` (`<task-url>`) has been decomposed into T1–TN. What should happen to it?
-> 1. **Delete** — remove it entirely
-> 2. **Complete** — mark as complete with a comment listing the new tasks
-> [1/2]"
-
-Write the user's choice into the breakdown file's **Originating Task** section (see `references/output-format.md`). The `submit-breakdown` skill will execute the chosen action after creating all new tasks.
-
-### Phase 7: Transition to Submit
-
-After writing the breakdown file, offer to push it to the task manager:
-
-> "Breakdown saved to `<file-path>`. Want to submit it to the task manager now? [Y/n]"
-
-If the user confirms, invoke the `submit-breakdown` skill using the Skill tool. Pass the breakdown file path and, if the breakdown's References section contains a project URL, include that too.
-
-If the user declines, stop here. They can run `/submit-breakdown` later with the file path.
+If yes, invoke `cortex-workflow:submit-breakdown` via the Skill tool with the folder path. `submit-breakdown` parses the optional `**Target milestone:**` (confirming with the user before slotting) and uploads each `T{N}-<slug>-implementation-plan.md` as `implementation-plan.md` on its task. If the user declines, stop here — they can run `submit-breakdown` later with the folder path.
 
 ## What This Skill Does NOT Do
 
-- Does not produce implementation plans or file-level specs (those are produced later, during a separate refinement step that reads the codebase)
-- Does not create tasks or interact with project management tools for writing
-- Does not write code or scaffold projects
-- Does not assign people, set priorities, or manage external IDs
-- Does not produce estimates — estimates should come from the team doing the work, after codebase analysis during refinement
-
-It **does** read from the task manager (existing tasks, projects, milestones) during discovery to understand current state.
+- Author milestone content. Milestone blocks (Purpose, Product Requirements, milestone-level Acceptance Criteria, M-label DAG, milestone-spec attachments) belong exclusively to `milestone-breakdown`.
+- Validate milestones, enforce milestone DAG rules, or touch any milestone task description.
+- Create or modify task-manager resources — that is `submit-breakdown`.
+- Read prior task-breakdowns, prior milestone-breakdowns, prior PRDs, prior specs, or any planning doc during discovery.
+- Write code, scaffold projects, or modify application sources.
+- Assign people, set priorities beyond the workflow default, or produce estimates.
 
 ## Reference Files
 
-- **`references/discovery-guide.md`** — Full discovery checklist and questioning strategy
-- **`references/decomposition-principles.md`** — Rules for milestone design, task ordering, scoping, dependencies, and cleanup tasks
-- **`references/output-format.md`** — Markdown template and field reference for the breakdown file
+- `references/discovery-guide.md` — source detection (via the seam), repo walk, seam-check heuristic, off-limits paths, questioning strategy
+- `references/decomposition-principles.md` — task ordering, scoping, platform splits, cleanup tasks, task-level dependencies
+- `references/output-format.md` — `breakdown.md` grammar (T-blocks + `**Target milestone:**` metadata) and field reference
+- `plugins/cortex-workflow/skills/refine-tasks/references/implementation-plan-template.md` — shared per-task plan template (canonical location; also used by `refine-tasks`)
