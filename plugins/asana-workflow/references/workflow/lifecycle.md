@@ -4,7 +4,7 @@ A task's state spans **two parallel axes**, expressed independently of any task 
 
 ## Product Status — the delivery-pipeline state
 
-The task's position in the delivery pipeline (in Asana, a custom field), in order:
+The task's position in the delivery pipeline, in order:
 
 1. **Requirements** — capturing what the work needs.
 2. **Sizing** — estimating relative size.
@@ -18,7 +18,7 @@ The task's position in the delivery pipeline (in Asana, a custom field), in orde
 
 ## Execution columns — where active work sits
 
-A **separate axis** from Product Status (in Asana, board sections / columns). A task can carry a Product Status (e.g. `Assigned`) while simultaneously sitting in an execution column:
+A **separate axis** from Product Status. A task can carry a Product Status (e.g. `Assigned`) while simultaneously sitting in an execution column:
 
 - **In Progress** — actively being worked on.
 - **In Review** — implementation complete, under review.
@@ -26,8 +26,7 @@ A **separate axis** from Product Status (in Asana, board sections / columns). A 
 
 ## How providers realize the two axes
 
-- **Asana** — Product Status is a **custom field**; the execution columns are **board sections**. Two distinct mechanisms (`set_status` resolves which: a Product Status value → the field; an execution-column name → a section move).
-- **Jira** — both axes **fold into the single transition-driven `status`**, mapped by `statusCategory` (`new` / `indeterminate` / `done`).
+A provider maps both axes onto its own model — one mechanism for both, or a separate mechanism per axis. `set_status(task, <name>)` resolves the name to whatever the provider uses; *how* it does so is the provider's concern, documented in the `task-manager-<provider>` skill, not in this neutral rule.
 
 ## Notes
 

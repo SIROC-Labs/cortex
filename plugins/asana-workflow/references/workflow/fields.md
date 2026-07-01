@@ -10,7 +10,7 @@ The canonical fields the siroc workflow uses, by meaning. Provider-agnostic: thi
 | Priority | Urgency / severity of the task. |
 | Sizing | Relative size estimate (story points / t-shirt). |
 | Estimate | Expected effort. Input is flexible (decimal hours, `hh:mm`, `1h 30m`); the stored unit and display format are provider-defined. |
-| Type / Category | The kind of work (Bug, Feature/Story, Task…). A provider may realize it as a native issue type (e.g. Jira) or as a custom field (e.g. Asana). Used for routing (e.g. Bug → bug flow). |
+| Type / Category | The kind of work (Bug, Feature/Story, Task…). A provider may realize it as a native issue type or as a custom field. Used for routing (e.g. Bug → bug flow). |
 | Labels | Free-form tags on a task. |
 | Parent / Epic | The task's parent or epic membership (hierarchy). |
 | Product Status | Where the task sits in the lifecycle (see `lifecycle.md`). |

@@ -125,7 +125,7 @@ Build the PR body from available sections. **Omit any section that has no conten
 ```
 
 Rules:
-- **The PR description is the authoritative record of QA — it must carry the verification evidence, even when the same evidence was posted to the Asana task.** Reviewers read the PR, not Asana; QA evidence that lives only in an Asana comment is invisible at review time. The Asana comment is a notification, the PR `## Testing` section is the record.
+- **The PR description is the authoritative record of QA — it must carry the verification evidence, even when the same evidence was posted to the task.** Reviewers read the PR, not the task manager; QA evidence that lives only in a task comment is invisible at review time. The task comment is a notification, the PR `## Testing` section is the record.
 - Populate `## Testing` from the QA gate and `work-summary`: name the regression/added tests, the suites run with their pass counts (distinguish integration vs unit — an integration run against real containers is stronger evidence than a unit run), lint/build status, and the QA verdict (e.g. `backend-qa: PASS`). Omit the section only when there is genuinely no test or QA signal — and when omitting, say why in the Summary.
 - If no "How to test" content is available, omit the entire section (header and body).
 - If no task URL was provided, omit the entire "Task" section.
