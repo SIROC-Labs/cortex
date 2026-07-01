@@ -14,13 +14,13 @@ The single seam between workflow skills and whatever task manager a project uses
 
 ## Resolution (do this once per session)
 
-Run the seam's resolver — never inspect the cache by hand, and never "guess vs ask". Resolution is **detection-only**: the resolver layers cached marker → task-URL detection → ask for you (there is no committed selector file).
+Run the seam's resolver — never inspect the cache by hand, and never "guess vs ask". Resolution is **detection-only**: the resolver layers cached marker → task-URL detection → ask (there is no committed selector file).
 
 ```bash
 ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/resolve_provider.py [--url <task-url-or-ref>]
 ```
 
-Pass `--url` whenever the operator gave you a task URL/id (it lets the resolver detect the provider from the link). It prints the provider on stdout and the resolution source on stderr. Branch on the **exit code**:
+Pass `--url` whenever the operator provides a task URL/id (it lets the resolver detect the provider from the link). It prints the provider on stdout and the resolution source on stderr. Branch on the **exit code**:
 
 - **0** → use the printed provider; cache it for the rest of the session. When stderr says `source=detected`, the resolver has already persisted the provider marker to the per-repo cache — nothing more to do.
 - **3** → conflict: the cached provider and the URL-detected provider disagree (both printed on stderr). Surface both to the operator and let them choose; do not silently pick. Persist their choice with `resolve_provider.py --set <provider>`.
