@@ -5,7 +5,7 @@ description: >
   This skill should be used when the user says "summarize my work", "what did I do", "session recap",
   "standup notes", "handoff", "write a summary", "what changed", "wrap up summary", "give me a recap",
   or "work report". Produces a concise, reusable work summary that other skills (ship-it, create-pr,
-  asana-api) can consume. Standalone use cases include standups, handoffs, Slack posts, and Asana
+  task-manager) can consume. Standalone use cases include standups, handoffs, Slack posts, and task
   comments without running the full ship-it flow.
 ---
 
@@ -15,11 +15,11 @@ Generate a concise report of the current session's work — what was done, why, 
 
 ## Output Format
 
-The summary has three parts: the **Asana summary**, the **body**, and the **footer**.
+The summary has three parts: the **task summary**, the **body**, and the **footer**.
 
-### Asana Summary (max 3 sentences)
+### Task Summary (max 3 sentences)
 
-A high-level, non-technical description for the Asana task comment. Written for a product manager or stakeholder, not an engineer. Focus on what changed at the feature/product level and highlight anything critical (a constraint overcome, a tradeoff made, a risk resolved). Do NOT name hooks, files, endpoints, or implementation details.
+A high-level, non-technical description for the task comment. Written for a product manager or stakeholder, not an engineer. Focus on what changed at the feature/product level and highlight anything critical (a constraint overcome, a tradeoff made, a risk resolved). Do NOT name hooks, files, endpoints, or implementation details.
 
 Examples:
 - *"Replaced the Dynamic Creative sidebar with the Instant Creative sidebar. The main constraint was keeping the shared code inside the app package due to an API dependency limitation. All four locales were updated."*
@@ -110,7 +110,7 @@ When git timestamps span a much larger window than conversation turns suggest (e
 
 **Small change:**
 
-Asana summary:
+Task summary:
 ```
 Fixed premature session logouts for users outside UTC. Root cause was a timezone
 mismatch in the session expiry check.
@@ -128,7 +128,7 @@ for users in positive UTC offsets.
 
 **Larger feature:**
 
-Asana summary:
+Task summary:
 ```
 Added admin endpoints for listing and exporting presale code pool codes.
 Needed for reconciliation with the payment provider. Frontend table still
@@ -166,8 +166,8 @@ Do not ask clarifying questions before producing the summary — use available c
 
 This skill produces output that other skills consume:
 
-- **ship-it** — Uses the **Asana summary** (high-level, 1-3 sentences) for the Asana task comment.
+- **ship-it** — Uses the **task summary** (high-level, 1-3 sentences) for the task comment.
 - **create-pr** — Uses the **body** (technical paragraphs) for the PR description.
-- **asana-api** — Uses the Asana summary + stats footer as a task comment.
+- **task-manager** — Uses the task summary + stats footer as a task comment.
 
-When called by another skill, return both the Asana summary and the body so the caller can pick the right one. When called standalone, present both to the user. In both cases, do not prompt the user to validate or adjust the summary.
+When called by another skill, return both the task summary and the body so the caller can pick the right one. When called standalone, present both to the user. In both cases, do not prompt the user to validate or adjust the summary.

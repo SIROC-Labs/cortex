@@ -99,11 +99,11 @@ See `references/reporting.md` (in this directory) for the full report structure.
 5. **Source context** (if available) — File/line references
 6. **Recommendation** — Suggested fix or next steps
 
-### Step 6: Post QA Finding to Asana
+### Step 6: Post QA Finding to the Task Manager
 
 Posts when a task GID is available in context (invoked from `start-task`). If no task GID (standalone invocation), skip this step — the report is the artifact.
 
-Post a comment and upload evidence via the `asana-api` skill based on the mode and outcome:
+Post a comment and upload evidence via the `task-manager` interface (`add_comment` + `upload_attachment`) based on the mode and outcome:
 
 #### Investigate Mode
 
@@ -159,11 +159,11 @@ Include:
 
 #### Evidence Upload
 
-After posting the comment, upload all evidence files from the evidence directory to the task using the `asana-api` Upload Attachment operation. This creates a permanent visual record on the ticket.
+After posting the comment, upload all evidence files from the evidence directory to the task using the `task-manager` interface's `upload_attachment` operation. This creates a permanent visual record on the ticket.
 
 Upload the assertion-point screenshot at minimum. If a recording exists, upload that too.
 
-Author QA comments as structured HTML (Asana rich text — bold section titles, bulleted lists, inline `<code>` for identifiers). Post via the `asana-api` skill.
+Author QA comments in Markdown. Post via the `task-manager` interface (`add_comment`); the provider renders the formatting.
 
 ## Behavior Rules
 

@@ -18,14 +18,16 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 
 | Skill | Description |
 |-------|-------------|
-| `start-task` | Validates Asana task, creates branch and draft PR, routes to feature-dev or debugging. Writes a per-step checkpoint for resumability; add `fast` to skip sub-skill routing |
-| `ship-it` | Orchestrates pre-checks, summary, PR creation, and Asana update |
+| `start-task` | Validates the task, creates branch and draft PR, routes to feature-dev or debugging. Writes a per-step checkpoint for resumability; add `fast` to skip sub-skill routing |
+| `ship-it` | Orchestrates pre-checks, summary, PR creation, and task update |
 | `pre-ship-check` | Validates git state, lint, build, and tests |
 | `git-check` | Branch safety, working tree cleanliness, debug artifact detection |
 | `work-summary` | Session recap for standups, handoffs, and PRs |
-| `create-pr` | Full PR lifecycle with Asana linking and reviewer assignment |
-| `asana-api` | Asana REST API patterns and common operations |
-| `log-task` | Creates an Asana task from work discovered or completed in conversation |
+| `create-pr` | Full PR lifecycle with task linking and reviewer assignment |
+| `task-manager` | Neutral task-manager interface (Asana, Jira, …) |
+| `task-manager-asana` | Asana provider implementation |
+| `task-manager-jira` | Jira provider implementation |
+| `log-task` | Creates a task from work discovered or completed in conversation |
 | `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
 | `implement-feature` | Routes implementation work to the right development skill per runtime — plan-aware (create plan / execute plan / implement inline); works standalone or invoked from `start-task` |
 | `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
@@ -35,8 +37,8 @@ End-to-end Asana-driven development workflow: from ticket to shipped PR with aut
 | `backend-testing` | Integration-first testing patterns for backend APIs/services using testcontainers, spec-driven fakes, and contract tests |
 | `create-prd` | Generates a complete PRD from any combination of sources: Asana task URL, Notion page, Figma file, local folder, or any web URL |
 | `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
-| `submit-breakdown` | Faithfully replicates a task breakdown into Asana as Refinement-status tasks; handles originating task disposition |
-| `refine-tasks` | Turn Refinement-status Asana tasks into one-shotters with attached implementation plans |
+| `submit-breakdown` | Faithfully replicates a task breakdown into the task manager as Refinement-status tasks; handles originating task disposition |
+| `refine-tasks` | Turn Refinement-status tasks into one-shotters with attached implementation plans |
 
 ### dev-toolkit
 

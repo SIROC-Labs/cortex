@@ -3,15 +3,15 @@
 # checkpoint.sh — maintain the start-task checkpoint file silently
 #
 # Usage:
-#   checkpoint.sh init        <gid> <asana_url>
-#   checkpoint.sh start       <gid> "<step>"
-#   checkpoint.sh complete    <gid> "<step>" "<comment>" [auto]
-#   checkpoint.sh skip        <gid> "<step>" "<reason>"
-#   checkpoint.sh block       <gid> "<step>" "<reason>"
-#   checkpoint.sh set         <gid> <field> "<value>"
-#   checkpoint.sh append-note <gid> "<text>"
-#   checkpoint.sh read        <gid> ["<step>"]
-#   checkpoint.sh delete      <gid>
+#   checkpoint.sh init        <task-ref> <task-url>
+#   checkpoint.sh start       <task-ref> "<step>"
+#   checkpoint.sh complete    <task-ref> "<step>" "<comment>" [auto]
+#   checkpoint.sh skip        <task-ref> "<step>" "<reason>"
+#   checkpoint.sh block       <task-ref> "<step>" "<reason>"
+#   checkpoint.sh set         <task-ref> <field> "<value>"
+#   checkpoint.sh append-note <task-ref> "<text>"
+#   checkpoint.sh read        <task-ref> ["<step>"]
+#   checkpoint.sh delete      <task-ref>
 #
 # <step> is the full step label as shown in the Steps table, e.g. "3. Validate
 # Sprint-Readiness" or "QA: Investigate Bug". The script matches by exact
@@ -109,9 +109,9 @@ get_column() {
 }
 
 cmd_init() {
-  local gid="$1" url="$2"
+  local ref="$1" url="$2"
   mkdir -p "$CHECKPOINTS_DIR"
-  local file; file=$(file_for "$gid")
+  local file; file=$(file_for "$ref")
   if [[ -f "$file" ]]; then
     echo "checkpoint already exists: $file (refusing to overwrite)" >&2
     exit 1
@@ -119,9 +119,9 @@ cmd_init() {
   local ts; ts=$(now)
   cat > "$file" <<EOF
 ---
-task_gid: "$gid"
+task_ref: "$ref"
 task_id: ""
-asana_url: "$url"
+task_url: "$url"
 branch: ""
 base_branch: ""
 workflow: ""
@@ -160,8 +160,8 @@ EOF
 }
 
 cmd_start() {
-  local gid="$1" step="$2"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" step="$2"
+  local file; file=$(file_for "$ref"); require_file "$file"
   validate_plain "$step"
   require_row "$file" "$step"
   local attempts auto
@@ -176,8 +176,8 @@ cmd_start() {
 }
 
 cmd_complete() {
-  local gid="$1" step="$2" comment="$3" auto="${4:-yes}"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" step="$2" comment="$3" auto="${4:-yes}"
+  local file; file=$(file_for "$ref"); require_file "$file"
   validate_plain "$step"
   validate_plain "$comment"
   require_row "$file" "$step"
@@ -196,8 +196,8 @@ cmd_complete() {
 }
 
 cmd_skip() {
-  local gid="$1" step="$2" reason="$3"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" step="$2" reason="$3"
+  local file; file=$(file_for "$ref"); require_file "$file"
   validate_plain "$step"
   validate_plain "$reason"
   require_row "$file" "$step"
@@ -210,8 +210,8 @@ cmd_skip() {
 }
 
 cmd_block() {
-  local gid="$1" step="$2" reason="$3"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" step="$2" reason="$3"
+  local file; file=$(file_for "$ref"); require_file "$file"
   validate_plain "$step"
   validate_plain "$reason"
   require_row "$file" "$step"
@@ -224,22 +224,22 @@ cmd_block() {
 }
 
 cmd_set() {
-  local gid="$1" field="$2" value="$3"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" field="$2" value="$3"
+  local file; file=$(file_for "$ref"); require_file "$file"
   set_frontmatter "$file" "$field" "$value"
   touch_last_updated "$file"
 }
 
 cmd_append_note() {
-  local gid="$1" text="$2"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" text="$2"
+  local file; file=$(file_for "$ref"); require_file "$file"
   printf '\n%s\n' "$text" >> "$file"
   touch_last_updated "$file"
 }
 
 cmd_read() {
-  local gid="$1" step="${2:-}"
-  local file; file=$(file_for "$gid"); require_file "$file"
+  local ref="$1" step="${2:-}"
+  local file; file=$(file_for "$ref"); require_file "$file"
   if [[ -z "$step" ]]; then
     cat "$file"
   else
@@ -248,8 +248,8 @@ cmd_read() {
 }
 
 cmd_delete() {
-  local gid="$1"
-  local file; file=$(file_for "$gid")
+  local ref="$1"
+  local file; file=$(file_for "$ref")
   if [[ -f "$file" ]]; then
     rm -f "$file"
   fi

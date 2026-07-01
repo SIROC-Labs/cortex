@@ -28,13 +28,13 @@ Tests:    142 passed (38 unit · 104 integration) — 2m18s
 Coverage: business logic 87%
 QA:       ✅ 4 flows verified — login, create order, payment webhook, refund
 Verdict:  ✅ Ready to ship
-Details:  full transcripts · DB snapshots · logs → Asana task XYZ-123
+Details:  full transcripts · DB snapshots · logs → task XYZ-123
 ```
 
 Rules:
 
 - **One screen.** Counts, duration, pinned container versions, coverage on business logic, a one-line QA result, a verdict.
-- **Raw artifacts are linked, not dumped** — full transcripts, DB snapshots, and logs attach to the linked Asana task (the existing QA-evidence convention), referenced by the `Details:` line.
+- **Raw artifacts are linked, not dumped** — full transcripts, DB snapshots, and logs attach to the linked task (the existing QA-evidence convention), referenced by the `Details:` line.
 - **`pre-ship-check`'s QA gate consumes this block**; `create-pr` embeds it in the PR body.
 
 ## CI job shape

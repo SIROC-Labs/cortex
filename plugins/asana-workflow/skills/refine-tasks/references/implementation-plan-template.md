@@ -4,7 +4,7 @@ The attached `implementation-plan.md` is a standalone markdown document the down
 
 The plan does **not** contain implementation code. The downstream agent has full codebase access and a single-task focus; it is better positioned than refine-tasks to derive exact syntax, types, and naming from the live codebase at execution time. refine-tasks removes ambiguity about *what* and *why*; the downstream agent writes the code.
 
-The Asana task description still owns the high-level **what** and **why** (Purpose, Description, Out of scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering - without prescribing the code itself.
+The task description still owns the high-level **what** and **why** (Purpose, Description, Out of scope, Acceptance Criteria, References). The plan deepens it with concrete file paths, models, signatures, exemplar patterns, and a step ordering - without prescribing the code itself.
 
 ## Plan Header
 
@@ -13,12 +13,12 @@ Every plan starts with:
 ```markdown
 # <Task title>
 
-- **Asana task:** <url>
-- **Milestone:** <milestone name as it appears in Asana, e.g., "M1 :: Core Data Layer">
-- **Purpose:** <one sentence, verbatim from the Asana task description's Purpose>
+- **Task:** <url>
+- **Milestone:** <milestone name as it appears in the task manager, e.g., "M1 :: Core Data Layer">
+- **Purpose:** <one sentence, verbatim from the task description's Purpose>
 ```
 
-**Never use T-labels (`T1`, `T2`, ...) in the plan.** T-labels are an internal identifier scheme from an upstream decomposition document - they have no meaning once tasks are in Asana. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
+**Never use T-labels (`T1`, `T2`, ...) in the plan.** T-labels are an internal identifier scheme from an upstream decomposition document - they have no meaning once tasks are in the task manager. Reference sibling tasks by title or task URL; reference earlier steps in this plan by `Step N`.
 
 ## Resolved Decisions (optional)
 
@@ -177,7 +177,7 @@ Config changes, scaffolding, refactors, frontend UI work where visual review is 
 
 ## Acceptance Criteria Mapping
 
-Map each acceptance criterion (verbatim from the Asana task description) to the step(s) that verify it.
+Map each acceptance criterion (verbatim from the task description) to the step(s) that verify it.
 
 ```markdown
 ## Acceptance criteria mapping
@@ -214,20 +214,18 @@ Concrete commands the executor (or a reviewer) can run end-to-end once the task 
 # Run the module's test suite
 pytest tests/core/employees/ -v
 
-# Smoke-test the endpoints against a running dev server
-curl http://localhost:8000/employees
-curl -X POST http://localhost:8000/employees \
-  -H "content-type: application/json" \
-  -d '{"name":"Alice","role":"Engineer","department":"Backend"}'
-curl http://localhost:8000/employees/1
-curl -X DELETE http://localhost:8000/employees/1
-curl http://localhost:8000/employees/1   # expect 404 after delete
+# Smoke-test the endpoints against a running dev server (use your HTTP client of choice)
+GET    http://localhost:8000/employees
+POST   http://localhost:8000/employees   {"name":"Alice","role":"Engineer","department":"Backend"}
+GET    http://localhost:8000/employees/1
+DELETE http://localhost:8000/employees/1
+GET    http://localhost:8000/employees/1   # expect 404 after delete
 ```
 
 Expected: all happy-path calls return 2xx; the GET after DELETE returns 404 with the standard not-found body.
 ````
 
-For frontend / UI tasks, replace curl with a step-through of the user flow (e.g., "navigate to /employees, click New, fill the form, click Save, confirm the new row appears in the list").
+For frontend / UI tasks, replace the HTTP smoke test with a step-through of the user flow (e.g., "navigate to /employees, click New, fill the form, click Save, confirm the new row appears in the list").
 
 ## References
 
@@ -239,21 +237,21 @@ Every source consulted to write this plan.
 - Spec: `docs/spec.md` Section "Employees"
 - Pattern: `src/core/users/`
 - Pattern: `src/api/routers/users.py`
-- Asana milestone: <url>
+- Task milestone: <url>
 ```
 
 ---
 
 ## Content Rules
 
-- **ASCII characters only.** The plan is uploaded to Asana as an attachment, and Asana's preview renders the file without declaring a UTF-8 charset; non-ASCII bytes are decoded as Latin-1 / Windows-1252 and become visible mojibake. Replace every typographic character with its ASCII equivalent: em dash and en dash become `-`, right arrow becomes `->`, smart quotes become straight `'` and `"`, ellipsis becomes `...`, the section sign becomes the word `Section`. This rule covers prose, examples, tables, and step descriptions equally.
+- **ASCII characters only.** The plan is uploaded to the task manager as an attachment, and the in-app file preview may render it without declaring a UTF-8 charset; non-ASCII bytes are then decoded as Latin-1 / Windows-1252 and become visible mojibake. Replace every typographic character with its ASCII equivalent: em dash and en dash become `-`, right arrow becomes `->`, smart quotes become straight `'` and `"`, ellipsis becomes `...`, the section sign becomes the word `Section`. This rule covers prose, examples, tables, and step descriptions equally.
 - **Reference patterns, don't predict code.** Point to exemplar files. The downstream session has the codebase open at execution time and is better positioned than `refine-tasks` to derive exact syntax, types, and naming.
 - **Describe models and signatures in structured form, not as class/function declarations.** Field name + type + constraint is all that's needed; the syntax follows from the pattern.
 - **Be opinionated.** Where conventions exist, pick the one to follow. Don't offer alternatives.
 - **State technical facts, not predictions.** Only assert file paths and patterns that are real in the current codebase. Describing what a new function/endpoint should do is fine; predicting its body is not.
 - **Resolve cross-task decisions once.** If a sibling task established a pattern, state it as the established choice rather than re-litigating in every plan.
-- **Don't duplicate the Asana description.** Purpose / Description / Out of scope / Acceptance Criteria already live there. The plan's job is to deepen them with files, patterns, models, signatures, and step ordering.
-- **No T-labels.** `T1`, `T2`, ... are breakdown-internal identifiers. Reference sibling tasks by title or Asana URL; reference earlier steps in this plan by `Step N`.
+- **Don't duplicate the task description.** Purpose / Description / Out of scope / Acceptance Criteria already live there. The plan's job is to deepen them with files, patterns, models, signatures, and step ordering.
+- **No T-labels.** `T1`, `T2`, ... are breakdown-internal identifiers. Reference sibling tasks by title or task URL; reference earlier steps in this plan by `Step N`.
 - **No placeholders.** These are plan failures:
   - `TBD`, `TODO`, `fill in details`, `implement later`
   - `add appropriate error handling`, `handle edge cases`, `add validation` - without specifics
@@ -264,7 +262,7 @@ Every source consulted to write this plan.
 
 ## Self-Review
 
-Before saving the plan as the Asana attachment:
+Before saving the plan as the task attachment:
 
 1. **ASCII-only** - no em dashes, arrows, smart quotes, ellipses, or section signs anywhere in the plan. `LC_ALL=C grep -P "[^\x00-\x7F]"` on the draft must return nothing.
 2. **Acceptance coverage** - every acceptance criterion maps to at least one step in Acceptance Criteria Mapping.

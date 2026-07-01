@@ -40,7 +40,7 @@ git checkout -b <task-id>/<slug>
 
 Format: `<task-id>/<slug>`
 
-- **task-id** — the project ID from the Asana custom field (e.g., `MT251-12`, `BI-88`)
+- **task-id** — the project ID field on the task (e.g., `MT251-12`, `BI-88`)
 - **slug** — short, lowercase, hyphenated version of the task name (e.g., `add-export-endpoint`)
 
 Examples:

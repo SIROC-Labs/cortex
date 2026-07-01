@@ -16,7 +16,7 @@ Usage: `/start-task <url> [brainstorm | feature-dev | fast]`
 
 ## Checkpointing
 
-Every run writes to `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
+Every run writes to `~/.cortex/asana-workflow/checkpoints/<task-ref>.md` via `plugins/asana-workflow/skills/start-task/scripts/checkpoint.sh`. All numbered steps must be recorded — see `references/checkpoints.md` for the full protocol.
 
 ## Pause Flow
 
@@ -29,10 +29,10 @@ Fires at any point during the session.
 1. Verify current branch matches task (warn if merge in progress)
 2. `git add -A && git commit` → `WIP: <task-id> — blocked on [reason]`
 3. Draft blocking question → **USER MUST APPROVE** wording before posting
-4. Post to Asana via `asana-api` (with @mention of blocker)
-5. `checkpoint.sh block <gid> <step> <reason>` then `checkpoint.sh append-note <gid> <blocking-question + who-to-follow-up-with>`
+4. Post a comment via the task manager (`add_comment`, with @mention of blocker)
+5. `checkpoint.sh block <task-ref> <step> <reason>` then `checkpoint.sh append-note <task-ref> <blocking-question + who-to-follow-up-with>`
 6. `git push` WIP branch
-7. Confirm: commit hash · Asana comment link · checkpoint path
+7. Confirm: commit hash · task comment link · checkpoint path
 
 Task stays **"In Progress"** → ■ PAUSED
 
@@ -46,14 +46,14 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  INIT / RESUME  (before Step 0)            │
              │  ls ~/.cortex/asana-workflow/checkpoints/  │
-             │     <task-gid>.md                          │
+             │     <task-ref>.md                          │
              └───────────────────┬────────────────────────┘
                                  │
                         ◆ checkpoint exists?
                        ╱                     ╲
                      YES                      NO
                       │                        │
-                RESUME FLOW              checkpoint.sh init <gid> <url>
+                RESUME FLOW              checkpoint.sh init <task-ref> <url>
                       │                        │
               ┌───────┴────────┐               │
               │ find first     │               │
@@ -67,7 +67,7 @@ Task stays **"In Progress"** → ■ PAUSED
               │ verify branch, │               │
               │ check task     │               │
               │ status, fetch  │               │
-              │ new Asana      │               │
+              │ new task       │               │
               │ comments since │               │
               │ last_updated   │               │
               │ if row=blocked │               │
@@ -108,7 +108,7 @@ Task stays **"In Progress"** → ■ PAUSED
                                  ▼
              ┌────────────────────────────────────────────┐
              │  1 · Get Task URL                          │
-             │  parse $ARGUMENTS → extract task GID       │
+             │  parse $ARGUMENTS → extract task ref       │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ valid URL?
@@ -122,15 +122,15 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  2 · Fetch Task Details                    │
              │  name · category · sprint · assignee       │
-             │  custom fields · notes · memberships       │
+             │  fields · notes · memberships              │
              │  → print summary                           │
-             │  checkpoint.sh set <gid> task_id <task-id> │
+             │  checkpoint.sh set <task-ref> task_id      │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
              │  2a · Validate Assignee                    │
-             │  GET /users/me → current user GID          │
+             │  get_current_user() → current user         │
              └───────────────────┬────────────────────────┘
                                  │
                         ◆ task.assignee?
@@ -144,17 +144,20 @@ Task stays **"In Progress"** → ■ PAUSED
                    │             │         YES        NO
                    │             │          │          │
                    │             │     reassign     ■ STOP
-                   │             │     via API
+                   │             │     via interface
                    └─────────────┴──────────┘
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
              │  3 · Validate Sprint-Readiness             │
+             │     (readiness.py check → verdict JSON)    │
              │                                            │
-             │  ◻ Active sprint membership   BLOCKING     │
-             │  ◻ Estimated time     BLOCKING  → API fix  │
-             │  ◻ Product Status     BLOCKING  → API fix  │
-             │  ◻ ID field           WARN (skippable)     │
+             │  ◻ active_sprint        BLOCKING           │
+             │  ◻ estimate             BLOCKING  → fix    │
+             │  ◻ status               BLOCKING  → fix    │
+             │       not-yet-started → go;                │
+             │       else → set start state (Assigned)    │
+             │  ◻ task_key           WARN/skip (per prov) │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ all blocking pass?
@@ -162,7 +165,7 @@ Task stays **"In Progress"** → ■ PAUSED
                          NO                     YES
                           │                      │
                    report checklist              │
-                   offer API fix                 │
+                   offer fix                 │
                           ↺────────────────────┘
                                  │
                                  ▼
@@ -221,7 +224,7 @@ Task stays **"In Progress"** → ■ PAUSED
              │  7 · Create Feature Branch                 │
              │  <task-id>/<slug>  off base branch         │
              │  inform only — no question                 │
-             │  checkpoint.sh set <gid> branch / base     │
+             │  checkpoint.sh set <task-ref> branch/base  │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼
@@ -240,7 +243,7 @@ Task stays **"In Progress"** → ■ PAUSED
 ```
              ┌────────────────────────────────────────────┐
              │  9a · Move to In Progress                  │
-             │  Asana section move → "In Progress"        │
+             │  set_status(task, "In Progress")           │
              │  if move fails: report, do not block       │
              └───────────────────┬────────────────────────┘
                                  │
@@ -356,7 +359,7 @@ Details in `plugins/asana-workflow/references/qa-routing.md`. Skipped entirely w
                CONFIRMED          CANNOT REPRODUCE   │
                     │                   │            │
            post QA report to       operator decides: │
-           Asana task               · fix SUT        │
+           the task                 · fix SUT        │
                     │               · clarify        │
                     │                    → ■ STOP    │
                     │               · skip verify,   │
@@ -405,7 +408,7 @@ Details in `plugins/asana-workflow/references/qa-routing.md`. Skipped entirely w
             mode. Posts            Step 12 (ship-it
             ✅ QA Feature          → pre-ship-check
             Complete to            will offer one
-            Asana                  more chance)
+            the task               more chance)
                      │                 │
                      └────────┬────────┘
                               │
@@ -432,7 +435,7 @@ Details in `plugins/asana-workflow/references/qa-routing.md`. Skipped entirely w
              │  post completion comment                   │
              │                                            │
              │  on success:                               │
-             │  checkpoint.sh delete <gid>                │
+             │  checkpoint.sh delete <task-ref>           │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼

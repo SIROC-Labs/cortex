@@ -48,18 +48,18 @@ Run the resolution logic above ("Resolving the QA Skill"). Record the result for
 **Bug tasks only, when resolved skill != `none`.**
 
 Invoke the resolved QA skill in **investigate** mode with:
-- Bug description from the Asana ticket (as the question)
+- Bug description from the task (as the question)
 - SUT identifier (URL or app bundle ID, if known from CLAUDE.md or task notes)
 
 Outcomes:
-- **Confirmed** (bug reproduced with evidence) → QA skill posts the report to the Asana task. Proceed to `QA: Fix Bug`, passing the full report as context.
+- **Confirmed** (bug reproduced with evidence) → QA skill posts the report to the task. Proceed to `QA: Fix Bug`, passing the full report as context.
 - **Cannot reproduce** → **stop**. Report to operator. Let them decide: fix SUT setup, clarify the bug description, or skip verification and proceed to debugging anyway.
 
 ### QA: Fix Bug
 
 **Bug tasks only.**
 
-Invoke `fix-bug` with the QA report from `QA: Investigate Bug` as enriched context (reproduction steps, evidence, root-cause analysis from runtime observation). If `QA: Investigate Bug` was skipped (resolved skill is `none`), invoke `fix-bug` with just the Asana ticket context.
+Invoke `fix-bug` with the QA report from `QA: Investigate Bug` as enriched context (reproduction steps, evidence, root-cause analysis from runtime observation). If `QA: Investigate Bug` was skipped (resolved skill is `none`), invoke `fix-bug` with just the task context.
 
 `fix-bug` returns after root-cause investigation + TDD pass. It does **not** verify or ship — that is start-task's responsibility (`QA: Verify Fix` and the ship-it handoff).
 
@@ -69,8 +69,8 @@ Invoke `fix-bug` with the QA report from `QA: Investigate Bug` as enriched conte
 
 After `fix-bug` returns, re-invoke the resolved QA skill in **verify** mode with the original reproduction steps from `QA: Investigate Bug`. The QA skill will rebuild, deploy, and replay the steps.
 
-- **Pass** → QA skill posts `✅ QA Verification — PASSED` to Asana with evidence. Proceed to ship-it.
-- **Fail** → QA skill posts `❌ QA Verification — FAILED` to Asana with evidence. Return to `QA: Fix Bug` for another debugging pass.
+- **Pass** → QA skill posts `✅ QA Verification — PASSED` to the task with evidence. Proceed to ship-it.
+- **Fail** → QA skill posts `❌ QA Verification — FAILED` to the task with evidence. Return to `QA: Fix Bug` for another debugging pass.
 
 ### QA: Verify Non-Bug
 
@@ -82,13 +82,13 @@ Skip asking only if the operator has already provided an explicit answer about Q
 
 After the development workflow signals completion, ask:
 
-> "Implementation is complete. The changes can be visually verified before shipping — I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the Asana task as proof of completion.
+> "Implementation is complete. The changes can be visually verified before shipping — I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the task as proof of completion.
 >
 > Run QA verification? [yes / skip]"
 
 Wait for the operator's answer before continuing.
 
-If **yes** — resolve the QA skill if not already resolved (`QA: Resolve`) and invoke it with a summary of what was built/changed. The QA skill verifies the implementation, then posts `✅ QA Verification — Feature Complete` to Asana with evidence.
+If **yes** — resolve the QA skill if not already resolved (`QA: Resolve`) and invoke it with a summary of what was built/changed. The QA skill verifies the implementation, then posts `✅ QA Verification — Feature Complete` to the task with evidence.
 
 If **skip** — proceed to ship-it. `pre-ship-check` will offer one more chance if no QA evidence is found at ship time.
 

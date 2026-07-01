@@ -1,26 +1,16 @@
 # Input Resolution
 
-`refine-tasks` accepts any input that resolves to a **deterministic, ordered list of Asana task GIDs** in Refinement status. This reference defines the resolution rules.
+`refine-tasks` accepts any input that resolves to a **deterministic, ordered list of tasks** in Refinement status. This reference defines the resolution rules. All task and board resolution goes through the `task-manager` interface — this skill never parses provider URLs or addresses tasks by raw identifier.
 
 ## Accepted Input Shapes
 
-### 1. One or more Asana task URLs
+### 1. One or more task URLs
 
-```
-https://app.asana.com/0/<project_gid>/<task_gid>
-https://app.asana.com/0/<project_gid>/<task_gid>/f
-```
-
-Extract the task GID — the trailing numeric segment that corresponds to the task. Asana URLs come in several shapes; the parser should handle these forms (always extracting the segment that is the task GID, not the project / org / inbox):
-
-- `https://app.asana.com/0/<project_gid>/<task_gid>`
-- `https://app.asana.com/0/<project_gid>/<task_gid>/f`
-- `https://app.asana.com/1/<org_gid>/project/<project_gid>/task/<task_gid>`
-- `https://app.asana.com/1/<org_gid>/inbox/<inbox_gid>/item/<task_gid>/...`
+Resolve each URL to a task handle via `find_task(ref)`. The provider extracts whatever identifier it needs from the URL; the skill only holds the returned handle.
 
 If multiple URLs are provided, resolve each independently. Order them by their dependencies once status filtering is done.
 
-### 2. A project URL + milestone (section) name
+### 2. A project URL + milestone (grouping) name
 
 User says something like:
 
@@ -29,21 +19,21 @@ User says something like:
 - "/refine-tasks <project-url> M1"
 
 Resolve by:
-1. Parse the project GID from the URL.
-2. List sections in the project: `GET /projects/<project_gid>/sections?opt_fields=name`.
-3. Match the section by:
+1. Resolve the project from the URL via the `task-manager` interface.
+2. List the project's groupings (milestones) through the interface.
+3. Match the grouping by:
    - **Exact name** (e.g., `M1 :: Core Data Layer`)
-   - **`M<n>` prefix** (e.g., user says "M1", match the section whose name starts with `M1 ::`)
+   - **`M<n>` prefix** (e.g., user says "M1", match the grouping whose name starts with `M1 ::`)
    - **Substring on the descriptive part** (e.g., "Core Data Layer" matches `M1 :: Core Data Layer`)
-4. If multiple sections match, show the candidates and ask the user to pick.
-5. List tasks in that section.
+4. If multiple groupings match, show the candidates and ask the user to pick.
+5. List the tasks in that grouping via the interface.
 
 ### 3. A project URL alone
 
 Implies "every task in Refinement status across the project."
 
-1. Parse the project GID.
-2. List all tasks in the project (across all sections).
+1. Resolve the project from the URL.
+2. List all tasks in the project (across all groupings) through the interface.
 3. Phase 1 then filters down to Refinement status only.
 4. Order by dependencies.
 
@@ -59,10 +49,10 @@ User says something like:
 
 For these cases:
 
-1. Resolve the broader scope (project, optionally section).
+1. Resolve the broader scope (project, optionally grouping).
 2. Apply the user's filter on the fetched task list. Common filters:
-   - **Platform:** filter by the Platform custom field's enum value.
-   - **Dependencies:** filter by `dependencies` field (e.g., tasks that depend on a specific GID).
+   - **Platform:** filter by the Platform field's value.
+   - **Dependencies:** filter by dependency relationships (e.g., tasks that depend on a specific task).
    - **Title substring:** filter by name match.
 3. If the filter is ambiguous (e.g., "backend tasks" but the project doesn't use the Platform field), surface the ambiguity to the user before proceeding.
 
@@ -72,9 +62,9 @@ For these cases:
 
 After status filtering, sort tasks topologically:
 
-1. Fetch each task's `dependencies` array (Asana API field `dependencies` on a task).
-2. Build a directed graph: an edge from A → B if B is in A's `dependencies` (i.e., A depends on B).
-3. Topological sort. If a cycle exists (unexpected — Asana usually rejects cycles), warn the user and proceed in the original order.
+1. Fetch each task's dependency relationships via `get_task(task)`.
+2. Build a directed graph: an edge from A → B if A depends on B.
+3. Topological sort. If a cycle exists (unexpected — task managers usually reject cycles), warn the user and proceed in the original order.
 
 Tasks whose dependencies are *outside* the current refinement set are fine — they go where they normally would by the sort.
 

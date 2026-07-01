@@ -11,6 +11,7 @@
 - A decision point (new routing branches in Step 10, new QA sub-cases)
 - The Pause Flow or Resume Flow sequence
 - Checkpoint column semantics (`Completed` / `State` vocabulary)
+- Checkpoint frontmatter field names (`task_ref` is the checkpoint key from the task URL; `task_url` is the full URL; `task_id` is the project code)
 - Checkpoint file location or helper-script path
 
 If `FLOW.md` drifts from `SKILL.md`, the model's runtime behavior is unaffected (it reads `SKILL.md`), but the documentation the `README.md` points at becomes misleading. A PR that changes the flow without updating `FLOW.md` should not land.
