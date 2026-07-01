@@ -17,4 +17,4 @@ The canonical fields the siroc workflow uses, by meaning. Provider-agnostic: thi
 
 Not every board carries every field. A missing field is skipped gracefully, never invented.
 
-`Estimate` and `Sizing` are siroc workflow conventions, not universal task-manager primitives — providers map them onto whatever native mechanism exists. `Sizing` may be the provider's native estimate (e.g. Jira story points) while `Estimate` (time) is secondary.
+`Estimate` and `Sizing` are siroc workflow conventions, not universal task-manager primitives — providers map them onto whatever native mechanism exists. `Sizing` may be the provider's native estimate (e.g. story points) while `Estimate` (time) is secondary.
