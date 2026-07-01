@@ -43,7 +43,7 @@ Each `## M{N} :: <Name>` header in `breakdown.md` starts a milestone block. With
 | `**Out of scope:**` (optional) | Body | Yes |
 | `**References:**` (optional) | Body | Yes |
 | `**Depends on:**` | Dependency metadata | No — parsed for M-labels, used to wire native dependencies via `add_dependency` |
-| `**Source:**` (optional) | Refine-path metadata | No — parsed to detect "reuse existing milestone" instead of "create new" |
+| `**Source:**` (optional) | Refine-path metadata | No — parsed to reuse an existing milestone instead of creating one; refreshes its description when unexpanded, refuses when expanded (see idempotency below) |
 | `**Attachments:**` | Attachment metadata | No — file list uploaded via `upload_attachment` (renamed to `milestone-spec.md`) |
 
 **Body** = the four body fields above, rendered in canonical order (Purpose → Description → Out of scope → References) as the milestone's description via `set_description` (new milestones only — see idempotency below).
@@ -93,18 +93,30 @@ Upload rule (T-blocks):
 
 Build the `markdown_label → task ref` map after all tasks are created/reused (combining new and existing tasks). Wire each dependency via `add_dependency(<dependent>, <depended-on>)` using the resolved refs.
 
+## Milestone matching, ordinal assignment, and label remapping
+
+Milestones on the board carry an **`M{n}:` ordinal prefix** in their name — e.g. `M1: Zeta`, `M2: Onboarding`. The prefix is part of the milestone's neutral name; how a provider realizes a milestone under that name is internal to the seam. Three rules govern how `breakdown.md`'s M-blocks map onto this:
+
+**Matching (idempotency).** A block reuses an existing milestone when their **plain names** match — the milestone name with any leading `M{n}: ` prefix stripped, compared case-insensitively. A block named `Zeta` (from `## M1 :: Zeta`) matches an existing `M1: Zeta` on the board. Matching never depends on the ordinal — only the plain name portion.
+
+**Ordinal assignment (new milestones).** A newly created milestone's board name is `M{n}: <Name>`, where `n` continues the board's existing numbering: `n = max(existing ordinals on the board) + 1`, incrementing once per new milestone in breakdown order. Existing ordinals come from parsing the `M{n}:` prefix of each `list_milestones(board)` entry (unprefixed names count as no ordinal). A board already holding `M1:`–`M3:` names the first new block `M4:`, the next `M5:`, and so on. Reused milestones keep their existing name and ordinal — they are never renumbered.
+
+**Label remapping (dependencies).** The `M{N}` labels in `breakdown.md` are **local** — this file's namespace, sequential from M1, used only to express `**Depends on:**` before the board assigns handles. They are **not** the board ordinals. submit-breakdown builds a `local M-label → milestone ref` map as it ensures each milestone, then wires every `**Depends on:**` dependency through that map. Because the board may renumber (a board holding M1–M3 turns the doc's local `M1` into `M4:`), a local label and its board ordinal routinely differ — always resolve dependencies through the ref map, never by matching label text to a board ordinal.
+
+This is provider-neutral: the `M{n}:` name, the plain-name matching, and the local-label remapping apply whatever provider the seam resolves.
+
 ## Folder bundle: milestone idempotency and Source (M-blocks)
 
-Milestone reuse is by **name on the board**, discovered via `list_milestones(board)` (each entry is `{ref, name, expanded}`). There is no notion of sections or resource subtypes — those are internal to whichever provider the seam resolves.
+Milestone reuse is by **plain name on the board** (leading `M{n}: ` prefix stripped — see "Milestone matching, ordinal assignment, and label remapping" above), discovered via `list_milestones(board)` (each entry is `{ref, name, expanded}`). There is no notion of sections or resource subtypes — those are internal to whichever provider the seam resolves.
 
-- **New milestone** (name not in the `list_milestones` landscape) — `ensure_milestone(board, name)` creates it; submit-breakdown then sets its body via `set_description` and uploads its spec attachment.
-- **Existing, unexpanded milestone** — `ensure_milestone` reuses it. Its description is **frozen** (never overwritten). The spec attachment is still replaced on re-run.
+- **New milestone** (plain name not in the `list_milestones` landscape) — `ensure_milestone(board, "M{n}: <Name>")` creates it with the next board ordinal; submit-breakdown then sets its body via `set_description` and uploads its spec attachment.
+- **Existing, unexpanded milestone** — `ensure_milestone` reuses it. Its description is **frozen** (never overwritten) — except when a `**Source:**` refine targets it (see below). The spec attachment is still replaced on re-run.
 - **Existing, expanded milestone** (`expanded == true`, i.e. has member tasks per `list_milestones` / `milestone_tasks`) — **protected**: neither description nor attachments are touched. Log a divergence notice and continue.
 
-When a milestone block carries `**Source:** <url>`:
-- Resolve the URL via `find_task`; verify `kind == milestone`.
-- If the milestone is expanded, refuse: "Milestone '<name>' at <url> is expanded; bundle input cannot modify an expanded milestone."
-- Otherwise treat it as the reuse target for that block (same as name-match reuse). Do not create a new milestone.
+When a milestone block carries `**Source:** <url>` (a `milestone-breakdown` refine request):
+- Resolve the URL via `find_task`; verify `kind == milestone`. Treat it as the reuse target for that block — do not create a new milestone, and keep its existing board name/ordinal (no renumbering).
+- If the milestone is **expanded**, refuse: "Milestone '<name>' at <url> is expanded; bundle input cannot modify an expanded milestone." A milestone with work under it is never overwritten.
+- If the milestone is **unexpanded**, refresh its description via `set_description(<milestone>, <rendered body>)`, and replace its spec attachment as usual. This is the one reuse path that overwrites a description: `**Source:**` is a deliberate refine, distinct from an incidental name-match on re-run (which stays frozen).
 
 T-blocks do not support a `**Source:**` field — T-task idempotency is by name within the parent milestone's `milestone_tasks` (see SKILL.md "Idempotency match keys").
 

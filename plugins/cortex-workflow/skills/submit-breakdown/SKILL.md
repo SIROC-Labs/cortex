@@ -114,7 +114,7 @@ Legacy single-file input is treated as a mixed bundle — implementation tasks s
 
 ### Step 0: Name-collision check (M-blocks only)
 
-Before creating any milestone, compare each M-block's name against the `list_milestones(board)` result (case-insensitive). On a collision, surface to the user:
+Before creating any milestone, compare each M-block's name against the `list_milestones(board)` result **by plain name** — strip a leading `M{n}: ` ordinal prefix from each landscape name (and from the block name if it carries one) before comparing, case-insensitive, so a block named "Zeta" matches an existing "M1: Zeta" (see `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping"). On a match, surface to the user:
 
 > "Milestone '<name>' already exists in this project (<expanded|unexpanded>). Reuse / Rename / Abort?"
 
@@ -126,16 +126,22 @@ Runs before any writes, so no partial state is left. After collision decisions, 
 
 ### Step 1: Ensure each milestone (M-blocks only)
 
+**Board naming — `M{n}:` ordinal prefix.** Milestones are named on the board as `M{n}: <Name>`, where `n` is a **board-assigned ordinal**, not the block's local M-label. Before creating anything, read the existing ordinals from the Phase 1 `list_milestones(board)` landscape (parse a leading `M{n}: ` from each name; unprefixed names count as no ordinal). The next ordinal is `max(existing ordinals) + 1` — new milestones continue the board's numbering rather than restarting at M1. Assign ordinals to the M-blocks that need creating in breakdown order, incrementing once per new milestone: a board already holding `M1:`–`M3:` names the first new block `M4:`. Reused milestones keep their existing name and ordinal. See `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping".
+
 For each M-block, in breakdown order:
 
-1. `ensure_milestone(board, <name>)` — idempotent: creates the milestone if missing, reuses it if present, and returns its ref. Never overwrites an existing milestone's description.
+1. Decide reuse-vs-create by matching the block's **plain name** against the landscape (leading `M{n}: ` stripped from both sides, case-insensitive — Step 0). `ensure_milestone(board, <board name>)` — idempotent: for a **new** milestone pass the ordinal-prefixed `M{n}: <Name>`; for a **reused** one pass its existing board name so the same milestone is matched. It creates the milestone if missing, reuses it if present, returns its ref, and never overwrites an existing milestone's description.
 2. **New milestone** (was just created — not present in the Phase 1 `list_milestones` landscape): set its description with `set_description(<milestone>, <rendered body>)` (see `references/description-template.md` → milestone body). Set **Priority** only via `set_field` (default `P3`; override only if the block specifies one). Do not set Platform, Category, or Product Status on a milestone.
-3. **Existing milestone** (was in the landscape, or matched via Step 0 Reuse):
+3. **Existing milestone** (matched by plain name to the landscape, or via Step 0 Reuse):
    - If it is `expanded` (has member tasks per `list_milestones` / `milestone_tasks`), it is **protected**: do not touch its description or attachments. Log a divergence notice if the block body differs, and continue.
-   - If it is unexpanded, still **do not overwrite** its description (frozen-on-rerun). Log a notice if it has diverged.
+   - If it is unexpanded, still **do not overwrite** its description (frozen-on-rerun) — **unless** this block carries a `**Source:**` URL targeting it, which is a deliberate refine (see the Source path below). Log a notice if it has diverged.
 4. Upload the block's `**Attachments:**` (renamed to `milestone-spec.md`) per the attachment procedure below — **skip entirely for expanded/protected milestones**.
 
-Build an `M-label → milestone ref` map for Step 4.
+**`**Source:**` refine path.** When an M-block carries `**Source:** <url>` (from `milestone-breakdown`'s refine mode), resolve the URL via `find_task` and verify `kind == milestone`; it is the explicit reuse target for that block — do not create a new milestone, and keep its existing board name/ordinal (no renumbering). Then:
+- If the Source milestone is **expanded**, refuse: "Milestone '<name>' at <url> is expanded; bundle input cannot modify an expanded milestone." Never overwrite a milestone that already has work under it.
+- If it is **unexpanded**, refresh its description with `set_description(<milestone>, <rendered body>)`. This is the one reuse case that overwrites a description — `**Source:**` is a deliberate refine request, unlike an incidental name-match on re-run (which stays frozen). Its spec attachment is replaced as usual (point 4).
+
+Build a `local M-label → milestone ref` map for Step 4 — keyed by each block's **local** M-label (M1, M2, … in file order), valued by the resolved ref (whose board ordinal may differ). Always wire dependencies through this map; never assume a local M-label equals a board ordinal.
 
 ### Step 2: (reserved — merged into Step 1)
 
@@ -181,7 +187,7 @@ Build a `T-label → task ref` map for Step 5.
 
 ### Step 4: Wire milestone-level dependencies (M-blocks only)
 
-For each M-block whose `**Depends on:**` lists other M-labels: for each dependency, `add_dependency(<this milestone>, <depended-on milestone>)` using the `M-label → ref` map.
+For each M-block whose `**Depends on:**` lists other **local** M-labels: resolve each label to a ref via the `local M-label → milestone ref` map from Step 1 (the map absorbs any renumbering — a block's local `M1` may be `M4:` on the board), then `add_dependency(<this milestone>, <depended-on milestone>)`. Wire by ref, never by the literal label.
 
 ### Step 5: Wire task-level dependencies (T-blocks only)
 
@@ -201,7 +207,7 @@ For each file path in a block's `**Attachments:**` list:
 
 submit-breakdown is **idempotent and non-destructive on re-run**:
 
-- Existing milestones and existing implementation tasks are detected (by the match keys below) and reused — never re-created, and their **descriptions are never overwritten** (frozen-on-rerun).
+- Existing milestones and existing implementation tasks are detected (by the match keys below) and reused — never re-created, and their **descriptions are never overwritten** (frozen-on-rerun). The one exception: an unexpanded milestone targeted by a `**Source:**` refine has its description refreshed (Step 1).
 - **Expanded milestones are protected** — an expanded milestone's description and attachments are never touched.
 - Dependency wiring is re-applied; `add_dependency` is non-destructive for the same set.
 - **Attachments are replaced on every re-run** (remove old by name, upload new) — the local spec/plan file is the source of truth. This is intentionally asymmetric with descriptions (frozen) — attachments track the local file. To also update a frozen description, delete the task and re-run.
@@ -211,7 +217,7 @@ submit-breakdown is **idempotent and non-destructive on re-run**:
 
 | Object | Match key |
 |---|---|
-| Milestone | `name` on the board (via `list_milestones` / Step 0) |
+| Milestone | plain `name` on the board — leading `M{n}: ` ordinal prefix stripped (via `list_milestones` / Step 0) |
 | Implementation task | `name` within its parent milestone (via `milestone_tasks`) |
 
 ### Progress reporting
