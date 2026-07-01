@@ -1619,21 +1619,22 @@ def _md_inline(text):
 
 
 # Convert a Markdown body to Asana-compatible HTML. Handles headings, bullet and
-# numbered lists, and inline emphasis/code/links. List runs are wrapped in <ul>/
-# <ol>; consecutive list items of the same kind join into one list. Line breaks
-# are emitted as literal "\n" (NOT <br>), per Asana rich-text rules. Blank source
-# lines are DROPPED from the output — Asana renders a bare "\n" as a visible vertical
-# gap after headings/between blocks, and block tags (<h*>/<ul>/<ol>/<li>) don't need
-# blank-line separation. The result is fed to build_payload, which wraps it in <body>.
+# numbered lists, and inline emphasis/code/links. Each source line becomes a "block"
+# piece (heading / list wrapper / list item) or a "text" piece (a plain line); blank
+# source lines are dropped. Assembly: block tags are self-separating, so they are
+# concatenated with NO whitespace — Asana renders a literal "\n" after a block as a
+# stray blank line (e.g. a gap under a heading). A single "\n" line break is inserted
+# ONLY between two consecutive plain-text lines. The result is fed to build_payload,
+# which wraps it in <body>.
 def md_to_html(body):
     lines = body.split("\n")
-    out = []
+    pieces = []  # (kind, html); kind in {"block","text"}
     list_kind = None  # None | "ul" | "ol"
 
     def close_list():
         nonlocal list_kind
         if list_kind is not None:
-            out.append("</%s>" % list_kind)
+            pieces.append(("block", "</%s>" % list_kind))
             list_kind = None
 
     for line in lines:
@@ -1644,25 +1645,34 @@ def md_to_html(body):
         if h:
             close_list()
             level = len(h.group(1))
-            out.append("<h%d>%s</h%d>" % (level, _md_inline(h.group(2)), level))
+            pieces.append(("block", "<h%d>%s</h%d>" % (level, _md_inline(h.group(2)), level)))
         elif bullet:
             if list_kind != "ul":
                 close_list()
-                out.append("<ul>")
+                pieces.append(("block", "<ul>"))
                 list_kind = "ul"
-            out.append("<li>%s</li>" % _md_inline(bullet.group(1)))
+            pieces.append(("block", "<li>%s</li>" % _md_inline(bullet.group(1))))
         elif numbered:
             if list_kind != "ol":
                 close_list()
-                out.append("<ol>")
+                pieces.append(("block", "<ol>"))
                 list_kind = "ol"
-            out.append("<li>%s</li>" % _md_inline(numbered.group(1)))
-        else:
+            pieces.append(("block", "<li>%s</li>" % _md_inline(numbered.group(1))))
+        elif stripped:
             close_list()
-            out.append(_md_inline(line))
+            pieces.append(("text", _md_inline(line)))
+        else:
+            close_list()  # blank line: closes any open list, emits nothing
     close_list()
-    # Drop blank/whitespace-only lines so Asana doesn't render them as gaps.
-    return "\n".join(x for x in out if x.strip())
+
+    result = []
+    prev_text = False
+    for kind, html in pieces:
+        if result and kind == "text" and prev_text:
+            result.append("\n")  # line break between running plain-text lines only
+        result.append(html)
+        prev_text = (kind == "text")
+    return "".join(result)
 
 
 # Decide whether a body is rich HTML or plain, and normalize it. If it contains HTML
