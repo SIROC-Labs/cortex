@@ -43,8 +43,10 @@
 # `fields` resolution logic.
 #
 #   tm.py task get           <task-ref>
+#   tm.py task list          <project-ref>
 #   tm.py task create        <project-ref> --title T [--description D] [--assignee A]
 #                            [--set Name=Value ...] [--wait-key]
+#   tm.py task delete        <task-ref>
 #   tm.py task set-field     <task-ref> <CanonicalName> <value>
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
 #   tm.py task set-notes     <task-ref> (<body> | --body-file <path>)
@@ -93,6 +95,12 @@
 #
 #   tm.py comment add  <task-ref> (<body> | --body-file <path>)
 #   tm.py comment list <task-ref>
+#
+# User family:
+#
+#   tm.py user me
+#
+# `tm.py --help` (or `-h` / `help`) lists every family and verb.
 #
 # <key> comes from `tm.py board key` (git remote -> sanitized; fallback to repo
 # basename). Callers derive it once and pass it to every other command.
@@ -241,6 +249,31 @@ def api_json(url, token, method, payload):
         return json.loads(body.decode("utf-8", "replace"))
     except Exception:
         die(1, "%s: Asana API returned invalid JSON on %s %s" % (PROG, method, url))
+
+
+def api_delete(url, token):
+    req = urllib.request.Request(url, method="DELETE")
+    req.add_header("Authorization", "Bearer " + token)
+    try:
+        resp = urllib.request.urlopen(req)
+        status = resp.getcode()
+        body = resp.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace").strip()
+        die(1, "%s: Asana API error (HTTP %s) on DELETE %s%s" % (
+            PROG, e.code, url, (": " + detail) if detail else ""))
+    except urllib.error.URLError as e:
+        die(1, "%s: request failed: DELETE %s (%s)" % (PROG, url, e.reason))
+    except Exception as e:
+        die(1, "%s: request failed: DELETE %s (%s)" % (PROG, url, e))
+    if status < 200 or status >= 300:
+        die(1, "%s: Asana API error (HTTP %s) on DELETE %s" % (PROG, status, url))
+    if not body:
+        return {"data": {}}
+    try:
+        return json.loads(body.decode("utf-8", "replace"))
+    except Exception:
+        die(1, "%s: Asana API returned invalid JSON on DELETE %s" % (PROG, url))
 
 
 # Multipart/form-data POST built entirely in Python (urllib) — the sandbox-safe
@@ -1030,6 +1063,31 @@ def task_get(args):
     sys.exit(0)
 
 
+def task_list(args):
+    if not args:
+        die(1, "usage: %s task list <project-ref>" % PROG)
+    project_ref = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed&limit=100" % (API_BASE, project_ref)
+    out = []
+    while url:
+        payload = api_get(url, token)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    out.append({
+                        "gid": item.get("gid"),
+                        "name": item.get("name"),
+                        "completed": item.get("completed"),
+                    })
+        next_page = payload.get("next_page") if isinstance(payload, dict) else None
+        url = next_page.get("uri") if isinstance(next_page, dict) else None
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # Create a task and add it to a board/project. <project-ref> is an Asana project
 # GID (the board to add the task to). Workspace comes from the board cache; a
 # missing workspace_gid is a bootstrap condition (exit 4). Two API calls: POST
@@ -1116,6 +1174,20 @@ def task_create(args):
         if attempt < attempts - 1:
             time.sleep(TASK_ID_POLL_INTERVAL)
     sys.stdout.write(json.dumps(proj, indent=2) + "\n")
+    sys.exit(0)
+
+
+def task_delete(args):
+    if not args:
+        die(1, "usage: %s task delete <task-ref>" % PROG)
+    task_gid = args[0]
+    if not re.fullmatch(r"[0-9]+", task_gid):
+        die(1, "%s: task delete: task-ref must be numeric (got '%s')" % (PROG, task_gid))
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    result = api_delete("%s/tasks/%s" % (API_BASE, task_gid), token)
+    out = result.get("data") if isinstance(result, dict) else result
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
@@ -1736,6 +1808,21 @@ def ref_parse(args):
     sys.exit(0)
 
 
+# --- user family ------------------------------------------------------------
+
+def user_me(args):
+    if args:
+        die(1, "usage: %s user me" % PROG)
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/users/me?opt_fields=gid,name,email,workspaces.gid,workspaces.name" % API_BASE, token)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        die(1, "%s: user me: Asana response had no user data" % PROG)
+    sys.stdout.write(json.dumps(data, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- dispatch ---------------------------------------------------------------
 
 BOARD_VERBS = {
@@ -1755,7 +1842,9 @@ FIELDS_VERBS = {
 
 TASK_VERBS = {
     "get": task_get,
+    "list": task_list,
     "create": task_create,
+    "delete": task_delete,
     "set-field": task_set_field,
     "set-fields": task_set_fields,
     "set-notes": task_set_notes,
@@ -1775,18 +1864,39 @@ REF_VERBS = {
     "parse": ref_parse,
 }
 
+USER_VERBS = {
+    "me": user_me,
+}
+
 FAMILIES = {
     "board": BOARD_VERBS,
     "fields": FIELDS_VERBS,
     "task": TASK_VERBS,
     "comment": COMMENT_VERBS,
     "ref": REF_VERBS,
+    "user": USER_VERBS,
 }
 
 
+# Print the full command surface (families + verbs), auto-generated from FAMILIES so
+# it never drifts. Lets any runtime discover commands without reading the source.
+def print_help():
+    out = [
+        "%s — task-manager CLI for the Asana provider." % PROG,
+        "Usage: %s <family> <verb> [args]" % PROG,
+        "",
+    ]
+    for fam, verbs in FAMILIES.items():
+        out.append("  %-8s %s" % (fam, "  ".join(verbs.keys())))
+    out.append("")
+    out.append("Run '<family> <verb>' with missing/invalid args to see that verb's usage.")
+    sys.stdout.write("\n".join(out) + "\n")
+
+
 def main(argv):
-    if not argv:
-        die(1, "usage: %s <family> <verb> [args]" % PROG)
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print_help()
+        sys.exit(0)
     family = argv[0]
     verbs = FAMILIES.get(family)
     if verbs is None:
