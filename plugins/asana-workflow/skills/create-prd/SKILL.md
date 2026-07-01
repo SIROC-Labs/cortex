@@ -1,6 +1,6 @@
 ---
 name: create-prd
-description: Creates a Product Requirements Document from one or more content sources. Sources can be passed as arguments — Asana task URL, Jira URL, Notion URL, Google Drive URL, Figma URL, Loom URL, any web URL, a local file or folder path, free-text problem statement, or left empty to read the current folder. Use this skill whenever the user wants to draft, write, or generate a PRD — "/create-prd", "write a PRD", "draft a PRD for X", "create a product requirements doc", "spec this out", "turn this one-pager into a PRD", or pastes a source URL (Asana / Notion / Figma / Drive / Loom / any web link) and asks for a PRD. Also triggers when the user describes a feature in free text and asks for a structured spec.
+description: Creates a Product Requirements Document from one or more content sources. Sources can be passed as arguments — task URL, Jira URL, Notion URL, Google Drive URL, Figma URL, Loom URL, any web URL, a local file or folder path, free-text problem statement, or left empty to read the current folder. Use this skill whenever the user wants to draft, write, or generate a PRD — "/create-prd", "write a PRD", "draft a PRD for X", "create a product requirements doc", "spec this out", "turn this one-pager into a PRD", or pastes a source URL (task manager / Notion / Figma / Drive / Loom / any web link) and asks for a PRD. Also triggers when the user describes a feature in free text and asks for a structured spec.
 ---
 
 # Create PRD
@@ -29,7 +29,7 @@ Inspect each argument or input for its type and fetch accordingly:
 
 | Source type | How to detect | How to ingest |
 |---|---|---|
-| Asana task or project | `app.asana.com` in URL | Use the `asana-api` skill (the plugin's only sanctioned Asana entry point) to fetch the task/project and all subtasks |
+| Task-manager task or project | a task-manager task/project URL | Use the `task-manager` interface (`find_task(ref)` / `get_task(task)`) to fetch the task/project and all subtasks |
 | Jira issue or board | `atlassian.net/browse/` or `atlassian.net/jira/` | Use Atlassian MCP tools to fetch the issue and linked items |
 | Notion page or database | `notion.so` or `notion.site` in URL | Use Notion MCP tools to fetch the page or database content |
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
@@ -43,7 +43,7 @@ Inspect each argument or input for its type and fetch accordingly:
 
 **Important:** Only fall back to reading local files when no argument was provided at all. If any URL or remote source is given as an argument, do NOT also read the current working directory — only ingest the explicitly provided sources. Local files are read when: (a) a local path was explicitly passed as an argument, or (b) no argument was given at all.
 
-If multiple sources are provided (e.g. an Asana task URL + a Figma URL + a local folder), ingest all of them before moving on.
+If multiple sources are provided (e.g. a task URL + a Figma URL + a local folder), ingest all of them before moving on.
 
 ### What to extract from each source
 

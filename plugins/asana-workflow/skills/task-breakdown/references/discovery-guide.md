@@ -20,7 +20,7 @@ The constraint is: **never propose a breakdown until you have enough context to 
 Where is the spec? Collect every source:
 
 - Markdown files in the repo (check `docs/`, `specs/`, project root)
-- Asana task or project URLs — read the full description, subtasks, and comments
+- Task or project URLs — read the full description, subtasks, and comments
 - PDFs, Google Docs, or other documents
 - Figma links (for design specs)
 - Verbal description from the user
@@ -36,7 +36,7 @@ Is this greenfield or work on an existing project?
 **If existing:**
 - Read CLAUDE.md files for project conventions and architecture
 - Check what's already implemented: `git log --oneline -20`, file structure exploration
-- Check for existing milestones — in Asana (sections in a project board) or in docs (previous task-breakdowns)
+- Check for existing milestones — in the task manager (project board grouping) or in docs (previous task-breakdowns)
 - Understand what's built vs. what's new vs. what needs to change
 - New tasks may slot into existing milestones rather than creating new ones
 

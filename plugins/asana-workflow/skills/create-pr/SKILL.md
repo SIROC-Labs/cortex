@@ -5,7 +5,7 @@ description: >
   This skill should be used when the user says "create a PR", "open a pull request", "make a PR",
   "push and create PR", "open PR for this", "submit a PR", "PR this branch", "let's get this reviewed",
   or wants to update an existing PR's description or reviewers. Handles the full PR lifecycle: pre-checks,
-  branch pushing, structured descriptions, reviewer assignment, and Asana task linking.
+  branch pushing, structured descriptions, reviewer assignment, and task linking.
   Works standalone or as a step in the ship-it orchestrator.
 ---
 
@@ -16,7 +16,7 @@ Full PR lifecycle — from pre-checks through creation to capturing the PR URL f
 ## Usage Modes
 
 - **Standalone** — The user asks "create a PR" from any branch. Generate the summary from git diff/log and prompt for missing inputs.
-- **Orchestrator step** — Called by `ship-it` with `orchestrator: true`. Receives the work summary, Asana URL, and skips git-check (already done by pre-ship-check).
+- **Orchestrator step** — Called by `ship-it` with `orchestrator: true`. Receives the work summary, task URL, and skips git-check (already done by pre-ship-check).
 - **Update mode** — The user asks to update an existing PR's description or reviewers.
 
 ## Inputs
@@ -29,7 +29,7 @@ All inputs are optional. When missing, derive them automatically or prompt the u
 | What Changed | From `work-summary` output | Generated from git diff |
 | How to Test | From `work-summary` output (may be absent) | Omitted unless obvious from changes |
 | Testing / QA evidence | From the QA gate (`✅ QA Verification` posted in session by pre-ship-check / a QA skill) plus `work-summary` test results | Generated from the test/lint/build runs done this session |
-| Asana task URL | Passed by `ship-it` | Prompt user: "Is there an Asana task URL for this? (press Enter to skip)" |
+| Task URL | Passed by `ship-it` | Prompt user: "Is there a task URL for this? (press Enter to skip)" |
 | Reviewers | Passed by caller or from CLAUDE.md defaults | From CLAUDE.md defaults, or prompt user |
 | orchestrator | `true` when called from ship-it | absent |
 
@@ -81,12 +81,13 @@ To update, use `gh pr edit` (see Updating Existing PRs below).
 
 Format: `TASK-ID :: Description`
 
-The task ID prefix is **mandatory** when an Asana task is linked. Resolve it in this priority order:
+The task ID prefix is **mandatory** when a task is linked. Resolve it in this priority order:
 
 1. **Threaded context** — if the caller (ship-it, log-task, start-task) passed a Task ID explicitly, use it verbatim. Do not re-fetch.
-2. **Asana custom field** — fetch the task and read the project ID custom field.
-3. **Asana task name prefix** — if the task name starts with a ticket ID pattern (`XX-NNN`, `XXX-NNN`, or `XXNNN-NNN`, e.g., `MT251-168`, `BI-176`, `PD253-364`), use that.
-4. **Branch name prefix** — if the current branch is `<TASK-ID>/<slug>` (the shape created by `log-task`/`start-task`), extract the TASK-ID segment before the first `/`. This is the fallback when `ship-it` runs in a session later than `log-task` and Asana context has not been re-threaded.
+2. **Task key from `get_task`** — fetch the task via the `task-manager` interface (`get_task(task)`) and read the surfaced top-level **`task_id`** (the task's human key — `Key` per `plugins/asana-workflow/references/workflow/fields.md`).
+3. **Task name prefix** — if the task name starts with a ticket ID pattern (`XX-NNN`, `XXX-NNN`, or `XXNNN-NNN`, e.g., `MT251-168`, `BI-176`, `PD253-364`), use that.
+4. **Branch name prefix** — if the current branch is `<TASK-ID>/<slug>` (the shape created by `log-task`/`start-task`), extract the TASK-ID segment before the first `/`. This is the fallback when `ship-it` runs in a session later than `log-task` and task context has not been re-threaded.
+5. **Field-value scan (defensive fallback)** — if `task_id` is still unresolved, scan the task's returned field values for the first match of `^[A-Z][A-Z0-9]*-\d+$` and use it.
 
 Only skip the `TASK-ID :: ` prefix if none of the above resolves a valid ID, or the caller explicitly signalled no ID is available.
 
@@ -96,11 +97,11 @@ Examples:
 - `PD253-364 :: Hinder`
 
 For the description part, derive from:
-1. The Asana task name (minus the prefix, if already in the name)
+1. The task name (minus the prefix, if already in the name)
 2. The branch name (convert `feat/add-user-export` to "Add user export")
 3. The first line of the work summary
 
-If no Asana task is linked, skip the prefix and use just the description. The user can always override.
+If no task is linked, skip the prefix and use just the description. The user can always override.
 
 ### PR Body Template
 
@@ -119,7 +120,7 @@ Build the PR body from available sections. **Omit any section that has no conten
 ## How to test
 <step-by-step testing instructions>
 
-## Asana Task
+## Task
 <url>
 ```
 
@@ -127,7 +128,7 @@ Rules:
 - **The PR description is the authoritative record of QA — it must carry the verification evidence, even when the same evidence was posted to the Asana task.** Reviewers read the PR, not Asana; QA evidence that lives only in an Asana comment is invisible at review time. The Asana comment is a notification, the PR `## Testing` section is the record.
 - Populate `## Testing` from the QA gate and `work-summary`: name the regression/added tests, the suites run with their pass counts (distinguish integration vs unit — an integration run against real containers is stronger evidence than a unit run), lint/build status, and the QA verdict (e.g. `backend-qa: PASS`). Omit the section only when there is genuinely no test or QA signal — and when omitting, say why in the Summary.
 - If no "How to test" content is available, omit the entire section (header and body).
-- If no Asana URL was provided, omit the entire "Asana Task" section.
+- If no task URL was provided, omit the entire "Task" section.
 - Keep bullets concise and specific. Name files, endpoints, components — not vague descriptions.
 
 ## Step 5: Reviewer Assignment
@@ -177,8 +178,8 @@ gh pr create --title "<concise title>" --assignee @me --body "$(cat <<'EOF'
 2. Call the endpoint
 3. Verify response
 
-## Asana Task
-https://app.asana.com/0/project/task
+## Task
+<task-url>
 EOF
 )"
 ```

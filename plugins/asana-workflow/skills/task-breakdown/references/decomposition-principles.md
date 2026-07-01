@@ -13,7 +13,7 @@ However, within a milestone, **tasks are platform-specific** (one task = one pla
 
 **Ordering milestones:** Consider both product value and implementation dependency. The milestone that unblocks the most downstream work should come first, unless there's a compelling product reason to prioritize differently.
 
-**Existing projects:** New tasks may belong in existing milestones. Don't create new milestones if the work fits naturally into the current structure. Propose new milestones only when the work represents a genuinely new product increment. Check for existing milestones in Asana sections or previous task-breakdown files.
+**Existing projects:** New tasks may belong in existing milestones. Don't create new milestones if the work fits naturally into the current structure. Propose new milestones only when the work represents a genuinely new product increment. Check for existing milestones in the task manager or previous task-breakdown files.
 
 ## Task Ordering Within Milestones
 

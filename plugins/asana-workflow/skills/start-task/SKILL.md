@@ -2,26 +2,26 @@
 name: start-task
 version: 0.1.0
 description: >
-  This skill should be used when the user provides an Asana task URL and wants to begin working on it —
+  This skill should be used when the user provides a task URL and wants to begin working on it —
   "start task", "work on this", "pick up this ticket", "let's start on [task-id]", "jump on this",
-  "begin this task", or pastes an Asana URL with intent to start development. Orchestrates the full
+  "begin this task", or pastes a task URL with intent to start development. Orchestrates the full
   lifecycle: validates sprint-readiness, sets up the branch and draft PR, routes to the right
   development workflow (feature-dev, fix-bug, or brainstorm), and ships via ship-it when done.
   Every run writes a step-by-step checkpoint file so work can be resumed after any interruption
   ("resume task", "pick up where I left off", "continue [task-id]"). For a shortcut that runs the
-  full Asana orchestration and ship-it but skips sub-skill routing (feature-dev, brainstorming,
+  full task orchestration and ship-it but skips sub-skill routing (feature-dev, brainstorming,
   fix-bug) and implements inline instead, add "fast" to the arguments — "start task fast",
   "fast mode", "just start coding".
-argument-hint: <asana-task-url> [brainstorm|feature-dev|fast]
+argument-hint: <task-url> [brainstorm|feature-dev|fast]
 ---
 
 # Start Task
 
-Take an Asana task, validate it's ready for development, understand the work, set up the branch, and route to the right skill. This skill is the conductor — it validates, prepares, and hands off.
+Take a task, validate it's ready for development, understand the work, set up the branch, and route to the right skill. This skill is the conductor — it validates, prepares, and hands off.
 
 ## Prerequisites
 
-- `asana-api` skill for all Asana API operations — handles token resolution and setup guidance.
+- The `task-manager` interface for all task operations — handles provider resolution and setup guidance.
 - Access to required external workflow skills — varies by runtime; checked in Step 0 (see `references/skill-dependencies.md`).
 
 ## Argument Parsing
@@ -43,11 +43,11 @@ Set when `fast_mode` flag is active (see Argument Parsing above).
 
 Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `implement-feature` (or its downstream development skills), `fix-bug`, or QA skill is invoked — implement the solution immediately using the agent's native file, shell, and edit tools, and reason about it directly in this conversation.
 
-**What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, Asana status move/comment, and the ship-it handoff — runs as normal.
+**What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, task status move/comment, and the ship-it handoff — runs as normal.
 
 ## The Flow
 
-**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
+**Before Step 0:** Initialize (or resume) the checkpoint by running `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-ref> <task-url>` (or load the existing file if one exists — see **`references/checkpoints.md`** → "Initialization" and "Resume Flow"). All checkpoint writes throughout the flow go through that helper script — do not Edit/Write the file directly.
 
 ### Step 0: Check External Skill Dependencies
 
@@ -58,44 +58,40 @@ Before doing anything else, check whether external skills required for routing a
 
 If any required dependency for the current runtime is missing, stop before Step 1 and tell the user which setup command or plugin install is required. Do not continue inline. See **`references/skill-dependencies.md`** for runtime-specific check instructions and warning behavior.
 
-### Step 1: Get the Asana Task URL
+### Step 1: Get the Task URL
 
-The Asana task URL is passed as `$ARGUMENTS`. If empty or invalid, prompt for it. Extract the **task GID** from the URL. See **`references/asana-patterns.md`** for supported URL formats.
+The task URL is passed as `$ARGUMENTS`. If empty or invalid, prompt for it. Extract the **task reference** from the URL (this is the `task_ref` used as the checkpoint key).
 
 ### Step 2: Fetch Task Details
 
-Fetch the full task with custom fields, memberships, assignee, and notes via the `asana-api` skill. See **`references/asana-patterns.md`** for required `opt_fields`.
+Resolve the URL to a task handle via `find_task(ref)`, then fetch the full task (fields, board memberships, assignee, and description) via `get_task(task)` through the `task-manager` interface.
 
-Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify memberships per **`plugins/asana-workflow/references/board-resolution.md`**.
+Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify board memberships per **`plugins/asana-workflow/references/workflow/boards.md`**.
 
 ### Step 2a: Validate Assignee
 
-Fetch the current user via `GET /users/me` (through the `asana-api` skill) to obtain their GID. Then compare against `task.assignee`:
+Fetch the current user via `get_current_user()` to obtain their identity. Then compare against the task's assignee:
 
-- **No assignee** — automatically assign the task to the current user via the Asana API. Inform the user (do not ask). Proceed.
+- **No assignee** — automatically assign the task to the current user via `set_field(task, "Assignee", <current user>)`. Inform the user (do not ask). Proceed.
 - **Assignee is the current user** — all good. Proceed.
 - **Assignee is someone else** — ask (BLOCKING):
   > "This task is assigned to [Name]. Reassign it to you before starting?"
-  - **Yes** → Reassign via API, then proceed.
-  - **No** → Stop. Tell the user to resolve the assignment in Asana before retrying.
-
-See **`references/asana-patterns.md`** for the `GET /users/me` call and the task assignee update pattern.
+  - **Yes** → Reassign via `set_field(task, "Assignee", <current user>)`, then proceed.
+  - **No** → Stop. Tell the user to resolve the assignment in the task manager before retrying.
 
 ### Step 3: Validate Sprint-Readiness
 
-Run four validation checks: Active sprint membership, Estimated time, Product Status = Assigned, and ID field presence. See **`references/validation-rules.md`** for check details, failure display format, fix-offer logic, and skip rules. The validation-rules reference loads the board registry cache (see **`plugins/asana-workflow/references/board-resolution.md`**) to resolve the active sprint.
+Run the code-enforced verdict — do not evaluate the checks by hand. Run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --url <task-url> <task-ref>`; it resolves the provider, fetches the data via that provider's primitives, and returns a verdict JSON (`{ready, checks:[active_sprint, estimate, status, task_key]}`). See **`references/validation-rules.md`** for the verdict shape, how to branch on it, the operator-facing checklist, and skip rules.
 
-Report failures as a checklist. Active sprint membership, Estimated time, and Product Status are all blocking — offer to set the latter two via API, but do not proceed until all three pass. Only the ID field can be skipped after a warning.
+Report the verdict as a checklist. Active sprint membership, Estimate, and a not-yet-started status are all blocking — `status` passes only when the task is in a not-yet-started state; otherwise offer to set it to the start state (e.g. `Assigned`) via the task-manager interface. Offer to set Estimate via the interface too; active sprint membership is fixed manually. Do not proceed until the blocking checks pass. Only the task key / ID field can be skipped after a warning (and is skipped entirely on providers with a native key).
 
 ### Step 4: Fetch Subtasks
 
-Fetch subtasks via the `asana-api` skill. Group by status (incomplete = remaining work, completed = already done). Include subtasks in downstream context so the receiving skill understands what "done" looks like.
+Fetch subtasks via `get_subtasks(task)`. Group by status (incomplete = remaining work, completed = already done). Include subtasks in downstream context so the receiving skill understands what "done" looks like.
 
 ### Step 5: Fetch Comments and Attachments
 
-Fetch task stories and filter for comments. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents via the `asana-api` skill and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
-
-See **`references/asana-patterns.md`** for the download pattern.
+Fetch the task's comments via `get_comments(task)`. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents through the `task-manager` interface and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
 
 Also scan the task description and comments for links to external tools (design files, documents, specs, etc.). For each link found, invoke the appropriate MCP or tool to fetch its content and include it in the context bundle passed to the downstream skill in Step 10.
 
@@ -137,7 +133,7 @@ Create a branch using the task ID and a slug from the task name. Use the **base 
 
 ### Step 8: Create Draft PR
 
-Immediately after creating the branch, create an empty commit and a draft PR to establish the GitHub ↔ Asana link from minute one.
+Immediately after creating the branch, create an empty commit and a draft PR to establish the GitHub ↔ task link from minute one.
 
 1. Create an empty commit so the branch can be pushed:
    ```bash
@@ -152,25 +148,25 @@ Immediately after creating the branch, create an empty commit and a draft PR to 
 3. Create the draft PR:
    ```bash
    gh pr create --draft --title "<TASK-ID> :: <description>" --body "$(cat <<'EOF'
-   ## Asana Task
-   <asana-task-url>
+   ## Task
+   <task-url>
    EOF
    )"
    ```
 
-4. Capture the draft PR URL — it will be included in the Asana start comment and threaded through to ship-it.
+4. Capture the draft PR URL — it will be included in the start comment and threaded through to ship-it.
 
 ### Step 9a: Move to In Progress
 
 **This happens automatically — no permission needed.**
 
-Move the task to "In Progress" on the Sprint board. Skip if already there. See **`references/asana-patterns.md`** for the section move API pattern. If the move fails, report why but do not block the workflow — proceed to Step 9b.
+Move the task to "In Progress" via `set_status(task, "In Progress")`. Skip if already there. If the move fails, report why but do not block the workflow — proceed to Step 9b.
 
 ### Step 9b: Post Start Comment
 
 **This happens automatically — no permission needed.**
 
-Post a start comment on the task with the branch name and draft PR URL. Deduplicate by checking for an existing 🏁 comment for this branch. See **`references/asana-patterns.md`** for the comment format.
+Post a start comment on the task with the branch name and draft PR URL via `add_comment(task, body)`. Deduplicate by checking for an existing 🏁 comment for this branch (via `get_comments(task)`). See **`references/task-patterns.md`** for the comment format.
 
 ### Step 10: Route to the Right Workflow
 
@@ -208,7 +204,7 @@ No runtime evidence = the row is not complete. See `references/qa-routing.md` fo
 
 After the development workflow returns, ask the operator **using this exact wording**. Do not rephrase, do not inline into another question, do not substitute an approval prompt:
 
-> "Implementation is complete. The changes can be visually verified before shipping — I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the Asana task as proof of completion.
+> "Implementation is complete. The changes can be visually verified before shipping — I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the task as proof of completion.
 >
 > Run QA verification? [yes / skip]"
 
@@ -220,9 +216,9 @@ Anti-patterns:
 - ❌ Self-generated static checklist ("Package.resolved has correct versions", "Build succeeded", "Tests pass") substituting for the QA skill invocation. These are pre-conditions the model already knows; they are not visual verification evidence.
 - ❌ Inferring a "yes" from a prior answer to any different question. If the prior answer wasn't to this exact prompt (or to `skip QA` / `run QA`), re-ask.
 
-If **yes** → invoke the resolved QA skill with a summary of what was built. The QA skill posts `✅ QA Verification — Feature Complete` to Asana with evidence. Only the QA skill's actual posting counts as evidence; a model-generated claim that QA passed does not. **After the QA skill returns with a posted Asana comment — proceed to Step 12.** Do not end the session at Step 11.
+If **yes** → invoke the resolved QA skill with a summary of what was built. The QA skill posts `✅ QA Verification — Feature Complete` to the task with evidence. Only the QA skill's actual posting counts as evidence; a model-generated claim that QA passed does not. **After the QA skill returns with a posted comment — proceed to Step 12.** Do not end the session at Step 11.
 
-If **skip** → proceed to Step 12. `pre-ship-check` will offer one more chance at ship time if no QA evidence is found on Asana.
+If **skip** → proceed to Step 12. `pre-ship-check` will offer one more chance at ship time if no QA evidence is found on the task.
 
 ### Step 12: Ship It
 
@@ -232,33 +228,31 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 
 | What | Source |
 |------|--------|
-| Task GID | Extracted in Step 1 |
+| Task handle | Resolved in Step 2 (`find_task`) |
 | Task URL | Provided in `$ARGUMENTS` |
-| Task ID | From task custom fields (Step 2) |
+| Task ID | From task fields (Step 2) |
 | Branch name | Created in Step 7 |
 | Draft PR URL | Captured in Step 8 |
-| Sprint project GID | From board cache `active_sprint.gid` (loaded in Step 3) |
-| Section mappings | Discovered when moving to "In Progress" (Step 9a) |
 
-`ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the Asana task to "In Review", and post a completion comment.
+`ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the task to "In Review" (via `set_status(task, "In Review")`), and post a completion comment.
 
-After `ship-it` returns successfully, delete `~/.cortex/asana-workflow/checkpoints/<task-gid>.md` (via `checkpoint.sh delete <gid>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
+After `ship-it` returns successfully, delete `~/.cortex/asana-workflow/checkpoints/<task-ref>.md` (via `checkpoint.sh delete <task-ref>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
 ## Pause Flow
 
-Triggered either by a step going into `State = blocked` during the flow or by the operator saying "park this", "I'm blocked", "pause task", or similar. Commits WIP, drafts a blocking question for user approval, posts to Asana (@mentioning the blocker), updates the checkpoint, and pushes. See **`references/checkpoints.md`** → "Pause Flow" for the full sequence and **`references/asana-patterns.md`** for the Asana comment formats.
+Triggered either by a step going into `State = blocked` during the flow or by the operator saying "park this", "I'm blocked", "pause task", or similar. Commits WIP, drafts a blocking question for user approval, posts a comment via the task-manager interface (@mentioning the blocker), updates the checkpoint, and pushes. See **`references/checkpoints.md`** → "Pause Flow" for the full sequence and **`references/task-patterns.md`** for the comment formats.
 
 ## Important Notes
 
 - This skill orchestrates the full lifecycle: start → develop → ship. It hands off to `ship-it` when development is done.
 - Include the task ID in branch names and commit messages for traceability.
-- Route all Asana API calls through the `asana-api` skill — no raw curl.
+- Route all task operations through the `task-manager` interface — never call a provider's API directly.
 
 ## Reference Files
 
 - **`references/skill-dependencies.md`** — External plugin dependencies, install commands, check instructions
 - **`references/validation-rules.md`** — Sprint-readiness checks, failure display, skip rules
-- **`references/asana-patterns.md`** — URL formats, API fields, section moves, comment posting
+- **`references/task-patterns.md`** — comment templates posted via the task-manager interface
 - **`references/git-workflow.md`** — Existing work detection, branch creation, naming convention
 - **`references/checkpoints.md`** — Checkpoint file format, initialization, per-step updates, resume flow, lifecycle end, edge cases
 - **`plugins/asana-workflow/references/qa-routing.md`** — QA skill resolution and the QA sub-flow (plugin-level shared reference with pre-ship-check)

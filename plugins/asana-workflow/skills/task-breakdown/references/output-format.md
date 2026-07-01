@@ -13,7 +13,7 @@ Paths are resolved from the git repository root (`git rev-parse --show-toplevel`
 
 If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free.
 
-Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; persistence into Asana is handled by `submit-breakdown`.
+Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; persistence into the task manager is handled by `submit-breakdown`.
 
 ## Template
 
@@ -30,22 +30,22 @@ All source materials that inform this breakdown:
 
 - **Spec:** `docs/spec.md` (or link)
 - **Figma:** [URL if applicable]
-- **Asana:** [URL if applicable]
+- **Task manager:** [URL if applicable]
 - **Other:** [Any other input URLs, documents, or files provided or discovered]
 
 **Only list non-obvious references.** A reference belongs here only when the downstream agent could not reasonably find the material on its own. Skip everything else — it is pure context noise at refinement time. In particular, **never reference**:
 
 - **Other task-breakdown files** (here or in milestone- / task-level References). Meta-documents that bundle every milestone — pointing to one forces refinement to read an entire unrelated breakdown.
 - **CLAUDE.md files at any level** — root `CLAUDE.md`, `backend/CLAUDE.md`, `frontend/CLAUDE.md`, etc. Claude auto-loads these from the working directory; listing them as references adds zero information.
-- **The target Asana project URL itself** — every task already lives in that project; pointing back to it is tautological. (Other Asana tasks providing context for *separate* related work are fine.)
+- **The target project URL itself** — every task already lives in that project; pointing back to it is tautological. (Other tasks providing context for *separate* related work are fine.)
 - **Anything else trivially auto-discoverable** — repo URL, worktree root, generic onboarding pages a fresh session would see. If the agent would find it without being told, leave it out.
 
-Keep references that are genuinely load-bearing: spec documents, Figma frames, external library/API docs, specific Asana tasks giving context not derivable from the project, RFCs, design-system pages, etc. The bar is *"would a reader without this link be missing something they can't otherwise find?"* — if not, drop it. If a prior breakdown informed this one, link to the underlying source materials it referenced (spec, Figma, external docs), never to the breakdown itself.
+Keep references that are genuinely load-bearing: spec documents, Figma frames, external library/API docs, specific tasks giving context not derivable from the project, RFCs, design-system pages, etc. The bar is *"would a reader without this link be missing something they can't otherwise find?"* — if not, drop it. If a prior breakdown informed this one, link to the underlying source materials it referenced (spec, Figma, external docs), never to the breakdown itself.
 
 ## M1 :: [Milestone Name]
 
 **Delivers:** [One sentence — what product increment becomes usable after this milestone]
-**Source:** [Optional — existing Asana section URL, spec section, etc.]
+**Source:** [Optional — existing milestone/task URL, spec section, etc.]
 **References:** [Optional — URLs, file paths, or docs specific to this milestone that go beyond the file header References]
 
 [One paragraph: rationale for why these tasks are grouped together and why this milestone is ordered here in the roadmap]
@@ -60,7 +60,7 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 **Out of scope:** [Optional — only when there's real risk of scope creep or ambiguity]
 **Depends on:** [T-labels or "None"]
 **References:** [Optional — task-specific URLs, file paths, docs that go beyond what's in the milestone / file header References]
-**Source:** [Optional — Asana task URL, spec reference, or other originating document]
+**Source:** [Optional — task URL, spec reference, or other originating document]
 
 ### T2 — [Platform] — [Category] — [Task Name]
 ...
@@ -70,9 +70,9 @@ Keep references that are genuinely load-bearing: spec documents, Figma frames, e
 
 ## Originating Task
 
-[Optional — only when the breakdown was triggered from a single Asana task]
+[Optional — only when the breakdown was triggered from a single task]
 
-- **Task:** [Task name](Asana task URL)
+- **Task:** [Task name](task URL)
 - **Action:** Delete | Complete
 ```
 
@@ -104,11 +104,11 @@ Exactly one per task:
 
 Traces a task or milestone back to its origin. This field serves two purposes:
 
-1. **Context for the downstream skill** — when the breakdown references an Asana task or spec section, the downstream skill can read that source for full detail.
-2. **Update vs. create signal** — when the breakdown modifies or replaces an existing task (e.g., splitting one large Asana task into smaller ones), the Source field links back to the original so the downstream skill knows to update/replace rather than create from scratch.
+1. **Context for the downstream skill** — when the breakdown references a task or spec section, the downstream skill can read that source for full detail.
+2. **Update vs. create signal** — when the breakdown modifies or replaces an existing task (e.g., splitting one large task into smaller ones), the Source field links back to the original so the downstream skill knows to update/replace rather than create from scratch.
 
 Include Source when:
-- The task originated from a specific Asana task URL
+- The task originated from a specific task URL
 - The task maps to a specific section of a spec document
 - The task replaces or refines an existing task
 
@@ -134,7 +134,7 @@ Optional. Task-specific URLs, file paths, or documents that go beyond what's alr
 - A Figma frame URL specific to this task's component
 - An external doc the implementer must read for this task only
 
-When `submit-breakdown` builds the Asana task description, it aggregates references from three levels: this task's References, the milestone's References, and the file header's References (deduplicated by URL/path). Repetition across tasks is acceptable — each task is meant to be a complete, self-contained refinement input.
+When `submit-breakdown` builds the task description, it aggregates references from three levels: this task's References, the milestone's References, and the file header's References (deduplicated by URL/path). Repetition across tasks is acceptable — each task is meant to be a complete, self-contained refinement input.
 
 ### Description
 
@@ -166,12 +166,12 @@ Bad: "Error handling is implemented"
 
 ### Originating Task
 
-Optional. Present only when the breakdown was triggered from a single Asana task that is now superseded by the breakdown's tasks.
+Optional. Present only when the breakdown was triggered from a single task that is now superseded by the breakdown's tasks.
 
-- **Task** — the name and Asana URL of the originating task
+- **Task** — the name and URL of the originating task
 - **Action** — what `submit-breakdown` should do with it after creating all new tasks:
-  - **Delete** — remove the task from Asana
-  - **Complete** — mark the task as complete and post a comment listing all newly created tasks with their Asana URLs
+  - **Delete** — remove the task from the task manager
+  - **Complete** — mark the task as complete and post a comment listing all newly created tasks with their URLs
 
 The user chooses the action during Phase 6 of task-breakdown. `submit-breakdown` executes it during its cleanup phase, always with a confirmation prompt before acting.
 

@@ -49,4 +49,4 @@ Suggested fix or next steps. Be specific — name the file, the function, the ch
 
 ## Output
 
-The report IS the primary artifact. The skill takes a question as input and produces the report as output. When invoked from `start-task` with a task GID in context, the report is also posted to Asana (see `process.md` Step 6). In standalone invocations, the operator decides what to do with the report.
+The report IS the primary artifact. The skill takes a question as input and produces the report as output. When invoked from `start-task` with a task GID in context, the report is also posted to the task manager (see `process.md` Step 6). In standalone invocations, the operator decides what to do with the report.

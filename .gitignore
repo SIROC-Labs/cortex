@@ -19,6 +19,10 @@ Thumbs.db
 node_modules/
 npm-debug.log*
 
+# Python (helper scripts)
+__pycache__/
+*.pyc
+
 # Environment
 .env
 .env.*

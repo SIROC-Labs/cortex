@@ -4,7 +4,7 @@ description: >
   Decomposes product work into a milestone-based roadmap of implementation tasks. Use this skill
   whenever the user wants to plan, organize, or structure implementation work — "break down this spec",
   "plan this project", "create a task breakdown", "roadmap this", "/task-breakdown", or provides a spec
-  document (markdown, PDF, Asana task/project URL, Figma link) and wants to figure out how to organize
+  document (markdown, PDF, task/project URL, Figma link) and wants to figure out how to organize
   the implementation. Also use when the user wants to restructure, revise, or extend an existing task
   breakdown. Works for both greenfield projects (new spec to full breakdown) AND incremental work on
   existing projects (change requests, new features, bug batches slotted into existing milestones).
@@ -16,7 +16,7 @@ Decompose product work into a milestone-based roadmap of implementation tasks. T
 
 This is about **strategic decomposition**, not detailed task specs. Each task gets a purpose, description, and acceptance criteria — but not implementation plans or file lists. A separate downstream skill will later read this breakdown to produce detailed specs and create tasks in project management tools.
 
-The breakdown file is a **bridge document**: it must contain all references (spec files, Asana task URLs, Figma links, external docs) that the downstream skill will need for full context.
+The breakdown file is a **bridge document**: it must contain all references (spec files, task URLs, Figma links, external docs) that the downstream skill will need for full context.
 
 ## The Flow
 
@@ -95,13 +95,13 @@ Resolve `<repo-root>` from the git repository root (`git rev-parse --show-toplev
 
 If a file with the same name already exists, append `-v2`, `-v3`, etc. until the name is free (e.g., `2026-05-20-management-features-v2.md`).
 
-Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each Asana task description.
+Create the `docs/cortex/task-breakdowns/` directory if it doesn't exist. The file is written locally as a working artifact — it does **not** need to be committed; `submit-breakdown` embeds every reference directly into each task description.
 
 ### Phase 6: Originating Task Disposition
 
-When the breakdown was triggered from a single Asana task (e.g., a requirements-stage task that said "build feature X"), that originating task is now superseded by the breakdown's tasks. It needs to be dealt with.
+When the breakdown was triggered from a single task (e.g., a requirements-stage task that said "build feature X"), that originating task is now superseded by the breakdown's tasks. It needs to be dealt with.
 
-**When this applies:** The input to task-breakdown was an Asana task URL (not a project URL, not a local spec file). That task is the "originating task."
+**When this applies:** The input to task-breakdown was a task URL (not a project URL, not a local spec file). That task is the "originating task."
 
 **When this does NOT apply:** The input was a spec file, a project URL, or multiple sources. Skip this phase.
 
@@ -116,23 +116,23 @@ Write the user's choice into the breakdown file's **Originating Task** section (
 
 ### Phase 7: Transition to Submit
 
-After writing the breakdown file, offer to push it to Asana:
+After writing the breakdown file, offer to push it to the task manager:
 
-> "Breakdown saved to `<file-path>`. Want to submit it to Asana now? [Y/n]"
+> "Breakdown saved to `<file-path>`. Want to submit it to the task manager now? [Y/n]"
 
-If the user confirms, invoke the `asana-workflow:submit-breakdown` skill using the Skill tool (skill name: `asana-workflow:submit-breakdown`). Pass the breakdown file path and, if the breakdown's References section contains an Asana project URL, include that too.
+If the user confirms, invoke the `submit-breakdown` skill using the Skill tool. Pass the breakdown file path and, if the breakdown's References section contains a project URL, include that too.
 
 If the user declines, stop here. They can run `/submit-breakdown` later with the file path.
 
 ## What This Skill Does NOT Do
 
 - Does not produce implementation plans or file-level specs (those are produced later, during a separate refinement step that reads the codebase)
-- Does not create Asana tasks or interact with project management tools for writing
+- Does not create tasks or interact with project management tools for writing
 - Does not write code or scaffold projects
 - Does not assign people, set priorities, or manage external IDs
 - Does not produce estimates — estimates should come from the team doing the work, after codebase analysis during refinement
 
-It **does** read from Asana (existing tasks, projects, milestones) during discovery to understand current state.
+It **does** read from the task manager (existing tasks, projects, milestones) during discovery to understand current state.
 
 ## Reference Files
 

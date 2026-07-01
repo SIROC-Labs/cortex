@@ -8,9 +8,9 @@ Every `start-task` run tracks progress in a checkpoint file so work can be pause
 
 ## File Location
 
-**Path:** `~/.cortex/asana-workflow/checkpoints/<task-gid>.md`
+**Path:** `~/.cortex/asana-workflow/checkpoints/<task-ref>.md`
 
-The task GID (numeric) comes from the URL — available before any API call. The script creates the directory on first use.
+The task ref (the task's stable identifier from the URL) is available before any task-manager call. The script creates the directory on first use.
 
 **Never overwrite an existing checkpoint on initialization.** If the file exists, work was already started — load it and resume.
 
@@ -24,9 +24,9 @@ A checkpoint has frontmatter, a `## Steps` table, and a `## Notes` section.
 
 | Field | Description |
 |-------|-------------|
-| `task_gid` | Asana task GID (numeric, from URL) |
-| `task_id` | Project ID custom field (e.g., `MT251-47`) — filled in after Step 2 |
-| `asana_url` | Full Asana task URL |
+| `task_ref` | The task's reference (from the URL) — the stable identifier used as the checkpoint key |
+| `task_id` | Project ID field (e.g., `MT251-47`) — filled in after Step 2 |
+| `task_url` | Full task URL |
 | `branch` | Feature branch name — filled in after Step 7 |
 | `base_branch` | Branch the feature branch was created from — filled in after Step 7 |
 | `workflow` | `fix-bug`, `brainstorm`, `feature-dev`, or `fast` — filled in after Step 10 |
@@ -50,9 +50,9 @@ Six-column markdown table tracking every step of the workflow.
 
 ```markdown
 ---
-task_gid: ""
+task_ref: ""
 task_id: ""
-asana_url: ""
+task_url: ""
 branch: ""
 base_branch: ""
 workflow: ""
@@ -94,22 +94,22 @@ The `QA:` rows are only exercised when their preconditions apply (bug vs non-bug
 
 ## Initialization
 
-**This is the very first action `start-task` takes** — before any Asana API call, before any git command.
+**This is the very first action `start-task` takes** — before any task-manager call, before any git command.
 
-1. **Extract task GID** from the URL in `$ARGUMENTS`. If no URL is provided, prompt for it now.
+1. **Extract the task ref** from the URL in `$ARGUMENTS`. If no URL is provided, prompt for it now.
 
 2. **Check for an existing checkpoint:**
    ```bash
-   ls ~/.cortex/asana-workflow/checkpoints/<task-gid>.md 2>/dev/null
+   ls ~/.cortex/asana-workflow/checkpoints/<task-ref>.md 2>/dev/null
    ```
 
 3. **If checkpoint found** → this is a resume. Go to **Resume Flow** below.
 
 4. **If no checkpoint** → create it via the helper:
    ```bash
-   ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-gid> <asana-url>
+   ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh init <task-ref> <task-url>
    ```
-   The script creates `~/.cortex/asana-workflow/checkpoints/` if needed and writes the template with `task_gid`, `asana_url`, `created_at`, `last_updated` pre-filled. No `.gitignore` entry is needed (the file lives outside the repo).
+   The script creates `~/.cortex/asana-workflow/checkpoints/` if needed and writes the template with `task_ref`, `task_url`, `created_at`, `last_updated` pre-filled. No `.gitignore` entry is needed (the file lives outside the repo).
 
 ---
 
@@ -126,30 +126,30 @@ Abbreviate the helper path as `CP=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/s
 When a step **starts** (`State → in_progress`, `Attempts += 1`, `last_updated` refreshed):
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh start <gid> "<step>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh start <task-ref> "<step>"
 ```
 
 When a step **completes successfully** (`Completed → [x]`, `State → completed`, `Comment` set, `last_updated` refreshed). Add a 4th arg `no` if the step required operator input (so `Auto → [ ]`), else omit (defaults to `yes`):
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh complete <gid> "<step>" "<comment>" [yes|no]
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh complete <task-ref> "<step>" "<comment>" [yes|no]
 ```
 
 When a step is **blocked** (cannot complete — waiting on input, external dependency, or a failure that halts progress). Then proceed to **Pause Flow** below:
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<reason>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <task-ref> "<step>" "<reason>"
 ```
 
 When a step does **not apply** in this run (wrong category, `qa-skill=none`, fast mode, operator opted out). `Completed → [ ]`, `State → skipped`, `Comment → reason`:
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh skip <gid> "<step>" "<reason>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh skip <task-ref> "<step>" "<reason>"
 ```
 
 A skipped row is terminal. Resume skips over it the same as `[x]`/completed rows.
 
-**Revising a completed step.** Calling `complete` on an already-completed row overwrites it and increments `Attempts` (providing an audit trail). Use this when the operator revises a decision mid-flow — e.g., at Step 10 they pick `brainstorm`, interrupt the sub-skill, and switch to `feature-dev`. Also update any affected frontmatter via `set` (e.g., `checkpoint.sh set <gid> workflow feature-dev`).
+**Revising a completed step.** Calling `complete` on an already-completed row overwrites it and increments `Attempts` (providing an audit trail). Use this when the operator revises a decision mid-flow — e.g., at Step 10 they pick `brainstorm`, interrupt the sub-skill, and switch to `feature-dev`. Also update any affected frontmatter via `set` (e.g., `checkpoint.sh set <task-ref> workflow feature-dev`).
 
 The `<step>` argument is the exact label from the Steps table (e.g., `"3. Validate Sprint-Readiness"`, `"QA: Investigate Bug"`). Comments and reasons must not contain `|` or newlines — the script rejects those to preserve the table.
 
@@ -158,9 +158,9 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 | Step | Comment |
 |------|---------|
 | 0. Dependency Check | `All present` or `Missing: <skill-list>` |
-| 1. Get Task URL | `GID: <task-gid>` |
+| 1. Get Task URL | `Ref: <task-ref>` |
 | 2. Fetch Task Details | `<task-id> — <task-name>` |
-| 3. Validate Sprint-Readiness | `All checks passed` or `Fixed: <what was set via API>` |
+| 3. Validate Sprint-Readiness | `All checks passed` or `Fixed: <what was set via the task-manager interface>` |
 | 4. Fetch Subtasks | `<N> subtasks (<M> complete, <K> remaining)` |
 | 5. Fetch Comments & Attachments | `<N> comments, <M> attachments` |
 | 6. Check Existing Work | `No existing branch` or `Resumed: <branch-name>` |
@@ -183,7 +183,7 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 Use the `set` subcommand — it updates the field and refreshes `last_updated`:
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh set <gid> <field> "<value>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh set <task-ref> <field> "<value>"
 ```
 
 - After Step 2: set `task_id`
@@ -218,20 +218,20 @@ WIP: <task-id> — blocked on [short reason]
 Example: `WIP: MT251-47 — blocked on timezone decision`
 
 **3. Draft blocking question**
-Formulate from conversation context. Present for user approval. The user MUST approve the exact wording before it is posted. Never post to Asana without explicit approval.
+Formulate from conversation context. Present for user approval. The user MUST approve the exact wording before it is posted. Never post a comment without explicit approval.
 
 Example draft:
 
 > "Hey @Sarah Chen — quick question before I can finish the CSV export: should timestamps use the user's local timezone or UTC? This affects how `formatTimestamp()` is implemented."
 
-**4. Post to Asana**
-After approval, post via the `asana-api` skill. Include the @mention of the blocking person. See `asana-patterns.md` → "Posting a Blocking Question (Pause)" for the format.
+**4. Post the comment**
+After approval, author the body as Markdown and post it via `add_comment(task, body)` through the `task-manager` interface. Include the @mention of the blocking person. See `task-patterns.md` → "Posting a Blocking Question (Pause)" for the format.
 
 **5. Update checkpoint**
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <gid> "<step>" "<who is blocking>"
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh append-note <gid> "<blocking question + who to follow up with>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh block <task-ref> "<step>" "<who is blocking>"
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh append-note <task-ref> "<blocking question + who to follow up with>"
 ```
 
 The `block` call sets `State → blocked` and `Comment → reason`; `append-note` adds a block to the `## Notes` section.
@@ -240,11 +240,11 @@ The `block` call sets `State → blocked` and `Comment → reason`; `append-note
 Push the WIP commit to remote.
 
 **7. Confirm**
-Report: commit hash, Asana comment link, checkpoint path. Instruct the operator to run `/start-task` with the same URL to resume.
+Report: commit hash, task comment link, checkpoint path. Instruct the operator to run `/start-task` with the same URL to resume.
 
-### Asana State
+### Task State
 
-Leave the task status as "In Progress". Do not move the task to a different section.
+Leave the task's status as "In Progress". Do not move the task elsewhere.
 
 ---
 
@@ -258,11 +258,11 @@ Triggered automatically during Initialization when a checkpoint file is found. A
 
 **2. Present current state** — render the Steps table so the operator sees what's done, what's remaining, and any blocked row.
 
-**3. Check for blocked state** — if the resuming row has `State = blocked`, fetch Asana stories posted after `last_updated` (see `asana-patterns.md` → "Checking for Answers on Resume"). Show new comments as potential answers to the blocking question. If no new comments: offer to resume anyway or keep waiting.
+**3. Check for blocked state** — if the resuming row has `State = blocked`, fetch comments posted after `last_updated` via `get_comments(task)` (see `task-patterns.md` → "Checking for Answers on Resume"). Show new comments as potential answers to the blocking question. If no new comments: offer to resume anyway or keep waiting.
 
 **4. Verify branch exists** — check the branch exists locally or on remote. If deleted: offer to recreate from `base_branch` or start fresh. Starting fresh deletes the checkpoint.
 
-**5. Check task status** — if the task has been completed, reassigned, or moved to a different section since `last_updated`, warn before proceeding.
+**5. Check task status** — if the task has been completed, reassigned, or moved elsewhere since `last_updated`, warn before proceeding.
 
 **6. Post resume comment** (only if the resuming row was `blocked`):
 
@@ -270,7 +270,7 @@ Triggered automatically during Initialization when a checkpoint file is found. A
 Resuming work on branch `<branch>`
 ```
 
-See `asana-patterns.md` → "Posting a Resume Comment".
+Author the body as Markdown and post it via `add_comment(task, body)`. See `task-patterns.md` → "Posting a Resume Comment".
 
 **7. Resume work** — check out the branch and continue from the first incomplete row.
 
@@ -281,12 +281,12 @@ See `asana-patterns.md` → "Posting a Resume Comment".
 After Step 12 (Ship It) completes successfully, **delete the checkpoint file** via the helper:
 
 ```bash
-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh delete <task-gid>
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh delete <task-ref>
 ```
 
-The checkpoint's lifetime is one start → develop → ship pass. Once shipped, the Asana task status moves to "In Review" and the PR is ready for review — any further work on the branch (code-review fixes, reviewer feedback, follow-up commits) is **out of scope** for start-task and is not tracked by this checkpoint. It happens through git + the PR review thread, or via a different skill.
+The checkpoint's lifetime is one start → develop → ship pass. Once shipped, the task's status moves to "In Review" and the PR is ready for review — any further work on the branch (code-review fixes, reviewer feedback, follow-up commits) is **out of scope** for start-task and is not tracked by this checkpoint. It happens through git + the PR review thread, or via a different skill.
 
-If the checkpoint is not deleted, a stale file may incorrectly trigger a resume the next time `/start-task` is run against the same task GID.
+If the checkpoint is not deleted, a stale file may incorrectly trigger a resume the next time `/start-task` is run against the same task ref.
 
 If Step 12 fails partway (e.g., `ship-it` sub-skill error), leave the checkpoint in place with `State → blocked` on the failing row so the operator can retry. Only delete on successful completion of Step 12.
 
@@ -296,10 +296,10 @@ If Step 12 fails partway (e.g., `ship-it` sub-skill error), leave the checkpoint
 
 **Branch deleted since the checkpoint was written** — offer to recreate from `base_branch`, or start fresh (deletes checkpoint).
 
-**Task completed in Asana since last update** — warn: "This task was completed in Asana on [date]. Resume anyway?"
+**Task completed in the task manager since last update** — warn: "This task was completed on [date]. Resume anyway?"
 
 **Task reassigned since last update** — warn: "This task is now assigned to [name]. Resume anyway?"
 
 **Validation fails on resume at Step 3** — re-run validation fresh; present updated results.
 
-**Step 9a or 9b fails on resume** — non-blocking; report and continue. 9a (move) failures leave the task in its prior section; 9b (post start comment) failures mean no 🏁 comment was posted.
+**Step 9a or 9b fails on resume** — non-blocking; report and continue. 9a (status move) failures leave the task in its prior status; 9b (post start comment) failures mean no 🏁 comment was posted.

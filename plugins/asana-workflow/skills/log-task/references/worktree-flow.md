@@ -54,4 +54,4 @@ git add <changed_files>
 git commit -m "<task_id> :: <task-title-slug>"
 ```
 
-**Do NOT push. Do NOT create a PR. Do NOT update Asana status.** `ship-it` owns all of these.
+**Do NOT push. Do NOT create a PR. Do NOT update the task's status.** `ship-it` owns all of these.

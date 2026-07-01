@@ -2,7 +2,7 @@
 name: fix-bug
 version: 0.1.0
 description: >
-  Handles bug-fix investigation and testing when start-task routes a Bug category Asana task.
+  Handles bug-fix investigation and testing when start-task routes a Bug category task.
   Orchestrates root cause investigation (DIAGNOSE_AND_FIX_BUG capability) and a TDD hard gate
   to prevent recurrence (APPLY_TDD capability), resolved via the runtime-bindings table.
   Returns to start-task for QA verification and shipping. Always called from start-task;
@@ -24,7 +24,7 @@ Receives full task context from start-task:
 - Comments and attachments
 - QA investigation report (from start-task's `QA: Investigate Bug`)
 - Branch name (already created and checked out)
-- Asana task URL
+- Task URL
 
 ## Step 1: Root Cause Investigation
 

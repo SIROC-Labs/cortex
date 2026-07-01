@@ -29,14 +29,14 @@ Readiness gate that validates code is in a shippable state. Combines git state v
 
 **1a. Check context first** — if a `✅ QA Verification` comment was posted in this session, the gate passes. Skip to Step 2.
 
-**1b. Fetch task stories** (via `asana-api`) and search for any comment containing `✅ QA Verification`. A `❌ QA Verification — FAILED` comment does **not** pass the gate.
+**1b. Fetch task comments** (via the `task-manager` interface — `get_comments(task)`) and search for any comment containing `✅ QA Verification`. A `❌ QA Verification — FAILED` comment does **not** pass the gate.
 
 - **Found** → gate passes. Proceed to Step 2.
 - **Not found** → continue to 1c.
 
 **1c. Check QA skill resolution** — if the QA skill resolved to `none` in this session (backend, API, CLI, or library work with no visual UI), the gate passes. Skip to Step 2.
 
-**1d. Determine task category** — check conversation context for the task's Category field. If not in context, fetch the task details (via `asana-api` Fetch Task Details) to read the Category custom field.
+**1d. Determine task category** — check conversation context for the task's Category field. If not in context, fetch the task details (via the `task-manager` interface — `get_task(task)`) and read the `Category` field (per `plugins/asana-workflow/references/workflow/fields.md`).
 
 - **Bug** → **BLOCKING**. Report:
   > QA verification has not passed for this bug task. The fix must be verified via the QA skill before shipping.
@@ -48,13 +48,13 @@ Readiness gate that validates code is in a shippable state. Combines git state v
   Otherwise, **always stop and ask the operator. Auto mode's "minimize interruptions" directive does NOT override this step. Inferred triviality is NOT a valid reason to skip asking. Do not generate a static self-certification checklist in place of this prompt.**
 
   > "No QA verification found for this task. Visually verify the changes before shipping?
-  > I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the Asana task as proof of completion.
+  > I'll build, deploy to the simulator/browser, and check the affected flows. A screenshot or video will be uploaded to the task as proof of completion.
   > - **Yes** — run QA verification now
   > - **Skip** — proceed without QA"
 
   Wait for the operator's answer before continuing.
 
-  - If **Yes** → resolve the QA skill per `plugins/asana-workflow/references/qa-routing.md` ("Resolving the QA Skill") and invoke it with a summary of what was built/changed (from git diff/log). The QA skill posts `✅ QA Verification — Feature Complete` to Asana with evidence. Gate passes — **proceed to Step 2**. pre-ship-check is not complete until Steps 2–4 have also run.
+  - If **Yes** → resolve the QA skill per `plugins/asana-workflow/references/qa-routing.md` ("Resolving the QA Skill") and invoke it with a summary of what was built/changed (from git diff/log). The QA skill posts `✅ QA Verification — Feature Complete` to the task with evidence. Gate passes — **proceed to Step 2**. pre-ship-check is not complete until Steps 2–4 have also run.
   - If **Skip** → operator has explicitly acknowledged the absence. Gate passes with a note for the final report: `QA skipped by operator` — **proceed to Step 2**. pre-ship-check is not complete until Steps 2–4 have also run.
 
 ## Step 2: Git State Validation

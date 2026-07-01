@@ -1,71 +1,76 @@
 # Sprint-Readiness Validation Rules
 
-Four checks determine whether a task is ready to start. Track which pass and which fail, then present results as a checklist.
+Four checks determine whether a task is ready to start. The intent is constant across providers: **do not start work that isn't ready.**
 
-## Check 1: Active Sprint Membership
+## Run the verdict (code-enforced)
 
-Before running checks, load the board registry cache following `board-resolution.md` (at the plugin root: `plugins/asana-workflow/references/board-resolution.md`). If the cache doesn't exist, run the Full Discovery flow. If `active_sprint.due_on` is in the past, run Sprint Auto-Refresh.
+Do **not** reason over the task JSON or apply the checks by hand. Run the neutral seam's readiness script — it resolves the active provider, fetches the data via that provider's primitives (`task get` + `board resolve active-sprint`), and applies siroc's gate policy deterministically:
 
-The task must be a member of the **active sprint** — compare the task's `memberships[].project.gid` values against `active_sprint.gid` from the cache.
+```
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --url <task-url> <task-ref>
+```
 
-A task that is only in an old/completed sprint does **not** pass this check — it must be pulled into the current active sprint in Asana first.
+It prints a verdict JSON and exits `0` whenever a verdict was produced (a non-`ready` verdict is **not** an error — it is the answer); non-zero only on a hard error (provider unresolved, fetch failed). The verdict shape:
 
-**This check is non-negotiable.** If the task is not in the active sprint, it cannot be started — there is no skip for this.
+```json
+{ "ready": true,
+  "checks": [
+    {"name":"active_sprint","result":"pass|fail","blocking":true,"detail":"…"},
+    {"name":"estimate","result":"pass|fail","blocking":true,"detail":"…"},
+    {"name":"status","result":"pass|fail","blocking":true,"detail":"…"},
+    {"name":"task_key","result":"pass|fail|skip","blocking":false,"detail":"…"}
+  ] }
+```
 
-## Check 2: Estimated Time
+`ready` is `true` only when **active_sprint passes, estimate passes, and the status is a not-yet-started state**. Present the verdict to the operator as the checklist below, then branch on it.
 
-The custom field named "Estimated time" must have a non-null `display_value`.
+## Branching on the verdict
 
-If missing, offer to set it via the API:
+- **`status` pass** → the task is in a not-yet-started state → proceed.
+- **`status` fail** (blocking) → the task is **not** in a not-yet-started state (it's active, near-complete like `Ready`, or closed). It is not a fresh-start candidate; offer to move it into the start state (e.g. Product Status `Assigned`) via the task-manager interface, exactly as the original gate did (it required `Product Status == "Assigned"` and offered to set it). The gate does not sub-classify *why* it isn't startable.
+- **`active_sprint` fail** (blocking, non-negotiable) → the task is only in an old/completed sprint or no sprint; it must be pulled into the current active sprint **manually** — it cannot be set via the task-manager interface. There is no skip for this.
+- **`estimate` fail** (blocking) → offer to set the Estimate field via the task-manager interface:
+  > No estimate set — how long do you estimate?
+- **`task_key`** (non-blocking, provider-conditional) → `skip` when the provider supplies a native task key — nothing to do. `fail` (provider with no native key, and no `XXX-123` ID-pattern field set) → warn once about traceability, then proceed if the operator opts to skip. **Do not try to set the key through this gate** — the task key may be **provider-managed and read-only** (a provider can auto-assign it and reject writes); if it's genuinely needed it's resolved in the task manager out of band, not by the readiness step. (How a provider manages its key is the provider's concern.)
 
-> No estimated time set — how long do you estimate?
-
-## Check 3: Product Status = Assigned
-
-The custom field named "Product Status" must have an `enum_value.name` of "Assigned".
-
-If incorrect, offer to update it via the API.
-
-## Check 4: ID Field
-
-There must be a text-type custom field whose `display_value` matches an ID pattern like `XXX-123` (uppercase letters, a hyphen, then digits). The field name varies per project (e.g., "MT251", "BI", "PD253") — match by pattern, not by field name.
+The provider owns *how* each datum is realized — `readiness.py` composes the provider's `task get` / `board resolve` primitives, so the workflow stays provider-agnostic.
 
 ## Failure Display Format
 
 Separate blocking failures from skippable ones. Present them distinctly:
 
-**If any blocking check fails (Active sprint membership, Estimated time, Product Status):**
+**If any blocking check fails (Active sprint membership, Estimate, Not-yet-started state):**
 ```
 Sprint-Readiness Checks:
-- [x] Active sprint membership — ENG | Sprint 26.16
-- [ ] Estimated time — Not set (REQUIRED)
-- [ ] Product Status — "Ready" (needs "Assigned") (REQUIRED)
-- [x] Has ID: MT251-12
+- [x] Active sprint membership — the active sprint
+- [ ] Estimate — Not set (REQUIRED)
+- [ ] Status — "Ready" (needs a not-yet-started state) (REQUIRED)
+- [x] Has key: MT251-12
 
-Two required fields are missing. Want me to set them via API?
+Some required checks did not pass. Want me to resolve them?
 ```
 
-For active sprint membership: the task must be added to the current sprint (ENG | Sprint 26.16) in Asana manually — cannot be set via API.
-For Estimated time: prompt for the estimate, then set via API.
-For Product Status: offer to set to "Assigned" via API.
+For active sprint membership: the task must be added to the active sprint manually — it cannot be set via the task-manager interface.
+For Estimate: prompt for the estimate, then set it via the task-manager interface.
+For the status: offer to set it to the start state (e.g. `Assigned`) via the task-manager interface.
 
-Do not proceed until all three blocking checks pass.
+Do not proceed until all blocking checks pass.
 
-**If only the ID field fails (skippable):**
+**If only the key / ID field fails (skippable, and only for providers without an intrinsic key):**
 ```
 Sprint-Readiness Checks:
-- [x] Active sprint membership — ENG | Sprint 26.16
-- [x] Estimated time — 3h
-- [x] Product Status — Assigned
+- [x] Active sprint membership — the active sprint
+- [x] Estimate — 3h
+- [x] State — Assigned
 - [ ] ID field — Not set
 
-ID is missing. Skip and continue, or set it in Asana first?
+ID is missing. Skip and continue? (The key may be provider-managed — auto-assigned or set out of band in the task manager — not written by this gate.)
 ```
 
 Warn once about traceability risks, then proceed if skipped.
 
 ## Skip Rules
 
-**Active sprint membership, Estimated time, Product Status** — never skippable. Block the workflow. Offer to set Estimated time and Product Status via API, but do not proceed until all three are resolved.
+**Active sprint membership, Estimate, Not-yet-started status** — never skippable. Block the workflow. Offer to set Estimate via the task-manager interface and to set the status to the start state (e.g. `Assigned`), but do not proceed until all three are resolved.
 
-**ID field** — if the intent is to skip ("just start", "I'll fix Asana later"), warn once about traceability risks, then proceed.
+**Task key / ID field** — skipped entirely when the provider has an intrinsic key. Otherwise, if the intent is to skip ("just start", "I'll fix the task manager later"), warn once about traceability risks, then proceed.

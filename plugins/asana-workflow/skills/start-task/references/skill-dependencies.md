@@ -72,7 +72,7 @@ and tell the user to install it: `codex plugin add superpowers@openai-curated`
 
 ## Dependency Check at Start-Task Launch (Step 0)
 
-At the very beginning of start-task (before fetching the Asana task), check which routing path may be needed and confirm the relevant plugin is installed.
+At the very beginning of start-task (before fetching the task), check which routing path may be needed and confirm the relevant plugin is installed.
 
 **Missing dependencies are hard blockers across all runtimes.** Stop, warn the user (⚠️ the plugin/server is required but doesn't appear to be installed), give them the recovery command from the table below, and tell them to install it, restart the agent, then re-run start-task. Do not continue inline.
 
@@ -95,7 +95,7 @@ These skills are included in the `asana-workflow` plugin itself:
 
 | Skill | Purpose |
 |---|---|
-| `asana-workflow:asana-api` | All Asana API calls |
+| `asana-workflow:task-manager` | All task operations (routed to the active provider) |
 | `asana-workflow:git-check` | Git state validation |
 | `asana-workflow:pre-ship-check` | Readiness gate |
 | `asana-workflow:work-summary` | Session summary |
