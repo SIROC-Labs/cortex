@@ -47,6 +47,7 @@
 #                            [--set Name=Value ...] [--wait-key]
 #   tm.py task set-field     <task-ref> <CanonicalName> <value>
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
+#   tm.py task set-notes     <task-ref> (<body> | --body-file <path>)
 #   tm.py task attach        <task-ref> <file-path>
 #   tm.py task add-dependency <task-ref> <depends-on-ref>
 #   tm.py task set-parent    <task-ref> <parent-ref>
@@ -1445,6 +1446,43 @@ def task_set_status(args):
     die(1, "%s: task set-status: '%s' is not a known Product Status option or board section on task %s's project(s)" % (PROG, status_name, task_gid))
 
 
+# Set (replace) a task's description/notes. <task-ref> is a task GID; the body is
+# authored as Markdown (positional arg or --body-file), converted to Asana HTML the
+# same way comments are (md_to_html → render_body), and PUT to the task's html_notes
+# (rich) or notes (plain). Mirrors `comment add`. Prints the compact projection.
+def task_set_notes(args):
+    if not args:
+        die(1, "usage: %s task set-notes <task-ref> (<body> | --body-file <path>)" % PROG)
+    task_gid = args[0]
+    rest = args[1:]
+    body = None
+    if rest and rest[0] == "--body-file":
+        if len(rest) < 2:
+            die(1, "%s: task set-notes: --body-file requires a path" % PROG)
+        path = rest[1]
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                body = f.read()
+        except Exception as e:
+            die(1, "%s: task set-notes: cannot read --body-file '%s' (%s)" % (PROG, path, e))
+    elif rest:
+        body = rest[0]
+    if body is None:
+        die(1, "%s: task set-notes requires a body (<body> or --body-file <path>)" % PROG)
+    if not re.fullmatch(r"[0-9]+", task_gid):
+        die(1, "%s: task set-notes: task-ref must be numeric (got '%s')" % (PROG, task_gid))
+    if not body.strip():
+        die(1, "%s: task set-notes: body is empty (refusing to blank the description)" % PROG)
+
+    is_html, wrapped = render_body(md_to_html(body))
+    field = "html_notes" if is_html else "notes"
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    updated = api_json("%s/tasks/%s" % (API_BASE, task_gid), token, "PUT", {"data": {field: wrapped}})
+    print_task_projection(updated)
+    sys.exit(0)
+
+
 # --- comment family ---------------------------------------------------------
 
 # Matches any HTML tag from the set Asana rich text understands (plus structural
@@ -1511,8 +1549,10 @@ def _md_inline(text):
 # Convert a Markdown body to Asana-compatible HTML. Handles headings, bullet and
 # numbered lists, and inline emphasis/code/links. List runs are wrapped in <ul>/
 # <ol>; consecutive list items of the same kind join into one list. Line breaks
-# are emitted as literal "\n" (NOT <br>), per Asana rich-text rules. The result is
-# fed to build_payload, which wraps it in <body>…</body>.
+# are emitted as literal "\n" (NOT <br>), per Asana rich-text rules. Blank source
+# lines are DROPPED from the output — Asana renders a bare "\n" as a visible vertical
+# gap after headings/between blocks, and block tags (<h*>/<ul>/<ol>/<li>) don't need
+# blank-line separation. The result is fed to build_payload, which wraps it in <body>.
 def md_to_html(body):
     lines = body.split("\n")
     out = []
@@ -1549,23 +1589,31 @@ def md_to_html(body):
             close_list()
             out.append(_md_inline(line))
     close_list()
-    return "\n".join(out)
+    # Drop blank/whitespace-only lines so Asana doesn't render them as gaps.
+    return "\n".join(x for x in out if x.strip())
 
 
-# Decide the Asana API field for a body and build the request payload: if the body
-# already contains HTML tags it is treated as
-# rich text (html_text), with <br> auto-replaced by "\n", blank-line runs
-# collapsed, and wrapped in <body>…</body> when not already; otherwise it is sent
-# as plain text. Returns (mode, payload) where mode in {"text","html_text"}.
-def build_payload(body):
+# Decide whether a body is rich HTML or plain, and normalize it. If it contains HTML
+# tags: replace <br> with "\n" (Asana rejects <br>), collapse blank-line runs, and wrap
+# in <body>…</body> when not already. Returns (is_html, normalized_body). Shared by the
+# comment path (html_text/text) and the notes path (html_notes/notes).
+def render_body(body):
     if HTML_TAG_PATTERN.search(body):
         body = BR_PATTERN.sub("\n", body)
         body = NEWLINE_RUN_PATTERN.sub("\n\n", body)
         stripped = body.strip()
         if not (stripped.startswith("<body>") and stripped.endswith("</body>")):
             body = "<body>%s</body>" % body
-        return "html_text", {"data": {"html_text": body}}
-    return "text", {"data": {"text": body}}
+        return True, body
+    return False, body
+
+
+# Build the comment/story request payload. Returns (mode, payload) where mode in
+# {"text","html_text"}.
+def build_payload(body):
+    is_html, body = render_body(body)
+    field = "html_text" if is_html else "text"
+    return field, {"data": {field: body}}
 
 
 # Post a comment (story) to a task. <task-ref> is a task GID. The body is authored
@@ -1710,6 +1758,7 @@ TASK_VERBS = {
     "create": task_create,
     "set-field": task_set_field,
     "set-fields": task_set_fields,
+    "set-notes": task_set_notes,
     "attach": task_attach,
     "add-dependency": task_add_dependency,
     "set-parent": task_set_parent,

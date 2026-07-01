@@ -44,6 +44,7 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `set_status(task, status)` — `status` is a name from `references/workflow/lifecycle.md`.
 - `set_field(task, field_name, value)` — `field_name` from `references/workflow/fields.md`.
 - `set_fields(task, {field_name: value, …})` — set multiple fields at once; **prefer over repeated `set_field` when setting 2+ fields** (providers apply them in a single write). Fields a provider can't address are skipped/surfaced, never silently wrong.
+- `set_description(task, body)` — replace the task's description; author `body` as Markdown (the provider converts). The editing counterpart to `create_task`'s `description`.
 - `add_comment(task, body)` — author `body` as Markdown; the provider converts.
 - `upload_attachment(task, file_path)` / `remove_attachment(task, attachment)`
 - `get_subtasks(task)` / `get_comments(task)` / `get_attachments(task)` — list a task's subtasks / comments / attachments.
