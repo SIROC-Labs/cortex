@@ -45,7 +45,7 @@
 #   tm.py task get           <task-ref>
 #   tm.py task list          <project-ref>
 #   tm.py task create        <project-ref> --title T [--description D] [--assignee A]
-#                            [--set Name=Value ...] [--wait-key]
+#                            [--kind task|milestone] [--set Name=Value ...] [--wait-key]
 #   tm.py task delete        <task-ref>
 #   tm.py task set-field     <task-ref> <CanonicalName> <value>
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
@@ -933,7 +933,7 @@ def estimate_number_value(minutes, entry):
 # opt_fields for `task get` (per ../references/rest.md → Fetch Task Details), kept
 # to the small set the compact projection needs.
 TASK_GET_OPT_FIELDS = (
-    "name,notes,completed,"
+    "name,notes,completed,resource_subtype,"
     "assignee.name,"
     "custom_fields.name,custom_fields.display_value,custom_fields.type,"
     "custom_fields.resource_subtype,"
@@ -1035,6 +1035,7 @@ def project_task(raw):
     out = {
         "ref": raw.get("gid"),
         "name": raw.get("name"),
+        "kind": "milestone" if raw.get("resource_subtype") == "milestone" else "task",
         "description": raw.get("notes"),
         "assignee": assignee,
         "status": status,
@@ -1069,7 +1070,7 @@ def task_list(args):
     project_ref = args[0]
     key = cache_util.project_key()
     token = resolve_token(key)
-    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed&limit=100" % (API_BASE, project_ref)
+    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed,resource_subtype&limit=100" % (API_BASE, project_ref)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1080,6 +1081,7 @@ def task_list(args):
                     out.append({
                         "gid": item.get("gid"),
                         "name": item.get("name"),
+                        "kind": "milestone" if item.get("resource_subtype") == "milestone" else "task",
                         "completed": item.get("completed"),
                     })
         next_page = payload.get("next_page") if isinstance(payload, dict) else None
@@ -1097,12 +1099,13 @@ def task_list(args):
 # board membership is reflected), not the raw Asana blob.
 def task_create(args):
     if not args:
-        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--set Name=Value ...] [--wait-key]" % PROG)
+        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--kind task|milestone] [--set Name=Value ...] [--wait-key]" % PROG)
     project_ref = args[0]
     opts = args[1:]
     title = None
     description = None
     assignee = None
+    kind = None
     set_pairs = []
     wait_key = False
     i = 0
@@ -1112,7 +1115,7 @@ def task_create(args):
             wait_key = True
             i += 1
             continue
-        if flag in ("--title", "--description", "--assignee", "--set"):
+        if flag in ("--title", "--description", "--assignee", "--kind", "--set"):
             if i + 1 >= len(opts):
                 die(1, "%s: task create: %s requires a value" % (PROG, flag))
             value = opts[i + 1]
@@ -1122,6 +1125,8 @@ def task_create(args):
                 description = value
             elif flag == "--assignee":
                 assignee = value
+            elif flag == "--kind":
+                kind = value
             else:
                 set_pairs.append(value)  # "Name=Value", parsed after the task exists
             i += 2
@@ -1129,6 +1134,8 @@ def task_create(args):
             die(1, "%s: task create: unknown argument '%s'" % (PROG, flag))
     if not title:
         die(1, "%s: task create requires --title" % PROG)
+    if kind not in (None, "task", "milestone"):
+        die(1, "%s: task create: --kind must be 'task' or 'milestone' (got '%s')" % (PROG, kind))
 
     key = cache_util.project_key()
     wgid = workspace_gid_from(key)
@@ -1137,6 +1144,8 @@ def task_create(args):
     token = resolve_token(key)
 
     data = {"name": title, "workspace": wgid}
+    if kind == "milestone":
+        data["resource_subtype"] = "milestone"  # create a milestone-subtype task
     if description is not None:
         data["notes"] = description
     if assignee is not None:
