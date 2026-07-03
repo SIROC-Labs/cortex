@@ -20,6 +20,24 @@ Every plan starts with:
 
 **Never use T-labels (`T1`, `T2`, ...) in the plan.** T-labels are an internal identifier scheme from an upstream decomposition document - they have no meaning once tasks are in the task manager. Reference sibling tasks by title or task URL; reference earlier steps in this plan by `Step N`.
 
+## Design / Visual references (when the task has any)
+
+Carry every design and visual-asset URL from the task description **verbatim** into this section - Figma frames, screenshot / prototype links, exported mockups. Place it right after the header so the implementer sees the design before the file list.
+
+These are **pass-through artifacts the implementer opens**, not sources refine-tasks "consults." A Figma canvas cannot be read as text and absorbed into the plan the way a spec or a source file can - so if a design link is not copied into this section, it is simply lost between the task description and the plan (the plan, not the description, is what the downstream agent executes from). This section is the only place design links survive; do **not** rely on the References section for them (that is for textual sources actually read).
+
+- Preserve the descriptive label from the task description (e.g. `Figma - Onboarding page 3`).
+- When the design is per-screen or per-state, map each URL to the page / state it covers, in the same order the UI presents them - this is exactly the detail an implementer needs and cannot reconstruct.
+- Omit the entire section when the task description carries no visual references. Never write a placeholder.
+
+```markdown
+## Design / Visual references
+
+- Overview / flow: https://figma.com/design/.../Product?node-id=4001-9889
+- Page 1: https://figma.com/design/.../Product?node-id=4001-9665
+- Page 2: https://figma.com/design/.../Product?node-id=4001-9699
+```
+
 ## Resolved Decisions (optional)
 
 When the Phase 3a ambiguity batch surfaced questions and the user answered them, record each as a one-line decision. Skip the section if no ambiguities were resolved.
@@ -229,7 +247,7 @@ For frontend / UI tasks, replace the HTTP smoke test with a step-through of the 
 
 ## References
 
-Every source consulted to write this plan.
+Every textual source consulted to write this plan - specs, code, docs actually read. **Design / visual links (Figma, mockups, prototypes) do not belong here** - they are pass-through artifacts and live in the "Design / Visual references" section near the top. Keeping them separate stops a design URL from being quietly treated as a "source consulted" and then dropped.
 
 ```markdown
 ## References
@@ -272,6 +290,7 @@ Before saving the plan as the task attachment:
 6. **Identifier consistency** - same model / field / function names used the same way throughout.
 7. **Step granularity** - each step is one action, executable and verifiable before moving to the next.
 8. **Decisions captured** - every choice made during the ambiguity batch landed somewhere in the plan (Resolved Decisions, or embedded in Models / Endpoints / Steps).
+9. **Design links preserved** - if the task description carried any Figma / mockup / prototype / screenshot URL (including one rendered as its top-of-description "Visual Context" link), every one of them appears verbatim in the "Design / Visual references" section. A UI task whose description had a design link but whose plan has none has dropped it - fix before saving.
 
 Fix issues inline.
 

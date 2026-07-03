@@ -26,6 +26,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 **Acceptance criteria:**
 - <observable outcome 1>
 - <observable outcome 2>
+**References:** Figma - <label>: <url>   ← optional; design/visual links especially
 **Depends on:** T2, T3   ← optional
 **Attachments:**
 - T1-<slug>-implementation-plan.md
@@ -35,7 +36,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 ```
 
 - **No M-blocks.** task-breakdown never authors milestone content.
-- **No top-level References block, no rationale paragraphs.** Per-task references live inside the implementation-plan attachment, not in `breakdown.md`.
+- **No file-level References block, no rationale paragraphs.** Do not add a top-of-file `## References` section. **Per-task references, however, belong on the T-block as an optional `**References:**` field** — `submit-breakdown` aggregates that field into the task description (as the top "Visual Context" Figma link and the References list). This is the *only* path a task-specific design link reaches the task: the implementation-plan attachment is generated later and is not parsed for references. So a Figma frame that applies to one task must go on that T-block's `**References:**`, not solely in the attachment. Keep the field to genuinely load-bearing, non-obvious links (design frames, external API/doc URLs, a related task) — the same allowed-list `submit-breakdown` applies; do not restate CLAUDE.md, the repo, or the breakdown file.
 - **T-labels are sequential across the whole file** (T1, T2, T3 …) and local-only — they carry no meaning outside this file.
 - **`**Target milestone:**`** (optional) appears once at the top, immediately after the title. It is **metadata, not a directive** — `submit-breakdown` always confirms with the user before slotting tasks under that milestone.
 - **Attachment filenames carry the `T{N}-<slug>-` prefix locally** for ordering. `submit-breakdown` strips that prefix and uploads each file as `implementation-plan.md` on its target task.
@@ -48,13 +49,14 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 | `**Purpose:**` | Body | Yes |
 | `**Description:**` | Body | Yes |
 | `**Acceptance criteria:**` | Body | Yes |
+| `**References:**` (optional) | Body | Yes — aggregated by `submit-breakdown` into the description's Visual Context (Figma) link and References list |
 | `**Depends on:**` (optional) | Dependency metadata | No — parsed for T-labels, used to wire native task dependencies |
 | `**Attachments:**` | Attachment metadata | No — file list uploaded as attachments (renamed to `implementation-plan.md` per the upload contract) |
 
 Parsing rules:
 
 - For each `## T{N} :: <Name>` header → one implementation task.
-- Collect body fields → render them as the task description, verbatim, in the canonical order: **Purpose → Description → Acceptance criteria**.
+- Collect body fields → render them as the task description, verbatim, in the canonical order: **Purpose → Description → Acceptance criteria → References**. (`submit-breakdown` promotes any Figma URL in References to the top-of-description Visual Context link; see `submit-breakdown/references/description-template.md`.)
 - Collect metadata fields → route per the table above.
 - The optional file-level `**Target milestone:**` line is parsed once at the top of the file and applies to every T-block. It is not pushed to any task description.
 
@@ -99,6 +101,14 @@ Bad: "Employee list works correctly"
 
 Good: "API returns 404 with error message when employee ID doesn't exist"
 Bad: "Error handling is implemented"
+
+### References (optional)
+
+A short list of genuinely load-bearing, non-obvious links for this specific task — **design/visual frames above all** (Figma, prototype, mockup), plus external API/doc URLs or a related task that provides context the codebase doesn't. Preserve a descriptive label, e.g. `Figma - Onboarding page 3: https://figma.com/…?node-id=4001-9734`.
+
+This is the field that carries a **task-specific** design into the task manager: `submit-breakdown` promotes any Figma URL here to the top-of-description "Visual Context" link and lists the rest under References, and `refine-tasks` then copies them into the plan's Design / Visual references section. A design frame left only inside the implementation-plan attachment never reaches either place — put it here.
+
+Apply the same allowed-list `submit-breakdown` enforces: do **not** list CLAUDE.md files, the repo/project URL, the breakdown document itself, or anything a fresh session would auto-discover. Omit the field entirely when the task has no such links — do not write "None".
 
 ### Neutral Fields (Platform / Category / Priority)
 
