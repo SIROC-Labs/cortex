@@ -6,7 +6,7 @@ on:
       plugin:
         description: "Plugin name (must match folder under plugins/)"
         required: true
-        default: "asana-workflow"
+        default: "cortex-workflow"
       level:
         description: "Semver level to bump"
         required: true
@@ -70,7 +70,7 @@ jobs:
           # Each agent discovers the plugin through a different manifest; keep their versions in lockstep.
           PLUGIN_FILE="plugins/${PLUGIN}/.claude-plugin/plugin.json"        # Claude Code: per-plugin manifest
           MARKETPLACE_FILE=".claude-plugin/marketplace.json"                # Claude Code: marketplace entry
-          PACKAGE_FILE="package.json"                                       # OpenCode: npm manifest (asana-workflow only)
+          PACKAGE_FILE="package.json"                                       # OpenCode: npm manifest (cortex-workflow only)
           CODEX_PLUGIN_FILE="plugins/${PLUGIN}/.codex-plugin/plugin.json"   # Codex: per-plugin manifest (if present)
           # Note: the Codex marketplace (.agents/plugins/marketplace.json) has no version field, so nothing to bump there.
 
@@ -104,8 +104,8 @@ jobs:
               f.write('\n')
           PYEOF
 
-          # package.json is the asana-workflow OpenCode manifest; only bump it for that plugin
-          if [ "$PLUGIN" = "asana-workflow" ]; then
+          # package.json is the cortex-workflow OpenCode manifest; only bump it for that plugin
+          if [ "$PLUGIN" = "cortex-workflow" ]; then
             set_version "$PACKAGE_FILE"
           fi
 
@@ -127,7 +127,7 @@ jobs:
 
           git add "plugins/${PLUGIN}/.claude-plugin/plugin.json" \
                   .claude-plugin/marketplace.json
-          if [ "$PLUGIN" = "asana-workflow" ]; then
+          if [ "$PLUGIN" = "cortex-workflow" ]; then
             git add package.json
           fi
           if [ -f "plugins/${PLUGIN}/.codex-plugin/plugin.json" ]; then
