@@ -19,6 +19,7 @@ cortex-workflow/
     ├── create-pr/         ← PR creation (bundled)
     ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
     ├── product-one-pager/ ← Product one-pager/brief generation & review against a senior-PM + product-owner bar (bundled)
+    │   └── references/    ← MCP integration state machine, acceptance rubric
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── implement-feature/ ← Non-bug routing orchestrator: plan detection + runtime-bindings resolution (bundled)
