@@ -408,7 +408,7 @@ configure_opencode() {
 import json, sys, os
 
 config_path = sys.argv[1]
-cortex_entry = "asana-workflow@git+https://github.com/SIROC-Labs/cortex.git"
+cortex_entry = "cortex-workflow@git+https://github.com/SIROC-Labs/cortex.git"
 superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
 
 # In --dev mode, argv[2] is the local clone path; use it instead of the git+ URL.
@@ -445,28 +445,28 @@ def spec_name(spec):
         base = base.rsplit("/", 1)[-1]
     return base
 
-# In --dev, force the local asana-workflow path by dropping any existing entry first,
+# In --dev, force the local cortex-workflow path by dropping any existing entry first,
 # so the local clone replaces it instead of being skipped by the dedupe below.
 if dev:
-    plugins = [p for p in plugins if spec_name(p) != "asana-workflow"]
+    plugins = [p for p in plugins if spec_name(p) != "cortex-workflow"]
 
 # Add each plugin by canonical name, so an entry already present in ANY spec form
 # (e.g. a pinned or differently-sourced superpowers) is respected instead of duplicated.
 existing = {spec_name(p) for p in plugins}
-for name, entry in (("asana-workflow", cortex_entry), ("superpowers", superpowers_entry)):
+for name, entry in (("cortex-workflow", cortex_entry), ("superpowers", superpowers_entry)):
     if name not in existing:
         plugins.append(entry)
         existing.add(name)
 config["plugin"] = plugins
 
 # MCP servers are registered at load time by the OpenCode adapter
-# (.opencode/plugins/asana-workflow.js) from the plugin's bundled .mcp.json — the
+# (.opencode/plugins/cortex-workflow.js) from the plugin's bundled .mcp.json — the
 # single source of truth (shared with Claude and Codex). Not written here.
 
 perm = config.get("permission", {})
 ext = perm.get("external_directory", {})
 # Whitelist paths the plugin needs to read/write outside the project directory
-ext["~/.cortex/asana-workflow/*"] = "allow"
+ext["~/.cortex/cortex-workflow/*"] = "allow"
 # ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
 ext["~/.config/opencode/opencode.json"] = "allow"
 # ^ dependency check reads opencode.json to verify superpowers is installed
@@ -491,7 +491,7 @@ PYEOF
 
   # Clear plugin cache to force fresh install on restart
   if [ -d "$CACHE_DIR" ]; then
-    rm -rf "${CACHE_DIR}/asana-workflow" 2>/dev/null || true
+    rm -rf "${CACHE_DIR}/cortex-workflow" 2>/dev/null || true
     info "Plugin cache cleared"
   fi
 
@@ -515,7 +515,7 @@ configure_codex() {
     MP_SOURCE="$SCRIPT_DIR"
 
     # Validate the local marketplace + per-plugin manifests before registering them.
-    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/asana-workflow/.mcp.json")
+    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/cortex-workflow/.mcp.json")
     local p
     for p in $PLUGINS; do
       MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
@@ -565,7 +565,7 @@ PYEOF
     for p in $PLUGINS; do
       info "  codex plugin add ${p}@${MARKETPLACE_NAME}"
     done
-    info "  codex plugin add superpowers@openai-curated   (required by asana-workflow)"
+    info "  codex plugin add superpowers@openai-curated   (required by cortex-workflow)"
     info "  Or browse with /plugins inside Codex."
     return 0
   fi

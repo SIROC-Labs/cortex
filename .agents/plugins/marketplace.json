@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "asana-workflow",
+      "name": "cortex-workflow",
       "source": {
         "source": "local",
-        "path": "./plugins/asana-workflow"
+        "path": "./plugins/cortex-workflow"
       },
       "policy": {
         "installation": "INSTALLED_BY_DEFAULT",

@@ -14,7 +14,7 @@
    - **Claude Code:**
      ```
      /plugin marketplace add /path/to/cortex
-     /plugin install asana-workflow@siroc-cortex
+     /plugin install cortex-workflow@siroc-cortex
      /plugin install dev-toolkit@siroc-cortex
      ```
    - **OpenCode:** Point your `opencode.json` at the local clone:
@@ -24,7 +24,7 @@
    - **Codex:** Add the local clone as the marketplace (use the repo root, which contains `.agents/plugins/marketplace.json`), then install the plugins:
      ```bash
      codex plugin marketplace add /path/to/cortex
-     codex plugin add asana-workflow@siroc-cortex
+     codex plugin add cortex-workflow@siroc-cortex
      codex plugin add dev-toolkit@siroc-cortex
      codex plugin add superpowers@openai-curated
      ```
@@ -79,7 +79,7 @@ Never edit version numbers in `plugin.json`, `marketplace.json`, or `package.jso
 
 | Input | Description |
 |-------|-------------|
-| `plugin` | Plugin folder name (e.g. `asana-workflow`) |
+| `plugin` | Plugin folder name (e.g. `cortex-workflow`) |
 | `level` | `patch` · `minor` · `major` |
 
 - `patch` — bug fixes, copy tweaks, non-breaking skill changes
