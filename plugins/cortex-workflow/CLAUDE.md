@@ -18,6 +18,7 @@ cortex-workflow/
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
     ├── create-prd/        ← PRD generation from Asana, Notion, Figma, local files, or any URL (bundled)
+    ├── product-one-pager/ ← Product one-pager/brief generation & review against a senior-PM + product-owner bar (bundled)
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── implement-feature/ ← Non-bug routing orchestrator: plan detection + runtime-bindings resolution (bundled)
@@ -78,6 +79,9 @@ pre-ship-check
 log-task
   ├── task-manager       (create task, set fields, add to boards)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
+
+product-one-pager      (standalone: generate or review a product one-pager/brief; no skill dependencies)
+  └── → hands off to create-prd (optional: turn the one-pager into a full PRD)
 
 create-prd             (standalone: reads sources, interviews user, writes PRD — no skill dependencies)
   ├── task-manager       (optional: fetch task + attachments when a task URL is provided)
