@@ -81,6 +81,8 @@ Read each task's full description via `get_task(task)`. A properly-prepared task
 
 Follow the References on each task to read specs, CLAUDE.md files, and source files. Explore the source tree (`ls` key directories), identify exemplar files for the patterns the tasks will follow, and confirm any file paths that will appear in the implementation plan actually exist (or are clearly new files this task creates per convention).
 
+**Design / visual links (Figma, mockups, prototypes) are handled differently from textual sources.** You cannot "read" a Figma canvas into the plan as prose, so do not treat it as a source to absorb and discard — copy every such URL **verbatim** into the plan's "Design / Visual references" section (Phase 3b). This includes the design link the task manager renders as the top-of-description "Visual Context" link. A UI task's design is often its single most load-bearing input; dropping it forces the implementer to build blind.
+
 ---
 
 ## Phase 3: Per-task processing (in dependency order)
@@ -147,6 +149,7 @@ Generate the `implementation-plan.md` content for this task. Use **`references/i
 The plan is **code-free** by design — it provides enough context (file paths, models, signatures, exemplar patterns, decisions) for the downstream agent implementing the task to derive the actual implementation from the live codebase. refine-tasks removes ambiguity about *what* and *why*; the downstream session writes the code. High-level structure:
 
 - **Header** — `# <Task title>`, task URL, milestone, verbatim Purpose. **Never use T-labels in the plan** — they are breakdown-internal identifiers.
+- **Design / Visual references** (when the task has any) — every Figma / mockup / prototype / screenshot URL from the task description, copied **verbatim** and mapped to the screen/state it covers. These are pass-through artifacts the implementer opens; a design link that isn't copied here is lost (the plan, not the description, is what the downstream agent executes from). See the template's "Design / Visual references" section.
 - **Resolved decisions** (optional) — choices recorded from the Phase 3a ambiguity batch
 - **Files** — `Create` / `Modify` / `Reference` paths grouped by action; every path real
 - **Models** (when the task introduces data structures) — name + fields + types + constraints, described in structured prose, **not** as class declarations
