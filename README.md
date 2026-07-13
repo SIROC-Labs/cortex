@@ -33,63 +33,6 @@ Two pieces:
 
 Each phase has a gate, so work only moves forward once it has produced what the next phase needs: the problem validated, the PRD written, the plan estimated, the evidence collected.
 
-## Early results
-
-From internal projects. These are early and still being validated with more teams:
-
-- End-to-end delivery cycle: roughly 19 days down to under 5.
-- Developer onboarding: months down to about a week.
-- 2x–3x productivity, depending on how well the developer knows the project.
-- QA evidence per feature: hours down to under one.
-- Documentation kept close to real time instead of drifting.
-
-## Plugins
-
-Marketplace name: `siroc-cortex`.
-
-### cortex-workflow
-
-End-to-end development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication. This is where most of the lifecycle above lives.
-
-> For the complete `start-task` lifecycle map (init, checkpointing, routing, QA sub-flow, pause/resume, ship), see [FLOW.md](plugins/cortex-workflow/skills/start-task/FLOW.md).
-
-**Skills included:**
-
-| Skill | Description |
-|-------|-------------|
-| `start-task` | Validates the task, creates branch and draft PR, routes to feature-dev or debugging. Writes a per-step checkpoint for resumability; add `fast` to skip sub-skill routing |
-| `ship-it` | Orchestrates pre-checks, summary, PR creation, and task update |
-| `pre-ship-check` | Validates git state, lint, build, and tests |
-| `git-check` | Branch safety, working tree cleanliness, debug artifact detection |
-| `work-summary` | Session recap for standups, handoffs, and PRs |
-| `create-pr` | Full PR lifecycle with task linking and reviewer assignment |
-| `task-manager` | Neutral task-manager interface (Asana, Jira, …) |
-| `task-manager-asana` | Asana provider implementation |
-| `task-manager-jira` | Jira provider implementation |
-| `log-task` | Creates a task from work discovered or completed in conversation |
-| `fix-bug` | Full bug-fix lifecycle orchestrator: root cause investigation, TDD hard gate, and ship |
-| `implement-feature` | Routes implementation work to the right development skill per runtime. Plan-aware (create plan / execute plan / implement inline); works standalone or invoked from `start-task` |
-| `mobile-qa` | Investigates and verifies bugs in iOS simulators and Android emulators via mobile-mcp |
-| `web-qa` | Investigates and verifies bugs in running web applications via Chrome DevTools MCP |
-| `mobile-testing` | Unit + integration testing patterns for native iOS, native Android, and Kotlin Multiplatform |
-| `backend-qa` | Investigates and verifies bugs in running backend APIs/services via HTTP, logs, and DB snapshots |
-| `backend-testing` | Integration-first testing patterns for backend APIs/services using testcontainers, spec-driven fakes, and contract tests |
-| `create-prd` | Generates a complete PRD from any combination of sources: Asana task URL, Notion page, Figma file, local folder, or any web URL |
-| `task-breakdown` | Decomposes product specs into milestone-based task roadmaps with rationale, dependencies, and acceptance criteria |
-| `submit-breakdown` | Faithfully replicates a task breakdown into the task manager as Refinement-status tasks; handles originating task disposition |
-| `refine-tasks` | Turn Refinement-status tasks into one-shotters with attached implementation plans |
-
-### dev-toolkit
-
-Independent, reusable development utilities. A home for self-contained skills that aren't tied to any particular workflow and work in any repository.
-
-**Skills included:**
-
-| Skill | Description |
-|-------|-------------|
-| `update-pr` | Sync PR branch with its base branch: fetch → rebase/merge → resolve conflicts → push |
-| `cso` | Chief Security Officer audit: secrets archaeology, dependency supply chain, CI/CD, infra, webhooks, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE, and mobile app security (iOS/Android). Detects Python/FastAPI, React/React Native, Swift, Kotlin. Daily (8/10 gate) and `--comprehensive` (2/10) modes |
-
 ## Installation
 
 ### Claude Code
@@ -127,27 +70,6 @@ bash setup.sh --all
 ```
 
 Installs for every supported agent in one run. Each agent is installed independently. If one fails (or its CLI isn't installed) the others still proceed, and a per-agent success/failure summary is printed at the end. Add `--dev` to source from your local clone.
-
-### What the Script Does
-
-**GitHub CLI**: Checks that `gh` is installed, authenticated, and has access to the private `SIROC-Labs/cortex` repo.
-
-**Git SSH**: Tests SSH authentication to GitHub. If you use SSH keys, it offers to configure the HTTPS-to-SSH rewrite:
-
-```bash
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-```
-
-**Asana token**: Looks for `ASANA_PERSONAL_ACCESS_TOKEN` in your environment. If missing, prompts you to paste one (from https://app.asana.com/0/my-apps) and writes it to your profile.
-
-**GitHub token**: Checks for `GITHUB_TOKEN` or `GH_TOKEN` for marketplace auto-updates. Can extract one from `gh auth token` if not set.
-
-**Plugin installation**: Once all prerequisites pass, the script asks whether to install all plugins now or only register the marketplace so you can pick plugins yourself (Claude Code and Codex; OpenCode has no marketplace, so its plugins always install directly):
-- Claude Code: installs the marketplace, `cortex-workflow`, and `dev-toolkit` (user scope) via the `claude` CLI (dependencies `feature-dev` and `superpowers` auto-resolve); falls back to printing `/plugin` commands if the CLI isn't on PATH
-- OpenCode: merges the plugin configuration into `opencode.json` and clears the cache (the adapter registers both cortex-workflow and dev-toolkit skills)
-- Codex: adds the `SIROC-Labs/cortex` marketplace (remote by default; `--dev` for a local clone) and installs `cortex-workflow`, `dev-toolkit` (from `siroc-cortex`) and `superpowers` (from `openai-curated`) via `codex plugin add`; declared MCP servers load automatically from the plugin manifest
-
-> If the script added tokens to your shell profile, reload your terminal (`source ~/.zshrc`) before continuing.
 
 ## Updating
 
