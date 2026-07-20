@@ -26,8 +26,8 @@ Two pieces:
 | Phase | What you get tools to do | Skills |
 |---|---|---|
 | **Ideation & discovery** | Frame the problem, validate it's real, define how you'll measure success | `create-prd`, `task-breakdown` |
-| **Solution design** | Turn the validated problem into a complete, agreed definition of what to build | `create-prd` |
-| **Breakdown & estimation** | Break the solution into tasks with a real effort estimate | `task-breakdown`, `submit-breakdown`, `refine-tasks` |
+| **Solution design** | Turn the validated problem into a complete, agreed definition of what to build | `create-prd`, `create-spec` |
+| **Breakdown & estimation** | Break the solution into tasks with a real effort estimate | `milestone-breakdown`, `task-breakdown`, `submit-breakdown`, `refine-tasks` |
 | **Development** | A workflow that enforces delivery discipline and gets more out of the coding agent | `start-task`, `implement-feature`, `fix-bug` |
 | **QA & release** | Validate the build, generate verifiable evidence, ship a documented release | `web-qa`, `mobile-qa`, `backend-qa`, `pre-ship-check`, `ship-it`, `create-pr` |
 

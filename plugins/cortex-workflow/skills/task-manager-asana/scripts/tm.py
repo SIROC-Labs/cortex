@@ -45,7 +45,7 @@
 #   tm.py task get           <task-ref>
 #   tm.py task list          <project-ref>
 #   tm.py task create        <project-ref> --title T [--description D] [--assignee A]
-#                            [--set Name=Value ...] [--wait-key]
+#                            [--kind task|milestone] [--set Name=Value ...] [--wait-key]
 #   tm.py task delete        <task-ref>
 #   tm.py task set-field     <task-ref> <CanonicalName> <value>
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
@@ -85,6 +85,14 @@
 # probe each installed provider with the same input and let the recognizer win.
 #
 #   tm.py ref parse <url-or-ref>
+#
+# Milestone family — a milestone is a board SECTION + a kind=milestone anchor task
+# inside it; member tasks share the section. The anchor gid is the milestone's neutral
+# ref. `task create --milestone <anchor-gid>` drops a member into the milestone.
+#
+#   tm.py milestone list   <project-ref>
+#   tm.py milestone tasks  <project-ref> <milestone-ref>
+#   tm.py milestone ensure <project-ref> <name>
 #
 # Comment family — post and read task comments (stories), SANDBOX-SAFE via urllib.
 # `comment add` authors the body as Markdown, converts it to Asana HTML, routes it
@@ -933,7 +941,7 @@ def estimate_number_value(minutes, entry):
 # opt_fields for `task get` (per ../references/rest.md → Fetch Task Details), kept
 # to the small set the compact projection needs.
 TASK_GET_OPT_FIELDS = (
-    "name,notes,completed,"
+    "name,notes,completed,resource_subtype,"
     "assignee.name,"
     "custom_fields.name,custom_fields.display_value,custom_fields.type,"
     "custom_fields.resource_subtype,"
@@ -1035,6 +1043,7 @@ def project_task(raw):
     out = {
         "ref": raw.get("gid"),
         "name": raw.get("name"),
+        "kind": "milestone" if raw.get("resource_subtype") == "milestone" else "task",
         "description": raw.get("notes"),
         "assignee": assignee,
         "status": status,
@@ -1069,7 +1078,7 @@ def task_list(args):
     project_ref = args[0]
     key = cache_util.project_key()
     token = resolve_token(key)
-    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed&limit=100" % (API_BASE, project_ref)
+    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed,resource_subtype&limit=100" % (API_BASE, project_ref)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1080,6 +1089,7 @@ def task_list(args):
                     out.append({
                         "gid": item.get("gid"),
                         "name": item.get("name"),
+                        "kind": "milestone" if item.get("resource_subtype") == "milestone" else "task",
                         "completed": item.get("completed"),
                     })
         next_page = payload.get("next_page") if isinstance(payload, dict) else None
@@ -1097,12 +1107,14 @@ def task_list(args):
 # board membership is reflected), not the raw Asana blob.
 def task_create(args):
     if not args:
-        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--set Name=Value ...] [--wait-key]" % PROG)
+        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--kind task|milestone] [--set Name=Value ...] [--wait-key]" % PROG)
     project_ref = args[0]
     opts = args[1:]
     title = None
     description = None
     assignee = None
+    kind = None
+    milestone_ref = None
     set_pairs = []
     wait_key = False
     i = 0
@@ -1112,7 +1124,7 @@ def task_create(args):
             wait_key = True
             i += 1
             continue
-        if flag in ("--title", "--description", "--assignee", "--set"):
+        if flag in ("--title", "--description", "--assignee", "--kind", "--milestone", "--set"):
             if i + 1 >= len(opts):
                 die(1, "%s: task create: %s requires a value" % (PROG, flag))
             value = opts[i + 1]
@@ -1122,6 +1134,10 @@ def task_create(args):
                 description = value
             elif flag == "--assignee":
                 assignee = value
+            elif flag == "--kind":
+                kind = value
+            elif flag == "--milestone":
+                milestone_ref = value  # milestone anchor task gid; task joins its section
             else:
                 set_pairs.append(value)  # "Name=Value", parsed after the task exists
             i += 2
@@ -1129,6 +1145,8 @@ def task_create(args):
             die(1, "%s: task create: unknown argument '%s'" % (PROG, flag))
     if not title:
         die(1, "%s: task create requires --title" % PROG)
+    if kind not in (None, "task", "milestone"):
+        die(1, "%s: task create: --kind must be 'task' or 'milestone' (got '%s')" % (PROG, kind))
 
     key = cache_util.project_key()
     wgid = workspace_gid_from(key)
@@ -1137,6 +1155,8 @@ def task_create(args):
     token = resolve_token(key)
 
     data = {"name": title, "workspace": wgid}
+    if kind == "milestone":
+        data["resource_subtype"] = "milestone"  # create a milestone-subtype task
     if description is not None:
         data["notes"] = description
     if assignee is not None:
@@ -1150,6 +1170,13 @@ def task_create(args):
     # custom fields are rejected before the task belongs to a project, so add it first,
     # then apply any --set fields in ONE batched PUT.
     api_json("%s/tasks/%s/addProject" % (API_BASE, gid), token, "POST", {"data": {"project": project_ref}})
+    # Milestone membership: on Asana a milestone is realized as a board SECTION (its
+    # anchor is a kind=milestone task); a member task joins that anchor's section.
+    if milestone_ref:
+        section_gid = resolve_milestone_section(milestone_ref, project_ref, token)
+        if not section_gid:
+            die(1, "%s: task create: could not resolve the section for milestone %s in project %s" % (PROG, milestone_ref, project_ref))
+        api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": gid}})
     if set_pairs:
         fdata, skipped = build_field_writes(key, token, [project_ref], parse_field_pairs(set_pairs))
         if skipped:
@@ -1555,6 +1582,127 @@ def task_set_notes(args):
     sys.exit(0)
 
 
+# --- milestone family -------------------------------------------------------
+# A milestone is realized on Asana as a board SECTION plus a kind=milestone anchor
+# task inside it; member (implementation) tasks live in the same section. The neutral
+# seam only knows "a task belongs to a milestone" — the anchor task gid is the
+# milestone's neutral ref; sections stay an Asana-internal detail here.
+
+# Fetch a section's tasks as [{gid,name,kind}] (paginated).
+def fetch_section_tasks(section_gid, token):
+    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype&limit=100" % (API_BASE, section_gid)
+    out = []
+    while url:
+        payload = api_get(url, token)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, list):
+            for t in data:
+                if isinstance(t, dict):
+                    out.append({"gid": t.get("gid"), "name": t.get("name"),
+                                "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task"})
+        nxt = payload.get("next_page") if isinstance(payload, dict) else None
+        url = nxt.get("uri") if isinstance(nxt, dict) else None
+    return out
+
+
+# Given a milestone anchor task gid, return the gid of the section it occupies in the
+# project (its container), or None.
+def resolve_milestone_section(anchor_gid, project_gid, token):
+    url = "%s/tasks/%s?opt_fields=memberships.project.gid,memberships.section.gid" % (API_BASE, anchor_gid)
+    payload = api_get(url, token)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, dict):
+        for m in data.get("memberships") or []:
+            if not isinstance(m, dict):
+                continue
+            proj = m.get("project")
+            sect = m.get("section")
+            if isinstance(proj, dict) and proj.get("gid") == project_gid and isinstance(sect, dict):
+                return sect.get("gid")
+    return None
+
+
+# `milestone list <project>`: milestones on the board — one per section that carries a
+# kind=milestone anchor — each {name, ref (anchor gid), expanded (has >=1 member task)}.
+def milestone_list(args):
+    if not args:
+        die(1, "usage: %s milestone list <project-ref>" % PROG)
+    project_gid = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    out = []
+    for sect in fetch_project_sections(project_gid, token):
+        tasks = fetch_section_tasks(sect.get("gid"), token)
+        anchor = next((t for t in tasks if t["kind"] == "milestone"), None)
+        if anchor is None:
+            continue
+        out.append({
+            "name": sect.get("name"),
+            "ref": anchor.get("gid"),
+            "expanded": any(t["kind"] != "milestone" for t in tasks),
+        })
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# `milestone tasks <project> <milestone-ref>`: the milestone's member tasks (its
+# section's non-anchor tasks) as [{gid,name,kind}].
+def milestone_tasks(args):
+    if len(args) < 2:
+        die(1, "usage: %s milestone tasks <project-ref> <milestone-ref>" % PROG)
+    project_gid, anchor_gid = args[0], args[1]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    sgid = resolve_milestone_section(anchor_gid, project_gid, token)
+    if not sgid:
+        die(1, "%s: milestone tasks: milestone %s not found in project %s" % (PROG, anchor_gid, project_gid))
+    members = [t for t in fetch_section_tasks(sgid, token) if t["kind"] != "milestone"]
+    sys.stdout.write(json.dumps(members, indent=2) + "\n")
+    sys.exit(0)
+
+
+# `milestone ensure <project> <name>`: idempotently ensure a milestone <name> exists —
+# a section named <name> plus a kind=milestone anchor task in it. Prints
+# {name, ref, created}. Reuses an existing section/anchor; never touches its
+# description (set that via `task set-notes <ref>`).
+def milestone_ensure(args):
+    if len(args) < 2:
+        die(1, "usage: %s milestone ensure <project-ref> <name>" % PROG)
+    project_gid, name = args[0], args[1]
+    key = cache_util.project_key()
+    wgid = workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: milestone ensure requires a cached workspace_gid — bootstrap first" % PROG)
+    token = resolve_token(key)
+    created = False
+    sect = next((s for s in fetch_project_sections(project_gid, token) if s.get("name") == name), None)
+    if sect is None:
+        r = api_json("%s/projects/%s/sections" % (API_BASE, project_gid), token, "POST", {"data": {"name": name}})
+        d = r.get("data") if isinstance(r, dict) else None
+        section_gid = d.get("gid") if isinstance(d, dict) else None
+        created = True
+    else:
+        section_gid = sect.get("gid")
+    if not section_gid:
+        die(1, "%s: milestone ensure: failed to resolve/create section '%s'" % (PROG, name))
+    anchor = next((t for t in fetch_section_tasks(section_gid, token)
+                   if t["kind"] == "milestone" and t["name"] == name), None)
+    if anchor is not None:
+        ref = anchor.get("gid")
+    else:
+        cr = api_json("%s/tasks" % API_BASE, token, "POST",
+                      {"data": {"name": name, "workspace": wgid, "resource_subtype": "milestone"}})
+        cd = cr.get("data") if isinstance(cr, dict) else None
+        ref = cd.get("gid") if isinstance(cd, dict) else None
+        if not ref:
+            die(1, "%s: milestone ensure: anchor create returned no gid" % PROG)
+        api_json("%s/tasks/%s/addProject" % (API_BASE, ref), token, "POST", {"data": {"project": project_gid}})
+        api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": ref}})
+        created = True
+    sys.stdout.write(json.dumps({"name": name, "ref": ref, "created": created}, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- comment family ---------------------------------------------------------
 
 # Matches any HTML tag from the set Asana rich text understands (plus structural
@@ -1878,6 +2026,12 @@ USER_VERBS = {
     "me": user_me,
 }
 
+MILESTONE_VERBS = {
+    "list": milestone_list,
+    "tasks": milestone_tasks,
+    "ensure": milestone_ensure,
+}
+
 FAMILIES = {
     "board": BOARD_VERBS,
     "fields": FIELDS_VERBS,
@@ -1885,6 +2039,7 @@ FAMILIES = {
     "comment": COMMENT_VERBS,
     "ref": REF_VERBS,
     "user": USER_VERBS,
+    "milestone": MILESTONE_VERBS,
 }
 
 
