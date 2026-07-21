@@ -16,7 +16,7 @@
       "name": "cortex-workflow",
       "source": "./plugins/cortex-workflow",
       "description": "End-to-end development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
-      "version": "1.5.0",
+      "version": "1.5.1",
       "dependencies": [
         {
           "name": "feature-dev",

@@ -1,6 +1,6 @@
 {
   "name": "cortex-workflow",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "End-to-end development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
   "author": {
     "name": "SIROC Team",
