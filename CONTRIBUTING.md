@@ -3,7 +3,7 @@
 ## One-time setup
 
 1. Clone the repo
-2. Run the setup script in **developer mode** (`--dev`) so the install points at your local clone instead of the remote repo — validates GitHub CLI auth, SSH config, and sets `ASANA_PERSONAL_ACCESS_TOKEN` in your shell profile:
+2. Run the setup script in **developer mode** (`--dev`) so the install points at your local clone instead of the remote repo — validates GitHub CLI auth, SSH config, and optionally sets `ASANA_PERSONAL_ACCESS_TOKEN` in your shell profile:
    ```bash
    bash setup.sh --dev              # Claude Code
    bash setup.sh --opencode --dev   # OpenCode

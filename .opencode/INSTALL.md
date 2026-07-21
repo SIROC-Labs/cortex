@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [OpenCode](https://opencode.ai) installed
-- `ASANA_PERSONAL_ACCESS_TOKEN` set in your environment
+- `ASANA_PERSONAL_ACCESS_TOKEN` set in your environment (optional — needed for Asana-backed skills)
 
 ## Quick Install
 

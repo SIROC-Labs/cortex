@@ -15,9 +15,9 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `style`, `perf`
 
 ## Environment Variables
 
-Required in `~/.zshrc` (or set by `setup.sh`):
-- `ASANA_PERSONAL_ACCESS_TOKEN` — Asana REST API access
-- `GITHUB_TOKEN` or `GH_TOKEN` — marketplace auto-updates (optional)
+In `~/.zshrc` (or set by `setup.sh`), all optional:
+- `ASANA_PERSONAL_ACCESS_TOKEN` — Asana REST API access (needed for Asana-backed skills)
+- `GITHUB_TOKEN` or `GH_TOKEN` — marketplace auto-updates
 
 ## Plugin Versioning
 

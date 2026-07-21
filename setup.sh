@@ -261,21 +261,19 @@ if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ] && exists_in_profile "ASANA_PERSONA
   pass "Loaded ASANA_PERSONAL_ACCESS_TOKEN from ${PROFILE}"
 fi
 
-# If still not set, prompt the user (required — loop until provided)
+# If still not set, prompt the user (optional — blank skips)
 if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
-  fail "ASANA_PERSONAL_ACCESS_TOKEN not set"
-  info "This token is required for Asana API operations (task management, comments, board moves)"
+  warn "ASANA_PERSONAL_ACCESS_TOKEN not set"
+  info "Used for Asana API operations (task management, comments, board moves)"
   info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
   echo ""
-  while true; do
-    read -rp "  Paste your Asana personal access token: " ASANA_TOKEN_INPUT || true
-    if [ -n "$ASANA_TOKEN_INPUT" ]; then
-      add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
-      break
-    else
-      warn "Token is required — please paste your Asana personal access token"
-    fi
-  done
+  read -rp "  Paste your Asana personal access token (leave blank to skip): " ASANA_TOKEN_INPUT || true
+  if [ -n "$ASANA_TOKEN_INPUT" ]; then
+    add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
+  else
+    warn "Skipped — Asana-backed skills won't work until the token is set"
+    info "Set it later: export ASANA_PERSONAL_ACCESS_TOKEN=\"<token>\" in ${PROFILE}, then re-run setup.sh"
+  fi
 fi
 
 if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
