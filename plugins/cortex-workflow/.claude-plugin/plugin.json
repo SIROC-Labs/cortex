@@ -2,6 +2,7 @@
   "name": "cortex-workflow",
   "description": "End-to-end development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
   "version": "1.5.1",
+  "license": "Apache-2.0",
   "author": {
     "name": "SIROC Team"
   },

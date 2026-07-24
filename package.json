@@ -3,5 +3,6 @@
   "version": "1.5.1",
   "description": "End-to-end development workflow",
   "main": ".opencode/plugins/cortex-workflow.js",
+  "license": "Apache-2.0",
   "private": true
 }
