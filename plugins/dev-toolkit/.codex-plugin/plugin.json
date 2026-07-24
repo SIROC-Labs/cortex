@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/SIROC-Labs/cortex",
   "repository": "https://github.com/SIROC-Labs/cortex",
-  "license": "Proprietary",
+  "license": "Apache-2.0",
   "keywords": [
     "dev-tools",
     "git",

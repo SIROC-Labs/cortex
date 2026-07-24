@@ -107,4 +107,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
 ## License
 
-Proprietary - SIROC Team
+Apache License 2.0 — see [LICENSE](LICENSE).
