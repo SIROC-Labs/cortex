@@ -1,6 +1,6 @@
 # `start-task` — Complete Flow Reference
 
-Usage: `/start-task <url> [brainstorm | feature-dev | fast]`
+Usage: `/start-task <url> [brainstorm | feature-dev | fast] [no-worktree] [base:<branch>]`
 
 ## Legend
 
@@ -38,7 +38,9 @@ Task stays **"In Progress"** → ■ PAUSED
 
 ## Main Flow
 
-`$ARGUMENTS` is parsed once up front into named flags: **`fast_mode`**, **`workflow_choice`** (`brainstorm` / `feature-dev`). Steps 0–10 and Step 12 run in every mode; only Step 11 changes (skipped when `fast_mode`; every QA row → `State=skipped`).
+`$ARGUMENTS` is parsed once up front into named flags: **`fast_mode`**, **`workflow_choice`** (`brainstorm` / `feature-dev`), **`no_worktree`**, **`base_branch`** (`base:<branch>`). Steps 0–10 and Step 12 run in every mode; only Step 11 changes (skipped when `fast_mode`; every QA row → `State=skipped`).
+
+Git setup defaults with no flags: a **worktree** (Step 6a) branched off **`origin/main`** (Step 6b), both applied automatically — informed, never asked.
 
 ### Init / Resume (before Step 0)
 
@@ -202,21 +204,29 @@ Task stays **"In Progress"** → ■ PAUSED
                 │                             │
                 ▼                             ▼
              ┌────────────────────────────────────────────┐
-             │  6a · Worktree? (BLOCKING)                 │
-             │  worktree (isolated) or current dir        │
+             │  6a · Set Up Worktree                      │
+             │  DEFAULT: create worktree — inform only    │
+             │  skipped when `no-worktree` arg is set     │
              └───────────────────┬────────────────────────┘
                                  │
-                            ◆ worktree?
+                            ◆ created?
                            ╱             ╲
                          YES              NO
                           │                │
-                    create worktree        │
+                          │        ┌───────▼────────────────┐
+                          │        │ FAILURE (BLOCKING)     │
+                          │        │ other path / cwd /     │
+                          │        │ abort — never silent   │
+                          │        │ fallback to cwd        │
+                          │        └───────┬────────────────┘
                           └───────────────┘
                                  │
                                  ▼
              ┌────────────────────────────────────────────┐
-             │  6b · Base Branch? (BLOCKING)              │
-             │  main (default) or specify other           │
+             │  6b · Resolve Base Branch                  │
+             │  DEFAULT: origin/main — inform only        │
+             │  `base:<branch>` arg overrides             │
+             │  falls back to origin HEAD if no main      │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼

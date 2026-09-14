@@ -18,7 +18,8 @@
 # column text.
 #
 # <auto> is "yes" or "no" (default "yes"). "no" for rows that needed operator
-# input (6a, 6b, 3 when it asked).
+# input (3 when it asked, 6 when it offered resume, 6a only when worktree
+# creation failed and the operator picked the fallback).
 #
 # Exits 0 on success, 1 on argument error, 2 on file-not-found, 3 on row-not-
 # found.
@@ -140,8 +141,8 @@ last_updated: "$ts"
 | 4. Fetch Subtasks | [ ] |  | 0 | — | [x] |
 | 5. Fetch Comments & Attachments | [ ] |  | 0 | — | [x] |
 | 6. Check Existing Work | [ ] |  | 0 | — | [x] |
-| 6a. Ask About Worktree | [ ] |  | 0 | — | [ ] |
-| 6b. Confirm Base Branch | [ ] |  | 0 | — | [ ] |
+| 6a. Set Up Worktree | [ ] |  | 0 | — | [x] |
+| 6b. Resolve Base Branch | [ ] |  | 0 | — | [x] |
 | 7. Create Feature Branch | [ ] |  | 0 | — | [x] |
 | 8. Create Draft PR | [ ] |  | 0 | — | [x] |
 | 9a. Move to In Progress | [ ] |  | 0 | — | [x] |

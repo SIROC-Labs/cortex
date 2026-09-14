@@ -11,8 +11,10 @@ description: >
   ("resume task", "pick up where I left off", "continue [task-id]"). For a shortcut that runs the
   full task orchestration and ship-it but skips sub-skill routing (feature-dev, brainstorming,
   fix-bug) and implements inline instead, add "fast" to the arguments — "start task fast",
-  "fast mode", "just start coding".
-argument-hint: <task-url> [brainstorm|feature-dev|fast]
+  "fast mode", "just start coding". Work happens in a git worktree branched off origin/main by
+  default; add "no-worktree" to work in the current directory, or "base:<branch>" to branch off
+  something else.
+argument-hint: <task-url> [brainstorm|feature-dev|fast] [no-worktree] [base:<branch>]
 ---
 
 # Start Task
@@ -34,8 +36,12 @@ Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers 
 |------|-------------------------------|--------|
 | `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
 | `workflow_choice` | `brainstorm` or `feature-dev` | Passed through to `implement-feature` at Step 10; if unset, `implement-feature` asks the operator |
+| `no_worktree` | `no-worktree` | Step 6a is skipped; the branch is created in the current directory |
+| `base_branch` | `base:<branch>` | Step 6b uses `<branch>` as the base instead of the default |
 
 `fast_mode` is mutually exclusive with `workflow_choice` (fast skips routing entirely).
+
+**Defaults when the flags are absent:** work happens in a git worktree (Step 6a), branched off `origin/main` (Step 6b). Both are applied automatically — the operator is informed, not asked. The flags above are the only way to change them; never infer an override from the task content or the current branch.
 
 ## Fast Mode
 
@@ -99,37 +105,40 @@ Also scan the task description and comments for links to external tools (design 
 
 Before creating a branch, check if work already exists for this task ID. See **`references/git-workflow.md`** for the detection commands.
 
-If a branch or PR exists, offer to resume or start fresh. If resuming, check out the existing branch and skip creation.
+If a branch or PR exists, offer to resume or start fresh. If resuming, the existing branch is checked out (inside the worktree, unless `no_worktree`) and Steps 6b and 7 are skipped — mark them `skipped` with reason `resumed existing branch`.
 
-### Step 6a: Ask About Worktree (BLOCKING)
+### Step 6a: Set Up Worktree
 
-Before creating the branch, ask the user whether to use a git worktree. This is a **blocking** question — wait for an explicit answer before proceeding.
+**Default — inform, do not ask.** Create a git worktree and continue the flow inside it. Skip this step entirely when `no_worktree` is set (mark the row `skipped` with reason `no-worktree`).
 
-Present the choice:
+> Setting up worktree at `../cortex-MT251-47`
 
-> Would you like to work in a git worktree (isolated copy of the repo) or directly in the current directory?
-> - **Worktree** _(recommended for parallel work — keeps main directory clean)_
-> - **Current directory**
+Create the worktree per **`references/git-workflow.md`** → "Worktree Setup", then follow the project's documented worktree bootstrap (its `CLAUDE.md`, `README`, or a setup script such as `scripts/setup-worktree.sh`). If the project documents no bootstrap, say so and suggest adding `scripts/setup-worktree.sh` — then continue; a missing bootstrap is not a failure.
 
-If the user chooses worktree, create an isolated copy using the first available option in this order: (1) a native worktree tool if the agent provides one (e.g. `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), (2) otherwise `git worktree add <path> -b <branch>` directly, where `<path>` is anchored to the main repo root (a sibling of it, e.g. `"$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')/../<repo>-<task-id>"`) — never a cwd-relative path, so it can't nest inside another worktree. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
+**If worktree creation fails** (path exists, `git worktree` unavailable, permission error) — this becomes **BLOCKING**. Never fall back to the current directory on your own. Report the failure and its cause, then ask:
 
-The branch will be created inside the worktree in Step 7.
+> ⚠ Could not create worktree at `<path>` — `<reason>`.
+>
+> How should I proceed?
+> - **Use a different path** _(enter one)_
+> - **Use the current directory** _(this run only)_
+> - **Abort**
 
-### Step 6b: Confirm Base Branch (BLOCKING)
+Wait for an explicit answer. On abort, stop the flow and `block` the row. On either other choice, proceed accordingly and record which was taken. Only this failure path counts as operator input — `complete` the row with `no` when it fires, and `yes` otherwise.
 
-Ask the user which branch to base the new branch on. This is a **blocking** question — wait for an explicit answer before proceeding.
+The branch is created inside the worktree in Step 7.
 
-Present the choice:
+### Step 6b: Resolve Base Branch
 
-> Which branch should `<task-id>/<slug>` be based on?
-> - **main** _(default — latest stable base)_
-> - Another branch _(enter branch name)_
+**Default — inform, do not ask.** The base is `origin/main`. When `base_branch` is set, use that instead. Resolve the default per **`references/git-workflow.md`** → "Resolving the Base Branch", which covers the fallback for repos whose default branch is not `main`.
 
-Default to `main` only after the user confirms. If the user specifies a different base branch, use that instead. Record the chosen base branch for Step 7.
+> Branching off `origin/main`
+
+Record the resolved base branch for Step 7.
 
 ### Step 7: Create Feature Branch
 
-Create a branch using the task ID and a slug from the task name. Use the **base branch confirmed in Step 6b** (not assumed `main`). Inform (do not ask) when creating. See **`references/git-workflow.md`** for commands and naming convention.
+Create a branch using the task ID and a slug from the task name, off the **base branch resolved in Step 6b**. Inform (do not ask) when creating. See **`references/git-workflow.md`** for commands and naming convention.
 
 ### Step 8: Create Draft PR
 
