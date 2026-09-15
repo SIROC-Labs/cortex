@@ -119,7 +119,7 @@ work, and told to continue rather than start over.
 | `--autonomy` | `full` | `read-only`, `edit`, `full` |
 | `--agent-cmd` | — | override the backend's command wholesale |
 | `--no-project-context` | off | skip the repo's CLAUDE.md / AGENTS.md |
-| `--no-worktree` | off | branch in the current directory |
+| `--no-worktree` | off | branch in the current directory instead of `.cortex/worktrees/` |
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 | `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
@@ -134,7 +134,7 @@ appearing to have honoured it.
 
 | Phase | Model calls | What it does |
 |---|---|---|
-| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
+| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.cortex/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
 | `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, files_changed, notes}` block back |
 | `qa` | 0–2 | Runs lint/build/test; on failure hands the output to one repair call, retries the gate, max 2 attempts |
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |

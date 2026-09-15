@@ -148,8 +148,15 @@ gate treats as non-blocking, so it genuinely can be absent.
 7. Detect existing work: `git branch --list "*<task-id>*"`, `gh pr list --search`.
    If found, attach to it rather than creating.
 8. Resolve base from `origin/main` via `git fetch origin` (never checks out a local
-   base). Create worktree + branch: `git worktree add <path> -b <task-id>/<slug> <base>`,
-   path anchored to the main repo root, never cwd-relative.
+   base). Create worktree + branch: `git worktree add <path> -b <task-id>/<slug> <base>`
+   where `<path>` is `.cortex/worktrees/<task-id>+<slug>` inside the repo — one
+   directory holding every task's checkout, named so a human scanning it can tell
+   what each is for, and made invisible to git by a `.cortex/.gitignore`
+   containing `*` (which covers itself, so the repo's own `.gitignore` is never
+   touched: nothing cortex writes should appear in the diff of the branch it is
+   working on). A branch already checked out elsewhere is adopted rather than
+   recreated, so a worktree left at a path an older version chose keeps working.
+   The path is anchored to the main repo root, never cwd-relative.
 9. Empty commit, push, `gh pr create --draft`.
 10. `set-status In Progress`; post the 🏁 comment, deduplicated by branch name.
 11. Write `context.json`.
@@ -243,7 +250,7 @@ screen look right" — is out of scope; see Non-goals.
   "external_links": ["https://figma.com/file/..."],
   "git": {
     "branch": "MT251-47/add-csv-export", "base": "origin/main",
-    "worktree": "/Users/.../repo-MT251-47", "pr_url": "https://github.com/..."
+    "worktree": "/Users/.../repo/.cortex/worktrees/MT251-47+add-csv-export", "pr_url": "https://github.com/..."
   },
   "repo": {"root": "/Users/.../repo-MT251-47"}
 }

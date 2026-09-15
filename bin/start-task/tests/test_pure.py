@@ -18,7 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from start_task import (  # noqa: E402
     State,
     checkpoint_problems,
+    ensure_cortex_dir,
     evaluate_gate,
+    extract_external_links,
+    extract_last_json_block,
     failure_detail,
     format_questions_comment,
     live_run_pid,
@@ -26,10 +29,10 @@ from start_task import (  # noqa: E402
     phases_to_run,
     poll_interval,
     select_answer,
-    extract_external_links,
-    extract_last_json_block,
     slugify,
     task_key,
+    worktree_for_branch,
+    worktree_path,
 )
 
 
@@ -382,3 +385,90 @@ class TestCheckpointProblems(unittest.TestCase):
 
     def test_empty_context_is_a_problem(self):
         self.assertTrue(checkpoint_problems({}, isdir=lambda p: True))
+
+
+class TestWorktreePath(unittest.TestCase):
+    """The directory name carries the slug as well as the id, matching the
+    `<id>+<slug>` convention already in these repos — a human reading a list of
+    worktrees can tell what each one is for without opening it."""
+
+    def test_lives_under_cortex_worktrees_named_id_plus_slug(self):
+        self.assertEqual(
+            worktree_path("/repos/humanus-mono", "HGM-32", "i20-deploy-the-api"),
+            "/repos/humanus-mono/.cortex/worktrees/HGM-32+i20-deploy-the-api")
+
+    def test_falls_back_to_the_bare_id_without_a_slug(self):
+        for slug in (None, "", "   "):
+            self.assertEqual(worktree_path("/repos/r", "HGM-32", slug),
+                             "/repos/r/.cortex/worktrees/HGM-32")
+
+    def test_is_absolute_and_normalised(self):
+        path = worktree_path("/repos/humanus-mono/", "HGM-32", "slug")
+        self.assertTrue(os.path.isabs(path))
+        self.assertNotIn("//", path)
+
+    def test_a_slug_with_a_separator_cannot_escape_the_directory(self):
+        path = worktree_path("/repos/r", "HGM-32", "a/../../etc")
+        self.assertTrue(path.startswith("/repos/r/.cortex/worktrees/"))
+
+
+class TestEnsureCortexDir(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_creates_the_tree_and_a_self_ignoring_gitignore(self):
+        ensure_cortex_dir(self.root)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".cortex", "worktrees")))
+        with open(os.path.join(self.root, ".cortex", ".gitignore")) as f:
+            body = f.read()
+        # `*` covers the .gitignore itself, so the whole directory is invisible and
+        # the repo's own .gitignore is never touched.
+        self.assertIn("*", body.split())
+
+    def test_does_not_overwrite_an_existing_gitignore(self):
+        os.makedirs(os.path.join(self.root, ".cortex"))
+        path = os.path.join(self.root, ".cortex", ".gitignore")
+        with open(path, "w") as f:
+            f.write("mine\n")
+        ensure_cortex_dir(self.root)
+        with open(path) as f:
+            self.assertEqual(f.read(), "mine\n")
+
+    def test_is_idempotent(self):
+        ensure_cortex_dir(self.root)
+        ensure_cortex_dir(self.root)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".cortex", "worktrees")))
+
+
+class TestWorktreeForBranch(unittest.TestCase):
+    """A branch can only be checked out in one worktree. Finding an existing one is
+    what lets the worktree location change without stranding work in flight."""
+
+    PORCELAIN = (
+        "worktree /repos/humanus-mono\n"
+        "HEAD 1111111\n"
+        "branch refs/heads/main\n"
+        "\n"
+        "worktree /repos/humanus-mono-HGM-32\n"
+        "HEAD 2222222\n"
+        "branch refs/heads/HGM-32/i20-deploy\n"
+        "\n"
+        "worktree /repos/detached\n"
+        "HEAD 3333333\n"
+        "detached\n"
+    )
+
+    def test_finds_a_worktree_at_its_old_location(self):
+        self.assertEqual(worktree_for_branch(self.PORCELAIN, "HGM-32/i20-deploy"),
+                         "/repos/humanus-mono-HGM-32")
+
+    def test_returns_none_for_a_branch_not_checked_out(self):
+        self.assertIsNone(worktree_for_branch(self.PORCELAIN, "HGM-99/other"))
+
+    def test_handles_the_main_worktree_and_detached_heads(self):
+        self.assertEqual(worktree_for_branch(self.PORCELAIN, "main"),
+                         "/repos/humanus-mono")
+
+    def test_empty_input(self):
+        self.assertIsNone(worktree_for_branch("", "main"))

@@ -423,13 +423,27 @@ def phase_prologue(args):
              "(no MCP servers in the implement call)" % len(links))
 
     step("Branch and PR")
-    branch = "%s/%s" % (tid, slugify(task.get("name")))
+    slug = slugify(task.get("name"))
+    branch = "%s/%s" % (tid, slug)
     branches, existing_pr = find_existing_work(repo, tid)
     base = resolve_base(repo, args.base)
 
-    repo_name = os.path.basename(main_root.rstrip("/"))
-    worktree = os.path.abspath(
-        os.path.join(main_root, "..", "%s-%s" % (repo_name, tid)))
+    ensure_cortex_dir(main_root)
+    worktree = worktree_path(main_root, tid, slug)
+
+    # A branch can only be checked out once. Honouring an existing worktree — which
+    # may sit at a path an older version of this script chose — keeps work in flight
+    # from being stranded when the layout changes.
+    _, listing, _ = git(["worktree", "list", "--porcelain"], cwd=repo, check=False)
+    for candidate in {branch} | {b.replace("origin/", "") for b in branches}:
+        existing_wt = worktree_for_branch(listing, candidate)
+        if existing_wt and os.path.isdir(existing_wt):
+            if os.path.abspath(existing_wt) != worktree:
+                info("branch %s is already checked out at %s — using it"
+                     % (candidate, existing_wt))
+            worktree = os.path.abspath(existing_wt)
+            branch = candidate
+            break
 
     if args.no_worktree:
         worktree = repo
@@ -517,6 +531,67 @@ def phase_prologue(args):
 
 
 # --- implement --------------------------------------------------------------
+
+# --- worktrees --------------------------------------------------------------
+#
+# Worktrees live inside the repo, under .cortex/worktrees/<id>+<slug>. One
+# directory holds every task's checkout instead of scattering siblings beside the
+# clone, and one directory has to be ignored.
+
+CORTEX_DIRNAME = ".cortex"
+WORKTREES_DIRNAME = "worktrees"
+
+
+def worktree_path(main_root, task_id, slug=None):
+    """Where a task's worktree belongs: `<repo>/.cortex/worktrees/<id>+<slug>`.
+
+    The slug is in the name because a human scanning the directory should be able
+    to tell what each worktree is for; the id alone does not say. Any separator in
+    the slug is flattened, so the name is always a single directory.
+    """
+    name = task_id
+    slug = (slug or "").strip().strip("/")
+    if slug:
+        name = "%s+%s" % (task_id, slug.replace("/", "-"))
+    return os.path.abspath(
+        os.path.join(main_root, CORTEX_DIRNAME, WORKTREES_DIRNAME, name))
+
+
+def ensure_cortex_dir(main_root):
+    """Create `.cortex/` and make it ignore itself.
+
+    A self-ignoring directory leaves the repo's own `.gitignore` untouched, which
+    matters: cortex writes into the branch it is working on, and nothing it does
+    should turn up in that branch's diff. `*` covers the .gitignore too, so the
+    whole directory is invisible to git.
+    """
+    root = os.path.join(main_root, CORTEX_DIRNAME)
+    os.makedirs(os.path.join(root, WORKTREES_DIRNAME), exist_ok=True)
+    ignore = os.path.join(root, ".gitignore")
+    if not os.path.exists(ignore):
+        with open(ignore, "w") as f:
+            f.write("# Created by cortex. Local scratch — never committed.\n*\n")
+    return root
+
+
+def worktree_for_branch(porcelain, branch):
+    """The worktree already checked out on `branch`, or None.
+
+    Parses `git worktree list --porcelain`: blank-line separated records, each
+    starting with `worktree <path>` and carrying either `branch <ref>` or
+    `detached`. A branch can only be checked out once, so finding it is what lets
+    the worktree location move without stranding work already in flight.
+    """
+    path = None
+    for line in (porcelain or "").splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):].strip()
+        elif line.startswith("branch ") and path:
+            ref = line[len("branch "):].strip()
+            if ref == "refs/heads/%s" % branch or ref == branch:
+                return path
+    return None
+
 
 # --- asking the task manager ------------------------------------------------
 #
