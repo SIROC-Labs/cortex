@@ -1,8 +1,8 @@
-"""Echo backend — no model, no network, no cost.
+"""Echo backend — no model, no network.
 
-Exists so the orchestrator can be exercised end to end for free: it returns a
-well-formed result without touching a provider. Useful for testing the phases,
-the state machine, and the prompt rendering without spending anything.
+Exists so the orchestrator can be exercised end to end: it returns a well-formed
+result without touching a provider. Useful for testing the phases, the state
+machine, and the prompt rendering.
 """
 
 import time
@@ -27,8 +27,5 @@ class EchoBackend(AgentBackend):
                 "notes": "Run with a real backend to do actual work.",
             },
             turns=0,
-            cost_usd=0.0,
-            input_tokens=0,
-            output_tokens=0,
             duration_s=time.time() - started,
         )

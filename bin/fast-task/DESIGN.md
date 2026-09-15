@@ -50,28 +50,28 @@ everything else speaks `AgentRequest` / `AgentResult` / `AgentBackend`.
    this usable outside Claude Code without the orchestrator knowing anything about it.
 2. **The backends are genuinely interchangeable.** Same prologue, same prompt, same
    repo; only the transport differs.
-3. **`echo` runs the whole flow for free.** No model, no cost. It is how the phases,
-   the state machine and the prompt rendering get exercised without spending anything.
+3. **`echo` runs the whole flow with no model at all.** It is how the phases, the
+   state machine and the prompt rendering get exercised.
 
 Two rules make the abstraction honest rather than decorative:
 
 - **A backend never raises.** Failures come back as `ok=False` with an `error`. The
   orchestrator handles one failure shape regardless of provider.
 - **A backend declares what it dropped.** Anything in the request it cannot express
-  lands in `result.unsupported`, and the runner warns. The CLI backend has no budget
-  ceiling, so `max_budget_usd` shows up there rather than being silently ignored — the
-  caller is never told it got something it didn't.
+  lands in `result.unsupported`, and the runner warns. A neutral tool name the provider
+  has no equivalent for shows up there rather than being silently omitted — the caller
+  is never told it got something it didn't.
 
 `AgentRequest` is intent, not vendor configuration: a prompt, a working directory, an
-autonomy level (`read-only` / `edit` / `full`), ceilings on turns and dollars, and
-whether to load the project's own conventions. Tools are named neutrally (`read_file`,
+autonomy level (`read-only` / `edit` / `full`), a ceiling on turns, and whether to
+load the project's own conventions. Tools are named neutrally (`read_file`,
 `edit_file`, `run_command`); each backend maps them. `extra["argv"]` is the deliberate
 exception — an escape hatch that hands the command line to the operator wholesale for a
 run that stalls on a permission mode, and which backends without a command line report
 as unsupported rather than appearing to honour.
 
-Telemetry is optional and never invented. A backend that cannot report cost leaves it
-`None`, and the ledger prints "cost not reported" rather than `$0.00`.
+What a backend cannot report it leaves `None`, and the runner omits it rather than
+printing a zero that reads as a measurement.
 
 ## Layout
 
@@ -87,7 +87,7 @@ bin/fast-task/
     __init__.py     # registry — the one place a provider is named
     claude_cli.py   # `claude -p` subprocess          (default)
     claude_sdk.py   # Claude Agent SDK                (needs requirements.txt)
-    echo.py         # no model, no cost
+    echo.py         # no model, no network
   prompts/
     implement.md    # template for the implementation call
     qa_fix.md       # template for the failure-repair call
@@ -113,8 +113,8 @@ fast_task.py backends               # which providers are usable here
 State lives in `.fast-task/<task-id>/` at the **main repo root**, not in the worktree —
 the worktree does not exist yet when the prologue starts writing, and it may be removed
 after ship while the state is still wanted. It holds `context.json`, `result.json`,
-`qa.json`, `state.json`, `cost.json`, `attachments/`. Re-running a phase overwrites its
-own output. `run` skips phases already marked done in `state.json`.
+`qa.json`, `state.json`, `attachments/`. Re-running a phase overwrites its own
+output. `run` skips phases already marked done in `state.json`.
 
 `<task-id>` is the human key (`MT251-47`) read from the task's ID custom field, falling
 back to the Asana gid when the project has no such field — the same field the readiness
@@ -246,14 +246,6 @@ They become real verbs here:
 Each is ~10 lines against the existing `api_get` helper. Everything else is used as-is —
 notably `decide_set_status`, which handles Asana's two-axis status model: try the
 "Product Status" custom field, fall back to a board section move.
-
-## A trap worth recording
-
-The published Python docs describe `ResultMessage.usage` as a `MessageUsage` dataclass.
-In the installed SDK (0.2.152) it is a plain `dict`. Reading it with `getattr` returns
-`None` for every field, silently. `_usage()` reads both shapes, and a regression test
-covers it. The lesson generalizes: the seam's telemetry fields are all `Optional`, so a
-shape change degrades to "not reported" rather than to a wrong number.
 
 ## Known gaps
 

@@ -11,7 +11,7 @@
 # AgentResult / AgentBackend and nothing else. No vendor name and no SDK import
 # appears outside `agent/<backend>.py`, so the provider is a flag: the default
 # shells out to `claude -p`, and `--backend claude-sdk` swaps in the Claude Agent
-# SDK for real cost telemetry and denied-tool visibility.
+# SDK, which can additionally report the tool calls its harness refused.
 #
 # See DESIGN.md for the rationale and the phase contract.
 #
@@ -56,10 +56,8 @@ NOT_STARTED = {
 
 PHASES = ("prologue", "implement", "qa", "ship")
 
-# Ceilings applied to every model call. Turn limits keep a wedged run from
-# grinding; the budget is a hard stop the SDK backend enforces server-side.
+# Turn ceiling applied to every model call, so a wedged run stops grinding.
 DEFAULT_MAX_TURNS = 60
-DEFAULT_BUDGET_USD = None
 
 MAX_QA_ATTEMPTS = 2
 INLINE_ATTACHMENT_MAX_BYTES = 256 * 1024
@@ -502,12 +500,8 @@ def phase_prologue(args):
 
 # --- implement --------------------------------------------------------------
 
-def call_agent(prompt, cwd, args, label, state=None, autonomy=None):
-    """One model call, through the seam. Returns an AgentResult.
-
-    Every call is recorded in the run's cost ledger, so `status` can report what a
-    task actually cost across resumed phases and separate invocations.
-    """
+def call_agent(prompt, cwd, args, label, autonomy=None):
+    """One model call, through the seam. Returns an AgentResult."""
     autonomy = autonomy or args.autonomy
     backend = get_backend(args.backend)
     usable, reason = backend.available()
@@ -521,7 +515,6 @@ def call_agent(prompt, cwd, args, label, state=None, autonomy=None):
         allowed_tools=tools_for(autonomy),
         autonomy=autonomy,
         max_turns=args.max_turns,
-        max_budget_usd=args.budget,
         load_project_context=not args.no_project_context,
         extra={"argv": args.agent_cmd} if args.agent_cmd else {},
     )
@@ -535,45 +528,10 @@ def call_agent(prompt, cwd, args, label, state=None, autonomy=None):
              "than asked; consider --autonomy full or an allowlist"
              % (len(result.denied_tools), ", ".join(sorted(set(result.denied_tools)))))
     info("%s: %s" % (label, result.summary()))
-    if state is not None:
-        record_cost(state, label, result)
     if not result.ok:
         die("%s failed: %s" % (label, result.error or "unknown error"))
     return result
 
-
-def record_cost(state, label, result):
-    """Append one call to the run's ledger."""
-    ledger = state.read("cost.json", {"calls": []})
-    ledger["calls"].append({
-        "label": label, "backend": result.backend, "model": result.model,
-        "cost_usd": result.cost_usd, "turns": result.turns,
-        "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
-        "cached_tokens": result.cached_tokens, "duration_s": result.duration_s,
-        "ok": result.ok,
-    })
-    state.write("cost.json", ledger)
-
-
-def cost_total(state):
-    """(calls, total_usd_or_None, total_seconds). The total is None when any call
-    could not report a cost — a partial sum would read as the whole bill."""
-    calls = state.read("cost.json", {}).get("calls", [])
-    costs = [c.get("cost_usd") for c in calls]
-    total = sum(c for c in costs if c is not None) if calls else 0.0
-    if any(c is None for c in costs):
-        total = None
-    seconds = sum(c.get("duration_s") or 0.0 for c in calls)
-    return len(calls), total, seconds
-
-
-def report_cost(state):
-    calls, total, seconds = cost_total(state)
-    if not calls:
-        return
-    info("%d model call(s) · %s · %.1fs total"
-         % (calls, "$%.4f" % total if total is not None else "cost not reported",
-            seconds))
 
 
 def phase_implement(args, state=None):
@@ -599,7 +557,7 @@ def phase_implement(args, state=None):
         links="\n".join("- %s" % u for u in context["external_links"]) or "(none)",
         branch=context["git"]["branch"],
     )
-    outcome = call_agent(prompt, worktree, args, "implement", state)
+    outcome = call_agent(prompt, worktree, args, "implement")
     result = outcome.structured
     if result is None:
         warn("agent returned no structured block — falling back to raw text summary")
@@ -671,8 +629,7 @@ def phase_qa(args, state=None):
             stage=name, command=cmd,
             output=output[-8000:],
         )
-        call_agent(prompt, worktree, args,
-                   "qa-repair-%d" % attempt, state)
+        call_agent(prompt, worktree, args, "qa-repair-%d" % attempt)
         failure = run_qa_gate(commands, worktree)
 
     if failure:
@@ -749,7 +706,6 @@ def phase_run(args):
     phase_ship(args, state)
     step("Done")
     info("task %s shipped" % tid)
-    report_cost(state)
 
 
 def phase_status(args):
@@ -759,17 +715,6 @@ def phase_status(args):
     step("fast-task %s" % args.task)
     for phase in PHASES:
         info("[%s] %s" % ("x" if phase in done else " ", phase))
-    calls, total, seconds = cost_total(state)
-    if calls:
-        info("")
-        info("%d model call(s) · %s · %.1fs"
-             % (calls, "$%.4f" % total if total is not None
-                else "cost not reported", seconds))
-        for call in state.read("cost.json", {}).get("calls", []):
-            info("  %-16s %-12s %s"
-                 % (call.get("label"), call.get("backend"),
-                    "$%.4f" % call["cost_usd"] if call.get("cost_usd") is not None
-                    else "cost n/a"))
     if context:
         info("")
         info("branch:   %s" % context.get("git", {}).get("branch"))
@@ -793,8 +738,6 @@ def build_parser():
                         help="model override; backend default when unset")
     parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS,
                         help="turn ceiling per call (default: %(default)s)")
-    parser.add_argument("--budget", type=float, default=DEFAULT_BUDGET_USD,
-                        help="hard USD ceiling per call, where the backend supports it")
     parser.add_argument("--no-project-context", action="store_true",
                         help="do not load the repo's CLAUDE.md / AGENTS.md")
     parser.add_argument("--agent-cmd", default=None,

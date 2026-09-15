@@ -19,7 +19,7 @@ from agent import (  # noqa: E402
 )
 from agent.base import TOOLS_EDIT, TOOLS_FULL, TOOLS_READ_ONLY  # noqa: E402
 from agent.claude_cli import parse_envelope  # noqa: E402
-from agent.claude_sdk import _denial_name, _usage  # noqa: E402
+from agent.claude_sdk import _denial_name  # noqa: E402
 
 
 class TestRegistry(unittest.TestCase):
@@ -48,7 +48,6 @@ class TestEchoBackend(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.backend, "echo")
         self.assertIn("summary", result.structured)
-        self.assertEqual(result.cost_usd, 0.0)
 
 
 class TestToolVocabulary(unittest.TestCase):
@@ -74,26 +73,6 @@ class TestToolVocabulary(unittest.TestCase):
             self.assertIn(tool, CLI_MAP)
 
 
-class TestUsageReading(unittest.TestCase):
-    """The SDK hands back `usage` as a plain dict even though its docs describe a
-    dataclass. Reading it with getattr silently yields None and blanks the cost
-    telemetry — the whole point of this experiment. Both shapes must work."""
-
-    def test_reads_a_dict(self):
-        self.assertEqual(_usage({"input_tokens": 12}, "input_tokens"), 12)
-
-    def test_reads_an_object(self):
-        class Usage(object):
-            input_tokens = 12
-        self.assertEqual(_usage(Usage(), "input_tokens"), 12)
-
-    def test_none_usage_is_none_not_an_error(self):
-        self.assertIsNone(_usage(None, "input_tokens"))
-
-    def test_missing_key_is_none(self):
-        self.assertIsNone(_usage({}, "input_tokens"))
-
-
 class TestDenialNames(unittest.TestCase):
     def test_dict_denial(self):
         self.assertEqual(_denial_name({"tool_name": "Bash"}), "Bash")
@@ -114,18 +93,13 @@ class TestResultSummary(unittest.TestCase):
         self.assertNotIn("turn", summary)
 
     def test_includes_what_is_known(self):
-        summary = AgentResult(backend="x", model="m", turns=3, cost_usd=0.5,
-                              input_tokens=10, output_tokens=20,
+        summary = AgentResult(backend="x", model="m", turns=3,
                               duration_s=1.5).summary()
-        for fragment in ("x", "m", "3 turns", "10 in / 20 out", "$0.5000", "1.5s"):
+        for fragment in ("x", "m", "3 turns", "1.5s"):
             self.assertIn(fragment, summary)
 
     def test_singular_turn(self):
         self.assertIn("1 turn ", AgentResult(backend="x", turns=1).summary() + " ")
-
-    def test_partial_token_counts_are_marked_unknown(self):
-        self.assertIn("? in / 20 out",
-                      AgentResult(backend="x", output_tokens=20).summary())
 
 
 class TestExtractLastJsonBlock(unittest.TestCase):
@@ -182,22 +156,14 @@ class TestCLIEnvelope(unittest.TestCase):
         self.assertEqual(text, "I could not do it.")
         self.assertIsNone(extract_last_json_block(text))
 
-    def test_reads_telemetry_from_the_envelope(self):
-        envelope = json.dumps({
-            "result": "done", "total_cost_usd": 0.42, "num_turns": 7,
-            "usage": {"input_tokens": 100, "output_tokens": 20,
-                      "cache_read_input_tokens": 80},
-        })
-        _, telemetry = parse_envelope(envelope)
-        self.assertEqual(telemetry["cost_usd"], 0.42)
+    def test_reads_the_turn_count_from_the_envelope(self):
+        _, telemetry = parse_envelope(
+            json.dumps({"result": "done", "num_turns": 7}))
         self.assertEqual(telemetry["turns"], 7)
-        self.assertEqual(telemetry["input_tokens"], 100)
-        self.assertEqual(telemetry["cached_tokens"], 80)
 
-    def test_absent_telemetry_is_left_absent_not_zeroed(self):
+    def test_absent_turn_count_is_left_absent_not_zeroed(self):
         _, telemetry = parse_envelope(json.dumps({"result": "done"}))
-        self.assertIsNone(telemetry["cost_usd"])
-        self.assertNotIn("input_tokens", telemetry)
+        self.assertIsNone(telemetry["turns"])
 
 
 class TestAgentCmdOverride(unittest.TestCase):

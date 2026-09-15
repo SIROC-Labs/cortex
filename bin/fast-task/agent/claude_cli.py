@@ -4,9 +4,8 @@ Kept alongside the SDK backend so the two can be compared head to head on the sa
 task: same prologue, same prompt, same repo, different transport. It is also the
 fallback when `claude-agent-sdk` is not installed.
 
-Its telemetry is thinner than the SDK's: the CLI's JSON envelope carries cost and
-turns but the shape is not contractual, so anything missing is left None rather
-than guessed at.
+The CLI's JSON envelope reports the turn count, but its shape is not contractual,
+so anything missing is left None rather than guessed at.
 """
 
 import json
@@ -52,16 +51,7 @@ def parse_envelope(raw):
         return raw, {}
 
     text = envelope["result"] if isinstance(envelope.get("result"), str) else raw
-    telemetry = {
-        "cost_usd": envelope.get("total_cost_usd"),
-        "turns": envelope.get("num_turns"),
-    }
-    usage = envelope.get("usage")
-    if isinstance(usage, dict):
-        telemetry["input_tokens"] = usage.get("input_tokens")
-        telemetry["output_tokens"] = usage.get("output_tokens")
-        telemetry["cached_tokens"] = usage.get("cache_read_input_tokens")
-    return text, telemetry
+    return text, {"turns": envelope.get("num_turns")}
 
 
 class ClaudeCLIBackend(AgentBackend):
@@ -115,9 +105,6 @@ class ClaudeCLIBackend(AgentBackend):
                 cmd += ["--max-turns", str(request.max_turns)]
         if request.system_prompt:
             cmd += ["--append-system-prompt", request.system_prompt]
-        if request.max_budget_usd is not None:
-            # No CLI equivalent — the caller must not assume it was enforced.
-            unsupported.append("max_budget_usd")
         if not request.load_project_context:
             unsupported.append("load_project_context=False")
 

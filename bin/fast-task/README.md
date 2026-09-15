@@ -15,12 +15,24 @@ export ASANA_PERSONAL_ACCESS_TOKEN=...   # in ~/.zshrc
 
 Requires `git`, `gh` (authenticated), and `claude` on PATH. Nothing to install.
 
-The Claude Agent SDK backend is optional, and the only thing that needs a venv:
+To call it from anywhere, put this directory on your PATH:
+
+```bash
+bash ../../setup-path.sh          # writes CORTEX_HOME + PATH to your shell profile
+bash ../../setup-path.sh --check  # report what is set, change nothing
+```
+
+The `claude-sdk` backend is optional and the only thing that needs a venv:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+Note that the two do not compose: on PATH the shebang resolves to the system
+`python3`, which cannot see `.venv`, so `--backend claude-sdk` needs
+`.venv/bin/python fast_task.py` (or a user-level install of the SDK). The default
+backend is unaffected.
 
 Check what's usable:
 
@@ -73,7 +85,6 @@ fast_task.py status    MT251-47
 | `--backend` | `claude-cli` | `claude-cli`, `claude-sdk`, `echo` |
 | `--model` | backend default | |
 | `--max-turns` | 60 | turn ceiling per call |
-| `--budget` | none | hard USD ceiling per call, where supported |
 | `--autonomy` | `full` | `read-only`, `edit`, `full` |
 | `--agent-cmd` | — | override the backend's command wholesale |
 | `--no-project-context` | off | skip the repo's CLAUDE.md / AGENTS.md |
@@ -81,8 +92,8 @@ fast_task.py status    MT251-47
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 
-`--backend echo` runs the whole flow with no model and no cost, for exercising the
-phases themselves. `--agent-cmd` is the escape hatch when a run stalls on a permission
+`--backend echo` runs the whole flow with no model at all, for exercising the phases
+themselves. `--agent-cmd` is the escape hatch when a run stalls on a permission
 mode; a backend with no command line to override reports it as unsupported rather than
 appearing to have honoured it.
 
@@ -96,7 +107,7 @@ appearing to have honoured it.
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
 
 State lives in `<main-repo-root>/.fast-task/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `cost.json`, `attachments/`.
+`result.json`, `qa.json`, `state.json`, `attachments/`.
 
 ## Preconditions
 

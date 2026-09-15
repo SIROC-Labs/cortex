@@ -31,7 +31,6 @@ class AgentRequest:
     # Tool names are given in the neutral vocabulary below; a backend translates.
     allowed_tools: Optional[List[str]] = None
     max_turns: Optional[int] = None
-    max_budget_usd: Optional[float] = None
     # "read-only" | "edit" | "full" — intent, not a provider's permission enum.
     autonomy: str = "edit"
     # Load the project's own conventions (CLAUDE.md, AGENTS.md and the like).
@@ -51,10 +50,6 @@ class AgentResult:
 
     backend: str = ""
     model: Optional[str] = None
-    cost_usd: Optional[float] = None
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    cached_tokens: Optional[int] = None
     turns: Optional[int] = None
     duration_s: Optional[float] = None
     # Fields of the request this backend could not honour.
@@ -65,19 +60,13 @@ class AgentResult:
     denied_tools: List[str] = field(default_factory=list)
 
     def summary(self):
-        """One line for the console. Unknown telemetry is omitted, never faked —
-        a backend that cannot report cost says nothing rather than zero."""
+        """One line for the console. What a backend could not report is omitted
+        rather than faked."""
         bits = [self.backend]
         if self.model:
             bits.append(self.model)
         if self.turns is not None:
             bits.append("%d turn%s" % (self.turns, "" if self.turns == 1 else "s"))
-        if self.input_tokens is not None or self.output_tokens is not None:
-            bits.append("%s in / %s out" % (
-                self.input_tokens if self.input_tokens is not None else "?",
-                self.output_tokens if self.output_tokens is not None else "?"))
-        if self.cost_usd is not None:
-            bits.append("$%.4f" % self.cost_usd)
         if self.duration_s is not None:
             bits.append("%.1fs" % self.duration_s)
         return " · ".join(bits)
