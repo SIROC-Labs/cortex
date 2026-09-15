@@ -17,8 +17,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from start_task import (  # noqa: E402
     State,
+    checkpoint_problems,
     evaluate_gate,
     failure_detail,
+    format_questions_comment,
+    live_run_pid,
+    parse_agent_questions,
+    phases_to_run,
+    poll_interval,
+    select_answer,
     extract_external_links,
     extract_last_json_block,
     slugify,
@@ -235,3 +242,143 @@ class TestStateWriteText(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
         with open(path) as f:
             self.assertEqual(f.read(), "raw output")
+
+
+class TestPhasesToRun(unittest.TestCase):
+    """Resume is subtraction: a phase already recorded done is not repeated."""
+
+    PHASES = ("implement", "qa", "ship")
+
+    def test_nothing_done_runs_everything(self):
+        self.assertEqual(phases_to_run(self.PHASES, set()),
+                         ["implement", "qa", "ship"])
+
+    def test_skips_what_is_done_and_keeps_order(self):
+        self.assertEqual(phases_to_run(self.PHASES, {"implement"}), ["qa", "ship"])
+
+    def test_all_done_runs_nothing(self):
+        self.assertEqual(phases_to_run(self.PHASES, {"implement", "qa", "ship"}), [])
+
+    def test_a_done_phase_that_no_longer_exists_is_ignored(self):
+        self.assertEqual(phases_to_run(self.PHASES, {"implement", "deploy"}),
+                         ["qa", "ship"])
+
+    def test_done_out_of_order_does_not_resurrect_an_earlier_phase(self):
+        # qa recorded but implement not: implement still runs, qa does not.
+        self.assertEqual(phases_to_run(self.PHASES, {"qa"}), ["implement", "ship"])
+
+
+class TestParseAgentQuestions(unittest.TestCase):
+    """The implement contract has two terminal shapes. Telling them apart is the
+    whole trigger for the ask cycle, so it must not guess."""
+
+    def test_a_summary_block_is_not_a_question(self):
+        self.assertIsNone(parse_agent_questions(
+            {"summary": "did the thing", "files_changed": [], "notes": ""}))
+
+    def test_none_and_junk_are_not_questions(self):
+        self.assertIsNone(parse_agent_questions(None))
+        self.assertIsNone(parse_agent_questions("questions"))
+        self.assertIsNone(parse_agent_questions({"questions": []}))
+        self.assertIsNone(parse_agent_questions({"questions": "which vpc"}))
+
+    def test_extracts_question_and_reason(self):
+        qs = parse_agent_questions(
+            {"questions": [{"q": "Which VPC?", "why": "tfvars defines two"}]})
+        self.assertEqual(qs, [{"q": "Which VPC?", "why": "tfvars defines two"}])
+
+    def test_accepts_bare_strings(self):
+        self.assertEqual(parse_agent_questions({"questions": ["Which VPC?"]}),
+                         [{"q": "Which VPC?", "why": ""}])
+
+    def test_drops_empty_entries_and_reports_none_if_all_empty(self):
+        self.assertIsNone(parse_agent_questions({"questions": ["", {"q": "  "}]}))
+
+
+class TestSelectAnswer(unittest.TestCase):
+    """The watermark is the question comment's own created_at, minted by the task
+    manager — never a local clock, which would drift against it."""
+
+    ASKED = "2026-09-15T12:00:00.000Z"
+
+    def c(self, at, text="answer", author="Justin"):
+        return {"created_at": at, "text": text, "author": author}
+
+    def test_nothing_after_the_watermark_is_no_answer(self):
+        self.assertIsNone(select_answer(
+            [self.c("2026-09-15T11:00:00.000Z")], self.ASKED))
+
+    def test_our_own_question_comment_is_excluded_by_the_watermark(self):
+        self.assertIsNone(select_answer([self.c(self.ASKED)], self.ASKED))
+
+    def test_first_later_comment_wins(self):
+        later = self.c("2026-09-15T12:05:00.000Z", "use nonprod")
+        latest = self.c("2026-09-15T12:09:00.000Z", "actually shared")
+        self.assertEqual(select_answer([later, latest], self.ASKED)["text"],
+                         "use nonprod")
+
+    def test_the_operators_own_reply_counts(self):
+        # The run posts with the operator's token, so author-matching would
+        # discard the very reply it waits for.
+        reply = self.c("2026-09-15T12:05:00.000Z", "nonprod", author="Justin")
+        self.assertIsNotNone(select_answer([reply], self.ASKED))
+
+    def test_blank_and_undated_comments_are_skipped(self):
+        blank = self.c("2026-09-15T12:05:00.000Z", "   ")
+        undated = {"text": "hi", "author": "X"}
+        real = self.c("2026-09-15T12:06:00.000Z", "nonprod")
+        self.assertEqual(select_answer([blank, undated, real], self.ASKED)["text"],
+                         "nonprod")
+
+
+class TestPollInterval(unittest.TestCase):
+    def test_backs_off_from_start_to_cap(self):
+        seq = [poll_interval(n, start=30, cap=120) for n in range(1, 7)]
+        self.assertEqual(seq, [30, 60, 120, 120, 120, 120])
+
+    def test_never_returns_zero(self):
+        self.assertGreater(poll_interval(0, start=30, cap=120), 0)
+
+
+class TestFormatQuestionsComment(unittest.TestCase):
+    def test_includes_every_question_its_reason_and_how_to_reply(self):
+        body = format_questions_comment(
+            [{"q": "Which VPC?", "why": "two in tfvars"},
+             {"q": "Fail closed?", "why": ""}], branch="HGM-32/x")
+        self.assertIn("Which VPC?", body)
+        self.assertIn("two in tfvars", body)
+        self.assertIn("Fail closed?", body)
+        self.assertIn("HGM-32/x", body)
+        self.assertIn("reply", body.lower())
+
+
+class TestLiveRunPid(unittest.TestCase):
+    """A recorded pid whose process is gone is a crashed run, not a live one."""
+
+    def test_live_process_is_reported(self):
+        self.assertEqual(live_run_pid({"pid": 4242}, is_alive=lambda p: True), 4242)
+
+    def test_dead_process_is_not(self):
+        self.assertIsNone(live_run_pid({"pid": 4242}, is_alive=lambda p: False))
+
+    def test_missing_or_malformed_record(self):
+        for rec in (None, {}, {"pid": "abc"}, "nope"):
+            self.assertIsNone(live_run_pid(rec, is_alive=lambda p: True))
+
+
+class TestCheckpointProblems(unittest.TestCase):
+    """Resume trusts state.json; this is the check that reality still matches."""
+
+    def ctx(self, worktree="/tmp/wt"):
+        return {"git": {"worktree": worktree, "branch": "b"}}
+
+    def test_no_problems_when_the_worktree_is_there(self):
+        self.assertEqual(checkpoint_problems(self.ctx(), isdir=lambda p: True), [])
+
+    def test_missing_worktree_is_a_problem(self):
+        problems = checkpoint_problems(self.ctx(), isdir=lambda p: False)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("/tmp/wt", problems[0])
+
+    def test_empty_context_is_a_problem(self):
+        self.assertTrue(checkpoint_problems({}, isdir=lambda p: True))

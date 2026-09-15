@@ -65,8 +65,13 @@ From inside the target repository:
 cortex start-task https://app.asana.com/0/123/456
 ```
 
-That runs every phase in order. Or one at a time — each is resumable and
-re-runnable, taking the task id the prologue resolved:
+That runs every phase in order, skipping any already marked done in `state.json` —
+so re-running the same command after an interruption picks up where it stopped rather
+than repeating work. The prologue always runs: it is idempotent, and re-running it
+refreshes the task context from Asana.
+
+Phases can also be run one at a time, taking the task id the prologue resolved. A
+`--phase` run is unconditional, which is how you redo a phase already marked done:
 
 ```bash
 cortex start-task https://app.asana.com/0/123/456 --phase prologue   # no model calls
@@ -76,11 +81,35 @@ cortex start-task MT251-47 --phase ship
 cortex start-task MT251-47 --status                                  # no work
 ```
 
+### When the agent has a question
+
+An agent that cannot proceed without a decision ends its turn with a `questions`
+block instead of a summary. The run posts those to the task as a comment, waits for
+a reply there, and calls the agent again with the answer plus a summary of what it
+already changed:
+
+```
+Blocked — asking 1217932680420187
+  Q: Which VPC — nonprod or shared?
+  posted — waiting for a reply (Ctrl-C to stop; progress is saved)
+  answer from Justin after 42m18s
+```
+
+Any comment on the task after the question counts as the answer — there is no
+convention to remember, and a teammate can unblock a run that is not theirs. The wait
+is unbounded and costs one request every two minutes; Ctrl-C stops it and the pending
+question stays in `awaiting.json`, which `--status` prints. `--no-ask` turns the whole
+cycle off.
+
+The agent's session does not survive the wait, so the resumed call is a fresh one:
+it is given the original task, the answer, and `git diff --stat` of its own earlier
+work, and told to continue rather than start over.
+
 ### Flags
 
 | Flag | Default | |
 |---|---|---|
-| `--phase` | all | run one of `prologue`, `implement`, `qa`, `ship` alone |
+| `--phase` | all | run one of `prologue`, `implement`, `qa`, `ship` alone, even if already done |
 | `--status` | off | report phase progress and do no work |
 | `--backends` | off | list providers and whether they are usable |
 | `--repo` | cwd | target repository |
@@ -94,6 +123,7 @@ cortex start-task MT251-47 --status                                  # no work
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 | `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
+| `--no-ask` | off | never ask the task manager; a blocked agent just ends the run |
 
 `--backend echo` runs the whole flow with no model at all, for exercising the phases
 themselves. `--agent-cmd` is the escape hatch when a run stalls on a permission
@@ -110,7 +140,9 @@ appearing to have honoured it.
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
 
 State lives in `<main-repo-root>/.start-task/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `attachments/`, and `<phase>.failure.log`
+`result.json`, `qa.json`, `state.json`, `attachments/`, `run.json` (the live run's
+pid, so an abandoned terminal is findable), `awaiting.json` while a question is
+outstanding, and `<phase>.failure.log`
 when a model call exits non-zero — that file is the only copy of what the provider
 printed, so it is written before the run dies.
 

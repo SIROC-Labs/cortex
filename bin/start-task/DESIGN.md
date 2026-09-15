@@ -123,7 +123,13 @@ the worktree does not exist yet when the prologue starts writing, and it may be 
 after ship while the state is still wanted. It holds `context.json`, `result.json`,
 `qa.json`, `state.json`, `attachments/`. A failed model call also leaves
 `<phase>.failure.log`: the provider's raw stdout, which is where a non-zero exit with
-an empty stderr hides its reason. Re-running a phase overwrites its own output. `run` skips phases already marked done in `state.json`.
+an empty stderr hides its reason. A live run records its pid in `run.json` (removed on
+exit, so a pid still there whose process is gone marks a crash), and a question waiting
+on a human sits in `awaiting.json`. Re-running a phase overwrites its own output.
+
+A resume trusts `state.json` only as far as the filesystem agrees with it: if the
+recorded worktree is gone, every phase runs again rather than skipping to QA on work
+that no longer exists. `run` skips phases already marked done in `state.json`.
 
 `<task-id>` is the human key (`MT251-47`) read from the task's ID custom field, falling
 back to the Asana gid when the project has no such field — the same field the readiness
@@ -161,6 +167,28 @@ seam. It ends by requiring a final fenced JSON block:
 
 Parsed into `result.json`. `summary` becomes the PR description in the ship phase, so
 the PR body costs no extra call.
+
+The block has a second legal shape. An agent genuinely blocked on a decision returns
+`{"questions": [{"q": "...", "why": "..."}]}` instead, and `call_agent_resumable`
+posts those to the task, waits for a human to comment there, and calls the agent again
+with the answer. Three things make this cheap rather than clever:
+
+- **The seam never learns about it.** A backend is handed a prompt and returns text.
+  The ask cycle is entirely orchestrator-side, which is why it works on every backend
+  including `echo`, and why adding a provider still costs one module.
+- **The watermark is the question comment's own `created_at`**, minted by Asana. Any
+  comment after it is the answer. There is deliberately no author filter: the run
+  comments with the operator's own token, so filtering "our own" comments would discard
+  the very reply it waits for.
+- **The wait is unbounded.** Polling backs off to one request every two minutes, so a
+  run left overnight costs almost nothing. `--no-ask` opts out; Ctrl-C leaves the
+  pending question in `awaiting.json`.
+
+The agent's session does not survive the wait — `--no-session-persistence` is set, and
+the answer may be hours later. The resumed call is therefore a fresh one, re-primed
+with the original task, the Q&A, and `git diff --stat` of its own earlier work, and
+told to continue rather than restart. Losing the reasoning is the accepted cost of not
+holding a provider session open indefinitely.
 
 **Permission mode is unresolved.** In a headless run with no host answering prompts,
 anything not pre-approved is auto-denied, so `acceptEdits` permits file edits but a
@@ -260,16 +288,21 @@ notably `decide_set_status`, which handles Asana's two-axis status model: try th
 
 ## Known gaps
 
-- **Not yet run against a live task.** The seam, registry, backends, phases and state
-  machine are exercised by tests and an end-to-end run on the `echo` backend; no real
-  model call has been made through it.
+- **Barely run against live tasks.** One real run (HGM-32) reached the end of
+  implement and exited 1 with an empty stderr; that is what motivated
+  `<phase>.failure.log` and resume. The ask cycle is covered by tests and a fake-driven
+  end-to-end, not yet by a real blocked agent.
 - **External links are text only.** Python extracts Figma/Notion/Drive URLs but cannot
   read them, and the implement call runs without MCP servers. `mcp_servers` is on the
   SDK's options, so the SDK backend *could* read one. It does not yet.
 - **Copy drift.** `asana.py` diverges from the plugin's `tm.py` the moment either
   changes.
-- **No pause flow.** A blocked run stops and reports; it does not commit WIP or post a
-  blocking question.
+- **WIP is never committed.** A blocked or interrupted run leaves its changes
+  uncommitted in the worktree. Resume finds them because the worktree persists, but
+  nothing pushes them, so a lost worktree is lost work.
+- **Resume validates the worktree, not its contents.** If the directory exists, the
+  checkpoint is trusted. A worktree that exists but was reset would still be skipped
+  past.
 
 ## Testing
 

@@ -50,7 +50,9 @@ you confidently can and put the problem in `notes`. Do not invent requirements.
 
 ## Required output
 
-End your response with a fenced JSON block, exactly this shape:
+End your response with a fenced JSON block, in one of exactly two shapes.
+
+When you implemented the task:
 
 ```json
 {
@@ -59,3 +61,21 @@ End your response with a fenced JSON block, exactly this shape:
   "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups. Empty string if none."
 }
 ```
+
+When a decision only a human can make is genuinely blocking you — the task is
+ambiguous in a way that changes what gets built, and picking wrong means doing the
+work twice — stop and ask instead:
+
+```json
+{
+  "questions": [
+    {"q": "The question, answerable in a sentence.", "why": "What is ambiguous and what each answer would change."}
+  ]
+}
+```
+
+Your questions are posted to the task, a human answers there, and you are called
+again with their answer and whatever you already changed. Use this sparingly: it
+costs a human's attention, and the guidance above still applies — if you can
+implement what you confidently can and record the problem in `notes`, do that
+instead. Never send both blocks.

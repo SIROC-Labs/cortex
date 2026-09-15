@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -237,6 +238,12 @@ class State(object):
 
     def path(self, name):
         return os.path.join(self.dir, name)
+
+    def remove(self, name):
+        try:
+            os.remove(self.path(name))
+        except OSError:
+            pass
 
     def write_text(self, name, text):
         """Persist raw text beside the JSON state. Returns the path, for printing."""
@@ -511,6 +518,133 @@ def phase_prologue(args):
 
 # --- implement --------------------------------------------------------------
 
+# --- asking the task manager ------------------------------------------------
+#
+# An agent that cannot proceed ends its turn with a questions block instead of a
+# summary. The orchestrator posts those to the task, waits for a human to reply
+# there, and calls the agent again with the answer. The agent seam knows none of
+# this: a backend is handed a prompt and returns text, exactly as before.
+
+POLL_START = 30
+POLL_CAP = 120
+
+
+def parse_agent_questions(structured):
+    """The questions an agent is blocked on, or None when it is not blocked.
+
+    Anything that is not a non-empty list of usable questions is "not blocked" —
+    a malformed block must fall through to the existing raw-text handling rather
+    than strand the run waiting for an answer to nothing.
+    """
+    if not isinstance(structured, dict):
+        return None
+    raw = structured.get("questions")
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for item in raw:
+        if isinstance(item, dict):
+            question = (item.get("q") or "").strip()
+            why = (item.get("why") or "").strip()
+        elif isinstance(item, str):
+            question, why = item.strip(), ""
+        else:
+            continue
+        if question:
+            out.append({"q": question, "why": why})
+    return out or None
+
+
+def format_questions_comment(questions, branch=None):
+    """The comment body. It has to tell a human who did not start the run what is
+    waiting on them and what to do about it."""
+    lines = ["\U0001f914 **Blocked — I need a decision before I can continue.**", ""]
+    for n, q in enumerate(questions, 1):
+        lines.append("%d. %s" % (n, q["q"]))
+        if q.get("why"):
+            lines.append("   _%s_" % q["why"])
+    lines += ["", "Reply on this task and the run picks up automatically — any "
+                  "comment here will do."]
+    if branch:
+        lines += ["", "Branch: `%s`" % branch]
+    return "\n".join(lines)
+
+
+def select_answer(comments, watermark):
+    """The first comment that answers the question: posted after `watermark`, with
+    something in it.
+
+    There is deliberately no author filter. The run comments with the operator's
+    own token, so "ignore our own comments" would discard the very reply it waits
+    for. The watermark alone excludes the question comment, because the watermark
+    IS that comment's created_at — minted by the task manager, so it needs no
+    agreement with the local clock.
+    """
+    for comment in comments or []:
+        created = comment.get("created_at") or ""
+        if not created or created <= watermark:
+            continue
+        if not (comment.get("text") or "").strip():
+            continue
+        return comment
+    return None
+
+
+def poll_interval(attempt, start=POLL_START, cap=POLL_CAP):
+    """Seconds to wait before the next check. Doubles to `cap` so an overnight
+    wait costs a handful of requests rather than a thousand."""
+    return min(cap, start * (2 ** max(0, attempt - 1)))
+
+
+def live_run_pid(record, is_alive=None):
+    """The pid of a run still going for this task, or None.
+
+    A pid recorded in state whose process is gone is a crashed or killed run, and
+    saying so is the point: it is how an abandoned checkpoint is told from one
+    another terminal is still working on.
+    """
+    if is_alive is None:
+        is_alive = _pid_alive
+    if not isinstance(record, dict):
+        return None
+    pid = record.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return None
+    return pid if is_alive(pid) else None
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else
+    except OSError:
+        return False
+    return True
+
+
+def checkpoint_problems(context, isdir=None):
+    """Reasons the recorded progress should not be trusted for a resume. Empty
+    means state.json and the filesystem still agree."""
+    if isdir is None:
+        isdir = os.path.isdir
+    if not context:
+        return ["no context.json — the checkpoint is incomplete"]
+    problems = []
+    worktree = ((context.get("git") or {}).get("worktree"))
+    if worktree and not isdir(worktree):
+        problems.append("recorded worktree is gone: %s" % worktree)
+    return problems
+
+
+def phases_to_run(phases, done):
+    """The phases still outstanding, in order. `done` is what state.json recorded;
+    a name in it that is no longer a phase is simply not in the result."""
+    return [p for p in phases if p not in done]
+
+
 def failure_detail(result, tail=2000):
     """Why a backend call failed, in one string. A non-zero exit with an empty
     stderr says nothing on its own — the reason is in whatever the provider
@@ -563,6 +697,95 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
 
 
 
+def _elapsed(seconds):
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+def ask_task(questions, ref, cwd, state, label):
+    """Post the questions to the task and block until someone replies there.
+
+    Unbounded on purpose: an idle wait is one request every two minutes, so the
+    run simply sits there. Ctrl-C leaves `awaiting.json` behind, which is what
+    tells a later run — or a human — what it was waiting for.
+    """
+    context = state.read("context.json", {})
+    branch = (context.get("git") or {}).get("branch")
+
+    step("Blocked — asking %s" % ref)
+    for q in questions:
+        info("Q: %s" % q["q"])
+
+    story = asana(["comment", "add", ref, format_questions_comment(questions, branch)],
+                  cwd=cwd)
+    watermark = (story or {}).get("created_at")
+    if not watermark:
+        die("posted the question but the task manager returned no timestamp — "
+            "cannot tell a reply from the question itself")
+    info("posted — waiting for a reply (Ctrl-C to stop; progress is saved)")
+    state.write("awaiting.json", {"label": label, "task": ref,
+                                  "asked_at": watermark, "questions": questions})
+
+    attempt, waited = 0, 0
+    while True:
+        attempt += 1
+        delay = poll_interval(attempt)
+        time.sleep(delay)
+        waited += delay
+        comments = asana(["comment", "list", ref], cwd=cwd)
+        answer = select_answer(comments, watermark)
+        if answer:
+            info("answer from %s after %s" % (answer.get("author") or "someone",
+                                              _elapsed(waited)))
+            state.remove("awaiting.json")
+            return (answer.get("text") or "").strip()
+        if waited % 600 < delay:
+            info("still waiting (%s)" % _elapsed(waited))
+
+
+def render_resume_section(worktree, transcript):
+    """What to append so a fresh call can continue work it has no memory of. The
+    session is gone — the worktree and this transcript are all that survive."""
+    _, stat, _ = git(["diff", "--stat"], cwd=worktree, check=False)
+    lines = ["", "---", "", "## Your earlier attempt", "",
+             "You worked on this task in this worktree and stopped to ask a question.",
+             "You do not remember doing it, but the changes are still here:", "",
+             "```", (stat or "").strip() or "(nothing changed yet)", "```", "",
+             "### What you asked, and the answer", ""]
+    for round_ in transcript:
+        for q in round_["questions"]:
+            lines.append("- **Q:** %s" % q["q"])
+        lines.append("- **A:** %s" % (round_["answer"] or "(no answer given)"))
+        lines.append("")
+    lines += ["Continue from what is already in the worktree. Do not start over, and",
+              "do not undo work you cannot account for — it is yours.", ""]
+    return "\n".join(lines)
+
+
+def call_agent_resumable(build_prompt, cwd, args, label, ref, state, autonomy=None):
+    """Call the agent, and when it comes back blocked, ask the task and call again
+    with the answer. Returns the first result that is work rather than a question.
+
+    The loop is unbounded: `--no-ask` is the way out, not a round cap.
+    """
+    transcript = []
+    while True:
+        outcome = call_agent(build_prompt(transcript), cwd, args, label,
+                             autonomy=autonomy, state=state)
+        questions = parse_agent_questions(outcome.structured)
+        if questions is None:
+            return outcome
+        if args.no_ask:
+            warn("agent asked %d question(s) but --no-ask is set — treating as done"
+                 % len(questions))
+            return outcome
+        answer = ask_task(questions, ref, cwd, state, label)
+        transcript.append({"questions": questions, "answer": answer})
+
+
 def phase_implement(args, state=None):
     state = state or State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
     context = state.read("context.json")
@@ -577,16 +800,20 @@ def phase_implement(args, state=None):
                     else " (at %s)" % a["path"])
         for a in context["attachments"]) or "(none)"
 
-    prompt = render_prompt(
-        "implement.md",
-        context=json.dumps(context["task"], indent=2),
-        subtasks=json.dumps(context["subtasks"], indent=2),
-        comments=json.dumps(context["comments"], indent=2),
-        attachments=attachment_note,
-        links="\n".join("- %s" % u for u in context["external_links"]) or "(none)",
-        branch=context["git"]["branch"],
-    )
-    outcome = call_agent(prompt, worktree, args, "implement", state=state)
+    def build_prompt(transcript):
+        prompt = render_prompt(
+            "implement.md",
+            context=json.dumps(context["task"], indent=2),
+            subtasks=json.dumps(context["subtasks"], indent=2),
+            comments=json.dumps(context["comments"], indent=2),
+            attachments=attachment_note,
+            links="\n".join("- %s" % u for u in context["external_links"]) or "(none)",
+            branch=context["git"]["branch"],
+        )
+        return prompt + render_resume_section(worktree, transcript) if transcript else prompt
+
+    outcome = call_agent_resumable(build_prompt, worktree, args, "implement",
+                                   context["task"]["gid"], state)
     result = outcome.structured
     if result is None:
         warn("agent returned no structured block — falling back to raw text summary")
@@ -726,13 +953,41 @@ def phase_ship(args, state=None):
 
 # --- run / status -----------------------------------------------------------
 
+# Prologue is not in this table: it is idempotent (existing worktree, branch, PR
+# and start comment are all detected) and re-running it refreshes the task context,
+# so a resumed run always starts by re-reading Asana.
+RESUMABLE = ("implement", "qa", "ship")
+
+
 def phase_run(args):
     tid = phase_prologue(args)
     args.task = tid
     state = State(main_repo_root(os.path.abspath(args.repo)), tid)
-    state = phase_implement(args, state)
-    state = phase_qa(args, state)
-    phase_ship(args, state)
+
+    other = live_run_pid(state.read("run.json"))
+    if other and other != os.getpid():
+        die("another run for %s is already going (pid %d). Wait for it, or kill it:\n"
+            "  kill %d" % (tid, other, other))
+    state.write("run.json", {"pid": os.getpid(), "started": time.time()})
+
+    done = state.phases_done()
+    problems = checkpoint_problems(state.read("context.json", {}))
+    if problems and done:
+        for problem in problems:
+            warn(problem)
+        warn("recorded progress no longer matches the filesystem — running every "
+             "phase rather than trusting it")
+        done = set()
+
+    for phase in RESUMABLE:
+        if phase in done:
+            info("%s already done — skipping (--phase %s to redo)" % (phase, phase))
+
+    try:
+        for phase in phases_to_run(RESUMABLE, done):
+            state = PHASE_HANDLERS[phase](args, state) or state
+    finally:
+        state.remove("run.json")
     step("Done")
     info("task %s shipped" % tid)
 
@@ -749,6 +1004,26 @@ def phase_status(args):
         info("branch:   %s" % context.get("git", {}).get("branch"))
         info("worktree: %s" % context.get("git", {}).get("worktree"))
         info("PR:       %s" % context.get("git", {}).get("pr_url"))
+
+    info("")
+    record = state.read("run.json")
+    pid = live_run_pid(record)
+    if pid:
+        info("running:  pid %d (kill %d to stop it)" % (pid, pid))
+    elif record:
+        warn("a run recorded pid %s but that process is gone — it crashed or was killed"
+             % record.get("pid"))
+    else:
+        info("running:  no")
+
+    awaiting = state.read("awaiting.json")
+    if awaiting:
+        warn("waiting on an answer in the task since %s:" % awaiting.get("asked_at"))
+        for q in awaiting.get("questions") or []:
+            info("  Q: %s" % q.get("q"))
+
+    for problem in checkpoint_problems(context):
+        warn(problem)
 
 
 # --- cli --------------------------------------------------------------------
@@ -779,6 +1054,9 @@ def build_parser():
                         help="make Estimate and sprint membership blocking")
     parser.add_argument("--ignore-deps", action="store_true",
                         help="warn instead of blocking on incomplete dependencies")
+    parser.add_argument("--no-ask", action="store_true",
+                        help="do not ask the task manager when the agent is blocked; "
+                             "treat a questions block as the end of the run")
 
     parser.add_argument("--backend", default=DEFAULT_BACKEND,
                         choices=backend_names(),
@@ -835,4 +1113,12 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        # Every phase records itself as it completes, so stopping here costs only
+        # the phase in flight. Say so, rather than dumping a traceback.
+        sys.stderr.write("\n\nstart-task: interrupted — finished phases are saved.\n"
+                         "  progress:  start-task <task-id> --status\n"
+                         "  continue:  start-task <task-id>\n")
+        sys.exit(130)
