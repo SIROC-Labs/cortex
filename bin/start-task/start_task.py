@@ -57,8 +57,19 @@ NOT_STARTED = {
 
 PHASES = ("prologue", "implement", "qa", "ship")
 
-# Turn ceiling applied to every model call, so a wedged run stops grinding.
-DEFAULT_MAX_TURNS = 60
+# Turn ceiling applied to every model call. It is a checkpoint rather than a
+# limit on the work: a call that hits it is resumed while it keeps making
+# changes (see `should_continue`). Development is many small edits, so the
+# ceiling is high enough that reaching it usually means something is wrong.
+DEFAULT_MAX_TURNS = 300
+
+# What a resumed call is told. The session carries the rest — it is the same
+# conversation, not a fresh one that has to be re-briefed.
+CONTINUE_PROMPT = (
+    "Continue. You stopped at a turn limit, not because the work was finished: "
+    "pick up exactly where you left off, and end with the result block you were "
+    "asked for once you are done."
+)
 
 MAX_QA_ATTEMPTS = 2
 INLINE_ATTACHMENT_MAX_BYTES = 256 * 1024
@@ -734,41 +745,86 @@ def failure_detail(result, tail=2000):
     return "unknown error — the backend produced no output"
 
 
+def worktree_fingerprint(cwd):
+    """What the worktree looks like right now, in one string. `status --porcelain`
+    as well as `diff --stat`, so a stretch of work that only added new files still
+    reads as progress."""
+    _, status, _ = git(["status", "--porcelain"], cwd=cwd, check=False)
+    _, stat, _ = git(["diff", "--stat"], cwd=cwd, check=False)
+    return "%s\n%s" % ((status or "").strip(), (stat or "").strip())
+
+
+def should_continue(result, fingerprint, previous):
+    """Whether a call that came back should be resumed. Returns (go, reason),
+    where a reason is a stop the operator should hear about.
+
+    The turn ceiling is a checkpoint, not the end of the work, so a call that hits
+    it is picked up where it left off. Progress is the guard: a call that burns a
+    whole ceiling without touching the worktree is going in circles, and resuming
+    it again would only cost more.
+    """
+    if result.stop_reason != "max_turns":
+        return False, None
+    if not result.resume_token:
+        return False, "this backend cannot resume a call"
+    if fingerprint == previous:
+        return False, "it reached the limit again without changing anything"
+    return True, None
+
+
 def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
-    """One model call, through the seam. Returns an AgentResult."""
+    """One unit of work for a model, through the seam. A call stopped by the turn
+    ceiling is resumed for as long as it keeps changing the worktree, so the
+    ceiling bounds a single call and not the task. Returns the final AgentResult.
+    """
     autonomy = autonomy or args.autonomy
     backend = get_backend(args.backend)
     usable, reason = backend.available()
     if not usable:
         die("backend %r is unavailable: %s" % (args.backend, reason))
 
-    request = AgentRequest(
-        prompt=prompt,
-        cwd=cwd,
-        model=args.model,
-        allowed_tools=tools_for(autonomy),
-        autonomy=autonomy,
-        max_turns=args.max_turns,
-        load_project_context=not args.no_project_context,
-        extra={"argv": args.agent_cmd} if args.agent_cmd else {},
-    )
-    info("%s: calling %s" % (label, backend.name))
-    result = backend.run(request)
+    resume, previous, hop = None, None, 0
+    while True:
+        hop += 1
+        request = AgentRequest(
+            prompt=CONTINUE_PROMPT if resume else prompt,
+            cwd=cwd,
+            model=args.model,
+            allowed_tools=tools_for(autonomy),
+            autonomy=autonomy,
+            max_turns=args.max_turns,
+            load_project_context=not args.no_project_context,
+            resume=resume,
+            extra={"argv": args.agent_cmd} if args.agent_cmd else {},
+        )
+        info("%s: calling %s%s"
+             % (label, backend.name, " (continuation %d)" % hop if resume else ""))
+        result = backend.run(request)
 
-    for item in result.unsupported:
-        warn("%s ignored %s (not supported by this backend)" % (backend.name, item))
-    if result.denied_tools:
-        warn("%d tool call(s) were denied: %s — the agent may have done less "
-             "than asked; consider --autonomy full or an allowlist"
-             % (len(result.denied_tools), ", ".join(sorted(set(result.denied_tools)))))
-    info("%s: %s" % (label, result.summary()))
-    if not result.ok:
-        saved = ""
-        if state is not None and result.text:
-            saved = "\n  raw output: %s" % state.write_text(
-                "%s.failure.log" % label, result.text)
-        die("%s failed: %s%s" % (label, failure_detail(result), saved))
-    return result
+        for item in result.unsupported:
+            warn("%s ignored %s (not supported by this backend)"
+                 % (backend.name, item))
+        if result.denied_tools:
+            warn("%d tool call(s) were denied: %s — the agent may have done less "
+                 "than asked; consider --autonomy full or an allowlist"
+                 % (len(result.denied_tools),
+                    ", ".join(sorted(set(result.denied_tools)))))
+        info("%s: %s" % (label, result.summary()))
+        if not result.ok:
+            saved = ""
+            if state is not None and result.text:
+                saved = "\n  raw output: %s" % state.write_text(
+                    "%s.failure.log" % label, result.text)
+            die("%s failed: %s%s" % (label, failure_detail(result), saved))
+
+        fingerprint = worktree_fingerprint(cwd)
+        go, stopped_because = should_continue(result, fingerprint, previous)
+        if not go:
+            if stopped_because:
+                warn("%s stopped at the turn limit — %s" % (label, stopped_because))
+            return result
+        info("%s: hit the turn limit, resuming the session" % label)
+        resume, previous = result.resume_token, fingerprint
 
 
 

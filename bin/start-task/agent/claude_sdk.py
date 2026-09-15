@@ -99,6 +99,12 @@ class ClaudeSDKBackend(AgentBackend):
             options_kwargs["system_prompt"] = request.system_prompt
         if request.max_turns is not None:
             options_kwargs["max_turns"] = request.max_turns
+        if request.resume:
+            # Older SDKs have no resume; say so rather than start over silently.
+            if "resume" in getattr(ClaudeAgentOptions, "__dataclass_fields__", {}):
+                options_kwargs["resume"] = request.resume
+            else:
+                unsupported.append("resume (not offered by this SDK version)")
 
         options = ClaudeAgentOptions(**options_kwargs)
 
@@ -119,15 +125,25 @@ class ClaudeSDKBackend(AgentBackend):
                 result.denied_tools = [
                     _denial_name(d) for d in (message.permission_denials or [])]
 
-                if message.is_error or message.subtype == "failure":
+                # The handle a later call resumes from, when there is one.
+                result.resume_token = getattr(message, "session_id", None)
+
+                reason = message.terminal_reason
+                if reason == "max_turns" or message.subtype == "error_max_turns":
+                    # The ceiling is a checkpoint, not a failure: partial work
+                    # with a session to continue from. The caller decides.
+                    result.stop_reason = "max_turns"
+                elif message.is_error or message.subtype == "failure":
                     result.ok = False
                     result.error = "agent run failed (%s)" % (
-                        message.terminal_reason or "no reason given")
-                # A run stopped by the turn ceiling produced partial work; say
-                # so rather than presenting it as a finished result.
-                elif message.terminal_reason not in (None, "end_turn"):
+                        reason or "no reason given")
+                # Any other early stop produced partial work; say so rather than
+                # presenting it as a finished result.
+                elif reason not in (None, "end_turn"):
                     result.ok = False
-                    result.error = "agent stopped early: %s" % message.terminal_reason
+                    result.error = "agent stopped early: %s" % reason
+                elif reason == "end_turn":
+                    result.stop_reason = "complete"
 
         result.text = "".join(chunks)
         result.structured = extract_last_json_block(result.text)

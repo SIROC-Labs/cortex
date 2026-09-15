@@ -18,7 +18,7 @@ from agent import (  # noqa: E402
     extract_last_json_block, get_backend, tools_for,
 )
 from agent.base import TOOLS_EDIT, TOOLS_FULL, TOOLS_READ_ONLY  # noqa: E402
-from agent.claude_cli import parse_envelope  # noqa: E402
+from agent.claude_cli import build_command, parse_envelope  # noqa: E402
 from agent.claude_sdk import _denial_name  # noqa: E402
 
 
@@ -164,6 +164,70 @@ class TestCLIEnvelope(unittest.TestCase):
     def test_absent_turn_count_is_left_absent_not_zeroed(self):
         _, telemetry = parse_envelope(json.dumps({"result": "done"}))
         self.assertIsNone(telemetry["turns"])
+
+
+class TestCLIStopReason(unittest.TestCase):
+    """A run stopped by the turn ceiling is an intermission, not a failure, and
+    not a success either. Swallowing it yields a run that looks finished and has
+    no result block to show for it."""
+
+    def test_max_turns_is_reported_as_a_stop_reason_not_an_error(self):
+        _, telemetry = parse_envelope(json.dumps({
+            "type": "result", "subtype": "error_max_turns", "is_error": True,
+            "num_turns": 61, "session_id": "abc123",
+            "errors": ["Reached maximum number of turns (60)"],
+        }))
+        self.assertEqual(telemetry["stop_reason"], "max_turns")
+        self.assertEqual(telemetry["resume_token"], "abc123")
+        self.assertNotIn("ok", telemetry)
+
+    def test_a_real_error_still_fails_with_its_own_message(self):
+        _, telemetry = parse_envelope(json.dumps({
+            "type": "result", "subtype": "error_during_execution",
+            "is_error": True, "errors": ["the sky fell"],
+        }))
+        self.assertIs(telemetry["ok"], False)
+        self.assertIn("the sky fell", telemetry["error"])
+
+    def test_a_finished_run_reports_complete(self):
+        _, telemetry = parse_envelope(json.dumps({
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": "done", "session_id": "s1",
+        }))
+        self.assertEqual(telemetry["stop_reason"], "complete")
+        self.assertEqual(telemetry["resume_token"], "s1")
+
+    def test_an_unrecognised_subtype_is_left_unknown_rather_than_guessed(self):
+        _, telemetry = parse_envelope(json.dumps({
+            "type": "result", "subtype": "error_something_new", "is_error": True,
+        }))
+        self.assertIsNone(telemetry["stop_reason"])
+        self.assertIs(telemetry["ok"], False)
+
+
+class TestCLICommand(unittest.TestCase):
+    """The flag mapping. Resuming needs the session on disk, so the one flag that
+    would prevent it must not come back."""
+
+    def test_a_fresh_call_carries_the_prompt_flags(self):
+        cmd, unsupported = build_command(AgentRequest(prompt="x", cwd="/tmp"))
+        self.assertIn("-p", cmd)
+        self.assertNotIn("--resume", cmd)
+        self.assertEqual(unsupported, [])
+
+    def test_session_persistence_is_not_disabled(self):
+        cmd, _ = build_command(AgentRequest(prompt="x", cwd="/tmp"))
+        self.assertNotIn("--no-session-persistence", cmd)
+
+    def test_resume_passes_the_token(self):
+        cmd, _ = build_command(AgentRequest(prompt="x", cwd="/tmp", resume="abc123"))
+        self.assertEqual(cmd[cmd.index("--resume") + 1], "abc123")
+
+    def test_argv_override_reports_resume_as_superseded(self):
+        _, unsupported = build_command(
+            AgentRequest(prompt="x", cwd="/tmp", resume="abc123",
+                         extra={"argv": "claude -p"}))
+        self.assertTrue(any("resume" in u for u in unsupported))
 
 
 class TestAgentCmdOverride(unittest.TestCase):

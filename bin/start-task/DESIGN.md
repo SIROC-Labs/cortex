@@ -191,11 +191,36 @@ with the answer. Three things make this cheap rather than clever:
   run left overnight costs almost nothing. `--no-ask` opts out; Ctrl-C leaves the
   pending question in `awaiting.json`.
 
-The agent's session does not survive the wait — `--no-session-persistence` is set, and
-the answer may be hours later. The resumed call is therefore a fresh one, re-primed
-with the original task, the Q&A, and `git diff --stat` of its own earlier work, and
-told to continue rather than restart. Losing the reasoning is the accepted cost of not
-holding a provider session open indefinitely.
+The agent's session does not survive the wait: the answer may be hours later, and
+holding a provider session open that long buys nothing. The resumed call is therefore a
+fresh one, re-primed with the original task, the Q&A, and `git diff --stat` of its own
+earlier work, and told to continue rather than restart. Losing the reasoning is the
+accepted cost.
+
+## The turn ceiling is a checkpoint
+
+`--max-turns` exists so a wedged run stops grinding, but a run that stops grinding
+mid-feature is not a result — the first live attempt died at 60 turns having spent $8
+and written no result block, and worse, nothing noticed: the CLI envelope's
+`is_error`/`subtype` were not read, so a dead run came back `ok=True` with the raw JSON
+where its summary should have been.
+
+So the ceiling now bounds a call rather than the task. A backend reports *why* the model
+stopped (`AgentResult.stop_reason`) separately from *whether it failed* (`ok`), and
+hands back an opaque `resume_token` when the provider offers one. `stop_reason ==
+"max_turns"` means partial work with somewhere to continue from, so the runner resumes
+that session with the same worktree and the agent's own memory intact.
+
+What stops it is progress, not a counter. Between continuations the runner fingerprints
+the worktree — `git status --porcelain` as well as `git diff --stat`, so a stretch that
+only adds files still counts. A call that burns an entire ceiling without moving the
+fingerprint is looping, and another lap would only cost more, so the run stops and says
+which of the two happened. That is the whole guard: `should_continue` is four lines and
+takes no opinion on how long the work is allowed to be.
+
+Resuming needs the session on disk, so `--no-session-persistence` is no longer passed.
+These runs now leave sessions behind in the target repo — the price of continuing with
+memory rather than re-briefing a stranger.
 
 **Permission mode is unresolved.** In a headless run with no host answering prompts,
 anything not pre-approved is auto-denied, so `acceptEdits` permits file edits but a

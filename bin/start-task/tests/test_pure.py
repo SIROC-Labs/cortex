@@ -15,6 +15,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from agent import AgentResult  # noqa: E402
+
 from start_task import (  # noqa: E402
     State,
     checkpoint_problems,
@@ -29,6 +31,7 @@ from start_task import (  # noqa: E402
     phases_to_run,
     poll_interval,
     select_answer,
+    should_continue,
     slugify,
     task_key,
     worktree_for_branch,
@@ -198,6 +201,42 @@ class TestTaskKey(unittest.TestCase):
 
     def test_falls_back_to_gid(self):
         self.assertEqual(task_key({"ref": "12"}), "12")
+
+
+class TestShouldContinue(unittest.TestCase):
+    """The turn ceiling is a checkpoint, so a call that hits it gets resumed. The
+    guard is progress: a run that burns another whole ceiling without touching the
+    worktree is looping, and resuming it again would only cost more."""
+
+    def result(self, stop_reason="max_turns", resume_token="abc123"):
+        return AgentResult(backend="claude-cli", stop_reason=stop_reason,
+                           resume_token=resume_token)
+
+    def test_resumes_when_the_ceiling_was_hit_and_work_advanced(self):
+        go, reason = should_continue(self.result(), " M start_task.py", "")
+        self.assertTrue(go)
+        self.assertIsNone(reason)
+
+    def test_stops_when_nothing_changed_since_the_last_attempt(self):
+        go, reason = should_continue(self.result(), " M start_task.py",
+                                     " M start_task.py")
+        self.assertFalse(go)
+        self.assertIn("without changing anything", reason)
+
+    def test_stops_when_the_backend_cannot_resume(self):
+        go, reason = should_continue(self.result(resume_token=None), "a", "b")
+        self.assertFalse(go)
+        self.assertIn("cannot resume", reason)
+
+    def test_a_finished_call_is_not_resumed(self):
+        go, reason = should_continue(self.result(stop_reason="complete"), "a", "b")
+        self.assertFalse(go)
+        self.assertIsNone(reason)
+
+    def test_an_unreported_stop_reason_is_not_resumed(self):
+        go, reason = should_continue(self.result(stop_reason=None), "a", "b")
+        self.assertFalse(go)
+        self.assertIsNone(reason)
 
 
 if __name__ == "__main__":

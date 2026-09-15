@@ -35,6 +35,10 @@ class AgentRequest:
     autonomy: str = "edit"
     # Load the project's own conventions (CLAUDE.md, AGENTS.md and the like).
     load_project_context: bool = True
+    # Continue an earlier call rather than start one: an opaque token from that
+    # call's `AgentResult.resume_token`. A backend that cannot continue says so
+    # in `unsupported` rather than silently starting over.
+    resume: Optional[str] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -51,6 +55,12 @@ class AgentResult:
     backend: str = ""
     model: Optional[str] = None
     turns: Optional[int] = None
+    # Why the model stopped: "complete", "max_turns", or None when the provider
+    # did not say. Hitting a ceiling is not a failure — `ok` stays True and the
+    # caller decides whether to continue — so the two are reported separately.
+    stop_reason: Optional[str] = None
+    # An opaque handle for continuing this call, when the provider offers one.
+    resume_token: Optional[str] = None
     duration_s: Optional[float] = None
     # Fields of the request this backend could not honour.
     unsupported: List[str] = field(default_factory=list)

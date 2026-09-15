@@ -105,6 +105,31 @@ The agent's session does not survive the wait, so the resumed call is a fresh on
 it is given the original task, the answer, and `git diff --stat` of its own earlier
 work, and told to continue rather than start over.
 
+### When the agent hits the turn limit
+
+`--max-turns` bounds a single call, not the work. A call stopped by the ceiling comes
+back with the session it was using, and the run resumes that same session — the agent
+keeps its memory and picks up mid-thought:
+
+```
+  implement: calling claude-cli
+  implement: claude-cli · claude-opus-5 · 300 turns · 861.2s
+  implement: hit the turn limit, resuming the session
+  implement: calling claude-cli (continuation 2)
+```
+
+The guard is progress. Before each continuation the run fingerprints the worktree
+(`git status --porcelain` plus `git diff --stat`); if a call burns a whole ceiling and
+the fingerprint is unchanged, it is going in circles, so the run stops and says so
+rather than paying for another lap:
+
+```
+  ! implement stopped at the turn limit — it reached the limit again without changing anything
+```
+
+Because sessions are resumed, they are left on disk rather than discarded after each
+call.
+
 ### Flags
 
 | Flag | Default | |
@@ -115,7 +140,7 @@ work, and told to continue rather than start over.
 | `--repo` | cwd | target repository |
 | `--backend` | `claude-cli` | `claude-cli`, `claude-sdk`, `echo` |
 | `--model` | backend default | |
-| `--max-turns` | 60 | turn ceiling per call |
+| `--max-turns` | 300 | turn ceiling per call — a checkpoint, not a cap on the task |
 | `--autonomy` | `full` | `read-only`, `edit`, `full` |
 | `--agent-cmd` | — | override the backend's command wholesale |
 | `--no-project-context` | off | skip the repo's CLAUDE.md / AGENTS.md |
@@ -178,8 +203,12 @@ class MyBackend(AgentBackend):
 _REGISTRY = {..., "my-provider": (".my_provider", "MyBackend")}
 ```
 
-Two contracts: never raise (report `ok=False` with an `error`), and declare anything in
-the request you could not honour via `result.unsupported`.
+Three contracts: never raise (report `ok=False` with an `error`); declare anything in
+the request you could not honour via `result.unsupported`; and separate *why the model
+stopped* from *whether it failed* — a run that hit the turn ceiling is `ok=True` with
+`stop_reason="max_turns"` and, if your provider can continue one, a `resume_token`. A
+backend that cannot resume leaves the token `None` and the runner stops there instead of
+looping.
 
 ## Tests
 
