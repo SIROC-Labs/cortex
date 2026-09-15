@@ -93,6 +93,7 @@ cortex start-task MT251-47 --status                                  # no work
 | `--no-worktree` | off | branch in the current directory |
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
+| `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
 
 `--backend echo` runs the whole flow with no model at all, for exercising the phases
 themselves. `--agent-cmd` is the escape hatch when a run stalls on a permission
@@ -109,7 +110,9 @@ appearing to have honoured it.
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
 
 State lives in `<main-repo-root>/.start-task/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `attachments/`.
+`result.json`, `qa.json`, `state.json`, `attachments/`, and `<phase>.failure.log`
+when a model call exits non-zero — that file is the only copy of what the provider
+printed, so it is written before the run dies.
 
 ## Preconditions
 

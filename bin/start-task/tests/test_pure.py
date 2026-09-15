@@ -8,13 +8,17 @@
 
 import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from start_task import (  # noqa: E402
+    State,
     evaluate_gate,
+    failure_detail,
     extract_external_links,
     extract_last_json_block,
     slugify,
@@ -110,6 +114,19 @@ class TestEvaluateGate(unittest.TestCase):
         deps = [{"name": "Done thing", "completed": True}]
         self.assertEqual(evaluate_gate(task(), deps, "42")["blocking"], [])
 
+    def test_incomplete_dependency_warns_under_ignore_deps(self):
+        deps = [{"name": "Build the API", "completed": False}]
+        verdict = evaluate_gate(task(), deps, "42", ignore_deps=True)
+        self.assertEqual(verdict["blocking"], [])
+        self.assertIn("Build the API", verdict["warnings"][0])
+        self.assertIn("ignored", verdict["warnings"][0])
+
+    def test_ignore_deps_does_not_rescue_other_preconditions(self):
+        deps = [{"name": "Build the API", "completed": False}]
+        verdict = evaluate_gate(task(status="Done"), deps, "42", ignore_deps=True)
+        self.assertTrue(any("Done" in b for b in verdict["blocking"]))
+        self.assertFalse(any("Build the API" in b for b in verdict["blocking"]))
+
     def test_unassigned_requests_self_assign_not_block(self):
         verdict = evaluate_gate(task(assignee=None, assignee_gid=None), [], "42")
         self.assertTrue(verdict["self_assign"])
@@ -175,3 +192,46 @@ class TestTaskKey(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestFailureDetail(unittest.TestCase):
+    """A backend that exits non-zero with an empty stderr told us nothing. The
+    reason is in whatever it printed, so that is what must reach the operator."""
+
+    def result(self, **kw):
+        class R(object):
+            pass
+        r = R()
+        r.error = kw.get("error")
+        r.text = kw.get("text", "")
+        return r
+
+    def test_uses_the_error_when_the_backend_gave_one(self):
+        detail = failure_detail(self.result(error="model overloaded", text="noise"))
+        self.assertIn("model overloaded", detail)
+
+    def test_falls_back_to_the_tail_of_stdout_when_error_is_empty(self):
+        detail = failure_detail(self.result(error="", text="line one\nthe real reason"))
+        self.assertIn("the real reason", detail)
+
+    def test_tail_is_bounded(self):
+        detail = failure_detail(self.result(error=None, text="x" * 9000), tail=100)
+        self.assertLessEqual(len(detail), 400)
+        self.assertIn("x", detail)
+
+    def test_says_unknown_when_there_is_nothing_at_all(self):
+        self.assertIn("unknown", failure_detail(self.result(error=None, text="")))
+
+
+class TestStateWriteText(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_write_text_roundtrips_and_returns_the_path(self):
+        state = State(self.root, "HGM-1")
+        state.ensure()
+        path = state.write_text("implement.failure.log", "raw output")
+        self.assertTrue(os.path.isfile(path))
+        with open(path) as f:
+            self.assertEqual(f.read(), "raw output")

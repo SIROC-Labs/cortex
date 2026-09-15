@@ -156,7 +156,7 @@ def extract_external_links(*texts):
     return seen
 
 
-def evaluate_gate(task, dependencies, current_user_gid, strict=False):
+def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_deps=False):
     """Decide whether a task may be started. Pure: no network, no side effects.
 
     Returns {blocking: [...], warnings: [...], self_assign: bool}. The caller acts
@@ -177,8 +177,11 @@ def evaluate_gate(task, dependencies, current_user_gid, strict=False):
     incomplete = [d for d in (dependencies or []) if not d.get("completed")]
     if incomplete:
         names = ", ".join(d.get("name") or "?" for d in incomplete)
-        blocking.append("blocked by %d incomplete dependency/ies: %s"
-                        % (len(incomplete), names))
+        msg = "blocked by %d incomplete dependency/ies: %s" % (len(incomplete), names)
+        if ignore_deps:
+            warnings.append(msg + " (ignored)")
+        else:
+            blocking.append(msg)
 
     assignee_gid = task.get("assignee_gid")
     if not assignee_gid:
@@ -234,6 +237,13 @@ class State(object):
 
     def path(self, name):
         return os.path.join(self.dir, name)
+
+    def write_text(self, name, text):
+        """Persist raw text beside the JSON state. Returns the path, for printing."""
+        path = self.path(name)
+        with open(path, "w") as f:
+            f.write(text)
+        return path
 
     def read(self, name, default=None):
         try:
@@ -371,7 +381,8 @@ def phase_prologue(args):
             (task.get("fields") or {}).get("Estimate") or "none"))
 
     step("Preconditions")
-    gate = evaluate_gate(task, deps, (me or {}).get("gid"), strict=args.strict)
+    gate = evaluate_gate(task, deps, (me or {}).get("gid"), strict=args.strict,
+                         ignore_deps=args.ignore_deps)
     for w in gate["warnings"]:
         warn(w)
     if gate["blocking"]:
@@ -500,7 +511,21 @@ def phase_prologue(args):
 
 # --- implement --------------------------------------------------------------
 
-def call_agent(prompt, cwd, args, label, autonomy=None):
+def failure_detail(result, tail=2000):
+    """Why a backend call failed, in one string. A non-zero exit with an empty
+    stderr says nothing on its own — the reason is in whatever the provider
+    printed, so fall through to the tail of that rather than report the exit
+    code alone."""
+    error = (getattr(result, "error", None) or "").strip()
+    if error:
+        return error
+    text = (getattr(result, "text", None) or "").strip()
+    if text:
+        return "no error reported; last %d chars of output:\n%s" % (tail, text[-tail:])
+    return "unknown error — the backend produced no output"
+
+
+def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
     """One model call, through the seam. Returns an AgentResult."""
     autonomy = autonomy or args.autonomy
     backend = get_backend(args.backend)
@@ -529,7 +554,11 @@ def call_agent(prompt, cwd, args, label, autonomy=None):
              % (len(result.denied_tools), ", ".join(sorted(set(result.denied_tools)))))
     info("%s: %s" % (label, result.summary()))
     if not result.ok:
-        die("%s failed: %s" % (label, result.error or "unknown error"))
+        saved = ""
+        if state is not None and result.text:
+            saved = "\n  raw output: %s" % state.write_text(
+                "%s.failure.log" % label, result.text)
+        die("%s failed: %s%s" % (label, failure_detail(result), saved))
     return result
 
 
@@ -557,7 +586,7 @@ def phase_implement(args, state=None):
         links="\n".join("- %s" % u for u in context["external_links"]) or "(none)",
         branch=context["git"]["branch"],
     )
-    outcome = call_agent(prompt, worktree, args, "implement")
+    outcome = call_agent(prompt, worktree, args, "implement", state=state)
     result = outcome.structured
     if result is None:
         warn("agent returned no structured block — falling back to raw text summary")
@@ -629,7 +658,7 @@ def phase_qa(args, state=None):
             stage=name, command=cmd,
             output=output[-8000:],
         )
-        call_agent(prompt, worktree, args, "qa-repair-%d" % attempt)
+        call_agent(prompt, worktree, args, "qa-repair-%d" % attempt, state=state)
         failure = run_qa_gate(commands, worktree)
 
     if failure:
@@ -748,6 +777,8 @@ def build_parser():
                         help="branch in the current directory instead of a worktree")
     parser.add_argument("--strict", action="store_true",
                         help="make Estimate and sprint membership blocking")
+    parser.add_argument("--ignore-deps", action="store_true",
+                        help="warn instead of blocking on incomplete dependencies")
 
     parser.add_argument("--backend", default=DEFAULT_BACKEND,
                         choices=backend_names(),

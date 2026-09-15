@@ -121,8 +121,9 @@ cortex start-task --backends                    # which providers are usable her
 State lives in `.start-task/<task-id>/` at the **main repo root**, not in the worktree —
 the worktree does not exist yet when the prologue starts writing, and it may be removed
 after ship while the state is still wanted. It holds `context.json`, `result.json`,
-`qa.json`, `state.json`, `attachments/`. Re-running a phase overwrites its own
-output. `run` skips phases already marked done in `state.json`.
+`qa.json`, `state.json`, `attachments/`. A failed model call also leaves
+`<phase>.failure.log`: the provider's raw stdout, which is where a non-zero exit with
+an empty stderr hides its reason. Re-running a phase overwrites its own output. `run` skips phases already marked done in `state.json`.
 
 `<task-id>` is the human key (`MT251-47`) read from the task's ID custom field, falling
 back to the Asana gid when the project has no such field — the same field the readiness
@@ -234,7 +235,9 @@ Blocking:
 - Assignee is the current user (self-assign when empty; fail when someone else's).
 
 Warning only: active-sprint membership, Estimate. Both are process hygiene the
-implementation never reads. `--strict` restores them as blocking.
+implementation never reads. `--strict` restores them as blocking. `--ignore-deps` goes
+the other way, demoting the dependency check to a warning for the case where the
+blocker is known-irrelevant and updating Asana is not worth the round-trip.
 
 The premise: a task that passes this gate carries everything needed to implement it, so
 the implement call does not need to go hunting.
