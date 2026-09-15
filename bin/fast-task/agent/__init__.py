@@ -21,7 +21,9 @@ _REGISTRY = {
     "echo": (".echo", "EchoBackend"),
 }
 
-DEFAULT_BACKEND = "claude-sdk"
+# `claude -p` is the default: it needs nothing installed beyond the CLI already
+# on PATH. Every other provider is opt-in via --backend.
+DEFAULT_BACKEND = "claude-cli"
 
 
 def backend_names():

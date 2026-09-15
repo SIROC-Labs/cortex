@@ -17,7 +17,6 @@ from fast_task import (  # noqa: E402
     evaluate_gate,
     extract_external_links,
     extract_last_json_block,
-    parse_agent_output,
     slugify,
     task_key,
 )
@@ -164,29 +163,6 @@ class TestExtractLastJsonBlock(unittest.TestCase):
     def test_no_block_returns_none(self):
         self.assertIsNone(extract_last_json_block("just prose"))
         self.assertIsNone(extract_last_json_block(None))
-
-
-class TestParseAgentOutput(unittest.TestCase):
-    def test_unwraps_envelope_then_finds_block(self):
-        envelope = json.dumps({
-            "type": "result",
-            "result": 'Done.\n```json\n{"summary": "shipped"}\n```',
-        })
-        result, text = parse_agent_output(envelope)
-        self.assertEqual(result, {"summary": "shipped"})
-        self.assertIn("Done.", text)
-
-    def test_falls_back_to_raw_text_when_not_an_envelope(self):
-        raw = 'Done.\n```json\n{"summary": "shipped"}\n```'
-        result, text = parse_agent_output(raw)
-        self.assertEqual(result, {"summary": "shipped"})
-        self.assertEqual(text, raw)
-
-    def test_no_block_yields_none_result_but_keeps_text(self):
-        envelope = json.dumps({"result": "I could not do it."})
-        result, text = parse_agent_output(envelope)
-        self.assertIsNone(result)
-        self.assertEqual(text, "I could not do it.")
 
 
 class TestTaskKey(unittest.TestCase):

@@ -6,6 +6,7 @@
 #
 #   python3 tests/test_agent.py
 
+import json
 import os
 import sys
 import unittest
@@ -17,6 +18,7 @@ from agent import (  # noqa: E402
     extract_last_json_block, get_backend, tools_for,
 )
 from agent.base import TOOLS_EDIT, TOOLS_FULL, TOOLS_READ_ONLY  # noqa: E402
+from agent.claude_cli import parse_envelope  # noqa: E402
 from agent.claude_sdk import _denial_name, _usage  # noqa: E402
 
 
@@ -152,6 +154,72 @@ class TestBackendContract(unittest.TestCase):
         result = backend.run(AgentRequest(prompt="x", cwd="."))
         self.assertFalse(result.ok)
         self.assertIn("claude-agent-sdk", result.error)
+
+
+class TestCLIEnvelope(unittest.TestCase):
+    """The CLI backend's own wire format. Nothing else covers it, and getting the
+    unwrapping wrong yields a successful run whose result block is silently lost."""
+
+    def test_unwraps_envelope_then_finds_block(self):
+        envelope = json.dumps({
+            "type": "result",
+            "result": 'Done.\n```json\n{"summary": "shipped"}\n```',
+        })
+        text, _ = parse_envelope(envelope)
+        self.assertIn("Done.", text)
+        self.assertEqual(extract_last_json_block(text), {"summary": "shipped"})
+
+    def test_falls_back_to_raw_text_when_not_an_envelope(self):
+        raw = 'Done.\n```json\n{"summary": "shipped"}\n```'
+        text, telemetry = parse_envelope(raw)
+        self.assertEqual(text, raw)
+        self.assertEqual(telemetry, {})
+        self.assertEqual(extract_last_json_block(text), {"summary": "shipped"})
+
+    def test_no_block_yields_none_result_but_keeps_text(self):
+        envelope = json.dumps({"result": "I could not do it."})
+        text, _ = parse_envelope(envelope)
+        self.assertEqual(text, "I could not do it.")
+        self.assertIsNone(extract_last_json_block(text))
+
+    def test_reads_telemetry_from_the_envelope(self):
+        envelope = json.dumps({
+            "result": "done", "total_cost_usd": 0.42, "num_turns": 7,
+            "usage": {"input_tokens": 100, "output_tokens": 20,
+                      "cache_read_input_tokens": 80},
+        })
+        _, telemetry = parse_envelope(envelope)
+        self.assertEqual(telemetry["cost_usd"], 0.42)
+        self.assertEqual(telemetry["turns"], 7)
+        self.assertEqual(telemetry["input_tokens"], 100)
+        self.assertEqual(telemetry["cached_tokens"], 80)
+
+    def test_absent_telemetry_is_left_absent_not_zeroed(self):
+        _, telemetry = parse_envelope(json.dumps({"result": "done"}))
+        self.assertIsNone(telemetry["cost_usd"])
+        self.assertNotIn("input_tokens", telemetry)
+
+
+class TestAgentCmdOverride(unittest.TestCase):
+    """`extra["argv"]` is the escape hatch. A backend with no command line to
+    override must say so rather than appear to have honoured it."""
+
+    def test_sdk_reports_argv_as_unsupported(self):
+        backend = get_backend("claude-sdk")
+        if not backend.available()[0]:
+            self.skipTest("claude-agent-sdk is not installed here")
+        result = backend.run(AgentRequest(prompt="x", cwd=".",
+                                          extra={"argv": "claude -p"}))
+        self.assertTrue(any("argv" in u for u in result.unsupported))
+
+    def test_echo_reports_argv_as_unsupported(self):
+        result = get_backend("echo").run(
+            AgentRequest(prompt="x", cwd=".", extra={"argv": "claude -p"}))
+        self.assertTrue(any("argv" in u for u in result.unsupported))
+
+    def test_echo_reports_nothing_unsupported_without_argv(self):
+        result = get_backend("echo").run(AgentRequest(prompt="x", cwd="."))
+        self.assertEqual(result.unsupported, [])
 
 
 if __name__ == "__main__":

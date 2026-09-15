@@ -18,6 +18,8 @@ class EchoBackend(AgentBackend):
         return AgentResult(
             backend=self.name,
             model="none",
+            unsupported=(["extra[argv] (no model is called)"]
+                         if (request.extra or {}).get("argv") else []),
             text="echo backend: no model was called",
             structured={
                 "summary": "Echo backend — nothing was implemented.",

@@ -2,21 +2,29 @@
 #
 # fast_task.py — the start-task lifecycle as an explicit program.
 #
-# Control flow is Python. An LLM is invoked exactly twice, and only where one is
+# Control flow is Python. A model is invoked exactly twice, and only where one is
 # genuinely required: to implement the task, and to repair a failing QA gate.
 # Everything else — fetching, gating, branching, the draft PR, status moves, the
 # start/ship comments — is deterministic and costs zero tokens.
 #
+# Every model call goes through `agent/`, which exposes AgentRequest /
+# AgentResult / AgentBackend and nothing else. No vendor name and no SDK import
+# appears outside `agent/<backend>.py`, so the provider is a flag: the default
+# shells out to `claude -p`, and `--backend claude-sdk` swaps in the Claude Agent
+# SDK for real cost telemetry and denied-tool visibility.
+#
 # See DESIGN.md for the rationale and the phase contract.
 #
 #   fast_task.py run       <task-url>   # all four phases
-#   fast_task.py prologue  <task-url>   # zero model turns
+#   fast_task.py prologue  <task-url>   # zero model calls
 #   fast_task.py implement <task-id>
 #   fast_task.py qa        <task-id>
 #   fast_task.py ship      <task-id>
 #   fast_task.py status    <task-id>
+#   fast_task.py backends              # which providers are usable here
 #
-# Dependencies: Python 3 stdlib, git, gh, claude, and asana.py (sibling).
+# Dependencies: Python 3 stdlib, git, gh, asana.py (sibling), and whatever the
+# selected backend needs (the default needs only `claude` on PATH).
 
 import argparse
 import json
@@ -26,6 +34,12 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from agent import (  # noqa: E402
+    DEFAULT_BACKEND, AgentRequest, available_backends, backend_names,
+    extract_last_json_block, get_backend, tools_for,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASANA = os.path.join(HERE, "asana.py")
@@ -42,14 +56,10 @@ NOT_STARTED = {
 
 PHASES = ("prologue", "implement", "qa", "ship")
 
-# Default agent invocation. `--disable-slash-commands` turns off all skills;
-# `--strict-mcp-config` with no `--mcp-config` loads no MCP servers. `--bare` would
-# go further but authenticates only via ANTHROPIC_API_KEY / apiKeyHelper — never
-# OAuth — so it would move billing off the subscription. Override with --agent-cmd.
-DEFAULT_AGENT_CMD = (
-    "claude -p --disable-slash-commands --strict-mcp-config "
-    "--no-session-persistence --permission-mode acceptEdits --output-format json"
-)
+# Ceilings applied to every model call. Turn limits keep a wedged run from
+# grinding; the budget is a hard stop the SDK backend enforces server-side.
+DEFAULT_MAX_TURNS = 60
+DEFAULT_BUDGET_USD = None
 
 MAX_QA_ATTEMPTS = 2
 INLINE_ATTACHMENT_MAX_BYTES = 256 * 1024
@@ -193,38 +203,8 @@ def evaluate_gate(task, dependencies, current_user_gid, strict=False):
     return {"blocking": blocking, "warnings": warnings, "self_assign": self_assign}
 
 
-_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
-
-
-def extract_last_json_block(text):
-    """Last fenced JSON object in the text, parsed. None if there isn't one."""
-    if not isinstance(text, str):
-        return None
-    for body in reversed(_FENCE_RE.findall(text)):
-        try:
-            parsed = json.loads(body)
-        except ValueError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
-
-
-def parse_agent_output(raw):
-    """Unwrap `claude --output-format json` and pull out the result block.
-
-    Returns (result_dict_or_None, assistant_text). The envelope carries the
-    assistant's text under "result"; the structured block we asked for is fenced
-    inside that text. Falls back to treating the whole output as the text.
-    """
-    text = raw
-    try:
-        envelope = json.loads(raw)
-        if isinstance(envelope, dict) and isinstance(envelope.get("result"), str):
-            text = envelope["result"]
-    except ValueError:
-        pass
-    return extract_last_json_block(text), text
+# Result parsing lives in the seam (agent/base.py) — it is identical whatever
+# produced the text, and a backend needs it too.
 
 
 def task_key(task):
@@ -522,22 +502,78 @@ def phase_prologue(args):
 
 # --- implement --------------------------------------------------------------
 
-def agent_command(args):
-    return (args.agent_cmd or DEFAULT_AGENT_CMD).split()
+def call_agent(prompt, cwd, args, label, state=None, autonomy=None):
+    """One model call, through the seam. Returns an AgentResult.
+
+    Every call is recorded in the run's cost ledger, so `status` can report what a
+    task actually cost across resumed phases and separate invocations.
+    """
+    autonomy = autonomy or args.autonomy
+    backend = get_backend(args.backend)
+    usable, reason = backend.available()
+    if not usable:
+        die("backend %r is unavailable: %s" % (args.backend, reason))
+
+    request = AgentRequest(
+        prompt=prompt,
+        cwd=cwd,
+        model=args.model,
+        allowed_tools=tools_for(autonomy),
+        autonomy=autonomy,
+        max_turns=args.max_turns,
+        max_budget_usd=args.budget,
+        load_project_context=not args.no_project_context,
+        extra={"argv": args.agent_cmd} if args.agent_cmd else {},
+    )
+    info("%s: calling %s" % (label, backend.name))
+    result = backend.run(request)
+
+    for item in result.unsupported:
+        warn("%s ignored %s (not supported by this backend)" % (backend.name, item))
+    if result.denied_tools:
+        warn("%d tool call(s) were denied: %s — the agent may have done less "
+             "than asked; consider --autonomy full or an allowlist"
+             % (len(result.denied_tools), ", ".join(sorted(set(result.denied_tools)))))
+    info("%s: %s" % (label, result.summary()))
+    if state is not None:
+        record_cost(state, label, result)
+    if not result.ok:
+        die("%s failed: %s" % (label, result.error or "unknown error"))
+    return result
 
 
-def call_agent(prompt, cwd, args, label):
-    """One LLM call. Returns (result_dict_or_None, text)."""
-    cmd = agent_command(args) + ["--add-dir", cwd]
-    info("%s: calling agent (%s)" % (label, cmd[0]))
-    proc = subprocess.run(
-        cmd + [prompt], cwd=cwd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out = proc.stdout.decode("utf-8", "replace")
-    errout = proc.stderr.decode("utf-8", "replace").strip()
-    if proc.returncode != 0:
-        die("agent call failed (exit %d)\n%s" % (proc.returncode, errout or out))
-    return parse_agent_output(out)
+def record_cost(state, label, result):
+    """Append one call to the run's ledger."""
+    ledger = state.read("cost.json", {"calls": []})
+    ledger["calls"].append({
+        "label": label, "backend": result.backend, "model": result.model,
+        "cost_usd": result.cost_usd, "turns": result.turns,
+        "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
+        "cached_tokens": result.cached_tokens, "duration_s": result.duration_s,
+        "ok": result.ok,
+    })
+    state.write("cost.json", ledger)
+
+
+def cost_total(state):
+    """(calls, total_usd_or_None, total_seconds). The total is None when any call
+    could not report a cost — a partial sum would read as the whole bill."""
+    calls = state.read("cost.json", {}).get("calls", [])
+    costs = [c.get("cost_usd") for c in calls]
+    total = sum(c for c in costs if c is not None) if calls else 0.0
+    if any(c is None for c in costs):
+        total = None
+    seconds = sum(c.get("duration_s") or 0.0 for c in calls)
+    return len(calls), total, seconds
+
+
+def report_cost(state):
+    calls, total, seconds = cost_total(state)
+    if not calls:
+        return
+    info("%d model call(s) · %s · %.1fs total"
+         % (calls, "$%.4f" % total if total is not None else "cost not reported",
+            seconds))
 
 
 def phase_implement(args, state=None):
@@ -563,10 +599,12 @@ def phase_implement(args, state=None):
         links="\n".join("- %s" % u for u in context["external_links"]) or "(none)",
         branch=context["git"]["branch"],
     )
-    result, text = call_agent(prompt, worktree, args, "implement")
+    outcome = call_agent(prompt, worktree, args, "implement", state)
+    result = outcome.structured
     if result is None:
         warn("agent returned no structured block — falling back to raw text summary")
-        result = {"summary": text.strip()[:2000], "files_changed": [], "notes": ""}
+        result = {"summary": outcome.text.strip()[:2000],
+                  "files_changed": [], "notes": ""}
     state.write("result.json", result)
     state.mark_done("implement")
 
@@ -633,7 +671,8 @@ def phase_qa(args, state=None):
             stage=name, command=cmd,
             output=output[-8000:],
         )
-        call_agent(prompt, worktree, args, "qa-repair")
+        call_agent(prompt, worktree, args,
+                   "qa-repair-%d" % attempt, state)
         failure = run_qa_gate(commands, worktree)
 
     if failure:
@@ -710,6 +749,7 @@ def phase_run(args):
     phase_ship(args, state)
     step("Done")
     info("task %s shipped" % tid)
+    report_cost(state)
 
 
 def phase_status(args):
@@ -719,7 +759,19 @@ def phase_status(args):
     step("fast-task %s" % args.task)
     for phase in PHASES:
         info("[%s] %s" % ("x" if phase in done else " ", phase))
+    calls, total, seconds = cost_total(state)
+    if calls:
+        info("")
+        info("%d model call(s) · %s · %.1fs"
+             % (calls, "$%.4f" % total if total is not None
+                else "cost not reported", seconds))
+        for call in state.read("cost.json", {}).get("calls", []):
+            info("  %-16s %-12s %s"
+                 % (call.get("label"), call.get("backend"),
+                    "$%.4f" % call["cost_usd"] if call.get("cost_usd") is not None
+                    else "cost n/a"))
     if context:
+        info("")
         info("branch:   %s" % context.get("git", {}).get("branch"))
         info("worktree: %s" % context.get("git", {}).get("worktree"))
         info("PR:       %s" % context.get("git", {}).get("pr_url"))
@@ -730,11 +782,27 @@ def phase_status(args):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="fast_task.py",
-        description="Run the start-task lifecycle as an explicit program.")
+        description="Run the start-task lifecycle as an explicit program, "
+                    "with every model call behind a provider-agnostic seam.")
     parser.add_argument("--repo", default=os.getcwd(),
                         help="target repository (default: cwd)")
+    parser.add_argument("--backend", default=DEFAULT_BACKEND,
+                        choices=backend_names(),
+                        help="agent provider (default: %(default)s)")
+    parser.add_argument("--model", default=None,
+                        help="model override; backend default when unset")
+    parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS,
+                        help="turn ceiling per call (default: %(default)s)")
+    parser.add_argument("--budget", type=float, default=DEFAULT_BUDGET_USD,
+                        help="hard USD ceiling per call, where the backend supports it")
+    parser.add_argument("--no-project-context", action="store_true",
+                        help="do not load the repo's CLAUDE.md / AGENTS.md")
     parser.add_argument("--agent-cmd", default=None,
-                        help="override the LLM invocation (default: %r)" % DEFAULT_AGENT_CMD)
+                        help="override the backend's command wholesale, where it "
+                             "has one (escape hatch for a stalled permission mode)")
+    parser.add_argument("--autonomy", default="full",
+                        choices=("read-only", "edit", "full"),
+                        help="what the agent may do (default: %(default)s)")
     sub = parser.add_subparsers(dest="phase", required=True)
 
     for name, help_text in (
@@ -757,10 +825,22 @@ def build_parser():
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("task", help="task id (e.g. MT251-47)")
+
+    sub.add_parser("backends", help="list providers and whether they are usable")
     return parser
 
 
+def phase_backends(args):
+    step("Backends")
+    for name, usable, reason in available_backends():
+        marker = "x" if usable else " "
+        default = "  (default)" if name == DEFAULT_BACKEND else ""
+        info("[%s] %-12s%s%s" % (marker, name, default,
+                                 "" if usable else "  — %s" % reason))
+
+
 HANDLERS = {
+    "backends": phase_backends,
     "run": phase_run,
     "prologue": phase_prologue,
     "implement": phase_implement,

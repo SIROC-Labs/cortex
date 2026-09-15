@@ -82,6 +82,10 @@ class ClaudeSDKBackend(AgentBackend):
         )
 
         unsupported = []
+        # There is no command line to override here; the caller must not assume
+        # its argv was honoured.
+        if (request.extra or {}).get("argv"):
+            unsupported.append("extra[argv] (no command line to override)")
         allowed = None
         if request.allowed_tools is not None:
             allowed = [TOOL_MAP[t] for t in request.allowed_tools if t in TOOL_MAP]

@@ -1,9 +1,9 @@
 # fast-task — design
 
-An experiment: run the `start-task` lifecycle as an explicit Python program, calling an
-LLM only where one is genuinely required.
+Run the `start-task` lifecycle as an explicit Python program, calling a model only
+where one is genuinely required.
 
-Status: design, not yet implemented.
+Status: implemented, not yet run against a live task.
 
 ## Why
 
@@ -28,36 +28,74 @@ Two consequences of prose-as-control-flow:
   because the model skips steps. They are an attempt to get deterministic behaviour out
   of English. A `for` loop gives that for free.
 
-This experiment replaces the brain, not the hands: the same Asana calls, sequenced by
-Python in a fixed order. Zero model turns to reach step 9, then one `claude -p` for the
-part that needs thought.
+This replaces the brain, not the hands: the same Asana calls, sequenced by Python in a
+fixed order. Zero model turns to reach step 9, then one call for the part that needs
+thought.
 
 ## Non-goals
 
 - Replacing the `start-task` skill. It stays untouched; this is a parallel path.
-- Working under OpenCode or Codex. This is deliberately Claude-Code-specific, which is
-  precisely why it does not live in `plugins/`.
-- Provider neutrality. Asana only.
+- Provider neutrality in the task manager. Asana only.
 - Covering the pause/resume-on-blocker flow, the QA sub-flow's visual verification, or
   post-ship code review.
+
+## Why the model call sits behind a seam
+
+Every model call goes through `agent/`. The vendor SDK is imported in exactly one file;
+everything else speaks `AgentRequest` / `AgentResult` / `AgentBackend`.
+
+1. **The provider is a flag, not a rewrite.** `claude -p` is the default because it
+   needs nothing installed. The Claude Agent SDK is one `--backend` away, and another
+   runtime's headless CLI is a module plus a row in the registry — which is what keeps
+   this usable outside Claude Code without the orchestrator knowing anything about it.
+2. **The backends are genuinely interchangeable.** Same prologue, same prompt, same
+   repo; only the transport differs.
+3. **`echo` runs the whole flow for free.** No model, no cost. It is how the phases,
+   the state machine and the prompt rendering get exercised without spending anything.
+
+Two rules make the abstraction honest rather than decorative:
+
+- **A backend never raises.** Failures come back as `ok=False` with an `error`. The
+  orchestrator handles one failure shape regardless of provider.
+- **A backend declares what it dropped.** Anything in the request it cannot express
+  lands in `result.unsupported`, and the runner warns. The CLI backend has no budget
+  ceiling, so `max_budget_usd` shows up there rather than being silently ignored — the
+  caller is never told it got something it didn't.
+
+`AgentRequest` is intent, not vendor configuration: a prompt, a working directory, an
+autonomy level (`read-only` / `edit` / `full`), ceilings on turns and dollars, and
+whether to load the project's own conventions. Tools are named neutrally (`read_file`,
+`edit_file`, `run_command`); each backend maps them. `extra["argv"]` is the deliberate
+exception — an escape hatch that hands the command line to the operator wholesale for a
+run that stalls on a permission mode, and which backends without a command line report
+as unsupported rather than appearing to honour.
+
+Telemetry is optional and never invented. A backend that cannot report cost leaves it
+`None`, and the ledger prints "cost not reported" rather than `$0.00`.
 
 ## Layout
 
 ```
-experiments/fast-task/
+bin/fast-task/
   DESIGN.md         # this file
   README.md         # usage
   fast_task.py      # the orchestrator — all control flow
   asana.py          # tm.py, copied, plus three new read verbs
   cache_util.py     # copied dependency of asana.py
+  agent/
+    base.py         # AgentRequest · AgentResult · AgentBackend · tool vocabulary
+    __init__.py     # registry — the one place a provider is named
+    claude_cli.py   # `claude -p` subprocess          (default)
+    claude_sdk.py   # Claude Agent SDK                (needs requirements.txt)
+    echo.py         # no model, no cost
   prompts/
     implement.md    # template for the implementation call
     qa_fix.md       # template for the failure-repair call
 ```
 
 Nothing here imports from `plugins/`. `asana.py` and `cache_util.py` are copies, taken
-once; they are ours to edit and will drift from the originals. That is accepted — the
-alternative couples an experiment to a plugin that is still changing.
+once; they are ours to edit and will drift from the originals. That is accepted while
+this is experimental — the alternative couples it to a plugin that is still changing.
 
 ## Phases
 
@@ -65,31 +103,31 @@ Each phase is separately invocable and resumable.
 
 ```
 fast_task.py run       <task-url>   # all four, in order
-fast_task.py prologue  <task-url>   # zero model turns
+fast_task.py prologue  <task-url>   # zero model calls
 fast_task.py implement <task-id>
 fast_task.py qa        <task-id>
 fast_task.py ship      <task-id>
+fast_task.py backends               # which providers are usable here
 ```
 
 State lives in `.fast-task/<task-id>/` at the **main repo root**, not in the worktree —
 the worktree does not exist yet when the prologue starts writing, and it may be removed
 after ship while the state is still wanted. It holds `context.json`, `result.json`,
-`state.json`, `attachments/`. Re-running a phase overwrites its own output. `run` skips
-phases already marked done in `state.json`.
+`qa.json`, `state.json`, `cost.json`, `attachments/`. Re-running a phase overwrites its
+own output. `run` skips phases already marked done in `state.json`.
 
 `<task-id>` is the human key (`MT251-47`) read from the task's ID custom field, falling
 back to the Asana gid when the project has no such field — the same field the readiness
 gate treats as non-blocking, so it genuinely can be absent.
 
-### prologue — pure Python, no LLM
+### prologue — pure Python, no model
 
 1. Parse the task URL to a gid (`asana.py ref parse`).
 2. Fetch the task (`task get`) — name, description, assignee, status, custom fields.
 3. Assignee: if empty, self-assign and say so; if someone else, fail with a message.
 4. Preconditions gate (below).
 5. Fetch subtasks, dependencies, comments, attachments. Download non-image attachments
-   inline; download images to `attachments/` and pass paths (the implement call can
-   read image files).
+   inline; download images to `attachments/` and pass paths.
 6. Extract external URLs (Figma / Notion / Drive / Loom) from description and comments
    by regex. Record them as bare URLs — see Known gaps.
 7. Detect existing work: `git branch --list "*<task-id>*"`, `gh pr list --search`.
@@ -103,28 +141,10 @@ gate treats as non-blocking, so it genuinely can be absent.
 
 Slug is a deterministic slugify of the task name, truncated to 6 words.
 
-### implement — one LLM call
+### implement — one model call
 
-```
-claude -p --disable-slash-commands --strict-mcp-config --no-session-persistence \
-       --add-dir <repo-root> --permission-mode acceptEdits --output-format json
-```
-
-`--disable-slash-commands` turns off all skills; `--strict-mcp-config` with no
-`--mcp-config` loads no MCP servers. `--bare` would go further (no hooks, no plugin
-sync, no auto-memory) but authenticates only via `ANTHROPIC_API_KEY` or `apiKeyHelper`,
-never OAuth or keychain — so it would move billing off the subscription. Not used.
-The full command is overridable with `--agent-cmd`.
-
-**Permission mode is unresolved.** In `-p` with no host answering prompts, anything not
-pre-approved is auto-denied, so `acceptEdits` permits file edits but a `Bash` call the
-settings do not already allow simply fails. That may be enough, or it may stall every
-run that needs to install a dep or run a migration. First runs use `acceptEdits`; if
-denials bite, the options are an explicit `--allowedTools` list or
-`--dangerously-skip-permissions`. Decide from evidence, not up front.
-
-The prompt is `prompts/implement.md` rendered with `context.json`. It ends by requiring
-a final fenced JSON block:
+The prompt is `prompts/implement.md` rendered with `context.json`, sent through the
+seam. It ends by requiring a final fenced JSON block:
 
 ```json
 {"summary": "...", "files_changed": ["..."], "notes": "..."}
@@ -133,7 +153,16 @@ a final fenced JSON block:
 Parsed into `result.json`. `summary` becomes the PR description in the ship phase, so
 the PR body costs no extra call.
 
-### qa — Python first, LLM on failure
+**Permission mode is unresolved.** In a headless run with no host answering prompts,
+anything not pre-approved is auto-denied, so `acceptEdits` permits file edits but a
+`Bash` call the settings do not already allow simply fails. That may be enough, or it
+may stall every run that needs to install a dep or run a migration. First runs use
+`--autonomy full`; if denials bite, the options are a narrower allowlist or
+`--agent-cmd` to take the command over. Decide from evidence, not up front. The SDK
+backend reports `permission_denials`, so a run that quietly did less says so; the CLI
+backend cannot see them, and an empty list there is not proof none occurred.
+
+### qa — Python first, model on failure
 
 Reads `.fast-task.json` from the target repo:
 
@@ -142,9 +171,9 @@ Reads `.fast-task.json` from the target repo:
 ```
 
 Explicit config, not auto-detection. Each command runs in the worktree; a non-zero exit
-is a failure. On failure, one `claude -p` call per attempt with `prompts/qa_fix.md` and
-the failing command's output, re-running the gate after each. Bounded to 2 attempts,
-then stop and report — never ship a red gate.
+is a failure. On failure, one model call per attempt with `prompts/qa_fix.md` and the
+failing command's output, re-running the gate after each. Bounded to 2 attempts, then
+stop and report — never ship a red gate.
 
 Missing keys are skipped with a warning. A missing `.fast-task.json` skips the phase
 entirely with a warning.
@@ -215,22 +244,40 @@ They become real verbs here:
 | `task dependencies <gid>` | `GET /tasks/<gid>/dependencies?opt_fields=name,completed` |
 
 Each is ~10 lines against the existing `api_get` helper. Everything else is used as-is —
-notably `decide_set_status` (`tm.py:1468`), which handles Asana's two-axis status model:
-try the "Product Status" custom field, fall back to a board section move.
+notably `decide_set_status`, which handles Asana's two-axis status model: try the
+"Product Status" custom field, fall back to a board section move.
+
+## A trap worth recording
+
+The published Python docs describe `ResultMessage.usage` as a `MessageUsage` dataclass.
+In the installed SDK (0.2.152) it is a plain `dict`. Reading it with `getattr` returns
+`None` for every field, silently. `_usage()` reads both shapes, and a regression test
+covers it. The lesson generalizes: the seam's telemetry fields are all `Optional`, so a
+shape change degrades to "not reported" rather than to a wrong number.
 
 ## Known gaps
 
-- **External links.** Python extracts Figma/Notion/Drive URLs but cannot read them, and
-  the implement call runs without MCP servers. The URLs are passed through as text; if
-  a task's real content lives in Figma, this run will not see it. Accepted for now.
-- **Copy drift.** `asana.py` diverges from `tm.py` the moment either changes.
+- **Not yet run against a live task.** The seam, registry, backends, phases and state
+  machine are exercised by tests and an end-to-end run on the `echo` backend; no real
+  model call has been made through it.
+- **External links are text only.** Python extracts Figma/Notion/Drive URLs but cannot
+  read them, and the implement call runs without MCP servers. `mcp_servers` is on the
+  SDK's options, so the SDK backend *could* read one. It does not yet.
+- **Copy drift.** `asana.py` diverges from the plugin's `tm.py` the moment either
+  changes.
 - **No pause flow.** A blocked run stops and reports; it does not commit WIP or post a
   blocking question.
-- **Claude Code only.** By design.
 
 ## Testing
 
-`prologue` is the testable half. Its pure functions — slugify, gate evaluation,
-URL extraction, bundle assembly — get unit tests against fixture JSON, following
-`readiness.py`'s split of pure policy from live fetch. Phases that shell out to
-`claude`, `gh`, or Asana are validated by running them.
+`prologue` is the testable half. Its pure functions — slugify, gate evaluation, URL
+extraction, bundle assembly — get unit tests against fixture JSON, following
+`readiness.py`'s split of pure policy from live fetch. The seam gets its own suite: the
+registry, the tool vocabulary, each backend's mapping tables and failure reporting, and
+the CLI backend's envelope parsing. Phases that shell out to a model, `gh`, or Asana are
+validated by running them.
+
+```bash
+python3 tests/test_pure.py     # slug, gate, link extraction, task key
+python3 tests/test_agent.py    # the seam, registry, backends, envelope
+```
