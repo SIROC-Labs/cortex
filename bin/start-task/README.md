@@ -130,6 +130,23 @@ rather than paying for another lap:
 Because sessions are resumed, they are left on disk rather than discarded after each
 call.
 
+### Taking over the session
+
+When a run ends it prints the way back into the agent's last session, so you can carry
+on in an interactive shell instead of re-explaining the task:
+
+```
+Done
+  task MT251-47 shipped
+
+  continue this session yourself (implement):
+    cd /…/.cortex/worktrees/MT251-47+csv-export && claude --resume 6f3a…
+```
+
+It is the newest session — the implement call, or the last QA repair if one ran — and
+`--status` prints it again later. The command is shown as recorded; whether the provider
+still has that session is between you and it.
+
 ### Flags
 
 | Flag | Default | |
@@ -166,7 +183,8 @@ appearing to have honoured it.
 
 State lives in `<main-repo-root>/.start-task/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `attachments/`, `run.json` (the live run's
-pid, so an abandoned terminal is findable), `awaiting.json` while a question is
+pid, so an abandoned terminal is findable), `session.json` (the agent's last session,
+for picking the conversation up by hand), `awaiting.json` while a question is
 outstanding, and `<phase>.failure.log`
 when a model call exits non-zero — that file is the only copy of what the provider
 printed, so it is written before the run dies.
@@ -208,7 +226,8 @@ the request you could not honour via `result.unsupported`; and separate *why the
 stopped* from *whether it failed* — a run that hit the turn ceiling is `ok=True` with
 `stop_reason="max_turns"` and, if your provider can continue one, a `resume_token`. A
 backend that cannot resume leaves the token `None` and the runner stops there instead of
-looping.
+looping. `resume_command()` is optional on top of that: return the shell command that
+drops a person into that session, or leave it returning `None`.
 
 ## Tests
 

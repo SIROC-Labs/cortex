@@ -230,6 +230,26 @@ class TestCLICommand(unittest.TestCase):
         self.assertTrue(any("resume" in u for u in unsupported))
 
 
+class TestResumeCommand(unittest.TestCase):
+    """The way back into a session is the provider's own, so the backend owns it.
+    One that has no interactive form must offer nothing rather than a command that
+    does not work."""
+
+    def test_claude_cli_hands_over_the_session(self):
+        cmd = get_backend("claude-cli").resume_command("abc123", "/tmp/wt")
+        self.assertIn("--resume", cmd)
+        self.assertIn("abc123", cmd)
+        self.assertIn("/tmp/wt", cmd)
+
+    def test_paths_and_tokens_are_quoted(self):
+        cmd = get_backend("claude-cli").resume_command("a b", "/tmp/my worktree")
+        self.assertIn("'/tmp/my worktree'", cmd)
+        self.assertIn("'a b'", cmd)
+
+    def test_a_backend_with_no_interactive_form_offers_none(self):
+        self.assertIsNone(get_backend("echo").resume_command("abc123", "/tmp"))
+
+
 class TestAgentCmdOverride(unittest.TestCase):
     """`extra["argv"]` is the escape hatch. A backend with no command line to
     override must say so rather than appear to have honoured it."""

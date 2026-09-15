@@ -745,6 +745,35 @@ def failure_detail(result, tail=2000):
     return "unknown error — the backend produced no output"
 
 
+def record_session(state, label, cwd, backend, result):
+    """Keep the agent's session so a person can pick the conversation up by hand.
+
+    Overwritten by every call: the newest one is the live conversation, and it is
+    the only one anybody asks for.
+    """
+    if state is None or not result.resume_token:
+        return
+    state.write("session.json", {
+        "label": label,
+        "token": result.resume_token,
+        "cwd": cwd,
+        "command": backend.resume_command(result.resume_token, cwd),
+        "at": time.time(),
+    })
+
+
+def report_session(state):
+    """Print how to take over the agent's last session, when the backend offers a
+    way in. Printed as recorded — a session the provider has since expired is not
+    something this can check, and claiming otherwise would be worse than stale."""
+    session = (state.read("session.json") or {}) if state else {}
+    if not session.get("command"):
+        return
+    info("")
+    info("continue this session yourself (%s):" % session.get("label"))
+    info("  %s" % session["command"])
+
+
 def worktree_fingerprint(cwd):
     """What the worktree looks like right now, in one string. `status --porcelain`
     as well as `diff --stat`, so a stretch of work that only added new files still
@@ -822,6 +851,7 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
         if not go:
             if stopped_because:
                 warn("%s stopped at the turn limit — %s" % (label, stopped_because))
+            record_session(state, label, cwd, backend, result)
             return result
         info("%s: hit the turn limit, resuming the session" % label)
         resume, previous = result.resume_token, fingerprint
@@ -1121,6 +1151,7 @@ def phase_run(args):
         state.remove("run.json")
     step("Done")
     info("task %s shipped" % tid)
+    report_session(state)
 
 
 def phase_status(args):
@@ -1146,6 +1177,8 @@ def phase_status(args):
              % record.get("pid"))
     else:
         info("running:  no")
+
+    report_session(state)
 
     awaiting = state.read("awaiting.json")
     if awaiting:
@@ -1237,7 +1270,11 @@ def main(argv):
         phase_status(args)
         return 0
     if args.phase:
-        PHASE_HANDLERS[args.phase](args)
+        # Handlers return the state they worked in; the prologue returns a task id
+        # and has no session to report.
+        outcome = PHASE_HANDLERS[args.phase](args)
+        if isinstance(outcome, State):
+            report_session(outcome)
         return 0
     phase_run(args)
     return 0

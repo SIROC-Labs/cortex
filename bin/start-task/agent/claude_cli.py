@@ -145,6 +145,9 @@ class ClaudeCLIBackend(AgentBackend):
             return False, "the `claude` CLI is not on PATH"
         return True, ""
 
+    def resume_command(self, token, cwd):
+        return "cd %s && claude --resume %s" % (shlex.quote(cwd), shlex.quote(token))
+
     def run(self, request):
         usable, reason = self.available()
         if not usable:

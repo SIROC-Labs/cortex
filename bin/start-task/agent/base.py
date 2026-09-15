@@ -87,6 +87,13 @@ class AgentBackend(ABC):
 
     name = "unnamed"
 
+    def resume_command(self, token, cwd):
+        """A shell command a human can run to continue this session by hand, or
+        None. Unattended work sometimes needs a person to take the conversation
+        over; a backend whose provider has no interactive form says so by leaving
+        this alone rather than printing a command that does not work."""
+        return None
+
     @abstractmethod
     def run(self, request):
         """Execute the request. Must return an AgentResult even on failure —

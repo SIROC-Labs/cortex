@@ -8,6 +8,7 @@ Install: pip install claude-agent-sdk
 """
 
 import asyncio
+import shlex
 import time
 
 from .base import AgentBackend, AgentResult, extract_last_json_block
@@ -54,6 +55,11 @@ class ClaudeSDKBackend(AgentBackend):
             return False, ("claude-agent-sdk is not installed — "
                            "pip install claude-agent-sdk")
         return True, ""
+
+    def resume_command(self, token, cwd):
+        # The SDK drives the same agent and writes to the same session store, so
+        # the interactive way back in is the CLI's, not an SDK call.
+        return "cd %s && claude --resume %s" % (shlex.quote(cwd), shlex.quote(token))
 
     def run(self, request):
         usable, reason = self.available()

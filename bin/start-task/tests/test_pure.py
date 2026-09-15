@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agent import AgentResult  # noqa: E402
+from agent import AgentResult, get_backend  # noqa: E402
 
 from start_task import (  # noqa: E402
     State,
@@ -30,6 +30,7 @@ from start_task import (  # noqa: E402
     parse_agent_questions,
     phases_to_run,
     poll_interval,
+    record_session,
     select_answer,
     should_continue,
     slugify,
@@ -237,6 +238,48 @@ class TestShouldContinue(unittest.TestCase):
         go, reason = should_continue(self.result(stop_reason=None), "a", "b")
         self.assertFalse(go)
         self.assertIsNone(reason)
+
+
+class TestRecordSession(unittest.TestCase):
+    """The run keeps the agent's session so a person can take the conversation
+    over. Only the newest one, because that is the live conversation."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.state = State(self.root, "HGM-1")
+        self.state.ensure()
+        self.backend = get_backend("claude-cli")
+
+    def result(self, token="abc123"):
+        return AgentResult(backend="claude-cli", resume_token=token)
+
+    def test_records_the_command_a_human_would_run(self):
+        record_session(self.state, "implement", "/tmp/wt", self.backend,
+                       self.result())
+        session = self.state.read("session.json")
+        self.assertEqual(session["label"], "implement")
+        self.assertEqual(session["token"], "abc123")
+        self.assertIn("claude --resume abc123", session["command"])
+
+    def test_the_newest_call_wins(self):
+        record_session(self.state, "implement", "/tmp/wt", self.backend,
+                       self.result("first"))
+        record_session(self.state, "qa-repair-1", "/tmp/wt", self.backend,
+                       self.result("second"))
+        session = self.state.read("session.json")
+        self.assertEqual(session["token"], "second")
+        self.assertEqual(session["label"], "qa-repair-1")
+
+    def test_a_call_with_no_session_records_nothing(self):
+        record_session(self.state, "implement", "/tmp/wt", self.backend,
+                       self.result(token=None))
+        self.assertIsNone(self.state.read("session.json"))
+
+    def test_a_backend_with_no_interactive_form_records_no_command(self):
+        record_session(self.state, "implement", "/tmp/wt", get_backend("echo"),
+                       self.result())
+        self.assertIsNone(self.state.read("session.json")["command"])
 
 
 if __name__ == "__main__":

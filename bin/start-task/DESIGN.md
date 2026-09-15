@@ -222,6 +222,13 @@ Resuming needs the session on disk, so `--no-session-persistence` is no longer p
 These runs now leave sessions behind in the target repo — the price of continuing with
 memory rather than re-briefing a stranger.
 
+The same token is what a person needs, so the run records the newest one in
+`session.json` and prints `resume_command()` when it finishes. An unattended run that
+got most of the way there is worth more as a conversation you can join than as a diff
+you have to reconstruct the reasoning behind. The command is the provider's own — the
+backend builds it, since the seam has no idea what an interactive session looks like,
+and a backend with no such form returns `None` rather than a command that fails.
+
 **Permission mode is unresolved.** In a headless run with no host answering prompts,
 anything not pre-approved is auto-denied, so `acceptEdits` permits file edits but a
 `Bash` call the settings do not already allow simply fails. That may be enough, or it
