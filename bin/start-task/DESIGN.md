@@ -1,4 +1,4 @@
-# fast-task — design
+# start-task — design
 
 Run the `start-task` lifecycle as an explicit Python program, calling a model only
 where one is genuinely required.
@@ -76,22 +76,29 @@ printing a zero that reads as a measurement.
 ## Layout
 
 ```
-bin/fast-task/
-  DESIGN.md         # this file
-  README.md         # usage
-  fast_task.py      # the orchestrator — all control flow
-  asana.py          # tm.py, copied, plus three new read verbs
-  cache_util.py     # copied dependency of asana.py
-  agent/
-    base.py         # AgentRequest · AgentResult · AgentBackend · tool vocabulary
-    __init__.py     # registry — the one place a provider is named
-    claude_cli.py   # `claude -p` subprocess          (default)
-    claude_sdk.py   # Claude Agent SDK                (needs requirements.txt)
-    echo.py         # no model, no network
-  prompts/
-    implement.md    # template for the implementation call
-    qa_fix.md       # template for the failure-repair call
+bin/
+  cortex            # dispatcher: `cortex <tool> [args]`, resolves the interpreter
+  start-task/
+    DESIGN.md       # this file
+    README.md       # usage
+    start_task.py   # the orchestrator — all control flow
+    asana.py        # tm.py, copied, plus three new read verbs
+    cache_util.py   # copied dependency of asana.py
+    agent/
+      base.py       # AgentRequest · AgentResult · AgentBackend · tool vocabulary
+      __init__.py   # registry — the one place a provider is named
+      claude_cli.py # `claude -p` subprocess          (default)
+      claude_sdk.py # Claude Agent SDK                (needs requirements.txt)
+      echo.py       # no model, no network
+    prompts/
+      implement.md  # template for the implementation call
+      qa_fix.md     # template for the failure-repair call
 ```
+
+The dispatcher adds no verb of its own: `cortex start-task <url>` runs the whole
+lifecycle, and everything after the tool name is the tool's own argument. It finds
+a tool's entrypoint by name (`start-task` → `start_task.py`) and prefers that
+tool's `.venv/bin/python` when one exists, which a bare shebang cannot do.
 
 Nothing here imports from `plugins/`. `asana.py` and `cache_util.py` are copies, taken
 once; they are ours to edit and will drift from the originals. That is accepted while
@@ -102,15 +109,16 @@ this is experimental — the alternative couples it to a plugin that is still ch
 Each phase is separately invocable and resumable.
 
 ```
-fast_task.py run       <task-url>   # all four, in order
-fast_task.py prologue  <task-url>   # zero model calls
-fast_task.py implement <task-id>
-fast_task.py qa        <task-id>
-fast_task.py ship      <task-id>
-fast_task.py backends               # which providers are usable here
+cortex start-task <task-url>                    # all four, in order
+cortex start-task <task-url> --phase prologue   # zero model calls
+cortex start-task <task-id>  --phase implement
+cortex start-task <task-id>  --phase qa
+cortex start-task <task-id>  --phase ship
+cortex start-task <task-id>  --status           # progress, no work
+cortex start-task --backends                    # which providers are usable here
 ```
 
-State lives in `.fast-task/<task-id>/` at the **main repo root**, not in the worktree —
+State lives in `.start-task/<task-id>/` at the **main repo root**, not in the worktree —
 the worktree does not exist yet when the prologue starts writing, and it may be removed
 after ship while the state is still wanted. It holds `context.json`, `result.json`,
 `qa.json`, `state.json`, `attachments/`. Re-running a phase overwrites its own
@@ -164,7 +172,7 @@ backend cannot see them, and an empty list there is not proof none occurred.
 
 ### qa — Python first, model on failure
 
-Reads `.fast-task.json` from the target repo:
+Reads `.start-task.json` from the target repo:
 
 ```json
 {"lint": "npm run lint", "build": "npm run build", "test": "npm test"}
@@ -175,7 +183,7 @@ is a failure. On failure, one model call per attempt with `prompts/qa_fix.md` an
 failing command's output, re-running the gate after each. Bounded to 2 attempts, then
 stop and report — never ship a red gate.
 
-Missing keys are skipped with a warning. A missing `.fast-task.json` skips the phase
+Missing keys are skipped with a warning. A missing `.start-task.json` skips the phase
 entirely with a warning.
 
 This covers the mechanical half of QA. Visual and behavioural verification — "does this

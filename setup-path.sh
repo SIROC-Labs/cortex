@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # SIROC Cortex — PATH Setup
-# Puts the tools in bin/ on your PATH by adding two exports to your shell
+# Puts the `cortex` dispatcher on your PATH by adding two exports to your shell
 # profile. No symlinks, nothing copied outside this clone — move or rename the
 # clone and you re-run this.
 #
@@ -12,9 +12,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Each entry is a directory under bin/ holding a directly executable tool.
-# PATH needs the tool's own directory, not bin/, because bin/ holds directories.
-TOOL_DIRS=("bin/fast-task")
+# bin/ holds the `cortex` dispatcher, which routes to the tools beside it. One
+# PATH entry covers every tool, now and later.
+PATH_DIRS=("bin")
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -51,7 +51,7 @@ echo ""
 
 # Lines to ensure, in order. CORTEX_HOME first — the PATH entries reference it.
 LINES=("export CORTEX_HOME=\"${ROOT}\"")
-for dir in "${TOOL_DIRS[@]}"; do
+for dir in "${PATH_DIRS[@]}"; do
   LINES+=("export PATH=\"\$CORTEX_HOME/${dir}:\$PATH\"")
 done
 
@@ -64,6 +64,17 @@ if [ -n "$EXISTING_HOME" ] && [ "$EXISTING_HOME" != "$ROOT" ]; then
   info "Edit ${PROFILE} by hand, or remove that line and re-run"
   exit 1
 fi
+
+# An entry written by an earlier version of this script points at a layout that
+# has since moved. Harmless, but it makes `command -v` confusing, so say so.
+while IFS= read -r stale; do
+  [ -n "$stale" ] || continue
+  for line in "${LINES[@]}"; do
+    [ "$stale" = "$line" ] && continue 2
+  done
+  warn "stale entry in ${PROFILE}, safe to delete:"
+  echo "      ${stale}"
+done < <(grep '^export PATH=".*CORTEX_HOME' "$PROFILE" 2>/dev/null || true)
 
 CHANGED=false
 for line in "${LINES[@]}"; do
@@ -88,17 +99,15 @@ for line in "${LINES[@]}"; do
 done
 
 if [ "$CHECK_ONLY" = false ]; then
-  for dir in "${TOOL_DIRS[@]}"; do
-    find "${ROOT}/${dir}" -maxdepth 1 -name '*.py' -exec chmod +x {} + 2>/dev/null || true
-  done
+  chmod +x "${ROOT}/bin/cortex" 2>/dev/null || true
 fi
 
 echo ""
 if [ "$CHECK_ONLY" = true ]; then
-  if command -v fast_task.py &>/dev/null; then
-    pass "fast_task.py resolves to $(command -v fast_task.py)"
+  if command -v cortex &>/dev/null; then
+    pass "cortex resolves to $(command -v cortex)"
   else
-    warn "fast_task.py is not on PATH in this shell"
+    warn "cortex is not on PATH in this shell"
   fi
   exit 0
 fi
@@ -112,10 +121,10 @@ if [ "$CHANGED" = true ]; then
   echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
   echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  info "Then, from inside any repo: fast_task.py run <task-url>"
+  info "Then, from inside any repo: cortex start-task <task-url>"
 else
   echo -e "${GREEN}Nothing to do — PATH already set up.${NC}"
   echo ""
-  info "From inside any repo: fast_task.py run <task-url>"
+  info "From inside any repo: cortex start-task <task-url>"
 fi
 echo ""

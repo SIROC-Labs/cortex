@@ -1,4 +1,4 @@
-# fast-task
+# start-task
 
 The `start-task` lifecycle as an explicit Python program. Control flow is code; a model
 is called exactly where one is required — to implement the task, and to repair a
@@ -15,7 +15,7 @@ export ASANA_PERSONAL_ACCESS_TOKEN=...   # in ~/.zshrc
 
 Requires `git`, `gh` (authenticated), and `claude` on PATH. Nothing to install.
 
-To call it from anywhere, put this directory on your PATH:
+To call it from anywhere, put the `cortex` dispatcher on your PATH:
 
 ```bash
 bash ../../setup-path.sh          # writes CORTEX_HOME + PATH to your shell profile
@@ -29,15 +29,13 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Note that the two do not compose: on PATH the shebang resolves to the system
-`python3`, which cannot see `.venv`, so `--backend claude-sdk` needs
-`.venv/bin/python fast_task.py` (or a user-level install of the SDK). The default
-backend is unaffected.
+The dispatcher resolves this directory's `.venv` when one exists, so the SDK
+backend is visible however `cortex` was reached.
 
 Check what's usable:
 
 ```bash
-./fast_task.py backends
+cortex start-task --backends
 ```
 
 ```
@@ -47,7 +45,7 @@ Backends
   [x] echo
 ```
 
-Optionally, in the target repo, a `.fast-task.json` describing the QA gate:
+Optionally, in the target repo, a `.start-task.json` describing the QA gate:
 
 ```json
 {
@@ -64,23 +62,27 @@ Any key may be omitted. Without the file, the QA phase is skipped with a warning
 From inside the target repository:
 
 ```bash
-python3 /path/to/bin/fast-task/fast_task.py run https://app.asana.com/0/123/456
+cortex start-task https://app.asana.com/0/123/456
 ```
 
-Or a phase at a time — each is resumable and re-runnable:
+That runs every phase in order. Or one at a time — each is resumable and
+re-runnable, taking the task id the prologue resolved:
 
 ```bash
-fast_task.py prologue https://app.asana.com/0/123/456   # no model calls
-fast_task.py implement MT251-47
-fast_task.py qa        MT251-47
-fast_task.py ship      MT251-47
-fast_task.py status    MT251-47
+cortex start-task https://app.asana.com/0/123/456 --phase prologue   # no model calls
+cortex start-task MT251-47 --phase implement
+cortex start-task MT251-47 --phase qa
+cortex start-task MT251-47 --phase ship
+cortex start-task MT251-47 --status                                  # no work
 ```
 
 ### Flags
 
 | Flag | Default | |
 |---|---|---|
+| `--phase` | all | run one of `prologue`, `implement`, `qa`, `ship` alone |
+| `--status` | off | report phase progress and do no work |
+| `--backends` | off | list providers and whether they are usable |
 | `--repo` | cwd | target repository |
 | `--backend` | `claude-cli` | `claude-cli`, `claude-sdk`, `echo` |
 | `--model` | backend default | |
@@ -106,7 +108,7 @@ appearing to have honoured it.
 | `qa` | 0–2 | Runs lint/build/test; on failure hands the output to one repair call, retries the gate, max 2 attempts |
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
 
-State lives in `<main-repo-root>/.fast-task/<task-id>/` — `context.json`,
+State lives in `<main-repo-root>/.start-task/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `attachments/`.
 
 ## Preconditions

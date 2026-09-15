@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Unit tests for fast_task.py's pure functions — the half that can be tested
+# Unit tests for start_task.py's pure functions — the half that can be tested
 # offline. Phases that shell out to claude, gh, git or Asana are validated by
 # running them.
 #
@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fast_task import (  # noqa: E402
+from start_task import (  # noqa: E402
     evaluate_gate,
     extract_external_links,
     extract_last_json_block,

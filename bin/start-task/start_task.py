@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# fast_task.py — the start-task lifecycle as an explicit program.
+# start_task.py — the start-task lifecycle as an explicit program.
 #
 # Control flow is Python. A model is invoked exactly twice, and only where one is
 # genuinely required: to implement the task, and to repair a failing QA gate.
@@ -15,13 +15,13 @@
 #
 # See DESIGN.md for the rationale and the phase contract.
 #
-#   fast_task.py run       <task-url>   # all four phases
-#   fast_task.py prologue  <task-url>   # zero model calls
-#   fast_task.py implement <task-id>
-#   fast_task.py qa        <task-id>
-#   fast_task.py ship      <task-id>
-#   fast_task.py status    <task-id>
-#   fast_task.py backends              # which providers are usable here
+# Usually reached through the `cortex` dispatcher:
+#
+#   cortex start-task <task-url>                  # the whole lifecycle
+#   cortex start-task <task-url> --phase prologue # one phase, zero model calls
+#   cortex start-task <task-id>  --phase qa
+#   cortex start-task <task-id>  --status         # phase progress, no work
+#   cortex start-task --backends                  # which providers are usable
 #
 # Dependencies: Python 3 stdlib, git, gh, asana.py (sibling), and whatever the
 # selected backend needs (the default needs only `claude` on PATH).
@@ -44,8 +44,8 @@ from agent import (  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASANA = os.path.join(HERE, "asana.py")
 PROMPTS = os.path.join(HERE, "prompts")
-STATE_DIRNAME = ".fast-task"
-QA_CONFIG = ".fast-task.json"
+STATE_DIRNAME = ".start-task"
+QA_CONFIG = ".start-task.json"
 
 # Lifecycle states meaning "not yet started" — a task in one of these is a candidate
 # to start. Mirrors readiness.py's NOT_STARTED_NAMES (the neutral workflow profile).
@@ -81,7 +81,7 @@ def warn(msg):
 
 
 def die(msg, code=1):
-    sys.stderr.write("\nfast-task: %s\n" % msg)
+    sys.stderr.write("\nstart-task: %s\n" % msg)
     sys.exit(code)
 
 
@@ -494,7 +494,7 @@ def phase_prologue(args):
     step("Ready")
     info("context: %s" % state.path("context.json"))
     info("worktree: %s" % worktree)
-    info("next: fast_task.py implement %s" % tid)
+    info("next: cortex start-task %s --phase implement" % tid)
     return tid
 
 
@@ -712,7 +712,7 @@ def phase_status(args):
     state = State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
     done = state.phases_done()
     context = state.read("context.json", {})
-    step("fast-task %s" % args.task)
+    step("start-task %s" % args.task)
     for phase in PHASES:
         info("[%s] %s" % ("x" if phase in done else " ", phase))
     if context:
@@ -726,11 +726,29 @@ def phase_status(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="fast_task.py",
+        prog="cortex start-task",
         description="Run the start-task lifecycle as an explicit program, "
-                    "with every model call behind a provider-agnostic seam.")
+                    "with every model call behind a provider-agnostic seam. "
+                    "Given a task, runs every phase in order; --phase runs one.")
+    parser.add_argument("task", nargs="?",
+                        help="task URL, or the task id (e.g. MT251-47) once the "
+                             "prologue has resolved one")
+    parser.add_argument("--phase", default=None, choices=PHASES,
+                        help="run this phase alone instead of all of them")
+    parser.add_argument("--status", action="store_true",
+                        help="report phase progress and do no work")
+    parser.add_argument("--backends", action="store_true",
+                        help="list providers and whether they are usable here")
+
     parser.add_argument("--repo", default=os.getcwd(),
                         help="target repository (default: cwd)")
+    parser.add_argument("--base", default=None,
+                        help="base branch (default: origin/main)")
+    parser.add_argument("--no-worktree", action="store_true",
+                        help="branch in the current directory instead of a worktree")
+    parser.add_argument("--strict", action="store_true",
+                        help="make Estimate and sprint membership blocking")
+
     parser.add_argument("--backend", default=DEFAULT_BACKEND,
                         choices=backend_names(),
                         help="agent provider (default: %(default)s)")
@@ -746,30 +764,6 @@ def build_parser():
     parser.add_argument("--autonomy", default="full",
                         choices=("read-only", "edit", "full"),
                         help="what the agent may do (default: %(default)s)")
-    sub = parser.add_subparsers(dest="phase", required=True)
-
-    for name, help_text in (
-        ("run", "prologue + implement + qa + ship"),
-        ("prologue", "fetch, gate, branch, draft PR (no LLM)"),
-    ):
-        p = sub.add_parser(name, help=help_text)
-        p.add_argument("task", help="task URL or ref")
-        p.add_argument("--base", default=None, help="base branch (default: origin/main)")
-        p.add_argument("--no-worktree", action="store_true",
-                       help="branch in the current directory instead of a worktree")
-        p.add_argument("--strict", action="store_true",
-                       help="make Estimate and sprint membership blocking")
-
-    for name, help_text in (
-        ("implement", "the implementation LLM call"),
-        ("qa", "run the lint/build/test gate"),
-        ("ship", "promote the PR and update Asana"),
-        ("status", "show phase progress"),
-    ):
-        p = sub.add_parser(name, help=help_text)
-        p.add_argument("task", help="task id (e.g. MT251-47)")
-
-    sub.add_parser("backends", help="list providers and whether they are usable")
     return parser
 
 
@@ -782,20 +776,30 @@ def phase_backends(args):
                                  "" if usable else "  — %s" % reason))
 
 
-HANDLERS = {
-    "backends": phase_backends,
-    "run": phase_run,
+PHASE_HANDLERS = {
     "prologue": phase_prologue,
     "implement": phase_implement,
     "qa": phase_qa,
     "ship": phase_ship,
-    "status": phase_status,
 }
 
 
 def main(argv):
-    args = build_parser().parse_args(argv)
-    HANDLERS[args.phase](args)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.backends:
+        phase_backends(args)
+        return 0
+    if args.task is None:
+        parser.error("a task URL or id is required")
+    if args.status:
+        phase_status(args)
+        return 0
+    if args.phase:
+        PHASE_HANDLERS[args.phase](args)
+        return 0
+    phase_run(args)
     return 0
 
 
