@@ -45,7 +45,16 @@ from agent import (  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASANA = os.path.join(HERE, "asana.py")
 PROMPTS = os.path.join(HERE, "prompts")
-STATE_DIRNAME = ".start-task"
+# Everything cortex writes into a repo lives under .cortex/, which ignores itself
+# (see `ensure_cortex_dir`). Work happens on the branch being developed, so nothing
+# the tool leaves behind should ever turn up in that branch's diff.
+CORTEX_DIRNAME = ".cortex"
+WORKTREES_DIRNAME = "worktrees"
+STATE_DIRNAME = "state"
+# Where state used to live: a top-level directory that git could see. Runs that
+# predate the move are relocated rather than stranded.
+LEGACY_STATE_DIRNAME = ".start-task"
+
 QA_CONFIG = ".start-task.json"
 
 # Lifecycle states meaning "not yet started" — a task in one of these is a candidate
@@ -240,12 +249,32 @@ class State(object):
     does not exist when the prologue starts writing and may be removed after ship."""
 
     def __init__(self, main_root, task_id):
-        self.dir = os.path.join(main_root, STATE_DIRNAME, task_id)
+        self.dir = os.path.join(main_root, CORTEX_DIRNAME, STATE_DIRNAME, task_id)
+        self.legacy_dir = os.path.join(main_root, LEGACY_STATE_DIRNAME, task_id)
         self.main_root = main_root
         self.task_id = task_id
 
     def ensure(self):
+        self.migrate_legacy()
+        # Via ensure_cortex_dir, so the ignore file is in place before anything
+        # is written under it — not one run later.
+        ensure_cortex_dir(self.main_root)
         os.makedirs(os.path.join(self.dir, "attachments"), exist_ok=True)
+
+    def migrate_legacy(self):
+        """Move state written before it lived under `.cortex/`. A task in flight
+        keeps its phases, its session and its answers; the alternative is a run
+        that reports no state for work it did yesterday."""
+        if os.path.isdir(self.dir) or not os.path.isdir(self.legacy_dir):
+            return
+        ensure_cortex_dir(self.main_root)
+        os.makedirs(os.path.dirname(self.dir), exist_ok=True)
+        os.rename(self.legacy_dir, self.dir)
+        info("moved %s state into %s" % (self.task_id, self.dir))
+        try:
+            os.rmdir(os.path.dirname(self.legacy_dir))
+        except OSError:
+            pass  # other tasks still there
 
     def path(self, name):
         return os.path.join(self.dir, name)
@@ -288,6 +317,7 @@ class State(object):
     @staticmethod
     def find(main_root, task_id):
         state = State(main_root, task_id)
+        state.migrate_legacy()
         if not os.path.isdir(state.dir):
             die("no state for %s — run `prologue` first (looked in %s)"
                 % (task_id, state.dir))
@@ -549,9 +579,6 @@ def phase_prologue(args):
 # directory holds every task's checkout instead of scattering siblings beside the
 # clone, and one directory has to be ignored.
 
-CORTEX_DIRNAME = ".cortex"
-WORKTREES_DIRNAME = "worktrees"
-
 
 def worktree_path(main_root, task_id, slug=None):
     """Where a task's worktree belongs: `<repo>/.cortex/worktrees/<id>+<slug>`.
@@ -578,6 +605,7 @@ def ensure_cortex_dir(main_root):
     """
     root = os.path.join(main_root, CORTEX_DIRNAME)
     os.makedirs(os.path.join(root, WORKTREES_DIRNAME), exist_ok=True)
+    os.makedirs(os.path.join(root, STATE_DIRNAME), exist_ok=True)
     ignore = os.path.join(root, ".gitignore")
     if not os.path.exists(ignore):
         with open(ignore, "w") as f:

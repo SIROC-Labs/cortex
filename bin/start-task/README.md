@@ -181,13 +181,17 @@ appearing to have honoured it.
 | `qa` | 0–2 | Runs lint/build/test; on failure hands the output to one repair call, retries the gate, max 2 attempts |
 | `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
 
-State lives in `<main-repo-root>/.start-task/<task-id>/` — `context.json`,
+State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `attachments/`, `run.json` (the live run's
 pid, so an abandoned terminal is findable), `session.json` (the agent's last session,
 for picking the conversation up by hand), `awaiting.json` while a question is
 outstanding, and `<phase>.failure.log`
 when a model call exits non-zero — that file is the only copy of what the provider
 printed, so it is written before the run dies.
+
+`.cortex/` ignores itself, so nothing the tool writes turns up in the diff of the branch
+it is working on. State from before the move, in a top-level `.start-task/`, is
+relocated the first time a run touches that task.
 
 ## Preconditions
 

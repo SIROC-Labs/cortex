@@ -118,10 +118,13 @@ cortex start-task <task-id>  --status           # progress, no work
 cortex start-task --backends                    # which providers are usable here
 ```
 
-State lives in `.start-task/<task-id>/` at the **main repo root**, not in the worktree —
-the worktree does not exist yet when the prologue starts writing, and it may be removed
-after ship while the state is still wanted. It holds `context.json`, `result.json`,
-`qa.json`, `state.json`, `attachments/`. A failed model call also leaves
+State lives in `.cortex/state/<task-id>/` at the **main repo root**, not in the worktree
+— the worktree does not exist yet when the prologue starts writing, and it may be removed
+after ship while the state is still wanted. `.cortex/` is the one directory the tool
+writes into, and it ignores itself, so a repo being worked on never sees cortex files in
+its own diff; state written before the move, under a top-level `.start-task/`, is
+relocated on first touch rather than stranded. It holds `context.json`, `result.json`,
+`qa.json`, `state.json`, `session.json`, `attachments/`. A failed model call also leaves
 `<phase>.failure.log`: the provider's raw stdout, which is where a non-zero exit with
 an empty stderr hides its reason. A live run records its pid in `run.json` (removed on
 exit, so a pid still there whose process is gone marks a crash), and a question waiting

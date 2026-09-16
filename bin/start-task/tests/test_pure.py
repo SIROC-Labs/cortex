@@ -282,6 +282,78 @@ class TestRecordSession(unittest.TestCase):
         self.assertIsNone(self.state.read("session.json")["command"])
 
 
+class TestStateLocation(unittest.TestCase):
+    """Everything the tool writes belongs under `.cortex/`, which ignores itself.
+    The repo being worked in should never see a cortex file in its own diff."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_state_lives_under_cortex(self):
+        self.assertEqual(State(self.root, "HGM-1").dir,
+                         os.path.join(self.root, ".cortex", "state", "HGM-1"))
+
+    def test_the_directory_ignores_itself_before_anything_is_written(self):
+        State(self.root, "HGM-1").write("state.json", {"done": []})
+        ignore = os.path.join(self.root, ".cortex", ".gitignore")
+        self.assertTrue(os.path.isfile(ignore))
+        with open(ignore) as f:
+            self.assertIn("*", f.read())
+
+    def test_a_run_leaves_nothing_else_at_the_repo_root(self):
+        State(self.root, "HGM-1").write("state.json", {"done": []})
+        self.assertEqual(os.listdir(self.root), [".cortex"])
+
+
+class TestStateMigration(unittest.TestCase):
+    """State written before the move is relocated, not stranded — a task in
+    flight keeps its phases rather than being told it never started."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def legacy(self, task_id, done):
+        path = os.path.join(self.root, ".start-task", task_id)
+        os.makedirs(path)
+        with open(os.path.join(path, "state.json"), "w") as f:
+            json.dump({"done": done}, f)
+        return path
+
+    def test_legacy_state_is_found_and_moved(self):
+        self.legacy("HGM-1", ["prologue", "implement"])
+        state = State.find(self.root, "HGM-1")
+        self.assertEqual(state.dir,
+                         os.path.join(self.root, ".cortex", "state", "HGM-1"))
+        self.assertEqual(state.phases_done(), {"prologue", "implement"})
+
+    def test_the_old_directory_is_cleaned_up_once_it_is_empty(self):
+        self.legacy("HGM-1", ["prologue"])
+        State.find(self.root, "HGM-1")
+        self.assertFalse(os.path.exists(os.path.join(self.root, ".start-task")))
+
+    def test_another_task_still_in_the_old_place_is_left_alone(self):
+        self.legacy("HGM-1", ["prologue"])
+        self.legacy("HGM-2", ["prologue"])
+        State.find(self.root, "HGM-1")
+        self.assertTrue(os.path.isdir(
+            os.path.join(self.root, ".start-task", "HGM-2")))
+
+    def test_current_state_is_never_overwritten_by_a_stale_legacy_copy(self):
+        current = os.path.join(self.root, ".cortex", "state", "HGM-1")
+        os.makedirs(current)
+        with open(os.path.join(current, "state.json"), "w") as f:
+            json.dump({"done": ["prologue", "implement", "qa", "ship"]}, f)
+        self.legacy("HGM-1", ["prologue"])
+
+        state = State.find(self.root, "HGM-1")
+        self.assertEqual(state.phases_done(),
+                         {"prologue", "implement", "qa", "ship"})
+        # The stale copy is left where it is rather than silently deleted.
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".start-task", "HGM-1")))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
