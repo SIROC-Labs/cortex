@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# cortex — dispatcher for the tools in this directory.
+#
+#   cortex <tool> [args...]
+#
+# A tool is a subdirectory holding an entrypoint named after it with dashes
+# turned into underscores: bin/start-task/start_task.py. The dispatcher adds no
+# verb of its own — every argument after the tool name is the tool's.
+#
+# It also resolves the interpreter, which a bare shebang cannot: a tool with its
+# own .venv gets that Python, so optional dependencies installed there are
+# visible however the tool was reached.
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+list_tools() {
+  for dir in "$BIN"/*/; do
+    local tool entry
+    tool="$(basename "$dir")"
+    entry="$dir${tool//-/_}.py"
+    [ -f "$entry" ] || continue
+    # One-line summary: the first comment line of the entrypoint, which by
+    # convention names the tool and what it does.
+    local summary
+    summary="$(sed -n '2,6p' "$entry" | grep -m1 '^# [a-z].*—' | sed 's/^# [^—]*— //' || true)"
+    printf '  %-14s %s\n' "$tool" "$summary"
+  done
+}
+
+if [ $# -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  echo "usage: cortex <tool> [args...]"
+  echo ""
+  echo "tools:"
+  list_tools
+  echo ""
+  echo "Run 'cortex <tool> --help' for a tool's own arguments."
+  exit 0
+fi
+
+TOOL="$1"
+shift
+
+ENTRY="$BIN/$TOOL/${TOOL//-/_}.py"
+if [ ! -f "$ENTRY" ]; then
+  echo "cortex: unknown tool '$TOOL'" >&2
+  echo "" >&2
+  echo "tools:" >&2
+  list_tools >&2
+  exit 1
+fi
+
+PYTHON="python3"
+if [ -x "$BIN/$TOOL/.venv/bin/python" ]; then
+  PYTHON="$BIN/$TOOL/.venv/bin/python"
+fi
+
+exec "$PYTHON" "$ENTRY" "$@"

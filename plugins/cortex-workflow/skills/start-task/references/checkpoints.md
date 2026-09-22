@@ -71,8 +71,8 @@ last_updated: "<iso8601>"
 | 4. Fetch Subtasks | [ ] | | 0 | — | [x] |
 | 5. Fetch Comments & Attachments | [ ] | | 0 | — | [x] |
 | 6. Check Existing Work | [ ] | | 0 | — | [x] |
-| 6a. Ask About Worktree | [ ] | | 0 | — | [ ] |
-| 6b. Confirm Base Branch | [ ] | | 0 | — | [ ] |
+| 6a. Set Up Worktree | [ ] | | 0 | — | [x] |
+| 6b. Resolve Base Branch | [ ] | | 0 | — | [x] |
 | 7. Create Feature Branch | [ ] | | 0 | — | [x] |
 | 8. Create Draft PR | [ ] | | 0 | — | [x] |
 | 9a. Move to In Progress | [ ] | | 0 | — | [x] |
@@ -164,8 +164,8 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 | 4. Fetch Subtasks | `<N> subtasks (<M> complete, <K> remaining)` |
 | 5. Fetch Comments & Attachments | `<N> comments, <M> attachments` |
 | 6. Check Existing Work | `No existing branch` or `Resumed: <branch-name>` |
-| 6a. Ask About Worktree | `worktree` or `current directory` |
-| 6b. Confirm Base Branch | `<base-branch>` |
+| 6a. Set Up Worktree | `worktree: <path>`, `current directory (no-worktree)`, or `current directory (operator chose after failure: <reason>)` |
+| 6b. Resolve Base Branch | `<base-branch>` (e.g. `origin/main`, or `origin/master (origin/main absent)`) |
 | 7. Create Feature Branch | `<branch-name> off <base>` |
 | 8. Create Draft PR | `<pr-url>` |
 | 9a. Move to In Progress | `Moved`, `Already in progress`, or `Failed: <reason>` |

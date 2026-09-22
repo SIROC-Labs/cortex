@@ -1,0 +1,361 @@
+# start-task — design
+
+Run the `start-task` lifecycle as an explicit Python program, calling a model only
+where one is genuinely required.
+
+Status: implemented, not yet run against a live task.
+
+## Why
+
+`start-task` today is a 258-line `SKILL.md` plus ~600 lines of references, all of it
+prose that a model reads and acts on one step at a time. The deterministic work is
+already scripted (`tm.py`, `readiness.py`, `checkpoint.sh`), but the **control flow is
+the model**: it reads the prose, decides which script to run, reads the JSON back,
+formats it, and moves to the next step.
+
+Auditing the 14 steps, only three need a language model — implementation (10), QA
+judgment (11), and the work summary inside ship-it (12). Everything from "parse the
+URL" through "post the start comment" is field comparisons and fixed templates. The
+🏁 start comment is literally `🏁 Starting work — branch: X / PR: Y`.
+
+Two consequences of prose-as-control-flow:
+
+- **Cost.** Reaching step 9 — before a line of the feature is written — loads the skill
+  and its references, the full task JSON, subtasks, comments and attachments, across
+  roughly 15–25 model round-trips, each re-sending a growing context.
+- **Reliability.** `SKILL.md` is littered with `❌ HARD GATE`, `do not substitute
+  reasoning for invocation`, `auto mode does NOT override`. Those paragraphs exist
+  because the model skips steps. They are an attempt to get deterministic behaviour out
+  of English. A `for` loop gives that for free.
+
+This replaces the brain, not the hands: the same Asana calls, sequenced by Python in a
+fixed order. Zero model turns to reach step 9, then one call for the part that needs
+thought.
+
+## Non-goals
+
+- Replacing the `start-task` skill. It stays untouched; this is a parallel path.
+- Provider neutrality in the task manager. Asana only.
+- Covering the pause/resume-on-blocker flow, the QA sub-flow's visual verification, or
+  post-ship code review.
+
+## Why the model call sits behind a seam
+
+Every model call goes through `agent/`. The vendor SDK is imported in exactly one file;
+everything else speaks `AgentRequest` / `AgentResult` / `AgentBackend`.
+
+1. **The provider is a flag, not a rewrite.** `claude -p` is the default because it
+   needs nothing installed. The Claude Agent SDK is one `--backend` away, and another
+   runtime's headless CLI is a module plus a row in the registry — which is what keeps
+   this usable outside Claude Code without the orchestrator knowing anything about it.
+2. **The backends are genuinely interchangeable.** Same prologue, same prompt, same
+   repo; only the transport differs.
+3. **`echo` runs the whole flow with no model at all.** It is how the phases, the
+   state machine and the prompt rendering get exercised.
+
+Two rules make the abstraction honest rather than decorative:
+
+- **A backend never raises.** Failures come back as `ok=False` with an `error`. The
+  orchestrator handles one failure shape regardless of provider.
+- **A backend declares what it dropped.** Anything in the request it cannot express
+  lands in `result.unsupported`, and the runner warns. A neutral tool name the provider
+  has no equivalent for shows up there rather than being silently omitted — the caller
+  is never told it got something it didn't.
+
+`AgentRequest` is intent, not vendor configuration: a prompt, a working directory, an
+autonomy level (`read-only` / `edit` / `full`), a ceiling on turns, and whether to
+load the project's own conventions. Tools are named neutrally (`read_file`,
+`edit_file`, `run_command`); each backend maps them. `extra["argv"]` is the deliberate
+exception — an escape hatch that hands the command line to the operator wholesale for a
+run that stalls on a permission mode, and which backends without a command line report
+as unsupported rather than appearing to honour.
+
+What a backend cannot report it leaves `None`, and the runner omits it rather than
+printing a zero that reads as a measurement.
+
+## Layout
+
+```
+bin/
+  cortex            # dispatcher: `cortex <tool> [args]`, resolves the interpreter
+  start-task/
+    DESIGN.md       # this file
+    README.md       # usage
+    start_task.py   # the orchestrator — all control flow
+    asana.py        # tm.py, copied, plus three new read verbs
+    cache_util.py   # copied dependency of asana.py
+    agent/
+      base.py       # AgentRequest · AgentResult · AgentBackend · tool vocabulary
+      __init__.py   # registry — the one place a provider is named
+      claude_cli.py # `claude -p` subprocess          (default)
+      claude_sdk.py # Claude Agent SDK                (needs requirements.txt)
+      echo.py       # no model, no network
+    prompts/
+      implement.md  # template for the implementation call
+      qa_fix.md     # template for the failure-repair call
+```
+
+The dispatcher adds no verb of its own: `cortex start-task <url>` runs the whole
+lifecycle, and everything after the tool name is the tool's own argument. It finds
+a tool's entrypoint by name (`start-task` → `start_task.py`) and prefers that
+tool's `.venv/bin/python` when one exists, which a bare shebang cannot do.
+
+Nothing here imports from `plugins/`. `asana.py` and `cache_util.py` are copies, taken
+once; they are ours to edit and will drift from the originals. That is accepted while
+this is experimental — the alternative couples it to a plugin that is still changing.
+
+## Phases
+
+Each phase is separately invocable and resumable.
+
+```
+cortex start-task <task-url>                    # all four, in order
+cortex start-task <task-url> --phase prologue   # zero model calls
+cortex start-task <task-id>  --phase implement
+cortex start-task <task-id>  --phase qa
+cortex start-task <task-id>  --phase ship
+cortex start-task <task-id>  --status           # progress, no work
+cortex start-task --backends                    # which providers are usable here
+```
+
+State lives in `.cortex/state/<task-id>/` at the **main repo root**, not in the worktree
+— the worktree does not exist yet when the prologue starts writing, and it may be removed
+after ship while the state is still wanted. `.cortex/` is the one directory the tool
+writes into, and it ignores itself, so a repo being worked on never sees cortex files in
+its own diff; state written before the move, under a top-level `.start-task/`, is
+relocated on first touch rather than stranded. It holds `context.json`, `result.json`,
+`qa.json`, `state.json`, `session.json`, `attachments/`. A failed model call also leaves
+`<phase>.failure.log`: the provider's raw stdout, which is where a non-zero exit with
+an empty stderr hides its reason. A live run records its pid in `run.json` (removed on
+exit, so a pid still there whose process is gone marks a crash), and a question waiting
+on a human sits in `awaiting.json`. Re-running a phase overwrites its own output.
+
+A resume trusts `state.json` only as far as the filesystem agrees with it: if the
+recorded worktree is gone, every phase runs again rather than skipping to QA on work
+that no longer exists. `run` skips phases already marked done in `state.json`.
+
+`<task-id>` is the human key (`MT251-47`) read from the task's ID custom field, falling
+back to the Asana gid when the project has no such field — the same field the readiness
+gate treats as non-blocking, so it genuinely can be absent.
+
+### prologue — pure Python, no model
+
+1. Parse the task URL to a gid (`asana.py ref parse`).
+2. Fetch the task (`task get`) — name, description, assignee, status, custom fields.
+3. Assignee: if empty, self-assign and say so; if someone else, fail with a message.
+4. Preconditions gate (below).
+5. Fetch subtasks, dependencies, comments, attachments. Download non-image attachments
+   inline; download images to `attachments/` and pass paths.
+6. Extract external URLs (Figma / Notion / Drive / Loom) from description and comments
+   by regex. Record them as bare URLs — see Known gaps.
+7. Detect existing work: `git branch --list "*<task-id>*"`, `gh pr list --search`.
+   If found, attach to it rather than creating.
+8. Resolve base from `origin/main` via `git fetch origin` (never checks out a local
+   base). Create worktree + branch: `git worktree add <path> -b <task-id>/<slug> <base>`
+   where `<path>` is `.cortex/worktrees/<task-id>+<slug>` inside the repo — one
+   directory holding every task's checkout, named so a human scanning it can tell
+   what each is for, and made invisible to git by a `.cortex/.gitignore`
+   containing `*` (which covers itself, so the repo's own `.gitignore` is never
+   touched: nothing cortex writes should appear in the diff of the branch it is
+   working on). A branch already checked out elsewhere is adopted rather than
+   recreated, so a worktree left at a path an older version chose keeps working.
+   The path is anchored to the main repo root, never cwd-relative.
+9. Empty commit, push, `gh pr create --draft`.
+10. `set-status In Progress`; post the 🏁 comment, deduplicated by branch name.
+11. Write `context.json`.
+
+Slug is a deterministic slugify of the task name, truncated to 6 words.
+
+### implement — one model call
+
+The prompt is `prompts/implement.md` rendered with `context.json`, sent through the
+seam. It ends by requiring a final fenced JSON block:
+
+```json
+{"summary": "...", "files_changed": ["..."], "notes": "..."}
+```
+
+Parsed into `result.json`. `summary` becomes the PR description in the ship phase, so
+the PR body costs no extra call.
+
+The block has a second legal shape. An agent genuinely blocked on a decision returns
+`{"questions": [{"q": "...", "why": "..."}]}` instead, and `call_agent_resumable`
+posts those to the task, waits for a human to comment there, and calls the agent again
+with the answer. Three things make this cheap rather than clever:
+
+- **The seam never learns about it.** A backend is handed a prompt and returns text.
+  The ask cycle is entirely orchestrator-side, which is why it works on every backend
+  including `echo`, and why adding a provider still costs one module.
+- **The watermark is the question comment's own `created_at`**, minted by Asana. Any
+  comment after it is the answer. There is deliberately no author filter: the run
+  comments with the operator's own token, so filtering "our own" comments would discard
+  the very reply it waits for.
+- **The wait is unbounded.** Polling backs off to one request every two minutes, so a
+  run left overnight costs almost nothing. `--no-ask` opts out; Ctrl-C leaves the
+  pending question in `awaiting.json`.
+
+The agent's session does not survive the wait: the answer may be hours later, and
+holding a provider session open that long buys nothing. The resumed call is therefore a
+fresh one, re-primed with the original task, the Q&A, and `git diff --stat` of its own
+earlier work, and told to continue rather than restart. Losing the reasoning is the
+accepted cost.
+
+## The turn ceiling is a checkpoint
+
+`--max-turns` exists so a wedged run stops grinding, but a run that stops grinding
+mid-feature is not a result — the first live attempt died at 60 turns having spent $8
+and written no result block, and worse, nothing noticed: the CLI envelope's
+`is_error`/`subtype` were not read, so a dead run came back `ok=True` with the raw JSON
+where its summary should have been.
+
+So the ceiling now bounds a call rather than the task. A backend reports *why* the model
+stopped (`AgentResult.stop_reason`) separately from *whether it failed* (`ok`), and
+hands back an opaque `resume_token` when the provider offers one. `stop_reason ==
+"max_turns"` means partial work with somewhere to continue from, so the runner resumes
+that session with the same worktree and the agent's own memory intact.
+
+What stops it is progress, not a counter. Between continuations the runner fingerprints
+the worktree — `git status --porcelain` as well as `git diff --stat`, so a stretch that
+only adds files still counts. A call that burns an entire ceiling without moving the
+fingerprint is looping, and another lap would only cost more, so the run stops and says
+which of the two happened. That is the whole guard: `should_continue` is four lines and
+takes no opinion on how long the work is allowed to be.
+
+Resuming needs the session on disk, so `--no-session-persistence` is no longer passed.
+These runs now leave sessions behind in the target repo — the price of continuing with
+memory rather than re-briefing a stranger.
+
+The same token is what a person needs, so the run records the newest one in
+`session.json` and prints `resume_command()` when it finishes. An unattended run that
+got most of the way there is worth more as a conversation you can join than as a diff
+you have to reconstruct the reasoning behind. The command is the provider's own — the
+backend builds it, since the seam has no idea what an interactive session looks like,
+and a backend with no such form returns `None` rather than a command that fails.
+
+**Permission mode is unresolved.** In a headless run with no host answering prompts,
+anything not pre-approved is auto-denied, so `acceptEdits` permits file edits but a
+`Bash` call the settings do not already allow simply fails. That may be enough, or it
+may stall every run that needs to install a dep or run a migration. First runs use
+`--autonomy full`; if denials bite, the options are a narrower allowlist or
+`--agent-cmd` to take the command over. Decide from evidence, not up front. The SDK
+backend reports `permission_denials`, so a run that quietly did less says so; the CLI
+backend cannot see them, and an empty list there is not proof none occurred.
+
+### qa — Python first, model on failure
+
+Reads `.start-task.json` from the target repo:
+
+```json
+{"lint": "npm run lint", "build": "npm run build", "test": "npm test"}
+```
+
+Explicit config, not auto-detection. Each command runs in the worktree; a non-zero exit
+is a failure. On failure, one model call per attempt with `prompts/qa_fix.md` and the
+failing command's output, re-running the gate after each. Bounded to 2 attempts, then
+stop and report — never ship a red gate.
+
+Missing keys are skipped with a warning. A missing `.start-task.json` skips the phase
+entirely with a warning.
+
+This covers the mechanical half of QA. Visual and behavioural verification — "does this
+screen look right" — is out of scope; see Non-goals.
+
+### ship — pure Python
+
+1. `gh pr ready <url>`; set the PR body from `result.json.summary`.
+2. `set-status In Review`.
+3. Post the 🚀 completion comment with the summary and PR link.
+
+## Context bundle
+
+`context.json`, the sole input to the implement call:
+
+```json
+{
+  "task": {
+    "id": "MT251-47", "gid": "1209...", "url": "https://app.asana.com/...",
+    "name": "Add CSV export", "description": "...",
+    "category": "Feature Request", "status": "In Progress",
+    "estimate": "3h", "assignee": "Justin"
+  },
+  "subtasks":     [{"name": "...", "completed": false}],
+  "dependencies": [{"name": "...", "completed": true}],
+  "comments":     [{"author": "...", "created_at": "...", "text": "..."}],
+  "attachments":  [{"name": "spec.md", "path": "attachments/spec.md", "inline": "..."}],
+  "external_links": ["https://figma.com/file/..."],
+  "git": {
+    "branch": "MT251-47/add-csv-export", "base": "origin/main",
+    "worktree": "/Users/.../repo/.cortex/worktrees/MT251-47+add-csv-export", "pr_url": "https://github.com/..."
+  },
+  "repo": {"root": "/Users/.../repo-MT251-47"}
+}
+```
+
+`category` is context for the implement call, not a routing key — the bug/feature fork
+that `start-task` uses to pick a sub-skill has no equivalent here, since there is one
+implementation path.
+
+## Preconditions gate
+
+Blocking:
+
+- Task is in a not-yet-started status.
+- **No incomplete dependencies.** New — the current flow cannot see dependencies at
+  all; the contract has `add_dependency` (write) with no read counterpart.
+- Assignee is the current user (self-assign when empty; fail when someone else's).
+
+Warning only: active-sprint membership, Estimate. Both are process hygiene the
+implementation never reads. `--strict` restores them as blocking. `--ignore-deps` goes
+the other way, demoting the dependency check to a warning for the case where the
+blocker is known-irrelevant and updating Asana is not worth the round-trip.
+
+The premise: a task that passes this gate carries everything needed to implement it, so
+the implement call does not need to go hunting.
+
+## Additions to the copied `asana.py`
+
+`tm.py` scripts its Asana *writes* but not these *reads* — the provider's mapping table
+points them at raw `curl` recipes in `references/rest.md` for a model to hand-assemble.
+They become real verbs here:
+
+| Verb | Endpoint |
+|---|---|
+| `task subtasks <gid>` | `GET /tasks/<gid>/subtasks?opt_fields=name,completed,gid` |
+| `task attachments <gid>` | `GET /tasks/<gid>/attachments?opt_fields=name,download_url,resource_subtype` |
+| `task dependencies <gid>` | `GET /tasks/<gid>/dependencies?opt_fields=name,completed` |
+
+Each is ~10 lines against the existing `api_get` helper. Everything else is used as-is —
+notably `decide_set_status`, which handles Asana's two-axis status model: try the
+"Product Status" custom field, fall back to a board section move.
+
+## Known gaps
+
+- **Barely run against live tasks.** One real run (HGM-32) reached the end of
+  implement and exited 1 with an empty stderr; that is what motivated
+  `<phase>.failure.log` and resume. The ask cycle is covered by tests and a fake-driven
+  end-to-end, not yet by a real blocked agent.
+- **External links are text only.** Python extracts Figma/Notion/Drive URLs but cannot
+  read them, and the implement call runs without MCP servers. `mcp_servers` is on the
+  SDK's options, so the SDK backend *could* read one. It does not yet.
+- **Copy drift.** `asana.py` diverges from the plugin's `tm.py` the moment either
+  changes.
+- **WIP is never committed.** A blocked or interrupted run leaves its changes
+  uncommitted in the worktree. Resume finds them because the worktree persists, but
+  nothing pushes them, so a lost worktree is lost work.
+- **Resume validates the worktree, not its contents.** If the directory exists, the
+  checkpoint is trusted. A worktree that exists but was reset would still be skipped
+  past.
+
+## Testing
+
+`prologue` is the testable half. Its pure functions — slugify, gate evaluation, URL
+extraction, bundle assembly — get unit tests against fixture JSON, following
+`readiness.py`'s split of pure policy from live fetch. The seam gets its own suite: the
+registry, the tool vocabulary, each backend's mapping tables and failure reporting, and
+the CLI backend's envelope parsing. Phases that shell out to a model, `gh`, or Asana are
+validated by running them.
+
+```bash
+python3 tests/test_pure.py     # slug, gate, link extraction, task key
+python3 tests/test_agent.py    # the seam, registry, backends, envelope
+```
