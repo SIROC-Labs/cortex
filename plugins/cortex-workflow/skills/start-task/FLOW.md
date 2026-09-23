@@ -1,6 +1,6 @@
 # `start-task` — Complete Flow Reference
 
-Usage: `/start-task <url> [brainstorm | feature-dev | fast]`
+Usage: `/start-task <url> [brainstorm | feature-dev | fast] [unattended [rework]]`
 
 ## Legend
 
@@ -38,7 +38,7 @@ Task stays **"In Progress"** → ■ PAUSED
 
 ## Main Flow
 
-`$ARGUMENTS` is parsed once up front into named flags: **`fast_mode`**, **`workflow_choice`** (`brainstorm` / `feature-dev`). Steps 0–10 and Step 12 run in every mode; only Step 11 changes (skipped when `fast_mode`; every QA row → `State=skipped`).
+`$ARGUMENTS` is parsed once up front into named flags: **`fast_mode`**, **`workflow_choice`** (`brainstorm` / `feature-dev`). Steps 0–10 and Step 12 run in every mode; only Step 11 changes (skipped when `fast_mode`; every QA row → `State=skipped`). **`unattended_mode`** answers every gate from the plugin's unattended answers, skips Step 3 and Step 9a, always uses a worktree, runs the test ladder after Step 11, and ends with the `UNATTENDED VERDICT` block; **`rework_mode`** reuses the existing branch and PR and scopes work to the delta.
 
 ### Init / Resume (before Step 0)
 

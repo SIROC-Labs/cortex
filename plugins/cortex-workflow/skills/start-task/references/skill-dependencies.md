@@ -109,3 +109,5 @@ These skills are included in the `cortex-workflow` plugin itself:
 | `cortex-workflow:web-qa` | Web QA investigation & verification |
 | `cortex-workflow:mobile-qa` | Mobile QA investigation & verification |
 | `cortex-workflow:backend-qa` | Backend (API/service) QA investigation & verification |
+| `cortex-workflow:implement-feature` | Non-bug implementation routing |
+| `cortex-workflow:agent-loop-readiness` | Readiness verdict consumed by unattended mode |
