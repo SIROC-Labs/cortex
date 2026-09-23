@@ -28,7 +28,7 @@ When invoked standalone, build the context from the conversation and repository 
 
 ## Step 1: Detect a Plan
 
-Check the documents available in the context (e.g. fetched task attachments). `implementation-plan.md` is the canonical name — if present, it is the plan. Otherwise, judge the remaining documents by content: any that reads as an implementation plan (ordered steps, affected files/modules, migration notes, test strategy) counts, regardless of its name. Decide autonomously — do not ask the operator. Who produced the plan does not matter. (See "Plan Artifact Convention" in the bindings reference.)
+Check the plan locations in the order the bindings reference gives (see "Plan Artifact Convention"): first the documents available in the context (fetched task attachments) — `implementation-plan.md` is the canonical name, and otherwise any document whose content reads as an implementation plan (ordered steps, affected files/modules, migration notes, test strategy) counts regardless of its name; then the task description, where a section headed `## Implementation plan` is the plan. Decide autonomously — do not ask the operator. Who produced the plan does not matter.
 
 ## Step 2: Pick the Entry Capability
 

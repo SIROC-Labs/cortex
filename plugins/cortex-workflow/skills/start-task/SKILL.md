@@ -93,6 +93,8 @@ Fetch subtasks via `get_subtasks(task)`. Group by status (incomplete = remaining
 
 Fetch the task's comments via `get_comments(task)`. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents through the `task-manager` interface and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
 
+If the description carries a section headed `## Implementation plan`, mark it in the context bundle as the task's plan (see `plugins/cortex-workflow/references/runtime-bindings.md` → "Plan Artifact Convention"); `implement-feature` reads it from there when no plan attachment exists.
+
 Also scan the task description and comments for links to external tools (design files, documents, specs, etc.). For each link found, invoke the appropriate MCP or tool to fetch its content and include it in the context bundle passed to the downstream skill in Step 10.
 
 ### Step 6: Check for Existing Work
@@ -170,7 +172,7 @@ Post a start comment on the task with the branch name and draft PR URL via `add_
 
 ### Step 10: Route to the Right Workflow
 
-Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
+Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **the description's `## Implementation plan` section when present**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
 
 **If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `implement-feature`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 

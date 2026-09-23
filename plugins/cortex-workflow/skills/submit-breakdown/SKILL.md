@@ -203,6 +203,8 @@ For each file path in a block's `**Attachments:**` list:
 2. Rename on upload — `milestone-spec.md` for M-blocks, `implementation-plan.md` for T-blocks (strip any local `M{N}-` / `T{N}-<slug>-` ordering prefix).
 3. **On re-runs (replace, not duplicate):** if an attachment with that target name already exists on the task (`get_attachments`), `remove_attachment(task, <it>)` first, then `upload_attachment(task, <path>)`.
 
+A provider transport that cannot upload files realizes `upload_attachment` of `implementation-plan.md` as the task's `## Implementation plan` description section and reports that; treat the report as the attachment being present for the "Plan attached" status decision. For any other file it stops with an operator prompt naming the file and the task; record that in the progress line and continue with the next block.
+
 ### Re-run behavior
 
 submit-breakdown is **idempotent and non-destructive on re-run**:
