@@ -970,6 +970,45 @@ def fields_resolve(args):
     sys.exit(0)
 
 
+# Offline: plan the single update payload for a batch of canonical field writes
+# against a project whose fields are cached. The agent sends the result as one
+# `update_tasks` / `create_tasks` call over the MCP transport. Fields not on the
+# project are reported under "skipped", never silently dropped.
+def fields_plan(args):
+    if len(args) < 2:
+        die(1, "usage: %s fields plan <project-gid> <Name=Value> [<Name=Value> ...]" % PROG)
+    project_gid = args[0]
+    pairs = parse_field_pairs(args[1:])
+    key = cache_util.project_key()
+    fields_map = cached_fields_map(key, project_gid)
+    if fields_map is None:
+        die(2, "%s: fields plan: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+    data = {}
+    custom = {}
+    skipped = []
+    for name, value in pairs:
+        if name == "Assignee":
+            data["assignee"] = value
+            continue
+        entry = fields_map.get(name)
+        if not isinstance(entry, dict):
+            skipped.append(name)
+            continue
+        try:
+            r = field_write_from_entry(entry, name, value)
+        except ValueError as e:
+            die(1, "%s: %s" % (PROG, e))
+        if r is None:
+            skipped.append(name)
+        else:
+            custom[r[1]] = r[2]
+    if custom:
+        data["custom_fields"] = custom
+    data["skipped"] = skipped
+    sys.stdout.write(json.dumps(data, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- task family ------------------------------------------------------------
 
 # Pure: coerce a flexible Estimate input into canonical integer MINUTES. This is the
@@ -1370,23 +1409,12 @@ def print_task_projection(api_response):
     sys.stdout.write(json.dumps(project_task(data if isinstance(data, dict) else {}), indent=2) + "\n")
 
 
-# Resolve ONE canonical field write against a task's projects. Returns a tuple:
-#   ("assignee", <value>)            -> native assignee (PUT /tasks {assignee})
-#   ("custom_field", <gid>, <value>) -> custom_fields:{<gid>:<value>}
-#   None                             -> field not on any of the projects (skip)
-# Raises ValueError on an unparseable/unmatched value (caller surfaces it).
-# Shared by `set-field` (single) and `set-fields`/`create --set` (batch) so all three
-# apply identical enum-match / Estimate-unit / native-assignee logic.
-def resolve_field_write(key, token, project_gids, name, value):
-    if name == "Assignee":
-        return ("assignee", value)
-    entry = None
-    for pgid in project_gids:
-        entry = _resolve_field_entry(key, pgid, name)
-        if entry is not None:
-            break
-    if entry is None:
-        return None
+# Pure: turn a resolved field descriptor + canonical name + flexible value into the
+# write tuple ("custom_field", <gid>, <value>), or None when the descriptor has no
+# gid. Raises ValueError on an enum value that matches no option. Shared by the
+# REST write path (resolve_field_write) and the offline `fields plan` verb so both
+# transports apply identical enum-match and Estimate-unit logic.
+def field_write_from_entry(entry, name, value):
     field_gid = entry.get("id")
     ftype = entry.get("type")
     if not field_gid:
@@ -1403,6 +1431,23 @@ def resolve_field_write(key, token, project_gids, name, value):
     if name == "Estimate":
         return ("custom_field", field_gid, estimate_number_value(parse_estimate_to_minutes(value, entry), entry))
     return ("custom_field", field_gid, value)
+
+
+# Resolve ONE canonical field write against a task's projects (REST path). Returns
+#   ("assignee", <value>)            -> native assignee (PUT /tasks {assignee})
+#   ("custom_field", <gid>, <value>) -> custom_fields:{<gid>:<value>}
+#   None                             -> field not on any of the projects (skip)
+def resolve_field_write(key, token, project_gids, name, value):
+    if name == "Assignee":
+        return ("assignee", value)
+    entry = None
+    for pgid in project_gids:
+        entry = _resolve_field_entry(key, pgid, name)
+        if entry is not None:
+            break
+    if entry is None:
+        return None
+    return field_write_from_entry(entry, name, value)
 
 
 # Build a single PUT body that applies many field writes at once. Returns
@@ -2127,6 +2172,7 @@ FIELDS_VERBS = {
     "resolve": fields_resolve,
     "discover": fields_discover,
     "ingest": fields_ingest,
+    "plan": fields_plan,
 }
 
 TASK_VERBS = {

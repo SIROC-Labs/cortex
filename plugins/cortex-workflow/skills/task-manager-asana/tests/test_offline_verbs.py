@@ -171,5 +171,33 @@ class FieldsOfflineTest(TmCase):
         self.assertEqual(out, "")
 
 
+class FieldsPlanTest(TmCase):
+    def ingest(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        self.tm("fields", "ingest", "p1", "--from-json", path)
+
+    def test_plan_resolves_enum_estimate_assignee_and_skips_absent(self):
+        self.ingest()
+        code, out, err = self.tm("fields", "plan", "p1", "Priority=p1", "Estimate=1h 30m",
+                                 "Assignee=me", "Platform=Backend")
+        self.assertEqual(code, 0, err)
+        plan = json.loads(out)
+        self.assertEqual(plan["assignee"], "me")
+        self.assertEqual(plan["custom_fields"]["f1"], "o1")
+        self.assertEqual(plan["custom_fields"]["f2"], 90)
+        self.assertEqual(plan["skipped"], ["Platform"])
+
+    def test_plan_bad_enum_value_exits_1(self):
+        self.ingest()
+        code, _, err = self.tm("fields", "plan", "p1", "Priority=P9")
+        self.assertEqual(code, 1)
+        self.assertIn("P9", err)
+
+    def test_plan_without_cache_exits_2(self):
+        code, _, err = self.tm("fields", "plan", "p1", "Priority=P0")
+        self.assertEqual(code, 2)
+        self.assertIn("fields ingest", err)
+
+
 if __name__ == "__main__":
     unittest.main()
