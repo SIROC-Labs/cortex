@@ -30,6 +30,7 @@ Two pieces:
 | **Breakdown & estimation** | Break the solution into tasks with a real effort estimate | `milestone-breakdown`, `task-breakdown`, `submit-breakdown`, `refine-tasks` |
 | **Development** | A workflow that enforces delivery discipline and gets more out of the coding agent | `start-task`, `implement-feature`, `fix-bug` |
 | **QA & release** | Validate the build, generate verifiable evidence, ship a documented release | `web-qa`, `mobile-qa`, `backend-qa`, `pre-ship-check`, `ship-it`, `create-pr` |
+| **Autonomous execution** | Let an unattended agent take ready cards off a board, build and ship them, and hand back what needs a human | `agent-loop-setup`, `agent-loop-tick`, `agent-loop-author` |
 
 Each phase has a gate, so work only moves forward once it has produced what the next phase needs: the problem validated, the PRD written, the plan estimated, the evidence collected.
 

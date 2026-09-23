@@ -8,12 +8,22 @@ cortex-workflow/
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version, skills array)
 │                          ← (no `bin/`) — helper scripts live skill-local in each skill's `scripts/`, invoked via `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/<skill>/scripts/<name>` (cross-runtime). The plugin deliberately does NOT use a `bin/` PATH dir: Claude Code auto-prepends `<plugin>/bin/`, but OpenCode/Codex do not, so a bare-name `bin/` script would be Claude-Code-only.
-├── references/            ← plugin-wide shared references (qa-routing, runtime-bindings)
+├── references/            ← plugin-wide shared references (qa-routing, runtime-bindings, unattended-answers)
+│   ├── unattended-answers.md ← every blocking gate's answer for unattended invocations
 │   └── workflow/          ← neutral workflow rules: fields, lifecycle, boards
 └── skills/
     ├── task-manager/      ← neutral task-manager interface / seam (bundled)
     ├── task-manager-asana/ ← Asana provider implementation (bundled)
     ├── task-manager-jira/ ← Jira provider implementation (bundled)
+    ├── agent-loop-author/ ← Any input → one-shot cards on the agent board's queue, gated by readiness (bundled)
+    │   └── references/    ← any-input enumeration, four verifications, common mistakes
+    ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
+    │   └── references/    ← default-or-stop, vague-word gate, rationalizations
+    ├── agent-loop-setup/  ← Agent board: find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json (bundled)
+    │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
+    │   └── tests/
+    ├── agent-loop-tick/   ← One unattended run: claim, gate, start-task unattended, route the card (bundled)
+    │   └── references/    ← claiming, routing, running (per-runtime scheduling)
     ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
@@ -111,6 +121,26 @@ submit-breakdown           (the only writer: replicates a breakdown bundle — m
 refine-tasks               (Refinement-status tasks → Unassigned with implementation-plan.md attached)
   ├── task-manager       (resolve task set, fetch descriptions, upload attachment, set fields, set status)
   └── (codebase read)    (no other skill dependency — runs in the repo)
+
+agent-loop-setup           (attended: board, roles, rotation, repos root → agent-loop cache)
+  └── task-manager       (list_boards, get_board, ensure_board, ensure_columns, get_current_user)
+
+agent-loop-tick            (unattended: one card per run)
+  ├── task-manager       (resolve_board("agent-queue"), list_tasks(board, column), move_task, get_dependencies, get_comments, add_comment, set_field)
+  ├── agent-loop-readiness (audit mode gate)
+  ├── start-task         (unattended [rework] — returns an UNATTENDED VERDICT block)
+  └── → routes the card by verdict; never asks
+
+agent-loop-author          (attended: input → cards)
+  ├── agent-loop-readiness (author mode gate, loop until READY)
+  ├── task-manager       (resolve_board("agent-queue"), create_task, move_task, add_dependency, set_field)
+  └── [external] CREATE_PLAN binding for thin inputs
+
+start-task unattended      (mode: gates answered from references/unattended-answers.md)
+  ├── implement-feature | fix-bug   (unattended: true)
+  ├── web-qa / mobile-qa / backend-qa (unattended: true)
+  ├── references/test-ladder.md, references/reporting.md
+  └── ship-it            (unattended: true — skips the task update)
 ```
 
 generic-qa (shared markdown, not a skill)
@@ -176,6 +206,7 @@ To add a provider, see `skills/task-manager/references/provider-guide.md`. For t
 - **Who-names-whom (one-way):** orchestrators may name the seam + `references/workflow/*`; the seam names the provider it resolves; providers name only their own mechanics; the neutral workflow refs name nothing downstream (no provider, no GID). Callees never name callers.
 - **Field/status/board vocabulary is neutral.** Use the names in `references/workflow/{fields,lifecycle,boards}.md`; never provider terms (Asana "section", Jira "statusCategory") in an orchestrator.
 - **Extending the contract:** add an operation by editing `skills/task-manager/SKILL.md` (it's an open/semantic contract); then every provider must map it or degrade per the provider-guide's partial-support rule. Rare provider-specific needs use the documented escape hatch — don't push provider mechanics up into orchestrators.
+- **Agent-board moves use `move_task`, never `set_status`** — columns are addressed by role from the agent-loop cache; `set_status`'s field-first rule would land on Product Status values.
 - **`references/workflow/*` encodes siroc's workflow profile** (status pipeline, field set) — neutral in form but org-shaped; a different org adapts these, not the orchestrators.
 
 ## Naming Conventions for Interface Tokens
@@ -243,4 +274,4 @@ One of:
 
 ## Testing
 
-`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness). Run it before every commit that touches a script.
+`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness, and the agent-loop cache, rotation, ordering and dependency gate). Run it before every commit that touches a script.
