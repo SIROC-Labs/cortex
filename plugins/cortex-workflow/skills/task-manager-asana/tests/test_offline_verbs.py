@@ -199,5 +199,112 @@ class FieldsPlanTest(TmCase):
         self.assertIn("fields ingest", err)
 
 
+RAW_TASK = {"data": {
+    "gid": "t1", "name": "Do it", "notes": "body", "resource_subtype": "default_task",
+    "assignee": {"name": "Me"},
+    "memberships": [{"project": {"gid": "p1", "name": "Board"}, "section": {"gid": "s1", "name": "Backlog"}}],
+    "custom_fields": [
+        {"gid": "f1", "name": "IT Priority", "type": "enum", "display_value": "P1", "enum_value": {"name": "P1"}},
+        {"gid": "f3", "name": "Product Status", "type": "enum", "display_value": "Assigned"},
+        {"gid": "f9", "name": "PD268", "type": "text", "display_value": "PD268-72"},
+    ],
+}}
+
+
+class TaskProjectTest(TmCase):
+    def test_projection_from_wrapped_task(self):
+        path = helpers.write_json(self.home, "task.json", RAW_TASK)
+        code, out, err = self.tm("task", "project", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        p = json.loads(out)
+        self.assertEqual(p["ref"], "t1")
+        self.assertEqual(p["kind"], "task")
+        self.assertEqual(p["status"], "Assigned")
+        self.assertEqual(p["fields"]["Priority"], "P1")
+        self.assertEqual(p["board"], [{"project": "Board", "section": "Backlog"}])
+        self.assertEqual(p["task_id"], "PD268-72")
+
+    def test_non_object_exits_1(self):
+        code, _, _ = self.tm("task", "project", "--from-json", "-", stdin="[1,2]")
+        self.assertEqual(code, 1)
+
+
+class StatusPlanTest(TmCase):
+    SECTIONS = [{"gid": "s1", "name": "Backlog"}, {"gid": "s2", "name": "In Progress"}]
+
+    def ingest(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        self.tm("fields", "ingest", "p1", "--from-json", path)
+
+    def test_field_axis_wins(self):
+        self.ingest()
+        path = helpers.write_json(self.home, "sections.json", self.SECTIONS)
+        code, out, err = self.tm("status", "plan", "p1", "Assigned", "--sections-from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"axis": "field", "field_gid": "f3", "option_gid": "o8"})
+
+    def test_section_axis(self):
+        self.ingest()
+        path = helpers.write_json(self.home, "sections.json", {"data": {"sections": self.SECTIONS}})
+        code, out, err = self.tm("status", "plan", "p1", "in progress", "--sections-from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"axis": "section", "section_gid": "s2"})
+
+    def test_neither_exits_1(self):
+        self.ingest()
+        path = helpers.write_json(self.home, "sections.json", self.SECTIONS)
+        code, _, _ = self.tm("status", "plan", "p1", "Nowhere", "--sections-from-json", path)
+        self.assertEqual(code, 1)
+
+    def test_no_fields_cache_exits_2(self):
+        path = helpers.write_json(self.home, "sections.json", self.SECTIONS)
+        code, _, _ = self.tm("status", "plan", "p1", "Backlog", "--sections-from-json", path)
+        self.assertEqual(code, 2)
+
+
+class RenderBodyTest(TmCase):
+    def test_markdown_comment_renders_html_text(self):
+        code, out, err = self.tm("render", "body", "Hello **there**\n\n- a\n- b", "--for", "comment")
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertIn("html_text", payload)
+        self.assertTrue(payload["html_text"].startswith("<body>"))
+        self.assertIn("<strong>there</strong>", payload["html_text"])
+        self.assertNotIn("<br>", payload["html_text"])
+
+    def test_plain_notes_from_body_file(self):
+        path = os.path.join(self.home, "body.md")
+        with open(path, "w") as f:
+            f.write("plain words only")
+        code, out, err = self.tm("render", "body", "--body-file", path, "--for", "notes")
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertEqual(set(payload.keys()) & {"notes", "html_notes"}, set(payload.keys()))
+
+    def test_empty_body_exits_1(self):
+        code, _, _ = self.tm("render", "body", "   ")
+        self.assertEqual(code, 1)
+
+
+class MilestoneClassifyTest(TmCase):
+    def test_classify_sections(self):
+        groups = [
+            {"section": {"gid": "s1", "name": "M1"}, "tasks": [
+                {"gid": "a", "name": "M1", "resource_subtype": "milestone"},
+                {"gid": "b", "name": "T1", "resource_subtype": "default_task"}]},
+            {"section": {"gid": "s2", "name": "M2"}, "tasks": [
+                {"gid": "c", "name": "M2", "resource_subtype": "milestone"}]},
+            {"section": {"gid": "s3", "name": "Loose"}, "tasks": [
+                {"gid": "d", "name": "T9", "resource_subtype": "default_task"}]},
+        ]
+        path = helpers.write_json(self.home, "groups.json", groups)
+        code, out, err = self.tm("milestone", "classify", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), [
+            {"name": "M1", "ref": "a", "expanded": True},
+            {"name": "M2", "ref": "c", "expanded": False},
+        ])
+
+
 if __name__ == "__main__":
     unittest.main()

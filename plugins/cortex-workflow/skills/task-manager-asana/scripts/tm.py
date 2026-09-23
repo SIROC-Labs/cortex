@@ -108,6 +108,23 @@
 #
 #   tm.py user me
 #
+# Offline verbs (agent-invoked transport support). When the skill runs over an Asana
+# MCP server, the agent fetches Asana objects and these verbs apply the same policy
+# the REST verbs apply, reading JSON via --from-json <path|-> and writing the same
+# cache. None of them opens a network connection.
+#
+#   tm.py auth status [<key>]
+#   tm.py board resolve <key> <intent> --offline
+#   tm.py board ingest <key> --from-json <path|-> [--workspace-gid <gid>]
+#   tm.py fields ingest <project-gid> --from-json <path|->
+#   tm.py fields list <project-gid> --offline
+#   tm.py fields resolve <project-gid> <CanonicalName> --offline
+#   tm.py fields plan <project-gid> <Name=Value> ...
+#   tm.py task project --from-json <path|->
+#   tm.py status plan <project-gid> <status-name> --sections-from-json <path|->
+#   tm.py render body (<body> | --body-file <path>) [--for comment|notes]
+#   tm.py milestone classify --from-json <path|->
+#
 # `tm.py --help` (or `-h` / `help`) lists every family and verb.
 #
 # <key> comes from `tm.py board key` (git remote -> sanitized; fallback to repo
@@ -1266,6 +1283,18 @@ def task_list(args):
     sys.exit(0)
 
 
+# Offline: project one raw task object (as the API or an MCP tool returns it,
+# optionally wrapped in {"data": ...}) into the compact neutral shape `task get`
+# prints. Canonical field names come from the same name matcher the cached map is
+# built with, so no cache is required.
+def task_project(args):
+    raw = _unwrap_data(_load_from_json(args, "--from-json"))
+    if not isinstance(raw, dict):
+        die(1, "%s: task project: --from-json must be one task object" % PROG)
+    sys.stdout.write(json.dumps(project_task(raw), indent=2) + "\n")
+    sys.exit(0)
+
+
 # Create a task and add it to a board/project. <project-ref> is an Asana project
 # GID (the board to add the task to). Workspace comes from the board cache; a
 # missing workspace_gid is a bootstrap condition (exit 4). Two API calls: POST
@@ -1719,6 +1748,41 @@ def task_set_status(args):
     die(1, "%s: task set-status: '%s' is not a known Product Status option or board section on task %s's project(s)" % (PROG, status_name, task_gid))
 
 
+# --- status family ------------------------------------------------------------
+
+# Offline half of `task set-status`: decide the axis for <status-name> against a
+# project whose fields are cached and whose sections the agent fetched, and print
+# the target the agent writes over the MCP transport:
+#   {"axis":"field","field_gid":…,"option_gid":…}  -> update_tasks custom_fields
+#   {"axis":"section","section_gid":…}             -> update_tasks add_projects
+# Neither -> exit 1. No cached fields -> exit 2 (ingest first), because the field
+# axis must be tried before the section axis and cannot be tried blind.
+def status_plan(args):
+    if len(args) < 2:
+        die(1, "usage: %s status plan <project-gid> <status-name> --sections-from-json <path|->" % PROG)
+    project_gid, status_name = args[0], args[1]
+    sections = _unwrap_data(_load_from_json(args[2:], "--sections-from-json"))
+    if isinstance(sections, dict) and isinstance(sections.get("sections"), list):
+        sections = sections["sections"]
+    if not isinstance(sections, list):
+        die(1, "%s: status plan: --sections-from-json must be the project's sections array" % PROG)
+    key = cache_util.project_key()
+    fields_map = cached_fields_map(key, project_gid)
+    if fields_map is None:
+        die(2, "%s: status plan: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+    ps_field = fields_map.get("Product Status")
+    ps_field = ps_field if isinstance(ps_field, dict) else None
+    axis, target = decide_set_status(status_name, ps_field, sections)
+    if axis == "field" and target:
+        out = {"axis": "field", "field_gid": ps_field.get("id"), "option_gid": target}
+    elif axis == "section" and target:
+        out = {"axis": "section", "section_gid": target}
+    else:
+        die(1, "%s: status plan: '%s' is not a Product Status option or a section of project %s" % (PROG, status_name, project_gid))
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # Set (replace) a task's description/notes. <task-ref> is a task GID; the body is
 # authored as Markdown (positional arg or --body-file), converted to Asana HTML the
 # same way comments are (md_to_html → render_body), and PUT to the task's html_notes
@@ -1832,6 +1896,29 @@ def milestone_tasks(args):
         die(1, "%s: milestone tasks: milestone %s not found in project %s" % (PROG, anchor_gid, project_gid))
     members = [t for t in fetch_section_tasks(sgid, token) if t["kind"] != "milestone"]
     sys.stdout.write(json.dumps(members, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Offline half of `milestone list`: the agent fetched each section's tasks over the
+# MCP transport and hands in [{"section":{gid,name},"tasks":[{gid,name,
+# resource_subtype}]}]; print the same [{name, ref, expanded}] shape.
+def milestone_classify(args):
+    groups = _unwrap_data(_load_from_json(args, "--from-json"))
+    if not isinstance(groups, list):
+        die(1, "%s: milestone classify: --from-json must be an array of {section, tasks} groups" % PROG)
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        sect = g.get("section") if isinstance(g.get("section"), dict) else {}
+        tasks = [t for t in (g.get("tasks") or []) if isinstance(t, dict)]
+        kinds = [("milestone" if t.get("resource_subtype") == "milestone" else "task", t) for t in tasks]
+        anchor = next((t for k, t in kinds if k == "milestone"), None)
+        if anchor is None:
+            continue
+        out.append({"name": sect.get("name"), "ref": anchor.get("gid"),
+                    "expanded": any(k != "milestone" for k, _ in kinds)})
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
@@ -2089,6 +2176,53 @@ def comment_list(args):
     sys.exit(0)
 
 
+# --- render family ------------------------------------------------------------
+
+# Read a body from `rest`: `--body-file <path>` or the first positional argument.
+def _read_body_arg(rest, verb):
+    if rest and rest[0] == "--body-file":
+        if len(rest) < 2:
+            die(1, "%s: %s: --body-file requires a path" % (PROG, verb))
+        try:
+            with open(rest[1], "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            die(1, "%s: %s: cannot read --body-file '%s' (%s)" % (PROG, verb, rest[1], e))
+    if rest:
+        return rest[0]
+    die(1, "%s: %s requires a body (<body> or --body-file <path>)" % (PROG, verb))
+
+
+# Offline half of `comment add` / `task set-notes`: convert Markdown to the Asana
+# payload the agent sends over the MCP transport. `--for comment` (default) prints
+# {"html_text"} or {"text"}; `--for notes` prints {"html_notes"} or {"notes"}.
+def render_body_cmd(args):
+    target = "comment"
+    rest = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--for":
+            if i + 1 >= len(args):
+                die(1, "%s: render body: --for requires comment|notes" % PROG)
+            target = args[i + 1]
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    if target not in ("comment", "notes"):
+        die(1, "%s: render body: --for must be comment or notes" % PROG)
+    body = _read_body_arg(rest, "render body")
+    if not body.strip():
+        die(1, "%s: render body: body is empty" % PROG)
+    is_html, wrapped = render_body(md_to_html(body))
+    if target == "comment":
+        out = {"html_text": wrapped} if is_html else {"text": wrapped}
+    else:
+        out = {"html_notes": wrapped} if is_html else {"notes": wrapped}
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- ref family -------------------------------------------------------------
 
 # An app.asana.com host (with or without a leading scheme). The task GID is always a
@@ -2188,6 +2322,7 @@ TASK_VERBS = {
     "set-parent": task_set_parent,
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
+    "project": task_project,
 }
 
 COMMENT_VERBS = {
@@ -2207,6 +2342,15 @@ MILESTONE_VERBS = {
     "list": milestone_list,
     "tasks": milestone_tasks,
     "ensure": milestone_ensure,
+    "classify": milestone_classify,
+}
+
+STATUS_VERBS = {
+    "plan": status_plan,
+}
+
+RENDER_VERBS = {
+    "body": render_body_cmd,
 }
 
 AUTH_VERBS = {
@@ -2222,6 +2366,8 @@ FAMILIES = {
     "ref": REF_VERBS,
     "user": USER_VERBS,
     "milestone": MILESTONE_VERBS,
+    "status": STATUS_VERBS,
+    "render": RENDER_VERBS,
 }
 
 
