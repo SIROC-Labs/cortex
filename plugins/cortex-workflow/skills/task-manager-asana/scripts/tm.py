@@ -19,6 +19,10 @@
 #   tm.py board discover <key>
 #   tm.py board refresh  <key>
 #   tm.py board write    <key> <json>
+#   tm.py board list     [<key>]
+#   tm.py board sections <project-gid>
+#   tm.py board create   <name> --columns "A,B,C" [--team <team-gid>] [<key>]
+#   tm.py board add-columns <project-gid> <name> [<name> ...]
 #
 # Fields family — code-enforced custom-field DISCOVERY + name->id mapping. The
 # rules in ../references/custom-fields.md (canonical field set, fuzzy match-pattern
@@ -43,7 +47,7 @@
 # `fields` resolution logic.
 #
 #   tm.py task get           <task-ref>
-#   tm.py task list          <project-ref>
+#   tm.py task list          <project-ref> [--section <section-gid>]
 #   tm.py task create        <project-ref> --title T [--description D] [--assignee A]
 #                            [--kind task|milestone] [--set Name=Value ...] [--wait-key]
 #   tm.py task delete        <task-ref>
@@ -55,6 +59,8 @@
 #   tm.py task set-parent    <task-ref> <parent-ref>
 #   tm.py task add-to-board  <task-ref> <board-ref>
 #   tm.py task set-status    <task-ref> <status-name>
+#   tm.py task move          <task-ref> <project-gid> <section-gid>
+#   tm.py task deps          <task-ref>
 #
 # add-dependency/set-parent/add-to-board are single POSTs (addDependencies /
 # setParent / addProject), all via urllib. set-status is TWO-AXIS per
@@ -688,6 +694,87 @@ def board_ingest(args):
     sys.stdout.write(json.dumps(cache_util.read_cache(key), indent=2) + "\n")
 
 
+# list_boards(): every non-archived project as {ref, name, completed}. Paged read.
+def board_list(args):
+    key = args[0] if args else cache_util.project_key()
+    wgid = workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board list requires a cached workspace_gid — resolve a board first" % PROG)
+    token = resolve_token(key)
+    out = [{"ref": p.get("gid"), "name": p.get("name"), "completed": p.get("completed")}
+           for p in fetch_all_projects(wgid, token) if isinstance(p, dict)]
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# get_board(board): the project and its sections as {ref, name, columns:[{ref,name}]}.
+def board_sections(args):
+    if not args:
+        die(1, "usage: %s board sections <project-gid>" % PROG)
+    project_gid = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/projects/%s?opt_fields=name" % (API_BASE, project_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    columns = [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(project_gid, token)]
+    sys.stdout.write(json.dumps({"ref": project_gid, "name": data.get("name"), "columns": columns}, indent=2) + "\n")
+    sys.exit(0)
+
+
+# ensure_board(name, columns) create half: POST /projects then one section per name.
+# Reuse-by-name is the caller's (`board list` first). Organisations require a team;
+# pass --team when the workspace is one.
+def board_create(args):
+    if not args:
+        die(1, "usage: %s board create <name> --columns \"A,B,C\" [--team <team-gid>] [<key>]" % PROG)
+    name = args[0]
+    columns = [c.strip() for c in (_flag_value(args[1:], "--columns") or "").split(",") if c.strip()]
+    team = _flag_value(args[1:], "--team")
+    positional = []
+    i = 1
+    while i < len(args):
+        if args[i] in ("--columns", "--team"):
+            i += 2
+            continue
+        positional.append(args[i])
+        i += 1
+    key = positional[0] if positional else cache_util.project_key()
+    wgid = workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board create requires a cached workspace_gid — resolve a board first" % PROG)
+    token = resolve_token(key)
+    data = {"name": name, "workspace": wgid, "default_view": "board"}
+    if team:
+        data["team"] = team
+    created = api_json("%s/projects" % API_BASE, token, "POST", {"data": data})
+    pgid = (created.get("data") or {}).get("gid") if isinstance(created, dict) else None
+    if not pgid:
+        die(1, "%s: board create: Asana returned no project gid" % PROG)
+    for col in columns:
+        api_json("%s/projects/%s/sections" % (API_BASE, pgid), token, "POST", {"data": {"name": col}})
+    out = {"ref": pgid, "created": True,
+           "columns": [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(pgid, token)]}
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# ensure_columns(board, names): add each missing section by exact name.
+def board_add_columns(args):
+    if len(args) < 2:
+        die(1, "usage: %s board add-columns <project-gid> <name> [<name> ...]" % PROG)
+    project_gid, names = args[0], args[1:]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    existing = {s.get("name") for s in fetch_project_sections(project_gid, token)}
+    for n in names:
+        if n not in existing:
+            api_json("%s/projects/%s/sections" % (API_BASE, project_gid), token, "POST", {"data": {"name": n}})
+    out = [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(project_gid, token)]
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+
 # High-level provider entry point. intent in {active-sprint, backlog}.
 def board_resolve(args):
     offline = "--offline" in args
@@ -1257,13 +1344,30 @@ def task_get(args):
     sys.exit(0)
 
 
+# list_tasks(board, column?): a project's or one section's tasks in native order,
+# compact, with the assignee and canonical fields so callers can order by Priority
+# and route by Category without provider terms.
 def task_list(args):
-    if not args:
-        die(1, "usage: %s task list <project-ref>" % PROG)
-    project_ref = args[0]
+    section = _flag_value(args, "--section")
+    rest = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--section":
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    if not rest:
+        die(1, "usage: %s task list <project-ref> [--section <section-gid>]" % PROG)
+    project_ref = rest[0]
     key = cache_util.project_key()
     token = resolve_token(key)
-    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed,resource_subtype&limit=100" % (API_BASE, project_ref)
+    opt = ("gid,name,completed,resource_subtype,assignee.name,custom_fields.name,"
+           "custom_fields.display_value,custom_fields.enum_value.name,custom_fields.resource_subtype")
+    if section:
+        url = "%s/sections/%s/tasks?opt_fields=%s&limit=100" % (API_BASE, section, opt)
+    else:
+        url = "%s/projects/%s/tasks?opt_fields=%s&limit=100" % (API_BASE, project_ref, opt)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1271,11 +1375,14 @@ def task_list(args):
         if isinstance(data, list):
             for item in data:
                 if isinstance(item, dict):
+                    p = project_task(item)
                     out.append({
                         "gid": item.get("gid"),
                         "name": item.get("name"),
-                        "kind": "milestone" if item.get("resource_subtype") == "milestone" else "task",
+                        "kind": p["kind"],
                         "completed": item.get("completed"),
+                        "assignee": p["assignee"],
+                        "fields": p["fields"],
                     })
         next_page = payload.get("next_page") if isinstance(payload, dict) else None
         url = next_page.get("uri") if isinstance(next_page, dict) else None
@@ -1656,6 +1763,54 @@ def task_add_to_board(args):
         "%s/tasks/%s/addProject" % (API_BASE, task_gid),
         token, "POST", {"data": {"project": board}})
     print_task_projection(result)
+    sys.exit(0)
+
+
+# move_task(task, board, column): POST /sections/<s>/addTask places the task in the
+# section and adds it to the project when it is not yet a member.
+def task_move(args):
+    if len(args) < 3:
+        die(1, "usage: %s task move <task-gid> <project-gid> <section-gid>" % PROG)
+    task_gid, project_gid, section_gid = args[0], args[1], args[2]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": task_gid}})
+    sys.stdout.write(json.dumps({"task": task_gid, "board": project_gid, "column": section_gid}) + "\n")
+    sys.exit(0)
+
+
+# Pure: Asana memberships -> the neutral [{board:{ref,name}, column:{ref,name}}].
+def _membership_projection(memberships):
+    out = []
+    for m in memberships or []:
+        if not isinstance(m, dict):
+            continue
+        proj = m.get("project") if isinstance(m.get("project"), dict) else {}
+        sect = m.get("section") if isinstance(m.get("section"), dict) else {}
+        out.append({"board": {"ref": proj.get("gid"), "name": proj.get("name")},
+                    "column": {"ref": sect.get("gid"), "name": sect.get("name")}})
+    return out
+
+
+# get_dependencies(task): the blockers with completion and board/column memberships,
+# one read per blocker.
+def task_deps(args):
+    if not args:
+        die(1, "usage: %s task deps <task-gid>" % PROG)
+    task_gid = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/tasks/%s?opt_fields=dependencies.gid" % (API_BASE, task_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    deps = [d.get("gid") for d in (data.get("dependencies") or []) if isinstance(d, dict) and d.get("gid")]
+    out = []
+    for gid in deps:
+        raw = api_get("%s/tasks/%s?opt_fields=name,completed,memberships.project.gid,memberships.project.name,"
+                      "memberships.section.gid,memberships.section.name" % (API_BASE, gid), token)
+        t = raw.get("data") if isinstance(raw, dict) else {}
+        out.append({"ref": gid, "name": t.get("name"), "completed": t.get("completed"),
+                    "memberships": _membership_projection(t.get("memberships"))})
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
@@ -2299,6 +2454,10 @@ BOARD_VERBS = {
     "refresh": board_refresh,
     "write": board_write,
     "ingest": board_ingest,
+    "list": board_list,
+    "sections": board_sections,
+    "create": board_create,
+    "add-columns": board_add_columns,
 }
 
 FIELDS_VERBS = {
@@ -2323,6 +2482,8 @@ TASK_VERBS = {
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
     "project": task_project,
+    "move": task_move,
+    "deps": task_deps,
 }
 
 COMMENT_VERBS = {

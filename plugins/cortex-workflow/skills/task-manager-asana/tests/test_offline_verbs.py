@@ -306,5 +306,16 @@ class MilestoneClassifyTest(TmCase):
         ])
 
 
+class MembershipProjectionTest(unittest.TestCase):
+    def test_projection_shape(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+        import tm
+        out = tm._membership_projection([
+            {"project": {"gid": "p", "name": "Board"}, "section": {"gid": "s", "name": "Backlog"}},
+            "junk",
+        ])
+        self.assertEqual(out, [{"board": {"ref": "p", "name": "Board"}, "column": {"ref": "s", "name": "Backlog"}}])
+
+
 if __name__ == "__main__":
     unittest.main()
