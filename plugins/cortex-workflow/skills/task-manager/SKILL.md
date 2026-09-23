@@ -49,11 +49,17 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `upload_attachment(task, file_path)` / `remove_attachment(task, attachment)`
 - `get_subtasks(task)` / `get_comments(task)` / `get_attachments(task)` — list a task's subtasks / comments / attachments.
 - `list_fields(board)` — canonical fields available on a board.
-- `list_tasks(board)` — enumerate the tasks on a board/sprint; each carries its `kind` (`task`/`milestone`) so callers can find milestone anchors without provider terms.
+- `list_tasks(board, column?)` — enumerate the tasks on a board, or on one of its columns, in the provider's native order; each is `{ref, name, kind, completed, assignee, fields}` with `fields` holding canonical names from `references/workflow/fields.md` so callers can find milestone anchors or read `Priority`/`Category` without provider terms.
 - `list_milestones(board)` — the board's milestones, each `{ref, name, expanded}` (`expanded` = has ≥1 member task). For the backlog-board landscape (which milestones exist, which are already broken into tasks).
 - `milestone_tasks(milestone)` — the member tasks of a milestone.
 - `ensure_milestone(board, name)` — idempotently create the milestone if missing; return its ref. Reuses an existing one; never overwrites its description (set that with `set_description`).
-- `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`).
+- `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`), or `"agent-queue"` — the agent board and its role → column map from the machine-local agent-loop cache (`${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py read <provider>`; exit 4 means the setup skill has not run). The provider does no work for this intent.
+- `list_boards()` — every non-archived board in the workspace as `[{ref, name, completed}]`.
+- `get_board(board)` — `{ref, name, columns: [{ref, name}]}` with columns in native order.
+- `ensure_board(name, column_names)` — reuse the board with exactly that name, else create it with those columns; returns `{ref, created}`.
+- `ensure_columns(board, names)` — add any missing columns by name; returns the board's `[{ref, name}]`.
+- `move_task(task, board, column)` — place the task in that column of that board, adding it to the board when it is not a member. A pure placement, unlike `set_status`.
+- `get_dependencies(task)` — the tasks this task depends on, each `{ref, name, completed, memberships: [{board: {ref, name}, column: {ref, name}}]}`.
 
 ## Rules
 
