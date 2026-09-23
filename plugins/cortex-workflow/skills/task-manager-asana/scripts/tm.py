@@ -643,18 +643,48 @@ def board_refresh(args):
     sys.stdout.write(json.dumps(cache_util.read_cache(key), indent=2) + "\n")
 
 
+# Offline counterpart of `board discover`/`board refresh`: the agent fetched the
+# workspace's projects (all pages, concatenated) over an agent-invoked transport
+# and hands them in; this verb classifies them and writes the cache. Everything
+# already in the cache that this verb does not compute (pattern overrides,
+# asana_token_env, the fields section) is preserved.
+def board_ingest(args):
+    if not args:
+        die(1, "usage: %s board ingest <key> --from-json <path|-> [--workspace-gid <gid>]" % PROG)
+    key = args[0]
+    projects = _unwrap_data(_load_from_json(args[1:], "--from-json"))
+    if not isinstance(projects, list):
+        die(1, "%s: board ingest: --from-json must be a JSON array of projects" % PROG)
+    wgid = _flag_value(args[1:], "--workspace-gid") or workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board ingest: no workspace_gid cached — pass --workspace-gid on first use" % PROG)
+    cache = cache_util.read_cache(key)
+    cache = cache if isinstance(cache, dict) else {}
+    sprint_res, backlog_res = classification_patterns(cache)
+    today = cache_util.today_utc()
+    cache["provider"] = PROVIDER
+    cache["workspace_gid"] = wgid
+    cache["cached_at"] = cache_util.now_iso()
+    cache["active_sprint"] = select_active_sprint(projects, today, sprint_res)
+    cache["backlog_boards"] = select_backlog_boards(projects, sprint_res, backlog_res)
+    cache_util.write_cache(key, cache)
+    sys.stdout.write(json.dumps(cache_util.read_cache(key), indent=2) + "\n")
+
+
 # High-level provider entry point. intent in {active-sprint, backlog}.
 def board_resolve(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
     if len(args) < 2:
-        die(1, "usage: %s board resolve <key> <active-sprint|backlog>" % PROG)
+        die(1, "usage: %s board resolve <key> <active-sprint|backlog> [--offline]" % PROG)
     key = args[0]
     intent = args[1]
     if intent not in ("active-sprint", "backlog"):
         die(1, "%s: board resolve: intent must be 'active-sprint' or 'backlog'" % PROG)
 
     if not os.path.isfile(cache_util.cache_path(key)):
-        # Miss. Distinguish "bootstrap needed" (no workspace_gid to discover with)
-        # from any future scenario where we could self-discover.
+        if offline:
+            die(4, "%s: bootstrap needed: no cache for '%s' — fetch the workspace projects over the MCP transport, then '%s board ingest <key> --from-json <path> --workspace-gid <gid>'" % (PROG, key, PROG))
         die(4, "%s: bootstrap needed: no cache for '%s' — resolve workspace + token env, then '%s board write <key> <json>' and '%s board discover <key>'" % (PROG, key, PROG, PROG))
 
     cache = cache_util.read_cache(key)
@@ -674,6 +704,8 @@ def board_resolve(args):
     stale = cache_util.is_date_stale(due)
 
     if stale:
+        if offline:
+            die(3, "%s: cache for '%s' is stale (active_sprint.due_on < today) — re-fetch the workspace projects and run '%s board ingest'" % (PROG, key, PROG))
         # Sprint auto-refresh, then return from the refreshed cache.
         _capture_stdout(board_refresh, [key])
         cache = cache_util.read_cache(key)
@@ -681,6 +713,8 @@ def board_resolve(args):
     if intent == "active-sprint":
         active = cache.get("active_sprint") if isinstance(cache, dict) else None
         if active is None and not stale:
+            if offline:
+                die(3, "%s: cache for '%s' records no active sprint — re-fetch the workspace projects and run '%s board ingest'" % (PROG, key, PROG))
             # Cache present but no active sprint recorded — re-discover before
             # concluding there is none, so a never-populated/stale null is never
             # returned as if authoritative. (If we already refreshed above, skip.)
@@ -2044,6 +2078,7 @@ BOARD_VERBS = {
     "discover": board_discover,
     "refresh": board_refresh,
     "write": board_write,
+    "ingest": board_ingest,
 }
 
 FIELDS_VERBS = {
