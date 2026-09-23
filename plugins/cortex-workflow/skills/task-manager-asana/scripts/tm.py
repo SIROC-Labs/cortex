@@ -879,15 +879,46 @@ def fields_discover(args):
     sys.stdout.write(json.dumps(fields_map, indent=2) + "\n")
 
 
-# Return the canonical fields map for a project. Cache-first; on a miss, discover
-# from Asana and write back. Exit 0.
-def fields_list(args):
+# Extract the custom_field_settings array from any of the shapes the agent may
+# hand in: the bare array, {"data": [...]}, or a project object (optionally
+# wrapped) carrying "custom_field_settings".
+def _settings_from(obj):
+    obj = _unwrap_data(obj)
+    if isinstance(obj, dict) and isinstance(obj.get("custom_field_settings"), list):
+        return obj["custom_field_settings"]
+    return obj if isinstance(obj, list) else None
+
+
+# Offline counterpart of `fields discover`: the agent fetched the project's
+# custom_field_settings over an agent-invoked transport; build the canonical map
+# and write it to the same cache section.
+def fields_ingest(args):
     if not args:
-        die(1, "usage: %s fields list <project-gid>" % PROG)
+        die(1, "usage: %s fields ingest <project-gid> --from-json <path|->" % PROG)
+    project_gid = args[0]
+    settings = _settings_from(_load_from_json(args[1:], "--from-json"))
+    if settings is None:
+        die(1, "%s: fields ingest: --from-json must be the custom_field_settings array or a project carrying it" % PROG)
+    key = cache_util.project_key()
+    fields_map = build_fields_map(settings)
+    write_fields_map(key, project_gid, fields_map)
+    sys.stdout.write(json.dumps(fields_map, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Return the canonical fields map for a project. Cache-first; on a miss, discover
+# from Asana and write back (with --offline: exit 2 instead). Exit 0.
+def fields_list(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
+    if not args:
+        die(1, "usage: %s fields list <project-gid> [--offline]" % PROG)
     key = cache_util.project_key()
     project_gid = args[0]
     fields_map = cached_fields_map(key, project_gid)
     if fields_map is None:
+        if offline:
+            die(2, "%s: fields list: no cached fields for project %s — fetch its custom_field_settings and run '%s fields ingest %s --from-json <path>'" % (PROG, project_gid, PROG, project_gid))
         token = resolve_token(key)
         fields_map = discover_fields_map(project_gid, token)
         write_fields_map(key, project_gid, fields_map)
@@ -914,14 +945,24 @@ def _resolve_field_entry(key, project_gid, name):
 # Return a single canonical field's descriptor for a project. Cache-first; on a
 # miss, discover and write back, then look up. Exit 0 and print the field if it
 # exists on the project; exit 2 (empty stdout) if that canonical field is not
-# present — skip gracefully, not every project has every field.
+# present — skip gracefully, not every project has every field. With --offline a
+# cache miss also exits 2 instead of discovering.
 def fields_resolve(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
     if len(args) < 2:
-        die(1, "usage: %s fields resolve <project-gid> <CanonicalName>" % PROG)
+        die(1, "usage: %s fields resolve <project-gid> <CanonicalName> [--offline]" % PROG)
     key = cache_util.project_key()
     project_gid = args[0]
     name = args[1]
-    entry = _resolve_field_entry(key, project_gid, name)
+    if offline:
+        fields_map = cached_fields_map(key, project_gid)
+        if fields_map is None:
+            die(2, "%s: fields resolve: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+        entry = fields_map.get(name)
+        entry = entry if isinstance(entry, dict) else None
+    else:
+        entry = _resolve_field_entry(key, project_gid, name)
     if entry is None:
         # Field not present on this project — skip gracefully.
         sys.exit(2)
@@ -2085,6 +2126,7 @@ FIELDS_VERBS = {
     "list": fields_list,
     "resolve": fields_resolve,
     "discover": fields_discover,
+    "ingest": fields_ingest,
 }
 
 TASK_VERBS = {

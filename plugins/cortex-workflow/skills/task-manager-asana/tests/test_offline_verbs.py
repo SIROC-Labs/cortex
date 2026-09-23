@@ -120,5 +120,56 @@ class BoardResolveOfflineTest(TmCase):
         self.assertEqual(json.loads(out), [{"gid": "3", "name": "b"}])
 
 
+SETTINGS = [
+    {"gid": "s1", "custom_field": {"gid": "f1", "name": "IT Priority", "type": "enum",
+                                   "enum_options": [{"gid": "o0", "name": "P0"}, {"gid": "o1", "name": "P1"}]}},
+    {"gid": "s2", "custom_field": {"gid": "f2", "name": "Estimated time", "type": "number",
+                                   "format": "duration", "precision": 0}},
+    {"gid": "s3", "custom_field": {"gid": "f3", "name": "Product Status", "type": "enum",
+                                   "enum_options": [{"gid": "o8", "name": "Assigned"}, {"gid": "o9", "name": "Ready"}]}},
+]
+
+
+class FieldsIngestTest(TmCase):
+    def test_ingest_from_settings_array(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        code, out, err = self.tm("fields", "ingest", "p1", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        fm = json.loads(out)
+        self.assertEqual(fm["Priority"]["id"], "f1")
+        self.assertEqual(fm["Estimate"]["format"], "duration")
+        self.assertTrue(fm["Assignee"]["native"])
+        cache = helpers.read_cache(self.home, self.key)
+        self.assertEqual(cache["fields"]["p1"]["Priority"]["id"], "f1")
+
+    def test_ingest_from_project_object(self):
+        path = helpers.write_json(self.home, "project.json",
+                                  {"data": {"gid": "p1", "name": "Board", "custom_field_settings": SETTINGS}})
+        code, out, err = self.tm("fields", "ingest", "p1", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Product Status", json.loads(out))
+
+
+class FieldsOfflineTest(TmCase):
+    def test_list_offline_miss_exits_2(self):
+        code, _, err = self.tm("fields", "list", "p1", "--offline")
+        self.assertEqual(code, 2)
+        self.assertIn("fields ingest", err)
+
+    def test_resolve_offline_hit(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        self.tm("fields", "ingest", "p1", "--from-json", path)
+        code, out, _ = self.tm("fields", "resolve", "p1", "Priority", "--offline")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["id"], "f1")
+
+    def test_resolve_offline_field_absent_exits_2(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        self.tm("fields", "ingest", "p1", "--from-json", path)
+        code, out, _ = self.tm("fields", "resolve", "p1", "Platform", "--offline")
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+
+
 if __name__ == "__main__":
     unittest.main()
