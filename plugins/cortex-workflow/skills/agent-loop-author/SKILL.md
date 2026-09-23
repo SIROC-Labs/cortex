@@ -46,7 +46,7 @@ remove it in a follow-up. Then either side can ship first. State in the card whi
 Do not assume the base is `main`. Check whether the branch this work extends is itself merged — an
 unmerged parent makes it the base for everything downstream.
 
-Record each card's base branch, and set its blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads dependencies and lets a blocker through once it is completed or sits in the board's in-review or done column; "after the ledger task lands" in a description is invisible to it and the run will start anyway.
+Record each card's base branch, and set its blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads dependencies and lets a blocker through once it is completed or sits in the board's in-review, ready or done column; "after the ledger task lands" in a description is invisible to it and the run will start anyway.
 
 Chains form for two reasons and both belong in the card: **logical** (needs the other's contract) and
 **file overlap** (edits the same files). File-overlap chains are often the ones that actually constrain

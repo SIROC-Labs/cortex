@@ -12,7 +12,7 @@ For each candidate in order, `get_dependencies(card)` and
 agent_loop.py gate --from-json - <<< '{"blockers": <deps>, "board": "<board ref>", "columns": <cache.columns>, "column_names": <cache.column_names>}'
 ```
 
-A blocker is satisfied when it is completed, or sits in the agent board's `in_review`/`done` column, or sits on another board in a column named like either. Everything else blocks, including a column you do not recognise: fail closed, because building on work that was never written is worse than waiting an hour. A gated candidate is skipped, not moved. Dependencies written in prose are not this gate's job; they fall to the readiness audit.
+A blocker is satisfied when it is completed, or sits in the agent board's `in_review`/`ready`/`done` column, or sits on another board in a column named like one of them. Everything else blocks, including a column you do not recognise: fail closed, because building on work that was never written is worse than waiting an hour. A gated candidate is skipped, not moved. Dependencies written in prose are not this gate's job; they fall to the readiness audit.
 
 The gate applies to selection only. An adopted orphan skips it: it was claimed and part-built already.
 

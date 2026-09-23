@@ -11,9 +11,10 @@ SCRIPT = os.path.join(HERE, "..", "scripts", "agent_loop.py")
 CACHE = {
     "provider": "asana", "workspace": "w1",
     "board": {"ref": "b3", "name": "ENG | [AGENT] Sprint 26/3"},
-    "columns": {"queue": "c1", "in_progress": "c2", "blocked": "c3", "in_review": "c4", "done": "c5"},
+    "columns": {"queue": "c1", "in_progress": "c2", "blocked": "c3", "in_review": "c4", "ready": "c6",
+                "done": "c5"},
     "column_names": {"queue": "Backlog", "in_progress": "In Progress", "blocked": "Blocked",
-                     "in_review": "Pending PR Review", "done": "Completed"},
+                     "in_review": "Pending PR Review", "ready": "Ready", "done": "Completed"},
     "rotation": {"pattern": r"^ENG \| \[AGENT\] Sprint (\d+)/(\d+)$"},
     "repos_root": "/tmp/repos",
 }
@@ -69,6 +70,12 @@ class KeyReadWriteTest(AgentLoopCase):
         code, _, err = self.run_cmd(["write", "asana", "--from-json", "-"], stdin=json.dumps(bad))
         self.assertEqual(code, 1)
         self.assertIn("in_progress", err)
+
+    def test_write_missing_ready_exits_1(self):
+        columns = {k: v for k, v in CACHE["columns"].items() if k != "ready"}
+        code, _, err = self.run_cmd(["write", "asana", "--from-json", "-"], stdin=json.dumps(dict(CACHE, columns=columns)))
+        self.assertEqual(code, 1)
+        self.assertIn("columns.ready", err)
 
     def test_write_duplicate_column_exits_1(self):
         bad = dict(CACHE, columns=dict(CACHE["columns"], done="c4"))
@@ -159,6 +166,11 @@ class GateTest(AgentLoopCase):
     def test_in_review_by_ref_passes(self):
         r = self.gate([{"ref": "x", "name": "X", "completed": False, "memberships": [
             {"board": {"ref": "b3", "name": "agent"}, "column": {"ref": "c4", "name": "Pending PR Review"}}]}])
+        self.assertTrue(r["pass"])
+
+    def test_ready_by_ref_passes(self):
+        r = self.gate([{"ref": "x", "name": "X", "completed": False, "memberships": [
+            {"board": {"ref": "b3", "name": "agent"}, "column": {"ref": "c6", "name": "Ready"}}]}])
         self.assertTrue(r["pass"])
 
     def test_done_by_name_on_other_board_passes(self):

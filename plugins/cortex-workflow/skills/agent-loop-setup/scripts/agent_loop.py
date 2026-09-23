@@ -2,7 +2,7 @@
 #
 # agent_loop.py — cache lifecycle and pure decisions for the agent-loop skills.
 #
-# One cache per provider at ~/.cortex/agent-loop/<provider>.json maps the five
+# One cache per provider at ~/.cortex/agent-loop/<provider>.json maps the six
 # column ROLES of the agent board to concrete column refs, records the board, its
 # rotation pattern, the column names (used to re-resolve refs after a rotation)
 # and the repos root. This script never opens a network connection: the skills
@@ -28,16 +28,17 @@ import sys
 
 PROG = "agent_loop.py"
 CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cortex", "agent-loop")
-ROLES = ("queue", "in_progress", "blocked", "in_review", "done")
+ROLES = ("queue", "in_progress", "blocked", "in_review", "ready", "done")
 DEFAULT_COLUMN_NAMES = {
     "queue": "Queue",
     "in_progress": "In Progress",
     "blocked": "Blocked",
     "in_review": "In Review",
+    "ready": "Ready",
     "done": "Done",
 }
 # Roles a blocker may sit in for the dependency gate to pass.
-SATISFIED_ROLES = ("in_review", "done")
+SATISFIED_ROLES = ("in_review", "ready", "done")
 
 
 def err(msg):
@@ -115,10 +116,10 @@ def validate_cache(obj):
             problems.append("columns.%s is missing" % role)
     refs = [columns.get(r) for r in ROLES if columns.get(r)]
     if len(set(refs)) != len(refs):
-        problems.append("columns must map the five roles to distinct columns")
+        problems.append("columns must map the six roles to distinct columns")
     names = obj.get("column_names")
     if not isinstance(names, dict) or any(not names.get(r) for r in ROLES):
-        problems.append("column_names must name all five roles")
+        problems.append("column_names must name all six roles")
     rotation = obj.get("rotation")
     if rotation is not None:
         pat = rotation.get("pattern") if isinstance(rotation, dict) else None
@@ -242,8 +243,8 @@ def cmd_order(args):
 # --- dependency gate ---------------------------------------------------------
 
 # A blocker is satisfied when it is completed, or sits in the agent board's
-# in_review/done column (by ref), or sits on another board in a column whose name
-# equals the agent board's in_review/done name. Anything else blocks: fail closed.
+# in_review/ready/done column (by ref), or sits on another board in a column whose
+# name equals the agent board's in_review/ready/done name. Anything else blocks: fail closed.
 def blocker_reason(blocker, board_ref, columns, column_names):
     if blocker.get("completed") is True:
         return None

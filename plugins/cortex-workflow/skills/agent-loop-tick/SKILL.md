@@ -36,7 +36,7 @@ Call `$AL last-run <key> start` right after step 1 succeeds, so a runner can see
 
 ## What this skill never does
 
-Ask; run a live service; merge or enable auto-merge; touch `done` or any column outside the five roles; claim from a board other than the agent board; delete a worktree; invent work when the queue is empty.
+Ask; run a live service; merge or enable auto-merge; touch `ready`, `done` or any column outside the six roles; claim from a board other than the agent board; delete a worktree; invent work when the queue is empty.
 
 ## References
 

@@ -6,7 +6,7 @@ description: >
   "set up the agent loop", "/agent-loop-setup", "configure the agent board", "map the agent
   board columns", or when an unattended run reports that its cache is missing or invalid.
   Finds or creates the board through the task-manager interface, maps its columns to the
-  five roles, records the repos root and the board's rotation rule, and writes the
+  six roles, records the repos root and the board's rotation rule, and writes the
   machine-local cache. Attended: it asks. Also "agent-loop-setup check" to validate the
   cache against the live board without asking.
 ---
@@ -20,9 +20,9 @@ Configure the **agent board** (`plugins/cortex-workflow/references/workflow/boar
 1. **Provider and user.** Resolve the provider through the seam (`resolve_provider.py`; ask when it exits 4). `get_current_user()`. The cache key is `agent_loop.py key <provider>`.
 2. **Board.** Ask for a board URL or "create one".
    - URL → `find_task`-style parsing is not for boards; take the board ref from the URL as the provider documents it, then `get_board(board)`.
-   - Create → ask for the name; `ensure_board(name, ["Queue", "In Progress", "Blocked", "In Review", "Done"])`, then `get_board`.
+   - Create → ask for the name; `ensure_board(name, ["Queue", "In Progress", "Blocked", "In Review", "Ready", "Done"])`, then `get_board`.
    - Ask whether the board is a series (a sprint number in its name). Yes → propose a rotation pattern by replacing each run of digits in the name with `(\d+)` and anchoring it (`^…$`, regex-escaped); show it and confirm. No → `rotation: null`.
-3. **Roles.** Map the five roles to the board's columns. Names equal to the defaults map automatically. Otherwise list the columns and ask for each unmapped role. Every role maps to a distinct column; refuse otherwise.
+3. **Roles.** Map the six roles to the board's columns. Names equal to the defaults map automatically. Otherwise list the columns and ask for each unmapped role. Every role maps to a distinct column; refuse otherwise.
 4. **Repos root.** Default: the parent of the current repository's top level (`dirname "$(git rev-parse --show-toplevel)"`). Confirm or take the path the operator gives; it must exist.
 5. **Write.** Build the cache object (`provider`, `workspace` from the current user's workspace, `board {ref,name}`, `columns`, `column_names`, `rotation`, `repos_root`) and `agent_loop.py write <key> --from-json -`. Print the mapping table, the rotation rule, the cache path, and point at the running guide in `agent-loop-tick/references/running.md`.
 
