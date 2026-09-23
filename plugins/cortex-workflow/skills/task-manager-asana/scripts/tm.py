@@ -181,22 +181,76 @@ def die(code, msg=None):
 
 # --- Asana transport --------------------------------------------------------
 
-# Resolve the Asana token: env var named in the cache's asana_token_env, else
-# ASANA_PERSONAL_ACCESS_TOKEN. Empty -> exit 1. Returns the token value (callers
-# use it; never log it).
-def resolve_token(key):
-    env_name = ""
+# Name of the env var holding the Asana token: the cache's `asana_token_env` when
+# set, else ASANA_PERSONAL_ACCESS_TOKEN. Pure cache read, no network.
+def token_env_name(key):
     cache = cache_util.read_cache(key)
-    if cache is not None:
+    if isinstance(cache, dict):
         v = cache.get("asana_token_env")
         if isinstance(v, str) and v:
-            env_name = v
-    if not env_name:
-        env_name = "ASANA_PERSONAL_ACCESS_TOKEN"
+            return v
+    return "ASANA_PERSONAL_ACCESS_TOKEN"
+
+
+# Resolve the Asana token value for the REST transport. Empty -> exit 1. Callers
+# use it; never log it.
+def resolve_token(key):
+    env_name = token_env_name(key)
     token = os.environ.get(env_name, "")
     if not token:
         die(1, "%s: Asana token is empty (env var '%s' unset or empty)" % (PROG, env_name))
     return token
+
+
+# --- offline-verb argument helpers -------------------------------------------
+# Offline verbs take provider payloads the agent fetched over an agent-invoked
+# transport (an Asana MCP server) and apply policy to them. They hit no network.
+
+# Return the value following `flag` in args, or None when the flag is absent.
+def _flag_value(args, flag):
+    for i, a in enumerate(args):
+        if a == flag:
+            if i + 1 >= len(args):
+                die(1, "%s: %s requires a value" % (PROG, flag))
+            return args[i + 1]
+    return None
+
+
+# Load the JSON document named by `flag`: a file path, or '-' for stdin.
+def _load_from_json(args, flag):
+    src = _flag_value(args, flag)
+    if src is None:
+        die(1, "%s: %s <path|-> is required" % (PROG, flag))
+    try:
+        if src == "-":
+            text = sys.stdin.read()
+        else:
+            with open(src, "r", encoding="utf-8") as f:
+                text = f.read()
+        return json.loads(text)
+    except Exception as e:
+        die(1, "%s: %s: cannot read JSON from '%s' (%s)" % (PROG, flag, src, e))
+
+
+# Asana responses wrap the payload in {"data": ...}; accept both shapes.
+def _unwrap_data(obj):
+    if isinstance(obj, dict) and "data" in obj and len(obj) <= 2:
+        return obj["data"]
+    return obj
+
+
+# --- auth family --------------------------------------------------------------
+
+# Transport probe: exit 0 and print the env var name when a token is resolvable;
+# exit 4 when none is set, so the skill can decide between REST and MCP.
+def auth_status(args):
+    key = args[0] if args else cache_util.project_key()
+    env_name = token_env_name(key)
+    if os.environ.get(env_name, ""):
+        sys.stdout.write(env_name + "\n")
+        sys.exit(0)
+    die(4, "%s: no Asana token: env var '%s' is unset or empty — set it for the REST "
+           "transport, or use a connected Asana MCP server (references/mcp.md)" % (PROG, env_name))
 
 
 # HTTP GET against the Asana API. Fails (exit 1) on transport error or non-2xx.
@@ -2032,7 +2086,12 @@ MILESTONE_VERBS = {
     "ensure": milestone_ensure,
 }
 
+AUTH_VERBS = {
+    "status": auth_status,
+}
+
 FAMILIES = {
+    "auth": AUTH_VERBS,
     "board": BOARD_VERBS,
     "fields": FIELDS_VERBS,
     "task": TASK_VERBS,
