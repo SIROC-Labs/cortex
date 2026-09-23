@@ -56,11 +56,17 @@ The connected account is the account. `ASANA_TOKEN_<NAME>` switching does not ap
 | `upload_attachment(task, file)` | **no MCP tool** — see Partial support | — |
 | `remove_attachment(task, attachment)` | **no MCP tool** — see Partial support | — |
 | `list_fields(board)` | `tm.py fields list <board> --offline`; exit 2 → `get_project(project_id=<board>, opt_fields="custom_field_settings.custom_field.gid,custom_field_settings.custom_field.name,custom_field_settings.custom_field.type,custom_field_settings.custom_field.format,custom_field_settings.custom_field.precision,custom_field_settings.custom_field.enum_options.gid,custom_field_settings.custom_field.enum_options.name")` → `tm.py fields ingest <board> --from-json <project.json>` | `fields list --offline`, `fields ingest` |
-| `list_tasks(board)` | `get_tasks(project=<board>, opt_fields="gid,name,completed,resource_subtype", limit=100)`, paged; `kind` = `milestone` when `resource_subtype == "milestone"` | — |
+| `list_tasks(board, column?)` | `get_tasks(project=<board> \| section=<column>, opt_fields="gid,name,completed,resource_subtype,assignee.name,custom_fields.name,custom_fields.display_value,custom_fields.enum_value.name", limit=100)`, paged; per item `task project --from-json` and keep `{gid: ref, name, kind, completed, assignee, fields}` | `task project` |
 | `list_milestones(board)` | `get_project(include_sections=true)`; per section `get_tasks(section=<gid>, opt_fields="gid,name,resource_subtype")`, paged; build `[{section, tasks}]` | `tm.py milestone classify --from-json <groups.json>` |
 | `milestone_tasks(milestone)` | `get_task(anchor)` → its section on the board; `get_tasks(section=<gid>, opt_fields="gid,name,resource_subtype")`, paged; drop `resource_subtype == "milestone"` | — |
 | `ensure_milestone(board, name)` | `get_project(include_sections=true)`; no section named `name` → `update_project(project_id, add_sections=[{name}])` then re-read; no `milestone` task in that section → `create_tasks([{name, project_id, section_id, resource_subtype: "milestone"}])`; print `{name, ref, created}`; never touch an existing anchor's description | — |
 | `resolve_board(intent)` | `tm.py board key`; `tm.py board resolve <key> <active-sprint\|backlog> --offline`; exit 4 → Bootstrap above; exit 3 → repeat Bootstrap steps 2–3 (the cached `workspace_gid` is reused, so `--workspace-gid` may be omitted); exit 0 → use the printed board | `board resolve --offline`, `board ingest` |
+| `list_boards()` | `get_projects(archived=false, limit=100, opt_fields="name,completed")`, paged → `[{ref: gid, name, completed}]` | — |
+| `get_board(board)` | `get_project(project_id, include_sections=true)` → `{ref, name, columns: sections as [{ref: gid, name}]}` | — |
+| `ensure_board(name, columns)` | `list_boards()` → exact name → reuse; else `create_project(name, default_view="board", sections=[{sectionName} …])` → `{ref, created: true}` | — |
+| `ensure_columns(board, names)` | `get_project(include_sections=true)`; `update_project(project_id, add_sections=[{name} …])` for the missing names; re-read | — |
+| `move_task(task, board, column)` | `update_tasks([{task, add_projects: [{project_id: <board>, section_id: <column>}]}])` | — |
+| `get_dependencies(task)` | `get_task(task_id, opt_fields="dependencies.gid")`; per blocker `get_task(dep, opt_fields="name,completed,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name")` → `{ref, name, completed, memberships: [{board: {ref, name}, column: {ref, name}}]}` | — |
 
 ## Partial support
 
