@@ -10,6 +10,14 @@ Do **not** reason over the task JSON or apply the checks by hand. Run the neutra
 ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --url <task-url> <task-ref>
 ```
 
+When the Asana provider runs on its MCP transport (see the provider SKILL.md → Transport resolution), the live form cannot fetch. Use the offline form: fetch the task over MCP and project it (`tm.py task project --from-json`), read the active sprint from the cache (`tm.py board resolve <key> active-sprint --offline`, saved to a file), then
+
+```
+${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --offline --provider asana --task-json <task.json> --sprint-json <sprint.json>
+```
+
+The verdict JSON is identical.
+
 It prints a verdict JSON and exits `0` whenever a verdict was produced (a non-`ready` verdict is **not** an error — it is the answer); non-zero only on a hard error (provider unresolved, fetch failed). The verdict shape:
 
 ```json

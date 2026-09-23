@@ -265,13 +265,14 @@ fi
 if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
   warn "ASANA_PERSONAL_ACCESS_TOKEN not set"
   info "Used for Asana API operations (task management, comments, board moves)"
+  info "Optional: with an Asana MCP server connected in your agent, the skills run without it"
   info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
   echo ""
   read -rp "  Paste your Asana personal access token (leave blank to skip): " ASANA_TOKEN_INPUT || true
   if [ -n "$ASANA_TOKEN_INPUT" ]; then
     add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
   else
-    warn "Skipped — Asana-backed skills won't work until the token is set"
+    warn "Skipped — Asana-backed skills need this token or a connected Asana MCP server"
     info "Set it later: export ASANA_PERSONAL_ACCESS_TOKEN=\"<token>\" in ${PROFILE}, then re-run setup.sh"
   fi
 fi

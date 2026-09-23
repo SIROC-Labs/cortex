@@ -37,7 +37,7 @@ Each phase has a gate, so work only moves forward once it has produced what the 
 
 ### Claude Code
 
-Run the setup script. It validates prerequisites, configures tokens, and guides you through plugin installation:
+Run the setup script. It validates prerequisites, configures the Asana token if you use one (a connected Asana MCP server works without it), and guides you through plugin installation:
 
 ```bash
 bash setup.sh

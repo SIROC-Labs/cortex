@@ -204,6 +204,7 @@ Skills are prose (flexible, judgment); deterministic mechanics are **harnessed b
 - **Shared code = `task-manager/scripts/cache_util.py` only** — the one genuinely cross-provider module (cache lifecycle: key/read/write/freshness/provider-marker). It is imported (via a `__file__`-relative `sys.path.insert`), the single justified cross-skill import. Transport stays per-provider in each `tm.py`.
 - **`__main__`-guard** every CLI script so it's importable without executing (testable, reusable).
 - **Exit-code contract** (uniform across providers): `0` ok / `2` miss / `3` stale / `4` bootstrap-needed / `1` error. Documented per family in `task-manager/references/provider-guide.md`.
+- **Offline verbs for agent-invoked transports.** When a transport is invoked by the agent rather than the script (an MCP server), the script still owns policy: reads come in on `--from-json`, writes go out as planned payloads (`fields plan`, `status plan`, `render body`), cache lookups take `--offline`. Never re-implement in prose what an offline verb decides. Shape and rules in `task-manager/references/provider-guide.md` → "Agent-invoked transports".
 - **What stays in the skill (not scripted):** routing, ambiguity, content authoring (comments/PRs/plans), and the rare long-tail op (escape hatch). Script the deterministic column only; over-scripting forfeits the flexibility that's the reason to avoid an MCP.
 
 ## Development Workflow
@@ -235,5 +236,11 @@ Skills are prose (flexible, judgment); deterministic mechanics are **harnessed b
 
 ## Environment Requirements
 
-- `ASANA_PERSONAL_ACCESS_TOKEN` — set in `~/.zshrc`
-  - Get from: https://app.asana.com/0/my-apps
+One of:
+
+- `ASANA_PERSONAL_ACCESS_TOKEN` — set in `~/.zshrc` (get from https://app.asana.com/0/my-apps); the provider uses its REST transport.
+- An operator-connected Asana MCP server; the provider uses its MCP transport (`skills/task-manager-asana/references/mcp.md`). Attachments cannot be uploaded on this transport; plans land in the task description instead.
+
+## Testing
+
+`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness). Run it before every commit that touches a script.
