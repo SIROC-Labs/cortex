@@ -26,6 +26,10 @@ Receives full task context from start-task:
 - Branch name (already created and checked out)
 - Task URL
 
+## Unattended invocation
+
+With `unattended: true` from the invoker, the two exits below that stop and surface to the user (Step 1's missing binding, Step 2's second failed pass) return to the invoker as a `failed` stop carrying what was attempted (per `plugins/cortex-workflow/references/unattended-answers.md`), and the bound skills' operator gates resolve from that table.
+
 ## Step 1: Root Cause Investigation
 
 Invoke the `DIAGNOSE_AND_FIX_BUG` binding with the full task context as the bug report. If the bound skill is unavailable, stop and tell the user to install its plugin alongside `cortex-workflow` before continuing (see `references/skill-dependencies.md` in start-task for recovery commands).
