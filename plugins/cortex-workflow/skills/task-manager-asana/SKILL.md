@@ -16,12 +16,22 @@ Implements the neutral operations defined in `../task-manager/SKILL.md` against 
 - `references/custom-fields.md` — discovering field identifiers and mapping the neutral field set.
 - `references/boards.md` — sprint/backlog identification, discovery, caching.
 - `references/spec-summary.md` — full Asana API reference (232 endpoints) for the long tail.
+- `references/mcp.md` — the MCP transport: detection, the op → tool → offline-verb table, bootstrap, partial support.
 
-## Token resolution
+## Transport resolution (once per session)
 
-Resolve the Asana token exactly as in `references/rest.md` (Token Resolution): default `$ASANA_PERSONAL_ACCESS_TOKEN`, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk.
+Two transports realize the same operations. Decide once, at the first Asana operation of the session, and do not revisit unless the operator asks to.
+
+1. Run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager-asana/scripts/tm.py auth status`.
+2. **Exit 0** → **REST transport.** Resolve the token exactly as in `references/rest.md` (Token Resolution): the printed env var, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk. The operation table below applies as written.
+3. **Exit 4** → check whether the tools of an Asana MCP server are callable in this session (`references/mcp.md` → Detection). Callable → **MCP transport**: realize every operation per the table in `references/mcp.md`; the `tm.py` verbs you call are the offline ones it names, never the REST verbs.
+4. Neither → stop and tell the operator both paths: set `ASANA_PERSONAL_ACCESS_TOKEN` (https://app.asana.com/0/my-apps), or connect an Asana MCP server. Do not guess and do not call the API unauthenticated.
+
+The token wins when both exist. A `401` on the token is reported per `references/rest.md`; do not switch transports on your own. The operator may say "use the Asana MCP" to override for the session. Multi-account `ASANA_TOKEN_<NAME>` switching applies to REST only.
 
 ## Operation mapping
+
+The table gives the REST realization. On the MCP transport every row is realized per the same-named row in `references/mcp.md`; the neutral op and its result shape are identical.
 
 | Neutral op | Asana realization |
 |---|---|
@@ -54,4 +64,4 @@ For operations not in the table, use `references/spec-summary.md` directly — t
 
 ## Errors
 
-Follow `references/rest.md` (Error Handling): 401 → token fallback/regenerate, 403/404 → report, 429 → back off per `Retry-After`. Never silently skip a failed call.
+REST: follow `references/rest.md` (Error Handling): 401 → token fallback/regenerate, 403/404 → report, 429 → back off per `Retry-After`. MCP: surface the tool's error text verbatim; treat any entry in a `failed` array as the operation failing (`references/mcp.md` → Rules). On either transport, never silently skip a failed call.

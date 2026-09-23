@@ -6,8 +6,10 @@ Common Asana REST API patterns for task management workflows. All operations use
 
 ## Prerequisites
 
-- `$ASANA_PERSONAL_ACCESS_TOKEN` env var — primary Asana personal access token (required)
-  - If missing: guide user to https://app.asana.com/0/my-apps
+These recipes are the **REST transport**. It needs a token; the provider's other transport (`mcp.md`) does not, and `../SKILL.md` → Transport resolution decides which one a session uses.
+
+- `$ASANA_PERSONAL_ACCESS_TOKEN` env var — the personal access token this transport authenticates with
+  - Get one at https://app.asana.com/0/my-apps
   - Add to `~/.zshrc`: `export ASANA_PERSONAL_ACCESS_TOKEN="your-token"`
 - Additional tokens (optional) — stored as `ASANA_TOKEN_<NAME>` env vars, e.g.:
   - `export ASANA_TOKEN_WORK="your-work-token"`
