@@ -21,7 +21,9 @@ Review the changes on this branch against the base branch. Run `git diff origin/
 
 Run this as ONE bash block. Shell state does not survive between separate bash
 invocations, so the block sources the helpers, makes its own temp file, runs the
-challenge, and cleans up on its own. Substitute your prompt for `<prompt>`.
+challenge, and cleans up on its own. Substitute your prompt for `<prompt>` inside the
+quoted heredoc. The prompt reaches Codex through stdin, so backticks, `$()` and quotes
+in it stay literal and are never run by the host shell.
 
 Use `timeout: 660000` on the Bash call — the gate sits ABOVE the 600s wrapper so the
 wrapper fires first with its explicit stall message.
@@ -38,8 +40,12 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
+cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_EOF'
+<prompt>
+CODEX_PROMPT_EOF
 
-_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_codex_timeout_wrapper 600 codex exec - -C "$_REPO_ROOT" -s read-only -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < "$_PROMPT_FILE" 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 turn_failed = False
@@ -93,7 +99,7 @@ fi
 if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
   echo "[codex auth error] $(head -1 "$TMPERR")"
 fi
-rm -f "$TMPERR"
+rm -f "$_PROMPT_FILE" "$TMPERR"
 ```
 
 This parses codex's JSONL events to extract reasoning traces, tool calls, and the final

@@ -69,7 +69,10 @@ For non-plan consult prompts (the user typed `/codex <question>`), still prepend
 3. **Run codex exec with JSONL output** to capture reasoning traces.
 
 Run this as ONE bash block. It sources the helpers, runs the call, writes the
-session id for follow-ups, and cleans up on its own.
+session id for follow-ups, and cleans up on its own. Substitute your prompt for
+`<prompt>` inside the quoted heredoc. The prompt reaches Codex through stdin, so
+backticks, `$()` and quotes in the question or plan stay literal and are never run
+by the host shell.
 
 Use `timeout: 660000` on the Bash call (for both new and resumed sessions) — the gate
 sits ABOVE the 600s wrapper so the wrapper fires first with its explicit stall message.
@@ -88,8 +91,12 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
+cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_EOF'
+<prompt>
+CODEX_PROMPT_EOF
 
-_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_codex_timeout_wrapper 600 codex exec - -C "$_REPO_ROOT" -s read-only -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < "$_PROMPT_FILE" 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json, os
 turn_completed_count = 0
 turn_failed = False
@@ -149,7 +156,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-rm -f "$TMPERR"
+rm -f "$_PROMPT_FILE" "$TMPERR"
 ```
 
 **Session-cost reality (measured):** every `codex exec` call — resumed or fresh —
@@ -162,7 +169,7 @@ session's context.
 
 For a **resumed session** (the user chose "Continue"), run this complete block. It
 differs from the new-session block only in the `resume <session-id>` argument and
-the `sandbox_mode` config form. Substitute the session id read in step 1.
+the `sandbox_mode` config form. The prompt goes through the same quoted heredoc. Substitute the session id read in step 1.
 
 ```bash
 SKILL_DIR="<skill-dir>"
@@ -175,8 +182,12 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
+cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_EOF'
+<prompt>
+CODEX_PROMPT_EOF
 
-_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_codex_timeout_wrapper 600 codex exec resume <session-id> - -c 'sandbox_mode="read-only"' -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < "$_PROMPT_FILE" 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 <the same Python parser as the new-session block, verbatim — it also writes .context/codex-session-id>
 "
 _CODEX_EXIT=${PIPESTATUS[0]:-${pipestatus[1]}}  # bash sets PIPESTATUS; zsh (lowercase, 1-indexed) falls through
@@ -188,7 +199,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-rm -f "$TMPERR"
+rm -f "$_PROMPT_FILE" "$TMPERR"
 ```
 
 If resume fails, delete `.context/codex-session-id` and retry as a new session.

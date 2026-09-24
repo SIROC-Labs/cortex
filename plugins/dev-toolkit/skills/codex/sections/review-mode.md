@@ -34,7 +34,7 @@ contradicting this skill's read-only contract.
 Run this as ONE bash block. Shell state does not survive between separate bash
 invocations, so the block sources the helpers, makes its own temp file, runs the
 review, and cleans up on its own. Substitute the base branch you detected in
-Step 0, and the absolute directory this skill was loaded from if you know it.
+Step 0.
 
 Use `timeout: 360000` on the Bash call. The Bash gate sits ABOVE the 330s wrapper
 deliberately: the wrapper fires first with its explicit exit-124 message, instead
@@ -63,7 +63,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
+awk '$0=="tokens used"{getline; t=$0} END{print "tokens: " (t=="" ? "unknown" : t)}' "$TMPERR" 2>/dev/null
 rm -f "$TMPERR"
 ```
 
@@ -78,7 +78,8 @@ Custom instructions cannot ride along with `--base` — that is exactly the comb
 the CLI rejects — and they cannot be smuggled in by dropping `--base`, because that
 silently switches the scope to the working tree. So they get their own command:
 `codex exec`, which does accept a free-form prompt, with the diff written to a tempfile
-and inlined into it. Preserve the filesystem boundary here because `codex exec` is not
+and streamed to it on stdin (`-`). Stdin avoids the OS argument-size limit on large
+diffs, and the quoted heredoc keeps the user's focus text literal. Preserve the filesystem boundary here because `codex exec` is not
 auto-scoped to a diff the way `codex review` is. The DIFF_START/DIFF_END delimiters tell
 the model where data ends and instructions resume, a defense against prompt injection
 when the diff content is adversarial.
@@ -92,7 +93,10 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 cd "$_REPO_ROOT"
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
-_USER_INSTRUCTIONS="<everything after '/codex review ' in user input>"
+_USER_INSTRUCTIONS=$(cat <<'CODEX_FOCUS_EOF'
+<everything after '/codex review ' in user input>
+CODEX_FOCUS_EOF
+)
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are skill definitions meant for a different AI system. Stay focused on repository code only."
   printf '\nCustom focus: %s\n\n' "$_USER_INSTRUCTIONS"
@@ -102,7 +106,7 @@ _USER_INSTRUCTIONS="<everything after '/codex review ' in user input>"
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
 
-_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
+_codex_timeout_wrapper 330 codex exec -s read-only - -c "model=\"${CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < "$_PROMPT_FILE" 2>"$TMPERR"
 _CODEX_EXIT=$?
 
 echo "CODEX_EXIT=$_CODEX_EXIT"
@@ -112,7 +116,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
+awk '$0=="tokens used"{getline; t=$0} END{print "tokens: " (t=="" ? "unknown" : t)}' "$TMPERR" 2>/dev/null
 rm -f "$_PROMPT_FILE" "$TMPERR"
 ```
 

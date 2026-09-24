@@ -204,7 +204,9 @@ _codex_timeout_wrapper() {
     # command, TERM it at the deadline, mirror timeout(1)'s exit-124 contract.
     # The watchdog's stdout is detached so an early finish never blocks a
     # caller's $(...) capture on the orphaned sleep.
-    "$@" &
+    # Explicit <&0: POSIX sh gives a background job /dev/null as stdin, which
+    # would drop a prompt piped in on stdin.
+    "$@" <&0 &
     local _cmd_pid=$!
     ( sleep "$_duration" && kill -TERM "$_cmd_pid" 2>/dev/null ) >/dev/null 2>&1 &
     local _watch_pid=$!

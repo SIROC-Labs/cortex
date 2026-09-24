@@ -147,15 +147,18 @@ import json, sys
 try:
     obj = json.load(open(sys.argv[1]))
 except Exception as exc:
-    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(0)
+    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(2)
 if obj.get("is_error"):
     print("CLAUDE_ERROR: true")
 result = obj.get("result") or obj.get("response") or ""
 if result:
     print(result)
+else:
+    print("CLAUDE_EMPTY_RESPONSE")
 u = obj.get("usage") or {}
 print(f"\nTokens: input={u.get('input_tokens',0) or 0} output={u.get('output_tokens',0) or 0} "
       f"cache_read={u.get('cache_read_input_tokens',0) or 0} | Model: {obj.get('model') or 'unknown'}")
+raise SystemExit(2 if obj.get("is_error") or not result else 0)
 PY
 ```
 
@@ -182,7 +185,12 @@ ERR_FILE=$(mktemp "$TMP_ROOT/claude-error-XXXXXX")
 DIFF_FILE=$(mktemp "$TMP_ROOT/claude-diff-XXXXXX")
 
 git fetch origin <base> --quiet 2>/dev/null || true
-git diff "origin/<base>" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
+_BASE_REF="origin/<base>"
+git rev-parse --verify --quiet "$_BASE_REF" >/dev/null || _BASE_REF="<base>"
+# Diff from the merge base, not the base tip: upstream-only commits must not show
+# up as reversions. Uncommitted changes stay included.
+_MERGE_BASE=$(git merge-base "$_BASE_REF" HEAD) || { echo "ERROR: no merge base between HEAD and $_BASE_REF" >&2; rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE" "$DIFF_FILE"; exit 1; }
+git diff "$_MERGE_BASE" > "$DIFF_FILE"
 if [ ! -s "$DIFF_FILE" ]; then
   echo "NOTHING_TO_REVIEW"
   rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE" "$DIFF_FILE"
@@ -202,22 +210,31 @@ EOF
 cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 "$CLAUDE_BIN" -p --model "${CLAUDE_REVIEW_MODEL:-claude-fable-5-1}" --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
-echo "CLAUDE_EXIT=$?"
+_CLAUDE_EXIT=$?
+echo "CLAUDE_EXIT=$_CLAUDE_EXIT"
 python3 - "$RESP_FILE" <<'PY'
 import json, sys
 try:
     obj = json.load(open(sys.argv[1]))
 except Exception as exc:
-    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(0)
+    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(2)
 if obj.get("is_error"):
     print("CLAUDE_ERROR: true")
 result = obj.get("result") or obj.get("response") or ""
 if result:
     print(result)
+else:
+    print("CLAUDE_EMPTY_RESPONSE")
 u = obj.get("usage") or {}
 print(f"\nTokens: input={u.get('input_tokens',0) or 0} output={u.get('output_tokens',0) or 0} "
       f"cache_read={u.get('cache_read_input_tokens',0) or 0} | Model: {obj.get('model') or 'unknown'}")
+raise SystemExit(2 if obj.get("is_error") or not result else 0)
 PY
+_PARSE_RC=$?
+if [ "$_CLAUDE_EXIT" != "0" ] || [ "$_PARSE_RC" != "0" ]; then
+  echo "--- claude stdout (first 40 lines) ---"; head -40 "$RESP_FILE" 2>/dev/null
+  echo "--- claude stderr (first 40 lines) ---"; head -40 "$ERR_FILE" 2>/dev/null
+fi
 grep -qiE "auth|login|unauthorized" "$ERR_FILE" 2>/dev/null && echo "[claude auth error] $(head -1 "$ERR_FILE")"
 rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE" "$DIFF_FILE"
 ```
@@ -303,19 +320,22 @@ USER QUESTION:
 EOF
 
 "$CLAUDE_BIN" -p --model "${CLAUDE_REVIEW_MODEL:-claude-fable-5-1}" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
-echo "CLAUDE_EXIT=$?"
+_CLAUDE_EXIT=$?
+echo "CLAUDE_EXIT=$_CLAUDE_EXIT"
 
 python3 - "$RESP_FILE" <<'PY'
 import json, sys, os
 try:
     obj = json.load(open(sys.argv[1]))
 except Exception as exc:
-    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(0)
+    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}"); raise SystemExit(2)
 if obj.get("is_error"):
     print("CLAUDE_ERROR: true")
 result = obj.get("result") or obj.get("response") or ""
 if result:
     print(result)
+else:
+    print("CLAUDE_EMPTY_RESPONSE")
 u = obj.get("usage") or {}
 print(f"\nTokens: input={u.get('input_tokens',0) or 0} output={u.get('output_tokens',0) or 0} "
       f"cache_read={u.get('cache_read_input_tokens',0) or 0} | Model: {obj.get('model') or 'unknown'}")
@@ -330,7 +350,13 @@ if sid:
             fh.write(sid + "\n")
     except Exception as exc:
         print(f"[warn] could not save session id: {exc}", file=sys.stderr)
+raise SystemExit(2 if obj.get("is_error") or not result else 0)
 PY
+_PARSE_RC=$?
+if [ "$_CLAUDE_EXIT" != "0" ] || [ "$_PARSE_RC" != "0" ]; then
+  echo "--- claude stdout (first 40 lines) ---"; head -40 "$RESP_FILE" 2>/dev/null
+  echo "--- claude stderr (first 40 lines) ---"; head -40 "$ERR_FILE" 2>/dev/null
+fi
 
 grep -qiE "auth|login|unauthorized" "$ERR_FILE" 2>/dev/null && echo "[claude auth error] $(head -1 "$ERR_FILE")"
 rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
@@ -353,8 +379,7 @@ Session saved — run /claude again to continue this conversation.
 - **Binary not found:** Stop with install instructions.
 - **Auth failure from the actual host invocation:** Stop with login/API key instructions.
 - **Auth failure from stderr:** Surface the stderr line and ask the user to re-authenticate.
-- **JSON parse failure:** Show the raw stdout from `$RESP_FILE` and stderr from `$ERR_FILE`.
-- **Empty response:** Tell the user "Claude returned no response. Check stderr for errors."
+- **Non-zero exit, JSON parse failure, `CLAUDE_ERROR`, or `CLAUDE_EMPTY_RESPONSE`:** the block has already printed the first 40 lines of Claude's stdout and stderr before cleanup. Show them to the user; do not re-run the block to get them.
 - **Resume failure:** Delete `.context/claude-session-id` and retry with a fresh session.
 
 ---
