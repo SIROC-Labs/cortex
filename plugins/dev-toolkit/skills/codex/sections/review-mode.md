@@ -41,8 +41,8 @@ deliberately: the wrapper fires first with its explicit exit-124 message, instea
 of the harness killing the call silently.
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
@@ -86,8 +86,8 @@ when the diff content is adversarial.
 Also one bash block, same `timeout: 360000` on the Bash call:
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")

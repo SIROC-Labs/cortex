@@ -6,12 +6,16 @@ Ask Codex anything about the codebase. Supports session continuity for follow-up
 it carries its own helper source and path defaults:
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 echo "SESSION: $(cat .context/codex-session-id 2>/dev/null || echo NO_SESSION)"
 setopt +o nomatch 2>/dev/null || true   # zsh compat: do not error on a no-match glob
-echo "PLAN_SCOPED: $(ls -t "$PLAN_ROOT"/*.md 2>/dev/null | xargs grep -l "$(basename "$(pwd)")" 2>/dev/null | head -1 || true)"
-echo "PLAN_NEWEST: $(ls -t "$PLAN_ROOT"/*.md 2>/dev/null | head -1 || true)"
+if [ -n "$PLAN_ROOT" ]; then
+  echo "PLAN_SCOPED: $(ls -t "$PLAN_ROOT"/*.md 2>/dev/null | xargs grep -l "$(basename "$(pwd)")" 2>/dev/null | head -1 || true)"
+  echo "PLAN_NEWEST: $(ls -t "$PLAN_ROOT"/*.md 2>/dev/null | head -1 || true)"
+else
+  echo "PLAN_SCOPED: "; echo "PLAN_NEWEST: "
+fi
 ```
 
 If `SESSION` is not `NO_SESSION`, ask the user which they want. Use your host's
@@ -23,7 +27,9 @@ A) Continue the conversation (Codex remembers the prior context)
 B) Start a new conversation
 ```
 
-If `PLAN_SCOPED` is empty but `PLAN_NEWEST` is not, you may use the newest plan,
+A plan file the user named, or a plan already in this conversation, takes
+precedence over both values. If `PLAN_SCOPED` is empty but `PLAN_NEWEST` is not,
+you may use the newest plan,
 but warn: "Note: this plan may be from a different project — verify before sending
 to Codex."
 
@@ -72,8 +78,8 @@ If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
 
 For a **new session:**
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
@@ -159,8 +165,8 @@ differs from the new-session block only in the `resume <session-id>` argument an
 the `sandbox_mode` config form. Substitute the session id read in step 1.
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)

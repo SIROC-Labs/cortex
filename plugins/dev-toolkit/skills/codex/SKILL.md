@@ -97,24 +97,21 @@ Before building expensive prompts, verify Codex has valid auth, that the account
 can actually USE the selected model, AND that the installed CLI version is not in
 the known-bad list. Sourcing `scripts/codex-probe.sh` loads the shared helpers.
 
-`SKILL_DIR` must point at the directory this SKILL.md was loaded from. Resolution,
-in order:
+`SKILL_DIR` must point at the directory this SKILL.md was loaded from. The skill
+ships its own helpers there and depends on nothing outside it. In every bash block,
+here and in `sections/`, replace `<skill-dir>` with that absolute path before
+running the block.
 
-1. If you know that absolute path, substitute it directly into every block.
-2. Otherwise `CODEX_SKILL_DIR` is used if the user exported it.
-3. Otherwise the fallback `~/.claude/skills/codex` is tried.
-
-If the source fails, the block stops with an explicit error naming
-`CODEX_SKILL_DIR`. Do not continue past that error; nothing downstream works
-without the helpers.
+If the source fails, the block stops with an explicit error. Do not continue past
+that error; nothing downstream works without the helpers.
 
 If the user names a model for this request, set `CODEX_MODEL` to that model
 before this probe and use it for every invocation in the request. The probe must
 check the requested model, including when the default is unavailable.
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh"
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 
 # Running-under-Codex presence probe: a live Codex session exports
 # CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns.
@@ -170,7 +167,7 @@ depend on a variable an earlier bash block set:
 | Variable | Meaning | Resolution order |
 |---|---|---|
 | `TMP_ROOT` | ephemeral stderr and response captures | `TMPDIR`, `TMP`, `/tmp` |
-| `PLAN_ROOT` | plan files, for consult mode's auto-detection | `CODEX_PLAN_DIR`, `CLAUDE_PLANS_DIR`, `~/.claude/plans` |
+| `PLAN_ROOT` | plan files, for consult mode's auto-detection | `CODEX_PLAN_DIR`, else empty (auto-detection off) |
 
 Both use `:=` assignment, so a value you export beforehand always wins. `TMP_ROOT`
 has its trailing slash stripped, which matters on macOS where `TMPDIR` ends in one.
@@ -199,11 +196,13 @@ Parse the user's input to determine which mode to run:
      B) Challenge the diff (adversarial — try to break it)
      C) Something else — I'll provide a prompt
      ```
-   - If no diff, check for plan files scoped to the current project:
+   - If no diff, look for a plan: a plan file the user named, a plan you already
+     have in this conversation, or, when `PLAN_ROOT` is non-empty, the newest plan
+     file there scoped to the current project:
      `ls -t "$PLAN_ROOT"/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
      If there is no project-scoped match, fall back to `ls -t "$PLAN_ROOT"/*.md 2>/dev/null | head -1`
      but warn the user: "Note: this plan may be from a different project."
-   - If a plan file exists, offer to review it
+   - If a plan exists, offer to review it
    - Otherwise, ask: "What would you like to ask Codex?"
 4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
 

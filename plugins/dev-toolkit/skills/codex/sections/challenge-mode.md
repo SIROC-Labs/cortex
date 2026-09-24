@@ -29,8 +29,8 @@ wrapper fires first with its explicit stall message.
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 ```bash
-SKILL_DIR="${CODEX_SKILL_DIR:-$HOME/.claude/skills/codex}"
-source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Set CODEX_SKILL_DIR to this skill's directory." >&2; exit 1; }
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
 if [ -z "$PYTHON_CMD" ]; then

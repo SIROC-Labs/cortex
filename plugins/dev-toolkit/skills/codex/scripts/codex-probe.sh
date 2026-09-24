@@ -29,13 +29,14 @@ _CODEX_DEFAULT_MODEL="gpt-6-astra"
 # TMP_ROOT: where ephemeral stderr/response captures land. Honors TMPDIR/TMP for
 #   Windows and container compatibility.
 # PLAN_ROOT: where plan files live, for consult mode's plan auto-detection.
+#   Only set from CODEX_PLAN_DIR; empty means no auto-detection.
 : "${TMP_ROOT:=${TMPDIR:-${TMP:-/tmp}}}"
 # macOS exports TMPDIR with a trailing slash; "$TMP_ROOT/x-XXXXXX" would then
 # carry a double slash and any consumer comparing paths gets a false mismatch.
 TMP_ROOT="${TMP_ROOT%/}"
 [ -z "$TMP_ROOT" ] && TMP_ROOT="/"   # a bare "/" collapses to "" above
 mkdir -p "$TMP_ROOT" 2>/dev/null || true
-: "${PLAN_ROOT:=${CODEX_PLAN_DIR:-${CLAUDE_PLANS_DIR:-${HOME:-.}/.claude/plans}}}"
+: "${PLAN_ROOT:=${CODEX_PLAN_DIR:-}}"
 
 # --- Auth probe -------------------------------------------------------------
 
