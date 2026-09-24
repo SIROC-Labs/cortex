@@ -1,0 +1,369 @@
+---
+name: codex
+version: 0.1.0
+description: |
+  OpenAI Codex CLI wrapper — three modes. Review: independent diff review via
+  codex review with a pass/fail gate. Challenge: adversarial mode that tries to
+  break your code. Consult: ask Codex anything, with session continuity for
+  follow-ups. A second opinion from a different model. Use when asked to "codex
+  review", "codex challenge", "ask codex", "second opinion", or "consult codex".
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+# /codex — Multi-AI Second Opinion
+
+You are running the `/codex` skill. It wraps the OpenAI Codex CLI to get an
+independent, blunt second opinion from a different AI system.
+
+Codex is direct, terse, and technically precise. It challenges assumptions and
+catches things you might miss. Present its output faithfully, never summarized.
+
+---
+
+## Section index — Read each section when its situation applies
+
+This skill is a decision-tree skeleton. The steps below point to on-demand
+sections. Read a section in full before doing its step; do not work from memory.
+Resolve each path against the directory this SKILL.md was loaded from.
+
+| When | Read this section |
+|------|-------------------|
+| running Review mode (Step 2A) — the Step 1 dispatch chose review (`/codex review`, or the user picked "Review the diff") | `sections/review-mode.md` |
+| running Challenge mode (Step 2B) — the Step 1 dispatch chose adversarial challenge (`/codex challenge`, or the user picked "Challenge the diff") | `sections/challenge-mode.md` |
+| running Consult mode (Step 2C) — the Step 1 dispatch chose consult (a free-form question, a plan review, or a session follow-up) | `sections/consult-mode.md` |
+
+---
+
+## Step 0: Detect platform and base branch
+
+First, detect the git hosting platform from the remote URL:
+
+```bash
+git remote get-url origin 2>/dev/null
+```
+
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - `gh auth status 2>/dev/null` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - `glab auth status 2>/dev/null` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
+
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. `gh pr view --json baseRefName -q .baseRefName` — if it succeeds, use it
+2. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` — if it succeeds, use it
+
+**If GitLab:**
+1. `glab mr view -F json 2>/dev/null` and extract the `target_branch` field — if it succeeds, use it
+2. `glab repo view -F json 2>/dev/null` and extract the `default_branch` field — if it succeeds, use it
+
+**Git-native fallback (unknown platform, or the CLI commands fail):**
+1. `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`
+2. If that fails: `git rev-parse --verify origin/main 2>/dev/null` → use `main`
+3. If that fails: `git rev-parse --verify origin/master 2>/dev/null` → use `master`
+
+If all fail, fall back to `main`.
+
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+and `git fetch` command, substitute the detected branch name wherever the
+instructions say "the base branch" or `<base>`.
+
+---
+
+## Step 0.4: Check the codex binary
+
+```bash
+CODEX_BIN=$(command -v codex || echo "")
+[ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
+```
+
+If `NOT_FOUND`, stop and tell the user:
+"Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
+
+---
+
+## Step 0.5: Auth probe + model probe + version check
+
+Before building expensive prompts, verify Codex has valid auth, that the account
+can actually USE the selected model, AND that the installed CLI version is not in
+the known-bad list. Sourcing `scripts/codex-probe.sh` loads the shared helpers.
+
+`SKILL_DIR` must point at the directory this SKILL.md was loaded from. The skill
+ships its own helpers there and depends on nothing outside it. In every bash block,
+here and in `sections/`, replace `<skill-dir>` with that absolute path before
+running the block.
+
+If the source fails, the block stops with an explicit error. Do not continue past
+that error; nothing downstream works without the helpers.
+
+If the user names a model for this request, set `CODEX_MODEL` to that model
+before this probe and use it for every invocation in the request. The probe must
+check the requested model, including when the default is unavailable.
+
+```bash
+SKILL_DIR="<skill-dir>"
+source "$SKILL_DIR/scripts/codex-probe.sh" 2>/dev/null || { echo "ERROR: cannot source codex-probe.sh. Replace <skill-dir> with the absolute path of this skill's directory." >&2; exit 1; }
+
+# Running-under-Codex presence probe: a live Codex session exports
+# CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns.
+if [ "${FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+  echo "UNDER_CODEX"
+elif ! _codex_auth_probe >/dev/null; then
+  echo "AUTH_FAILED"
+else
+  _codex_model_probe   # ~10s round trip on first run, cached 1h
+fi
+_codex_version_check   # warns if known-bad, non-blocking
+```
+
+If the output contains `UNDER_CODEX`, stop with exactly one line:
+"[running under Codex — /codex would nest the same model at multiplied token
+cost; skipped. Set `FORCE_CODEX_REVIEW=1` to force.]" The whole value of this
+skill is a SECOND model's opinion. Inside a Codex host it is the same model
+reviewing itself, and nested spawns can burn millions of tokens in one review.
+
+If the output contains `AUTH_FAILED`, stop and tell the user:
+"No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
+
+If the output contains `MODEL_UNUSABLE`, stop — auth exists but the account
+cannot use the selected model (`CODEX_MODEL`, or the `gpt-6-astra` default).
+Relay the probe's HINT lines and follow the "Model not supported (HTTP 400)"
+recovery steps in `## Error Handling` below. Running the modes anyway just burns
+invocations on the same 400.
+
+If the output contains `MODEL_UNUSABLE_INSTALL`, stop — the CLI is on PATH but
+cannot execute. Relay the probe's HINT lines; the fix is a reinstall.
+
+`MODEL_PROBE_INCONCLUSIVE` is non-blocking (timeout or transient network): pass
+the warning through and continue.
+
+If the version check printed a `WARN:` line, pass it through to the user verbatim
+(non-blocking — Codex may still work, but the user should upgrade).
+
+The auth probe's multi-signal logic accepts: `$CODEX_API_KEY` set, `$OPENAI_API_KEY`
+set, or `${CODEX_HOME:-~/.codex}/auth.json` present. This avoids false negatives
+for env-auth users (CI, platform engineers) that a file-only check would reject.
+
+**Update the known-bad list** in `scripts/codex-probe.sh` when a new Codex CLI
+version regresses. Current entries (`0.120.0`, `0.120.1`, `0.120.2`) trace to a
+stdin deadlock.
+
+---
+
+## Step 0.6: Portable roots
+
+Sourcing `scripts/codex-probe.sh` also sets two paths, idempotently, so you never
+depend on a variable an earlier bash block set:
+
+| Variable | Meaning | Resolution order |
+|---|---|---|
+| `TMP_ROOT` | ephemeral stderr and response captures | `TMPDIR`, `TMP`, `/tmp` |
+| `PLAN_ROOT` | plan files, for consult mode's auto-detection | `CODEX_PLAN_DIR`, else empty (auto-detection off) |
+
+Both use `:=` assignment, so a value you export beforehand always wins. `TMP_ROOT`
+has its trailing slash stripped, which matters on macOS where `TMPDIR` ends in one.
+
+**Shell state does not survive between bash invocations.** Functions and variables
+set in one block are gone in the next. Every bash block in the mode sections
+therefore begins by re-sourcing the helper, and each one creates and removes its
+own temp files. Do not split a mode's block into separate calls.
+
+---
+
+## Step 1: Detect mode
+
+Parse the user's input to determine which mode to run:
+
+1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
+2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/codex` with no arguments — **Auto-detect:**
+   - Check for a diff (with a fallback if origin is not available):
+     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
+   - If a diff exists, ask the user. Use your host's structured question tool if
+     it has one; otherwise ask in plain text and wait for an answer:
+     ```
+     Codex detected changes against the base branch. What should it do?
+     A) Review the diff (code review with pass/fail gate)
+     B) Challenge the diff (adversarial — try to break it)
+     C) Something else — I'll provide a prompt
+     ```
+   - If no diff, look for a plan: a plan file the user named, a plan you already
+     have in this conversation, or, when `PLAN_ROOT` is non-empty, the newest plan
+     file there scoped to the current project:
+     `ls -t "$PLAN_ROOT"/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
+     If there is no project-scoped match, fall back to `ls -t "$PLAN_ROOT"/*.md 2>/dev/null | head -1`
+     but warn the user: "Note: this plan may be from a different project."
+   - If a plan exists, offer to review it
+   - Otherwise, ask: "What would you like to ask Codex?"
+4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
+
+The three modes are MUTUALLY EXCLUSIVE — at most one runs per invocation. Once
+the mode is determined, read ONLY that mode's section (see the Section index
+above); never read the other two mode sections.
+
+**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
+note it and remove it from the prompt text before passing it to Codex. When
+`--xhigh` is present, use `model_reasoning_effort="xhigh"` for all modes
+regardless of the per-mode default. Otherwise use the per-mode defaults:
+- Review (2A): `high` — bounded diff input, needs thoroughness
+- Challenge (2B): `high` — adversarial but bounded by the diff
+- Consult (2C): `medium` — large context, interactive, needs speed
+
+---
+
+## Filesystem Boundary
+
+Every prompt sent to Codex MUST be prefixed with this boundary instruction:
+
+> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
+
+This applies to Challenge mode (prompt) and Consult mode (persona prompt), and to
+the custom-instructions path of Review mode — all three use `codex exec`, which
+takes a free-form prompt argument. It does **not** apply to the default scoped
+`codex review` call in Step 2A: that command is invoked with **no prompt argument
+at all** (see "Scope flags exclude the prompt argument" in the Review mode
+section), so there is nowhere to put the preamble. That is acceptable —
+`codex review --base` hands the model a pre-computed diff rather than turning it
+loose on the filesystem, so the rabbit-hole risk this boundary guards against is
+much lower on that path. Reference this section as "the filesystem boundary" in
+the mode sections.
+
+---
+
+## Synthesis recommendation (REQUIRED) — all modes
+
+Every mode ends by emitting ONE synthesis recommendation line after presenting
+Codex's verbatim output:
+
+```
+Recommendation: <action> because <one-line reason that names the most actionable finding>
+```
+
+The reason must engage with a specific Codex finding or insight and compare
+against an alternative (another finding, fix-vs-ship, fix order, or the status
+quo). Boilerplate reasons ("because it's better", "because adversarial review
+found things") do not qualify. The recommendation is the ONE line a user reads
+when they do not have time for the verbatim output. **Never silently
+auto-decide; always emit the line.** Each mode section restates this rule with
+mode-specific examples.
+
+---
+
+## Model & Reasoning
+
+**Model:** this skill defaults Codex invocations to `gpt-6-astra` via
+`-c "model=\"${CODEX_MODEL:-gpt-6-astra}\""`. A user can override the default for
+a shell with `CODEX_MODEL=<model>`, or for one request by naming a model in the
+`/codex` prompt. Native `codex review` also sets `review_model` to the selected
+model so a separate review pin in the CLI config cannot override the request.
+
+**Reasoning effort (per-mode defaults):**
+- **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
+- **Challenge (2B):** `high` — adversarial but bounded by diff size
+- **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
+
+`xhigh` uses roughly 23x more tokens than `high` and causes 50+ minute hangs on
+large-context tasks. Users can override with the `--xhigh` flag (e.g.
+`/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+
+**Web search:** All Codex commands pass `-c 'web_search="cached"'` so `codex exec`
+invocations can look up docs and APIs during review. This is OpenAI's cached
+index — fast, no extra cost. Unlike the legacy `--enable`-based spelling
+(deprecated by codex >=0.144), the `-c` form explicitly overrides any top-level
+`web_search` setting in `~/.codex/config.toml`. Note: native `codex review`
+disables web search regardless of configuration, so on the default Review path
+the flag is a harmless no-op — only exec-based modes actually search.
+
+If the user specifies a model (e.g. `/codex review -m gpt-5.6-sol` or
+`/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same
+config form and replace the default model flag with `-c "model=\"<model>\""`.
+Native review also requires `-c "review_model=\"<model>\""`; replace both model
+values together. Review mode runs `codex review`, which REJECTS `-m`
+(`error: unexpected argument '-m' found`, verified on 0.147.0), while
+`-c model=...` is accepted by both `codex review` and `codex exec`.
+
+---
+
+## Cost Estimation
+
+Parse the token count from stderr. Codex prints `tokens used\nN` to stderr.
+
+Display it as: `Tokens: N`
+
+If the token count is not available, display: `Tokens: unknown`
+
+---
+
+## Error Handling
+
+- **Binary not found:** Detected in Step 0.4. Stop with install instructions.
+- **Auth error:** Codex prints an auth error to stderr. Surface it:
+  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
+- **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (a
+  360s gate over the 330s review wrapper; a 660s gate over the 600s
+  challenge/consult wrappers), so the wrapper's exit-124 path normally fires
+  first with its explicit message. If the Bash call itself times out anyway
+  (wrapper unavailable AND codex hung), tell the user: "Codex timed out. The
+  prompt may be too large or the API may be slow. Try again or use a smaller scope."
+- **Timeout (inner `timeout` wrapper, exit 124):** If the shell wrapper fires
+  first, the mode's hang-detection block prints: "Codex stalled past 10 minutes.
+  Common causes: model API stall, long prompt, network issue. Try re-running. If
+  persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
+- **`the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`:** a prompt
+  argument leaked into a scoped `codex review`. This fails instantly, before any
+  API call, so it looks like a hang-free "no output" — do not misread it as a
+  model stall. Drop the prompt: the scope flags (`--base`, `--commit`,
+  `--uncommitted`) carry the scope on their own. If the prompt was custom review
+  instructions, run them through `codex exec` instead (Step 2A,
+  custom-instructions path). Do **not** fix it by removing `--base` and keeping
+  the prompt — that parses, but silently reviews the uncommitted working tree
+  instead of the branch diff.
+- **Review says "no changes" on a branch that clearly has changes:** the scope
+  flag is missing or wrong. A prompt-only `codex review` defaults to uncommitted
+  changes, so a clean working tree reads as an empty review even when
+  `<base>...HEAD` is large. Confirm `--base <base>` is actually on the command line.
+- **Model not supported (HTTP 400):** stderr shows
+  `The '<model>' model is not supported when using Codex with a ChatGPT account`
+  (a `status: 400` / `invalid_request_error` naming a model). This is a
+  model-entitlement problem, not an auth or network failure, and the auth probe
+  cannot catch it. Recovery, in order:
+  1. Check whether `CODEX_MODEL` is set. If so, update it to a model the account
+     can use.
+  2. If no override is set, the skill defaults to `gpt-6-astra`. If the account
+     cannot use it yet, set `CODEX_MODEL=<supported-model>` or replace the
+     default flag with `-c "model=\"<supported-model>\""`.
+  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
+  Never present this as a model stall or a PASS — it is a fail-closed gate result.
+- **Empty response:** If `$TMPRESP` is empty or does not exist, tell the user:
+  "Codex returned no response. Check stderr for errors."
+- **Session resume failure:** If resume fails, delete the session file and start fresh.
+
+---
+
+## Important Rules
+
+- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's
+  output before showing it. Show it in full inside the CODEX SAYS block.
+- **Add synthesis after, not instead of.** Any commentary of your own comes after
+  the full output.
+- **Bash gate above the wrapper.** Every Bash call to codex sets its `timeout`
+  parameter ABOVE the inner `_codex_timeout_wrapper` budget (Review:
+  `timeout: 360000` over the 330s wrapper; Challenge/Consult: `timeout: 660000`
+  over the 600s wrappers) so the wrapper fires first with a diagnosable exit 124.
+- **No double-reviewing.** If the user already ran a review with their own agent,
+  Codex provides a second independent opinion. Do not re-run the first review.
+- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
+  that Codex got distracted by skill files: `SKILL.md`, `.claude/skills`, or
+  `sections/`. If any of these appear in the output, append a warning: "Codex
+  appears to have read skill files instead of reviewing your code. Consider
+  retrying."

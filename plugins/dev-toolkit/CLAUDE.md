@@ -13,7 +13,9 @@ dev-toolkit/
 │   └── plugin.json        ← plugin manifest (name, version) — skills are auto-discovered
 └── skills/
     ├── update-pr/         ← Sync a PR branch with its base (fetch → rebase/merge → resolve → push)
-    └── cso/               ← Chief Security Officer audit (secrets, deps, CI/CD, OWASP, STRIDE, LLM/AI) + references/audit-phases.md
+    ├── cso/               ← Chief Security Officer audit (secrets, deps, CI/CD, OWASP, STRIDE, LLM/AI) + references/audit-phases.md
+    ├── codex/             ← Second opinion from Codex CLI (review/challenge/consult) for non-Codex hosts + sections/ + scripts/codex-probe.sh
+    └── claude/            ← Second opinion from Claude Code CLI (review/challenge/consult) for non-Claude hosts
 ```
 
 Each skill follows: `skills/<name>/SKILL.md` + optional `references/` subdirectory.
