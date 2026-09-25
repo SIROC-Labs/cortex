@@ -18,6 +18,7 @@
 #
 # Usage:
 #   readiness.py check [--url <task-url-or-ref>] <task-ref>
+#   readiness.py check --offline --task-json <path> [--sprint-json <path>] [--provider <name>]
 #
 # The verdict is emitted as JSON on stdout. Exit 0 when the verdict was produced
 # (whether or not the task is `ready`); non-zero only on a HARD error (could not
@@ -303,9 +304,32 @@ def provider_has_native_key(tm_path):
     return proc.returncode == 0
 
 
+def _load_json_file(path, what):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        die(1, "%s: cannot read %s from '%s' (%s)" % (PROG, what, path, e))
+
+
+# --sprint-json may hold null, an active_sprint object, or a whole board cache.
+def _active_sprint_from(obj):
+    if isinstance(obj, dict) and "active_sprint" in obj and "gid" not in obj:
+        return obj.get("active_sprint")
+    return obj
+
+
+USAGE = ("usage: %s check [--url <task-url-or-ref>] <task-ref> | "
+         "check --offline --task-json <path> [--sprint-json <path>] [--provider <name>]" % PROG)
+
+
 def cmd_check(argv):
     url = None
     ref = None
+    offline = False
+    task_json = None
+    sprint_json = None
+    provider_opt = None
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -313,6 +337,19 @@ def cmd_check(argv):
             if i + 1 >= len(argv):
                 die(1, "%s: --url requires a value" % PROG)
             url = argv[i + 1]
+            i += 2
+        elif a == "--offline":
+            offline = True
+            i += 1
+        elif a in ("--task-json", "--sprint-json", "--provider"):
+            if i + 1 >= len(argv):
+                die(1, "%s: %s requires a value" % (PROG, a))
+            if a == "--task-json":
+                task_json = argv[i + 1]
+            elif a == "--sprint-json":
+                sprint_json = argv[i + 1]
+            else:
+                provider_opt = argv[i + 1]
             i += 2
         elif a.startswith("-"):
             die(1, "%s: unknown option '%s'" % (PROG, a))
@@ -322,11 +359,28 @@ def cmd_check(argv):
             else:
                 die(1, "%s: unexpected extra argument '%s'" % (PROG, a))
             i += 1
+
+    if offline:
+        # The agent fetched the task over an agent-invoked transport and projected
+        # it with the provider's `task project`; the active sprint comes from the
+        # provider's cache. Only the policy runs here.
+        if task_json is None:
+            die(1, "%s: --offline requires --task-json <path> (a `task project` projection)" % PROG)
+        provider = provider_opt or "asana"
+        tm_path = provider_tm_path(provider)
+        if not tm_path:
+            die(1, "%s: provider '%s' has no tm.py" % (PROG, provider))
+        task = _load_json_file(task_json, "task projection")
+        active_sprint = _active_sprint_from(_load_json_file(sprint_json, "active sprint")) if sprint_json else None
+        verdict = evaluate_readiness(task, active_sprint, provider_has_native_key(tm_path))
+        sys.stdout.write(json.dumps(verdict, indent=2) + "\n")
+        sys.exit(0)
+
     if ref is None:
         # Allow the URL to double as the ref when only --url is given.
         ref = url
     if ref is None:
-        die(1, "usage: %s check [--url <task-url-or-ref>] <task-ref>" % PROG)
+        die(1, USAGE)
 
     provider = resolve_provider(url or ref)
     tm_path = provider_tm_path(provider)
@@ -347,7 +401,7 @@ def cmd_check(argv):
 
 def main(argv):
     if not argv:
-        die(1, "usage: %s check [--url <task-url-or-ref>] <task-ref>" % PROG)
+        die(1, USAGE)
     sub = argv[0]
     if sub == "check":
         cmd_check(argv[1:])

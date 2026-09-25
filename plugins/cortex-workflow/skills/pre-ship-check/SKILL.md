@@ -19,6 +19,10 @@ Readiness gate that validates code is in a shippable state. Combines git state v
 - **Standalone** — The user asks "am I ready to ship?" and wants a full status report.
 - **Orchestrator step** — Called by `ship-it` as its first step. Blocking findings halt the pipeline.
 
+## Unattended invocation
+
+With `unattended: true` from the invoker: Step 1d's interactive gate answers **yes**; Step 3 runs the inferred commands without confirmation; Step 4 runs the test suite without asking; a blocking finding ends with a `failed` report (no override); advisory warnings are listed and the flow proceeds. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
+
 ## Flow-Completeness Rule
 
 **All four steps must run unless a BLOCKING step stops the flow.** Passing a gate (Step 1) means "this gate passes" — it does **not** mean "pre-ship-check is done." After any step that passes (including long-running ones like the QA skill invocation in Step 1d Yes), always proceed to the next numbered step. pre-ship-check's final report (see Output Format) is only emitted after Step 4 — if you find yourself about to return control without producing that report, you have skipped a step.

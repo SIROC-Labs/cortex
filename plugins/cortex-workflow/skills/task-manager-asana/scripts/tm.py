@@ -19,6 +19,10 @@
 #   tm.py board discover <key>
 #   tm.py board refresh  <key>
 #   tm.py board write    <key> <json>
+#   tm.py board list     [<key>]
+#   tm.py board sections <project-gid>
+#   tm.py board create   <name> --columns "A,B,C" [--team <team-gid>] [<key>]
+#   tm.py board add-columns <project-gid> <name> [<name> ...]
 #
 # Fields family — code-enforced custom-field DISCOVERY + name->id mapping. The
 # rules in ../references/custom-fields.md (canonical field set, fuzzy match-pattern
@@ -43,7 +47,7 @@
 # `fields` resolution logic.
 #
 #   tm.py task get           <task-ref>
-#   tm.py task list          <project-ref>
+#   tm.py task list          <project-ref> [--section <section-gid>]
 #   tm.py task create        <project-ref> --title T [--description D] [--assignee A]
 #                            [--kind task|milestone] [--set Name=Value ...] [--wait-key]
 #   tm.py task delete        <task-ref>
@@ -55,6 +59,8 @@
 #   tm.py task set-parent    <task-ref> <parent-ref>
 #   tm.py task add-to-board  <task-ref> <board-ref>
 #   tm.py task set-status    <task-ref> <status-name>
+#   tm.py task move          <task-ref> <project-gid> <section-gid>
+#   tm.py task deps          <task-ref>
 #
 # add-dependency/set-parent/add-to-board are single POSTs (addDependencies /
 # setParent / addProject), all via urllib. set-status is TWO-AXIS per
@@ -107,6 +113,23 @@
 # User family:
 #
 #   tm.py user me
+#
+# Offline verbs (agent-invoked transport support). When the skill runs over an Asana
+# MCP server, the agent fetches Asana objects and these verbs apply the same policy
+# the REST verbs apply, reading JSON via --from-json <path|-> and writing the same
+# cache. None of them opens a network connection.
+#
+#   tm.py auth status [<key>]
+#   tm.py board resolve <key> <intent> --offline
+#   tm.py board ingest <key> --from-json <path|-> [--workspace-gid <gid>]
+#   tm.py fields ingest <project-gid> --from-json <path|->
+#   tm.py fields list <project-gid> --offline
+#   tm.py fields resolve <project-gid> <CanonicalName> --offline
+#   tm.py fields plan <project-gid> <Name=Value> ...
+#   tm.py task project --from-json <path|->
+#   tm.py status plan <project-gid> <status-name> --sections-from-json <path|->
+#   tm.py render body (<body> | --body-file <path>) [--for comment|notes]
+#   tm.py milestone classify --from-json <path|->
 #
 # `tm.py --help` (or `-h` / `help`) lists every family and verb.
 #
@@ -181,22 +204,76 @@ def die(code, msg=None):
 
 # --- Asana transport --------------------------------------------------------
 
-# Resolve the Asana token: env var named in the cache's asana_token_env, else
-# ASANA_PERSONAL_ACCESS_TOKEN. Empty -> exit 1. Returns the token value (callers
-# use it; never log it).
-def resolve_token(key):
-    env_name = ""
+# Name of the env var holding the Asana token: the cache's `asana_token_env` when
+# set, else ASANA_PERSONAL_ACCESS_TOKEN. Pure cache read, no network.
+def token_env_name(key):
     cache = cache_util.read_cache(key)
-    if cache is not None:
+    if isinstance(cache, dict):
         v = cache.get("asana_token_env")
         if isinstance(v, str) and v:
-            env_name = v
-    if not env_name:
-        env_name = "ASANA_PERSONAL_ACCESS_TOKEN"
+            return v
+    return "ASANA_PERSONAL_ACCESS_TOKEN"
+
+
+# Resolve the Asana token value for the REST transport. Empty -> exit 1. Callers
+# use it; never log it.
+def resolve_token(key):
+    env_name = token_env_name(key)
     token = os.environ.get(env_name, "")
     if not token:
         die(1, "%s: Asana token is empty (env var '%s' unset or empty)" % (PROG, env_name))
     return token
+
+
+# --- offline-verb argument helpers -------------------------------------------
+# Offline verbs take provider payloads the agent fetched over an agent-invoked
+# transport (an Asana MCP server) and apply policy to them. They hit no network.
+
+# Return the value following `flag` in args, or None when the flag is absent.
+def _flag_value(args, flag):
+    for i, a in enumerate(args):
+        if a == flag:
+            if i + 1 >= len(args):
+                die(1, "%s: %s requires a value" % (PROG, flag))
+            return args[i + 1]
+    return None
+
+
+# Load the JSON document named by `flag`: a file path, or '-' for stdin.
+def _load_from_json(args, flag):
+    src = _flag_value(args, flag)
+    if src is None:
+        die(1, "%s: %s <path|-> is required" % (PROG, flag))
+    try:
+        if src == "-":
+            text = sys.stdin.read()
+        else:
+            with open(src, "r", encoding="utf-8") as f:
+                text = f.read()
+        return json.loads(text)
+    except Exception as e:
+        die(1, "%s: %s: cannot read JSON from '%s' (%s)" % (PROG, flag, src, e))
+
+
+# Asana responses wrap the payload in {"data": ...}; accept both shapes.
+def _unwrap_data(obj):
+    if isinstance(obj, dict) and "data" in obj and len(obj) <= 2:
+        return obj["data"]
+    return obj
+
+
+# --- auth family --------------------------------------------------------------
+
+# Transport probe: exit 0 and print the env var name when a token is resolvable;
+# exit 4 when none is set, so the skill can decide between REST and MCP.
+def auth_status(args):
+    key = args[0] if args else cache_util.project_key()
+    env_name = token_env_name(key)
+    if os.environ.get(env_name, ""):
+        sys.stdout.write(env_name + "\n")
+        sys.exit(0)
+    die(4, "%s: no Asana token: env var '%s' is unset or empty — set it for the REST "
+           "transport, or use a connected Asana MCP server (references/mcp.md)" % (PROG, env_name))
 
 
 # HTTP GET against the Asana API. Fails (exit 1) on transport error or non-2xx.
@@ -589,18 +666,129 @@ def board_refresh(args):
     sys.stdout.write(json.dumps(cache_util.read_cache(key), indent=2) + "\n")
 
 
+# Offline counterpart of `board discover`/`board refresh`: the agent fetched the
+# workspace's projects (all pages, concatenated) over an agent-invoked transport
+# and hands them in; this verb classifies them and writes the cache. Everything
+# already in the cache that this verb does not compute (pattern overrides,
+# asana_token_env, the fields section) is preserved.
+def board_ingest(args):
+    if not args:
+        die(1, "usage: %s board ingest <key> --from-json <path|-> [--workspace-gid <gid>]" % PROG)
+    key = args[0]
+    projects = _unwrap_data(_load_from_json(args[1:], "--from-json"))
+    if not isinstance(projects, list):
+        die(1, "%s: board ingest: --from-json must be a JSON array of projects" % PROG)
+    wgid = _flag_value(args[1:], "--workspace-gid") or workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board ingest: no workspace_gid cached — pass --workspace-gid on first use" % PROG)
+    cache = cache_util.read_cache(key)
+    cache = cache if isinstance(cache, dict) else {}
+    sprint_res, backlog_res = classification_patterns(cache)
+    today = cache_util.today_utc()
+    cache["provider"] = PROVIDER
+    cache["workspace_gid"] = wgid
+    cache["cached_at"] = cache_util.now_iso()
+    cache["active_sprint"] = select_active_sprint(projects, today, sprint_res)
+    cache["backlog_boards"] = select_backlog_boards(projects, sprint_res, backlog_res)
+    cache_util.write_cache(key, cache)
+    sys.stdout.write(json.dumps(cache_util.read_cache(key), indent=2) + "\n")
+
+
+# list_boards(): every non-archived project as {ref, name, completed}. Paged read.
+def board_list(args):
+    key = args[0] if args else cache_util.project_key()
+    wgid = workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board list requires a cached workspace_gid — resolve a board first" % PROG)
+    token = resolve_token(key)
+    out = [{"ref": p.get("gid"), "name": p.get("name"), "completed": p.get("completed")}
+           for p in fetch_all_projects(wgid, token) if isinstance(p, dict)]
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# get_board(board): the project and its sections as {ref, name, columns:[{ref,name}]}.
+def board_sections(args):
+    if not args:
+        die(1, "usage: %s board sections <project-gid>" % PROG)
+    project_gid = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/projects/%s?opt_fields=name" % (API_BASE, project_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    columns = [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(project_gid, token)]
+    sys.stdout.write(json.dumps({"ref": project_gid, "name": data.get("name"), "columns": columns}, indent=2) + "\n")
+    sys.exit(0)
+
+
+# ensure_board(name, columns) create half: POST /projects then one section per name.
+# Reuse-by-name is the caller's (`board list` first). Organisations require a team;
+# pass --team when the workspace is one.
+def board_create(args):
+    if not args:
+        die(1, "usage: %s board create <name> --columns \"A,B,C\" [--team <team-gid>] [<key>]" % PROG)
+    name = args[0]
+    columns = [c.strip() for c in (_flag_value(args[1:], "--columns") or "").split(",") if c.strip()]
+    team = _flag_value(args[1:], "--team")
+    positional = []
+    i = 1
+    while i < len(args):
+        if args[i] in ("--columns", "--team"):
+            i += 2
+            continue
+        positional.append(args[i])
+        i += 1
+    key = positional[0] if positional else cache_util.project_key()
+    wgid = workspace_gid_from(key)
+    if not wgid:
+        die(4, "%s: board create requires a cached workspace_gid — resolve a board first" % PROG)
+    token = resolve_token(key)
+    data = {"name": name, "workspace": wgid, "default_view": "board"}
+    if team:
+        data["team"] = team
+    created = api_json("%s/projects" % API_BASE, token, "POST", {"data": data})
+    pgid = (created.get("data") or {}).get("gid") if isinstance(created, dict) else None
+    if not pgid:
+        die(1, "%s: board create: Asana returned no project gid" % PROG)
+    for col in columns:
+        api_json("%s/projects/%s/sections" % (API_BASE, pgid), token, "POST", {"data": {"name": col}})
+    out = {"ref": pgid, "created": True,
+           "columns": [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(pgid, token)]}
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# ensure_columns(board, names): add each missing section by exact name.
+def board_add_columns(args):
+    if len(args) < 2:
+        die(1, "usage: %s board add-columns <project-gid> <name> [<name> ...]" % PROG)
+    project_gid, names = args[0], args[1:]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    existing = {s.get("name") for s in fetch_project_sections(project_gid, token)}
+    for n in names:
+        if n not in existing:
+            api_json("%s/projects/%s/sections" % (API_BASE, project_gid), token, "POST", {"data": {"name": n}})
+    out = [{"ref": s.get("gid"), "name": s.get("name")} for s in fetch_project_sections(project_gid, token)]
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+
 # High-level provider entry point. intent in {active-sprint, backlog}.
 def board_resolve(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
     if len(args) < 2:
-        die(1, "usage: %s board resolve <key> <active-sprint|backlog>" % PROG)
+        die(1, "usage: %s board resolve <key> <active-sprint|backlog> [--offline]" % PROG)
     key = args[0]
     intent = args[1]
     if intent not in ("active-sprint", "backlog"):
         die(1, "%s: board resolve: intent must be 'active-sprint' or 'backlog'" % PROG)
 
     if not os.path.isfile(cache_util.cache_path(key)):
-        # Miss. Distinguish "bootstrap needed" (no workspace_gid to discover with)
-        # from any future scenario where we could self-discover.
+        if offline:
+            die(4, "%s: bootstrap needed: no cache for '%s' — fetch the workspace projects over the MCP transport, then '%s board ingest <key> --from-json <path> --workspace-gid <gid>'" % (PROG, key, PROG))
         die(4, "%s: bootstrap needed: no cache for '%s' — resolve workspace + token env, then '%s board write <key> <json>' and '%s board discover <key>'" % (PROG, key, PROG, PROG))
 
     cache = cache_util.read_cache(key)
@@ -620,6 +808,8 @@ def board_resolve(args):
     stale = cache_util.is_date_stale(due)
 
     if stale:
+        if offline:
+            die(3, "%s: cache for '%s' is stale (active_sprint.due_on < today) — re-fetch the workspace projects and run '%s board ingest'" % (PROG, key, PROG))
         # Sprint auto-refresh, then return from the refreshed cache.
         _capture_stdout(board_refresh, [key])
         cache = cache_util.read_cache(key)
@@ -627,6 +817,8 @@ def board_resolve(args):
     if intent == "active-sprint":
         active = cache.get("active_sprint") if isinstance(cache, dict) else None
         if active is None and not stale:
+            if offline:
+                die(3, "%s: cache for '%s' records no active sprint — re-fetch the workspace projects and run '%s board ingest'" % (PROG, key, PROG))
             # Cache present but no active sprint recorded — re-discover before
             # concluding there is none, so a never-populated/stale null is never
             # returned as if authoritative. (If we already refreshed above, skip.)
@@ -791,15 +983,46 @@ def fields_discover(args):
     sys.stdout.write(json.dumps(fields_map, indent=2) + "\n")
 
 
-# Return the canonical fields map for a project. Cache-first; on a miss, discover
-# from Asana and write back. Exit 0.
-def fields_list(args):
+# Extract the custom_field_settings array from any of the shapes the agent may
+# hand in: the bare array, {"data": [...]}, or a project object (optionally
+# wrapped) carrying "custom_field_settings".
+def _settings_from(obj):
+    obj = _unwrap_data(obj)
+    if isinstance(obj, dict) and isinstance(obj.get("custom_field_settings"), list):
+        return obj["custom_field_settings"]
+    return obj if isinstance(obj, list) else None
+
+
+# Offline counterpart of `fields discover`: the agent fetched the project's
+# custom_field_settings over an agent-invoked transport; build the canonical map
+# and write it to the same cache section.
+def fields_ingest(args):
     if not args:
-        die(1, "usage: %s fields list <project-gid>" % PROG)
+        die(1, "usage: %s fields ingest <project-gid> --from-json <path|->" % PROG)
+    project_gid = args[0]
+    settings = _settings_from(_load_from_json(args[1:], "--from-json"))
+    if settings is None:
+        die(1, "%s: fields ingest: --from-json must be the custom_field_settings array or a project carrying it" % PROG)
+    key = cache_util.project_key()
+    fields_map = build_fields_map(settings)
+    write_fields_map(key, project_gid, fields_map)
+    sys.stdout.write(json.dumps(fields_map, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Return the canonical fields map for a project. Cache-first; on a miss, discover
+# from Asana and write back (with --offline: exit 2 instead). Exit 0.
+def fields_list(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
+    if not args:
+        die(1, "usage: %s fields list <project-gid> [--offline]" % PROG)
     key = cache_util.project_key()
     project_gid = args[0]
     fields_map = cached_fields_map(key, project_gid)
     if fields_map is None:
+        if offline:
+            die(2, "%s: fields list: no cached fields for project %s — fetch its custom_field_settings and run '%s fields ingest %s --from-json <path>'" % (PROG, project_gid, PROG, project_gid))
         token = resolve_token(key)
         fields_map = discover_fields_map(project_gid, token)
         write_fields_map(key, project_gid, fields_map)
@@ -826,18 +1049,67 @@ def _resolve_field_entry(key, project_gid, name):
 # Return a single canonical field's descriptor for a project. Cache-first; on a
 # miss, discover and write back, then look up. Exit 0 and print the field if it
 # exists on the project; exit 2 (empty stdout) if that canonical field is not
-# present — skip gracefully, not every project has every field.
+# present — skip gracefully, not every project has every field. With --offline a
+# cache miss also exits 2 instead of discovering.
 def fields_resolve(args):
+    offline = "--offline" in args
+    args = [a for a in args if a != "--offline"]
     if len(args) < 2:
-        die(1, "usage: %s fields resolve <project-gid> <CanonicalName>" % PROG)
+        die(1, "usage: %s fields resolve <project-gid> <CanonicalName> [--offline]" % PROG)
     key = cache_util.project_key()
     project_gid = args[0]
     name = args[1]
-    entry = _resolve_field_entry(key, project_gid, name)
+    if offline:
+        fields_map = cached_fields_map(key, project_gid)
+        if fields_map is None:
+            die(2, "%s: fields resolve: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+        entry = fields_map.get(name)
+        entry = entry if isinstance(entry, dict) else None
+    else:
+        entry = _resolve_field_entry(key, project_gid, name)
     if entry is None:
         # Field not present on this project — skip gracefully.
         sys.exit(2)
     sys.stdout.write(json.dumps(entry, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Offline: plan the single update payload for a batch of canonical field writes
+# against a project whose fields are cached. The agent sends the result as one
+# `update_tasks` / `create_tasks` call over the MCP transport. Fields not on the
+# project are reported under "skipped", never silently dropped.
+def fields_plan(args):
+    if len(args) < 2:
+        die(1, "usage: %s fields plan <project-gid> <Name=Value> [<Name=Value> ...]" % PROG)
+    project_gid = args[0]
+    pairs = parse_field_pairs(args[1:])
+    key = cache_util.project_key()
+    fields_map = cached_fields_map(key, project_gid)
+    if fields_map is None:
+        die(2, "%s: fields plan: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+    data = {}
+    custom = {}
+    skipped = []
+    for name, value in pairs:
+        if name == "Assignee":
+            data["assignee"] = value
+            continue
+        entry = fields_map.get(name)
+        if not isinstance(entry, dict):
+            skipped.append(name)
+            continue
+        try:
+            r = field_write_from_entry(entry, name, value)
+        except ValueError as e:
+            die(1, "%s: %s" % (PROG, e))
+        if r is None:
+            skipped.append(name)
+        else:
+            custom[r[1]] = r[2]
+    if custom:
+        data["custom_fields"] = custom
+    data["skipped"] = skipped
+    sys.stdout.write(json.dumps(data, indent=2) + "\n")
     sys.exit(0)
 
 
@@ -1072,13 +1344,30 @@ def task_get(args):
     sys.exit(0)
 
 
+# list_tasks(board, column?): a project's or one section's tasks in native order,
+# compact, with the assignee and canonical fields so callers can order by Priority
+# and route by Category without provider terms.
 def task_list(args):
-    if not args:
-        die(1, "usage: %s task list <project-ref>" % PROG)
-    project_ref = args[0]
+    section = _flag_value(args, "--section")
+    rest = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--section":
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    if not rest:
+        die(1, "usage: %s task list <project-ref> [--section <section-gid>]" % PROG)
+    project_ref = rest[0]
     key = cache_util.project_key()
     token = resolve_token(key)
-    url = "%s/projects/%s/tasks?opt_fields=gid,name,completed,resource_subtype&limit=100" % (API_BASE, project_ref)
+    opt = ("gid,name,completed,resource_subtype,assignee.name,custom_fields.name,"
+           "custom_fields.display_value,custom_fields.enum_value.name,custom_fields.resource_subtype")
+    if section:
+        url = "%s/sections/%s/tasks?opt_fields=%s&limit=100" % (API_BASE, section, opt)
+    else:
+        url = "%s/projects/%s/tasks?opt_fields=%s&limit=100" % (API_BASE, project_ref, opt)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1086,15 +1375,30 @@ def task_list(args):
         if isinstance(data, list):
             for item in data:
                 if isinstance(item, dict):
+                    p = project_task(item)
                     out.append({
                         "gid": item.get("gid"),
                         "name": item.get("name"),
-                        "kind": "milestone" if item.get("resource_subtype") == "milestone" else "task",
+                        "kind": p["kind"],
                         "completed": item.get("completed"),
+                        "assignee": p["assignee"],
+                        "fields": p["fields"],
                     })
         next_page = payload.get("next_page") if isinstance(payload, dict) else None
         url = next_page.get("uri") if isinstance(next_page, dict) else None
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Offline: project one raw task object (as the API or an MCP tool returns it,
+# optionally wrapped in {"data": ...}) into the compact neutral shape `task get`
+# prints. Canonical field names come from the same name matcher the cached map is
+# built with, so no cache is required.
+def task_project(args):
+    raw = _unwrap_data(_load_from_json(args, "--from-json"))
+    if not isinstance(raw, dict):
+        die(1, "%s: task project: --from-json must be one task object" % PROG)
+    sys.stdout.write(json.dumps(project_task(raw), indent=2) + "\n")
     sys.exit(0)
 
 
@@ -1241,23 +1545,12 @@ def print_task_projection(api_response):
     sys.stdout.write(json.dumps(project_task(data if isinstance(data, dict) else {}), indent=2) + "\n")
 
 
-# Resolve ONE canonical field write against a task's projects. Returns a tuple:
-#   ("assignee", <value>)            -> native assignee (PUT /tasks {assignee})
-#   ("custom_field", <gid>, <value>) -> custom_fields:{<gid>:<value>}
-#   None                             -> field not on any of the projects (skip)
-# Raises ValueError on an unparseable/unmatched value (caller surfaces it).
-# Shared by `set-field` (single) and `set-fields`/`create --set` (batch) so all three
-# apply identical enum-match / Estimate-unit / native-assignee logic.
-def resolve_field_write(key, token, project_gids, name, value):
-    if name == "Assignee":
-        return ("assignee", value)
-    entry = None
-    for pgid in project_gids:
-        entry = _resolve_field_entry(key, pgid, name)
-        if entry is not None:
-            break
-    if entry is None:
-        return None
+# Pure: turn a resolved field descriptor + canonical name + flexible value into the
+# write tuple ("custom_field", <gid>, <value>), or None when the descriptor has no
+# gid. Raises ValueError on an enum value that matches no option. Shared by the
+# REST write path (resolve_field_write) and the offline `fields plan` verb so both
+# transports apply identical enum-match and Estimate-unit logic.
+def field_write_from_entry(entry, name, value):
     field_gid = entry.get("id")
     ftype = entry.get("type")
     if not field_gid:
@@ -1274,6 +1567,23 @@ def resolve_field_write(key, token, project_gids, name, value):
     if name == "Estimate":
         return ("custom_field", field_gid, estimate_number_value(parse_estimate_to_minutes(value, entry), entry))
     return ("custom_field", field_gid, value)
+
+
+# Resolve ONE canonical field write against a task's projects (REST path). Returns
+#   ("assignee", <value>)            -> native assignee (PUT /tasks {assignee})
+#   ("custom_field", <gid>, <value>) -> custom_fields:{<gid>:<value>}
+#   None                             -> field not on any of the projects (skip)
+def resolve_field_write(key, token, project_gids, name, value):
+    if name == "Assignee":
+        return ("assignee", value)
+    entry = None
+    for pgid in project_gids:
+        entry = _resolve_field_entry(key, pgid, name)
+        if entry is not None:
+            break
+    if entry is None:
+        return None
+    return field_write_from_entry(entry, name, value)
 
 
 # Build a single PUT body that applies many field writes at once. Returns
@@ -1456,6 +1766,54 @@ def task_add_to_board(args):
     sys.exit(0)
 
 
+# move_task(task, board, column): POST /sections/<s>/addTask places the task in the
+# section and adds it to the project when it is not yet a member.
+def task_move(args):
+    if len(args) < 3:
+        die(1, "usage: %s task move <task-gid> <project-gid> <section-gid>" % PROG)
+    task_gid, project_gid, section_gid = args[0], args[1], args[2]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": task_gid}})
+    sys.stdout.write(json.dumps({"task": task_gid, "board": project_gid, "column": section_gid}) + "\n")
+    sys.exit(0)
+
+
+# Pure: Asana memberships -> the neutral [{board:{ref,name}, column:{ref,name}}].
+def _membership_projection(memberships):
+    out = []
+    for m in memberships or []:
+        if not isinstance(m, dict):
+            continue
+        proj = m.get("project") if isinstance(m.get("project"), dict) else {}
+        sect = m.get("section") if isinstance(m.get("section"), dict) else {}
+        out.append({"board": {"ref": proj.get("gid"), "name": proj.get("name")},
+                    "column": {"ref": sect.get("gid"), "name": sect.get("name")}})
+    return out
+
+
+# get_dependencies(task): the blockers with completion and board/column memberships,
+# one read per blocker.
+def task_deps(args):
+    if not args:
+        die(1, "usage: %s task deps <task-gid>" % PROG)
+    task_gid = args[0]
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/tasks/%s?opt_fields=dependencies.gid" % (API_BASE, task_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    deps = [d.get("gid") for d in (data.get("dependencies") or []) if isinstance(d, dict) and d.get("gid")]
+    out = []
+    for gid in deps:
+        raw = api_get("%s/tasks/%s?opt_fields=name,completed,memberships.project.gid,memberships.project.name,"
+                      "memberships.section.gid,memberships.section.name" % (API_BASE, gid), token)
+        t = raw.get("data") if isinstance(raw, dict) else {}
+        out.append({"ref": gid, "name": t.get("name"), "completed": t.get("completed"),
+                    "memberships": _membership_projection(t.get("memberships"))})
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # Pure decision: given a status name, the Product Status field descriptor (the
 # `fields` entry, or None) and a list of {gid,name} sections, decide HOW to realize
 # the status. Returns one of:
@@ -1543,6 +1901,41 @@ def task_set_status(args):
             sys.exit(0)
 
     die(1, "%s: task set-status: '%s' is not a known Product Status option or board section on task %s's project(s)" % (PROG, status_name, task_gid))
+
+
+# --- status family ------------------------------------------------------------
+
+# Offline half of `task set-status`: decide the axis for <status-name> against a
+# project whose fields are cached and whose sections the agent fetched, and print
+# the target the agent writes over the MCP transport:
+#   {"axis":"field","field_gid":…,"option_gid":…}  -> update_tasks custom_fields
+#   {"axis":"section","section_gid":…}             -> update_tasks add_projects
+# Neither -> exit 1. No cached fields -> exit 2 (ingest first), because the field
+# axis must be tried before the section axis and cannot be tried blind.
+def status_plan(args):
+    if len(args) < 2:
+        die(1, "usage: %s status plan <project-gid> <status-name> --sections-from-json <path|->" % PROG)
+    project_gid, status_name = args[0], args[1]
+    sections = _unwrap_data(_load_from_json(args[2:], "--sections-from-json"))
+    if isinstance(sections, dict) and isinstance(sections.get("sections"), list):
+        sections = sections["sections"]
+    if not isinstance(sections, list):
+        die(1, "%s: status plan: --sections-from-json must be the project's sections array" % PROG)
+    key = cache_util.project_key()
+    fields_map = cached_fields_map(key, project_gid)
+    if fields_map is None:
+        die(2, "%s: status plan: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+    ps_field = fields_map.get("Product Status")
+    ps_field = ps_field if isinstance(ps_field, dict) else None
+    axis, target = decide_set_status(status_name, ps_field, sections)
+    if axis == "field" and target:
+        out = {"axis": "field", "field_gid": ps_field.get("id"), "option_gid": target}
+    elif axis == "section" and target:
+        out = {"axis": "section", "section_gid": target}
+    else:
+        die(1, "%s: status plan: '%s' is not a Product Status option or a section of project %s" % (PROG, status_name, project_gid))
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
 
 
 # Set (replace) a task's description/notes. <task-ref> is a task GID; the body is
@@ -1658,6 +2051,29 @@ def milestone_tasks(args):
         die(1, "%s: milestone tasks: milestone %s not found in project %s" % (PROG, anchor_gid, project_gid))
     members = [t for t in fetch_section_tasks(sgid, token) if t["kind"] != "milestone"]
     sys.stdout.write(json.dumps(members, indent=2) + "\n")
+    sys.exit(0)
+
+
+# Offline half of `milestone list`: the agent fetched each section's tasks over the
+# MCP transport and hands in [{"section":{gid,name},"tasks":[{gid,name,
+# resource_subtype}]}]; print the same [{name, ref, expanded}] shape.
+def milestone_classify(args):
+    groups = _unwrap_data(_load_from_json(args, "--from-json"))
+    if not isinstance(groups, list):
+        die(1, "%s: milestone classify: --from-json must be an array of {section, tasks} groups" % PROG)
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        sect = g.get("section") if isinstance(g.get("section"), dict) else {}
+        tasks = [t for t in (g.get("tasks") or []) if isinstance(t, dict)]
+        kinds = [("milestone" if t.get("resource_subtype") == "milestone" else "task", t) for t in tasks]
+        anchor = next((t for k, t in kinds if k == "milestone"), None)
+        if anchor is None:
+            continue
+        out.append({"name": sect.get("name"), "ref": anchor.get("gid"),
+                    "expanded": any(k != "milestone" for k, _ in kinds)})
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
@@ -1915,6 +2331,53 @@ def comment_list(args):
     sys.exit(0)
 
 
+# --- render family ------------------------------------------------------------
+
+# Read a body from `rest`: `--body-file <path>` or the first positional argument.
+def _read_body_arg(rest, verb):
+    if rest and rest[0] == "--body-file":
+        if len(rest) < 2:
+            die(1, "%s: %s: --body-file requires a path" % (PROG, verb))
+        try:
+            with open(rest[1], "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            die(1, "%s: %s: cannot read --body-file '%s' (%s)" % (PROG, verb, rest[1], e))
+    if rest:
+        return rest[0]
+    die(1, "%s: %s requires a body (<body> or --body-file <path>)" % (PROG, verb))
+
+
+# Offline half of `comment add` / `task set-notes`: convert Markdown to the Asana
+# payload the agent sends over the MCP transport. `--for comment` (default) prints
+# {"html_text"} or {"text"}; `--for notes` prints {"html_notes"} or {"notes"}.
+def render_body_cmd(args):
+    target = "comment"
+    rest = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--for":
+            if i + 1 >= len(args):
+                die(1, "%s: render body: --for requires comment|notes" % PROG)
+            target = args[i + 1]
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    if target not in ("comment", "notes"):
+        die(1, "%s: render body: --for must be comment or notes" % PROG)
+    body = _read_body_arg(rest, "render body")
+    if not body.strip():
+        die(1, "%s: render body: body is empty" % PROG)
+    is_html, wrapped = render_body(md_to_html(body))
+    if target == "comment":
+        out = {"html_text": wrapped} if is_html else {"text": wrapped}
+    else:
+        out = {"html_notes": wrapped} if is_html else {"notes": wrapped}
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- ref family -------------------------------------------------------------
 
 # An app.asana.com host (with or without a leading scheme). The task GID is always a
@@ -1990,12 +2453,19 @@ BOARD_VERBS = {
     "discover": board_discover,
     "refresh": board_refresh,
     "write": board_write,
+    "ingest": board_ingest,
+    "list": board_list,
+    "sections": board_sections,
+    "create": board_create,
+    "add-columns": board_add_columns,
 }
 
 FIELDS_VERBS = {
     "list": fields_list,
     "resolve": fields_resolve,
     "discover": fields_discover,
+    "ingest": fields_ingest,
+    "plan": fields_plan,
 }
 
 TASK_VERBS = {
@@ -2011,6 +2481,9 @@ TASK_VERBS = {
     "set-parent": task_set_parent,
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
+    "project": task_project,
+    "move": task_move,
+    "deps": task_deps,
 }
 
 COMMENT_VERBS = {
@@ -2030,9 +2503,23 @@ MILESTONE_VERBS = {
     "list": milestone_list,
     "tasks": milestone_tasks,
     "ensure": milestone_ensure,
+    "classify": milestone_classify,
+}
+
+STATUS_VERBS = {
+    "plan": status_plan,
+}
+
+RENDER_VERBS = {
+    "body": render_body_cmd,
+}
+
+AUTH_VERBS = {
+    "status": auth_status,
 }
 
 FAMILIES = {
+    "auth": AUTH_VERBS,
     "board": BOARD_VERBS,
     "fields": FIELDS_VERBS,
     "task": TASK_VERBS,
@@ -2040,6 +2527,8 @@ FAMILIES = {
     "ref": REF_VERBS,
     "user": USER_VERBS,
     "milestone": MILESTONE_VERBS,
+    "status": STATUS_VERBS,
+    "render": RENDER_VERBS,
 }
 
 

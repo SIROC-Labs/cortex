@@ -81,7 +81,7 @@ basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 | Field | Description |
 |---|---|
 | `workspace_gid` | Asana workspace GID — discovered on first use |
-| `asana_token_env` | Name of the env var holding the Asana token for this project. Default: `ASANA_PERSONAL_ACCESS_TOKEN`. On first use, if this var is set, cache the name automatically. If not set, ask the user which env var holds the token. |
+| `asana_token_env` | *(REST transport only)* Name of the env var holding the Asana token for this project. Default: `ASANA_PERSONAL_ACCESS_TOKEN`. Absent on caches built over the MCP transport (`board ingest`); nothing reads it in that mode. |
 | `cached_at` | ISO 8601 timestamp of last full cache write |
 | `active_sprint` | The currently active sprint board (`due_on` may be `null` for conventions that don't set sprint due dates) |
 | `backlog_boards` | All non-sprint projects in the workspace matching a backlog pattern |
@@ -114,6 +114,8 @@ If no cache file exists for the current project key:
 6. Write the full cache file
 7. Report what was discovered
 
+On the MCP transport the same discovery is `mcp.md` → Bootstrap: the agent fetches the projects and `board ingest` classifies and writes.
+
 ### 3. Manual Refresh
 
 User passes a URL override or says "refresh boards". Re-run the full discovery flow and overwrite the cache.
@@ -137,13 +139,13 @@ Route via the recipes in `references/rest.md` (Fetch Current User).
 
 ## Token Env Var
 
-The `asana_token_env` field stores the name of the environment variable holding the Asana token for this project.
+The `asana_token_env` field stores the name of the environment variable holding the Asana token for this project. It exists only on the REST transport.
 
-On first use:
+On first REST use:
 - If `$ASANA_PERSONAL_ACCESS_TOKEN` is set → cache `"ASANA_PERSONAL_ACCESS_TOKEN"` as the env var name
 - If not set → ask the user which env var holds the token, cache the answer
 
-Subsequent operations read the token from the cached env var name. Token resolution is handled per `references/rest.md` (Token Resolution) — this field is a project-level hint that can inform token selection.
+Subsequent REST operations read the token from the cached env var name (`rest.md` → Token Resolution). A cache written by `board ingest` on the MCP transport carries no `asana_token_env`; if the operator later sets a token, `tm.py auth status` falls back to the default name.
 
 ## API Calls for Discovery
 

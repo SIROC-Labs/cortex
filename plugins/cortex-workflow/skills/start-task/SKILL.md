@@ -11,8 +11,11 @@ description: >
   ("resume task", "pick up where I left off", "continue [task-id]"). For a shortcut that runs the
   full task orchestration and ship-it but skips sub-skill routing (feature-dev, brainstorming,
   fix-bug) and implements inline instead, add "fast" to the arguments — "start task fast",
-  "fast mode", "just start coding".
-argument-hint: <task-url> [brainstorm|feature-dev|fast]
+  "fast mode", "just start coding". Add "unattended" to run with no operator present: every gate
+  answers from the plugin's unattended answers, the run works in a worktree, and it ends with a
+  verdict block the invoker routes on; "rework" marks a card handed back after a previous
+  unattended run.
+argument-hint: <task-url> [brainstorm|feature-dev|fast] [unattended [rework]]
 ---
 
 # Start Task
@@ -34,6 +37,8 @@ Parse `$ARGUMENTS` once and establish these flags. The rest of the skill refers 
 |------|-------------------------------|--------|
 | `fast_mode` | `fast` | Step 10 skips sub-skill routing and the Step 11 QA sub-flow; implements inline |
 | `workflow_choice` | `brainstorm` or `feature-dev` | Passed through to `implement-feature` at Step 10; if unset, `implement-feature` asks the operator |
+| `unattended_mode` | `unattended` | No prompts; see **Unattended Mode**. Composable with `fast_mode` and `workflow_choice`. |
+| `rework_mode` | `rework` (only with `unattended`) | The card was built before and handed back: reuse its branch and PR, act on the delta only. |
 
 `fast_mode` is mutually exclusive with `workflow_choice` (fast skips routing entirely).
 
@@ -44,6 +49,43 @@ Set when `fast_mode` flag is active (see Argument Parsing above).
 Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `implement-feature` (or its downstream development skills), `fix-bug`, or QA skill is invoked — implement the solution immediately using the agent's native file, shell, and edit tools, and reason about it directly in this conversation.
 
 **What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, task status move/comment, and the ship-it handoff — runs as normal.
+
+## Unattended Mode
+
+Set when `unattended_mode` is active. Nobody is present. Every gate in this skill and in the skills it invokes resolves from **`plugins/cortex-workflow/references/unattended-answers.md`**; pass `unattended: true` to `implement-feature`, `fix-bug`, the QA skills and `ship-it`. A question that table cannot answer from the card ends the run with a `clarification` verdict. Never write "Should I…" and wait.
+
+The run ends with this block, printed last, which the invoker parses:
+
+```
+UNATTENDED VERDICT: shipped | clarification | failed
+PR: <url or none>
+Needs from you: <one line>
+Questions: <numbered, each with a proposed default — clarification only>
+Evidence: <url of the PR comment carrying the failure — failed only>
+Worktree: <path>
+```
+
+Per-step differences from the attended flow:
+
+| Step | Unattended behaviour |
+|---|---|
+| 0 | A missing dependency → `failed` verdict naming the plugin. |
+| 2a | Assign to the current user silently, whoever is assigned. |
+| 3 | Skipped. The context must carry a `READINESS: READY` verdict (from the readiness skill in this plugin) naming the repository, base branch, category, non-live proofs and live checks; absent → `clarification`. The verdict's repository is the working repository for every git command; do not assume the current directory. |
+| 5 | As attended. Rework: also read the PR's review threads (`gh pr view <url> --json reviews,comments`; `gh api repos/<org>/<repo>/pulls/<n>/comments`). The delta since this system's last `🤖 [AGENT]` comment is the scope. |
+| 6 | Rework: reuse the branch and PR named in the start marker or the checkpoint. Fresh with an existing branch: reuse it. Never open a second PR for one card. |
+| 6a | Always a worktree at `<repo>/.worktrees/<branch>`; recipe in `references/git-workflow.md` → "Unattended worktree". Bootstrap failure → `failed`. |
+| 6b | The base branch the card names, else `main`. A named branch missing on `origin` → `clarification`. |
+| 7 | Branch `agent/<task-ref>-<slug>` (rework: the existing one). |
+| 8 | Draft PR with `--assignee @me`; body stub `## Task\n<url>`. Rework: confirm the PR exists, do not create or re-draft. |
+| 9a | Skipped; the invoker owns board routing. |
+| 9b | Post the start marker from `references/task-patterns.md` → "Unattended start marker" (`🤖 [AGENT] started` or `🤖 [AGENT] rework started`). |
+| 10 | Routing as attended, with `unattended: true` and the default `workflow_choice` from the answers table. Rework: implement the delta and nothing else; address every review point, and say in one sentence where you disagree. |
+| 11 | Bug: the QA sub-flow, gates answered. Non-bug: QA runs. Every gap found is closed in this run. Then run **`references/test-ladder.md`**: every reachable rung, results recorded; a red rung after a real attempt → `failed`. |
+| 12 | `ship-it` with `unattended: true`. Then the GitHub write-up in **`references/reporting.md`**: PR body rewritten, one `COMMENT` review with line-anchored notes, one verification-report comment; rework: a reply in every thread addressed. Delete the checkpoint. Verdict `shipped`; `Needs from you` is `review + merge` or the live check they must run. |
+| Pause flow | Never asks. Commit and push WIP, then `clarification` (missing answer) or `failed` (broken run). A failure before a PR exists puts the full evidence block on the card comment the invoker writes; pass it in the verdict's `Needs from you`. |
+
+Checkpoint rows that would have needed operator input (`3`, `6a`, `6b`, `QA: Verify Non-Bug`) are completed with `auto=yes` and the answer as the comment. Standalone use of this mode (a human at the keyboard) still requires a READY verdict first; run the readiness skill, then this mode.
 
 ## The Flow
 
@@ -85,6 +127,8 @@ Run the code-enforced verdict — do not evaluate the checks by hand. Run `${PLU
 
 Report the verdict as a checklist. Active sprint membership, Estimate, and a not-yet-started status are all blocking — `status` passes only when the task is in a not-yet-started state; otherwise offer to set it to the start state (e.g. `Assigned`) via the task-manager interface. Offer to set Estimate via the interface too; active sprint membership is fixed manually. Do not proceed until the blocking checks pass. Only the task key / ID field can be skipped after a warning (and is skipped entirely on providers with a native key).
 
+Unattended: see **Unattended Mode**.
+
 ### Step 4: Fetch Subtasks
 
 Fetch subtasks via `get_subtasks(task)`. Group by status (incomplete = remaining work, completed = already done). Include subtasks in downstream context so the receiving skill understands what "done" looks like.
@@ -92,6 +136,8 @@ Fetch subtasks via `get_subtasks(task)`. Group by status (incomplete = remaining
 ### Step 5: Fetch Comments and Attachments
 
 Fetch the task's comments via `get_comments(task)`. List attachments by name. For each non-image attachment (anything not `image/*` by mime type or by `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` extension), download its contents through the `task-manager` interface and include the body in the task context. Image attachments stay as references the user can inspect — do not download images.
+
+If the description carries a section headed `## Implementation plan`, mark it in the context bundle as the task's plan (see `plugins/cortex-workflow/references/runtime-bindings.md` → "Plan Artifact Convention"); `implement-feature` reads it from there when no plan attachment exists.
 
 Also scan the task description and comments for links to external tools (design files, documents, specs, etc.). For each link found, invoke the appropriate MCP or tool to fetch its content and include it in the context bundle passed to the downstream skill in Step 10.
 
@@ -113,7 +159,7 @@ Present the choice:
 
 If the user chooses worktree, create an isolated copy using the first available option in this order: (1) a native worktree tool if the agent provides one (e.g. `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), (2) otherwise `git worktree add <path> -b <branch>` directly, where `<path>` is anchored to the main repo root (a sibling of it, e.g. `"$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')/../<repo>-<task-id>"`) — never a cwd-relative path, so it can't nest inside another worktree. Then inspect the project for its documented setup instructions and follow them — the project's `CLAUDE.md`, `README`, or a dedicated setup script (e.g. `scripts/setup-worktree.sh`) should describe what's needed. If no setup instructions exist, tell the user and suggest they add a `scripts/setup-worktree.sh` to their project documenting how to bootstrap a new worktree (install deps, copy env files, start local services, etc.).
 
-The branch will be created inside the worktree in Step 7.
+The branch will be created inside the worktree in Step 7. Unattended: see **Unattended Mode**.
 
 ### Step 6b: Confirm Base Branch (BLOCKING)
 
@@ -126,6 +172,8 @@ Present the choice:
 > - Another branch _(enter branch name)_
 
 Default to `main` only after the user confirms. If the user specifies a different base branch, use that instead. Record the chosen base branch for Step 7.
+
+Unattended: see **Unattended Mode**.
 
 ### Step 7: Create Feature Branch
 
@@ -162,6 +210,8 @@ Immediately after creating the branch, create an empty commit and a draft PR to 
 
 Move the task to "In Progress" via `set_status(task, "In Progress")`. Skip if already there. If the move fails, report why but do not block the workflow — proceed to Step 9b.
 
+Unattended: see **Unattended Mode**.
+
 ### Step 9b: Post Start Comment
 
 **This happens automatically — no permission needed.**
@@ -170,7 +220,7 @@ Post a start comment on the task with the branch name and draft PR URL via `add_
 
 ### Step 10: Route to the Right Workflow
 
-Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
+Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **the description's `## Implementation plan` section when present**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
 
 **If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `implement-feature`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 
@@ -220,6 +270,8 @@ If **yes** → invoke the resolved QA skill with a summary of what was built. Th
 
 If **skip** → proceed to Step 12. `pre-ship-check` will offer one more chance at ship time if no QA evidence is found on the task.
 
+Unattended: see **Unattended Mode**.
+
 ### Step 12: Ship It
 
 **This step runs after the bug QA verify loop (for bugs) or the non-bug QA verification (for non-bugs) completes — or when the operator skips QA.** Do not wait for the user to ask.
@@ -238,6 +290,8 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 
 After `ship-it` returns successfully, delete `~/.cortex/cortex-workflow/checkpoints/<task-ref>.md` (via `checkpoint.sh delete <task-ref>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
+Unattended: see **Unattended Mode**.
+
 ## Pause Flow
 
 Triggered either by a step going into `State = blocked` during the flow or by the operator saying "park this", "I'm blocked", "pause task", or similar. Commits WIP, drafts a blocking question for user approval, posts a comment via the task-manager interface (@mentioning the blocker), updates the checkpoint, and pushes. See **`references/checkpoints.md`** → "Pause Flow" for the full sequence and **`references/task-patterns.md`** for the comment formats.
@@ -254,5 +308,7 @@ Triggered either by a step going into `State = blocked` during the flow or by th
 - **`references/validation-rules.md`** — Sprint-readiness checks, failure display, skip rules
 - **`references/task-patterns.md`** — comment templates posted via the task-manager interface
 - **`references/git-workflow.md`** — Existing work detection, branch creation, naming convention
+- **`references/test-ladder.md`** — Unattended mode's proof ladder, rung by rung
+- **`references/reporting.md`** — Unattended mode's GitHub write-up: PR body, review notes, verification report
 - **`references/checkpoints.md`** — Checkpoint file format, initialization, per-step updates, resume flow, lifecycle end, edge cases
 - **`plugins/cortex-workflow/references/qa-routing.md`** — QA skill resolution and the QA sub-flow (plugin-level shared reference with pre-ship-check)

@@ -16,12 +16,22 @@ Implements the neutral operations defined in `../task-manager/SKILL.md` against 
 - `references/custom-fields.md` — discovering field identifiers and mapping the neutral field set.
 - `references/boards.md` — sprint/backlog identification, discovery, caching.
 - `references/spec-summary.md` — full Asana API reference (232 endpoints) for the long tail.
+- `references/mcp.md` — the MCP transport: detection, the op → tool → offline-verb table, bootstrap, partial support.
 
-## Token resolution
+## Transport resolution (once per session)
 
-Resolve the Asana token exactly as in `references/rest.md` (Token Resolution): default `$ASANA_PERSONAL_ACCESS_TOKEN`, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk.
+Two transports realize the same operations. Decide once, at the first Asana operation of the session, and do not revisit unless the operator asks to.
+
+1. Run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager-asana/scripts/tm.py auth status`.
+2. **Exit 0** → **REST transport.** Resolve the token exactly as in `references/rest.md` (Token Resolution): the printed env var, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk. The operation table below applies as written.
+3. **Exit 4** → check whether the tools of an Asana MCP server are callable in this session (`references/mcp.md` → Detection). Callable → **MCP transport**: realize every operation per the table in `references/mcp.md`; the `tm.py` verbs you call are the offline ones it names, never the REST verbs.
+4. Neither → stop and tell the operator both paths: set `ASANA_PERSONAL_ACCESS_TOKEN` (https://app.asana.com/0/my-apps), or connect an Asana MCP server. Do not guess and do not call the API unauthenticated.
+
+The token wins when both exist. A `401` on the token is reported per `references/rest.md`; do not switch transports on your own. The operator may say "use the Asana MCP" to override for the session. Multi-account `ASANA_TOKEN_<NAME>` switching applies to REST only.
 
 ## Operation mapping
+
+The table gives the REST realization. On the MCP transport every row is realized per the same-named row in `references/mcp.md`; the neutral op and its result shape are identical.
 
 | Neutral op | Asana realization |
 |---|---|
@@ -47,11 +57,17 @@ Resolve the Asana token exactly as in `references/rest.md` (Token Resolution): d
 | `get_comments(task)` | `scripts/tm.py comment list <task-gid>` — `GET /tasks/<gid>/stories` filtered to `type:comment`, returns the compact `[{author, text, created_at}]` (`references/rest.md` → Fetch Task Stories). |
 | `get_attachments(task)` | `GET /tasks/<gid>/attachments` (`references/rest.md`). |
 | `list_fields(board)` | `scripts/tm.py fields list <project-gid>` — code-enforced discovery + name→GID mapping (cache-first, discover-on-miss + write-back); returns the compact canonical field map. Force a refresh with `scripts/tm.py fields discover <project-gid>`. Rules in `references/custom-fields.md`. |
-| `list_tasks(board)` | `scripts/tm.py task list <project-gid>` — `GET /projects/<gid>/tasks` (paginated), compact `{gid,name,kind,completed}` per task (`kind` from `resource_subtype`), via urllib. |
+| `list_tasks(board, column?)` | `scripts/tm.py task list <project-gid> [--section <section-gid>]` — `GET /projects/<gid>/tasks` or `GET /sections/<gid>/tasks` (paginated), compact `{gid,name,kind,completed,assignee,fields}` per task in native order, `fields` mapped to canonical names. |
+| `list_boards()` | `scripts/tm.py board list` — the workspace's non-archived projects as `[{ref,name,completed}]` (paginated). |
+| `get_board(board)` | `scripts/tm.py board sections <project-gid>` — `{ref,name,columns:[{ref,name}]}`, sections in board order. |
+| `ensure_board(name, columns)` | `board list` → a project with exactly that name → reuse (`{ref, created:false}`); else `scripts/tm.py board create <name> --columns "A,B,C" [--team <gid>]` — `POST /projects` (workspace from cache; `--team` when Asana answers that a team is required) then one `POST /projects/<gid>/sections` per column. |
+| `ensure_columns(board, names)` | `scripts/tm.py board add-columns <project-gid> <name> …` — adds each missing section by exact name, prints the columns. |
+| `move_task(task, board, column)` | `scripts/tm.py task move <task-gid> <project-gid> <section-gid>` — `POST /sections/<gid>/addTask`. |
+| `get_dependencies(task)` | `scripts/tm.py task deps <task-gid>` — `GET /tasks/<gid>?opt_fields=dependencies.gid`, then one read per blocker for `{ref,name,completed,memberships:[{board,column}]}`. |
 | `resolve_board(intent)` | **Hard gate — cache-first, never manual discovery on a hit.** FIRST, MANDATORY action: derive the key via `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager-asana/scripts/tm.py board key`, then run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager-asana/scripts/tm.py board resolve <key> <intent>` (intent ∈ `active-sprint`/`backlog`). It reads cache-first, auto-refreshes only when the sprint is stale, and signals miss/bootstrap via exit code. Do **NOT** issue manual project-list queries when the script returns a board. Live discovery happens only via the script's `board discover` path on a genuine miss (exit 4 = bootstrap: resolve workspace + token env per `references/boards.md`, `board write` them, then `board discover`), and it writes back. Classification/discovery rules + schema live in `references/boards.md`. |
 
 For operations not in the table, use `references/spec-summary.md` directly — this is the provider-coupled long-tail path.
 
 ## Errors
 
-Follow `references/rest.md` (Error Handling): 401 → token fallback/regenerate, 403/404 → report, 429 → back off per `Retry-After`. Never silently skip a failed call.
+REST: follow `references/rest.md` (Error Handling): 401 → token fallback/regenerate, 403/404 → report, 429 → back off per `Retry-After`. MCP: surface the tool's error text verbatim; treat any entry in a `failed` array as the operation failing (`references/mcp.md` → Rules). On either transport, never silently skip a failed call.

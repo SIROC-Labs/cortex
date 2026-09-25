@@ -19,6 +19,10 @@ Full PR lifecycle — from pre-checks through creation to capturing the PR URL f
 - **Orchestrator step** — Called by `ship-it` with `orchestrator: true`. Receives the work summary, task URL, and skips git-check (already done by pre-ship-check).
 - **Update mode** — The user asks to update an existing PR's description or reviewers.
 
+## Unattended invocation
+
+With `unattended: true` from the invoker: reviewers come from the project `CLAUDE.md` `## PR Defaults` or none; an existing non-draft PR is updated; the task URL and Task ID come from the invoker's context; nothing is prompted. `--assignee @me` is set on create and on promote. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
+
 ## Inputs
 
 All inputs are optional. When missing, derive them automatically or prompt the user.

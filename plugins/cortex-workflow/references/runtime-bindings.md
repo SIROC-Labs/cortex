@@ -34,4 +34,9 @@ Maps abstract development capabilities to the concrete skill that provides them 
 
 ## Plan Artifact Convention
 
-A task "has a plan" when it carries an attachment named `implementation-plan.md` — the canonical name, produced by `refine-tasks` (but any producer is valid: brainstorming output, feature-dev output, hand-written). Failing the canonical name, any attachment whose **content** reads as an implementation plan (ordered steps, affected files/modules, migration notes, test strategy) counts, regardless of filename. Detection is by content, not only by name, and needs no operator confirmation. The plan's producer is irrelevant to consumers; only its presence and content matter.
+A task "has a plan" when either location holds one, checked in this order:
+
+1. **An attachment.** `implementation-plan.md` is the canonical name, produced by `refine-tasks` (any producer is valid: brainstorming output, feature-dev output, hand-written). Failing the canonical name, any attachment whose **content** reads as an implementation plan (ordered steps, affected files/modules, migration notes, test strategy) counts, regardless of filename.
+2. **A description section** headed `## Implementation plan`, running to the end of the description. Producers write here when their task-manager transport cannot upload files.
+
+Detection is by content, needs no operator confirmation, and the plan's producer is irrelevant to consumers. A producer writes exactly one location per task: an attachment when the provider can upload, the description section otherwise; it never writes both, and on re-run it replaces whichever location it owns.

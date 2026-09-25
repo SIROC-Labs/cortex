@@ -33,7 +33,7 @@ metadata and should be auto-installed when installing `cortex-workflow`, provide
 the `claude-plugins-official` marketplace is available and cross-marketplace
 dependencies are allowed by this marketplace.
 
-## Required MCP Servers
+## MCP Servers
 
 The QA skills require the MCP servers declared by the plugin:
 
@@ -43,6 +43,11 @@ The QA skills require the MCP servers declared by the plugin:
 Both are declared in `plugins/cortex-workflow/.mcp.json` — the single source of
 truth shared by all runtimes. Claude Code and Codex load them automatically from
 the plugin manifest; for OpenCode the adapter registers them at load time.
+
+The task manager needs **either** an `ASANA_PERSONAL_ACCESS_TOKEN` in the
+environment **or** an operator-connected Asana MCP server (not declared by this
+plugin). The Asana provider picks the transport per session; see
+`skills/task-manager-asana/SKILL.md` → Transport resolution.
 
 ## How to Check If Dependencies Are Installed
 
@@ -104,3 +109,5 @@ These skills are included in the `cortex-workflow` plugin itself:
 | `cortex-workflow:web-qa` | Web QA investigation & verification |
 | `cortex-workflow:mobile-qa` | Mobile QA investigation & verification |
 | `cortex-workflow:backend-qa` | Backend (API/service) QA investigation & verification |
+| `cortex-workflow:implement-feature` | Non-bug implementation routing |
+| `cortex-workflow:agent-loop-readiness` | Readiness verdict consumed by unattended mode |

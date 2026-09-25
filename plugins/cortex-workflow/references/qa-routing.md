@@ -53,7 +53,7 @@ Invoke the resolved QA skill in **investigate** mode with:
 
 Outcomes:
 - **Confirmed** (bug reproduced with evidence) → QA skill posts the report to the task. Proceed to `QA: Fix Bug`, passing the full report as context.
-- **Cannot reproduce** → **stop**. Report to operator. Let them decide: fix SUT setup, clarify the bug description, or skip verification and proceed to debugging anyway.
+- **Cannot reproduce** → **stop**. Report to operator. Let them decide: fix SUT setup, clarify the bug description, or skip verification and proceed to debugging anyway. Under unattended invocation this is a clarification stop returned to the invoker.
 
 ### QA: Fix Bug
 
@@ -77,6 +77,8 @@ After `fix-bug` returns, re-invoke the resolved QA skill in **verify** mode with
 **Non-bug tasks only.** Bug tasks already have QA via `QA: Investigate Bug` + `QA: Verify Fix`.
 
 **HARD GATE — always stop and wait for the operator's answer. Auto mode's "minimize interruptions" directive does NOT override this step.**
+
+When the consuming skill runs with `unattended: true`, the answer is **yes** per `plugins/cortex-workflow/references/unattended-answers.md`; the gate is answered, not skipped.
 
 Skip asking only if the operator has already provided an explicit answer about QA in this session — e.g., passed `skip QA` in the start-task arguments, or said "skip QA" / "run QA" earlier in the conversation. Inferred triviality (small change, simple fix, XS sizing) is NOT a valid reason to skip.
 

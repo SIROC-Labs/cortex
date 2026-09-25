@@ -163,9 +163,11 @@ The plan is **code-free** by design — it provides enough context (file paths, 
 
 ### 3c. Upload as a task attachment
 
-Upload the markdown content as an attachment on the task via `upload_attachment(task, <path to implementation-plan.md>)`. The file is named `implementation-plan.md`.
+Upload the markdown content via `upload_attachment(task, <path to implementation-plan.md>)`. The file is named `implementation-plan.md`.
 
-**Replacement on re-run.** Before uploading, list the task's existing attachments (via `get_task(task)`). If an attachment named `implementation-plan.md` already exists, remove it first with `remove_attachment(task, <that attachment>)`. Never accumulate duplicate plans.
+The provider decides how the upload is realized. A transport that cannot upload files realizes this call as the description section `## Implementation plan` instead (see `plugins/cortex-workflow/references/runtime-bindings.md` → "Plan Artifact Convention") and reports it; the summary comment in 3d then says "Full plan: see the *Implementation plan* section of the description" instead of naming the attachment.
+
+**Replacement on re-run.** Before uploading, list the task's existing attachments (via `get_task(task)`). If an attachment named `implementation-plan.md` already exists, remove it first with `remove_attachment(task, <that attachment>)`. Never accumulate duplicate plans. When the provider reports the description-section realization, the replacement is the provider's (it replaces the section) and `remove_attachment` is not called.
 
 ### 3d. Post a refinement summary as a comment
 

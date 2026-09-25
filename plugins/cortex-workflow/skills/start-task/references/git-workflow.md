@@ -76,3 +76,35 @@ If the current branch does not contain the task ID, warn:
 > Current branch is `main`, but the task branch is `MT251-47/add-csv-export`. Switch to the task branch first?
 
 If a merge is in progress (`git status` shows "You have unmerged paths"), warn and ask how to proceed before committing.
+
+## Unattended worktree
+
+Worktrees live inside the repository under `.worktrees/`, kept out of git through the local exclude file, never the shared `.gitignore`:
+
+```bash
+REPO=<the readiness verdict's repository path>
+git -C "$REPO" fetch origin --prune
+BRANCH="agent/<task-ref>-<slug>"          # rework: the branch from the start marker
+WT="$REPO/.worktrees/agent-<task-ref>-<slug>"
+mkdir -p "$REPO/.worktrees"
+grep -q '^/\.worktrees/$' "$REPO/.git/info/exclude" || printf '/.worktrees/\n' >> "$REPO/.git/info/exclude"
+if [ -d "$WT" ] && git -C "$WT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "$WT" pull --ff-only
+elif git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+  git -C "$REPO" worktree add "$WT" --track -b "$BRANCH" "origin/$BRANCH"
+else
+  git -C "$REPO" worktree add "$WT" -b "$BRANCH" "origin/<base>"
+fi
+```
+
+Then bootstrap: run `scripts/setup-worktree.sh` when the repo has one, else follow the repo's `CLAUDE.md`/`README` setup. Never run an "initialise env" target that scaffolds blank files from samples. Copy the ignored env files from the primary checkout, matching both `.env`-style dotfiles and `*.env` files at any depth:
+
+```bash
+cd "$REPO" && git ls-files --others --ignored --exclude-standard \
+  | grep -iE '(^|/)\.env|\.env$|\.env\.' \
+  | while IFS= read -r f; do mkdir -p "$WT/$(dirname "$f")" && cp "$REPO/$f" "$WT/$f"; done
+```
+
+Verify what landed (`ls`, and the variables the task's tests need). Every git command from here carries `-C "$WT"`. Never `rm -rf` a worktree; `git worktree remove` it. Do not remove it at the end of the run: the reviewer reads from it.
+
+Unattended branch naming is `agent/<task-ref>-<slug>` because the human task key may not exist yet when the branch is cut.

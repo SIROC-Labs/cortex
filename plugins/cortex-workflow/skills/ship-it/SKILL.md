@@ -55,6 +55,10 @@ Reuse all of this when invoking `create-pr`. In particular, pass the **Task ID**
 
 If neither `start-task` nor `log-task` was used but a task URL appeared earlier in the conversation, resolve the task from it via the `task-manager` interface (`find_task(ref)`). Only prompt for the URL if there is genuinely no task context available.
 
+## Unattended invocation
+
+With `unattended: true` from the invoker: pass the flag through to `pre-ship-check` and `create-pr`; **skip Step 4** (task update) entirely — the invoker routes the card and writes its own comment; on any sub-skill failure return a `failed` report to the invoker instead of asking how to proceed. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
+
 ## The Flow
 
 Follow these 5 steps in order.
@@ -124,6 +128,7 @@ Print a single recap:
 |---|---|
 | No task context | 4 |
 | Draft PR from start-task | 3 promotes draft to ready (no skip) |
+| Invoked with unattended: true | 4 |
 
 ## Deliberate Removals
 

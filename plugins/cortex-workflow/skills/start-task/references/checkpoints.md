@@ -29,7 +29,7 @@ A checkpoint has frontmatter, a `## Steps` table, and a `## Notes` section.
 | `task_url` | Full task URL |
 | `branch` | Feature branch name — filled in after Step 7 |
 | `base_branch` | Branch the feature branch was created from — filled in after Step 7 |
-| `workflow` | `fix-bug`, `brainstorm`, `feature-dev`, or `fast` — filled in after Step 10 |
+| `workflow` | `fix-bug`, `brainstorm`, `feature-dev`, or `fast`, or `unattended` / `unattended-rework` — filled in after Step 10 |
 | `created_at` | ISO 8601 timestamp — set once on initialization |
 | `last_updated` | ISO 8601 timestamp — updated after every step |
 
@@ -177,6 +177,8 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 | QA: Verify Fix | `Pass`, `Fail`, or skipped reason |
 | QA: Verify Non-Bug | `Passed`, `Failed: <reason>`, or skipped reason |
 | 12. Ship It | `Shipped: <pr-url>` |
+
+Unattended mode: rows 3, 6a, 6b and QA: Verify Non-Bug are completed with the answer taken from the plugin's unattended answers and `auto=yes`; row 9a is skipped with reason `unattended — invoker routes the card`.
 
 ### Frontmatter Updates
 

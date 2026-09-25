@@ -28,3 +28,20 @@ When resuming work on a previously blocked task, post a brief comment for team v
 ## Checking for Answers on Resume
 
 On resume, if the resuming row has `State = blocked`, fetch the task's comments via `get_comments(task)` and keep only those created after the checkpoint's `last_updated` timestamp. Present any new comments as potential answers to the blocking question.
+
+## Unattended start marker
+
+Posted at Step 9b in unattended mode instead of the 🏁 comment. It is machine state: the next unattended run reads it to resume or to rework, so its first line is exact.
+
+> 🤖 [AGENT] started
+> Repo: `<org/repo>`
+> Branch: `<branch>` (base: `<base>`)
+> Worktree: `<path>`
+> Draft PR: `<pr-url>`
+
+In rework mode:
+
+> 🤖 [AGENT] rework started
+> Branch: `<branch>` · PR: `<pr-url>`
+
+Interrupted-run adoption (posted by the invoker, read here to pick the mode): `🤖 [AGENT] previous run was interrupted — resuming`. The invoker owns every other comment on the card.

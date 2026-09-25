@@ -27,6 +27,17 @@ Providers whose statuses are categorized (e.g. Jira's `statusCategory`: new / in
 - **Auth is resolved inside the provider, and is broader than env-var tokens.** It may be an env-var token (e.g. an Asana PAT), OAuth managed by an external CLI (e.g. Jira's `acli`, where the provider holds no secret and only checks auth status), or another scheme. The seam never sees credentials.
 - **A provider may use multiple transports.** Different operations can be realized via different mechanisms internally — e.g. a CLI for most ops plus a separate MCP/REST call for fields the CLI can't set. Pick the transport per-operation; the neutral op signature does not change.
 
+### Agent-invoked transports (MCP) and offline verbs
+
+A transport the script cannot call (an MCP server's tools are invoked by the agent) is supported by splitting each operation into **network** (the agent fetches or writes) and **policy** (the script decides). The provider exposes its deterministic column as offline verbs with a fixed shape:
+
+- Reads take `--from-json <path|->` carrying the provider's own object shapes, concatenated across pages by the agent; `ingest` verbs classify and write the cache (`board ingest`, `fields ingest`), `classify`/`project` verbs transform without writing (`milestone classify`, `task project`).
+- Writes are planned, not performed: `plan` verbs print the payload the agent sends (`fields plan`, `status plan`); `render` verbs print rendered bodies (`render body`).
+- Cache-only lookups take `--offline` and exit `2`/`3`/`4` where the REST verb would fetch (`board resolve --offline`, `fields list --offline`).
+- `auth status` exits `0` when the script's own transport can authenticate and `4` otherwise; the skill prose decides the transport from that.
+
+The provider's `references/mcp.md` maps every neutral op to a tool call plus the offline verb that completes it. Where the agent-invoked transport lacks a capability (Asana's MCP cannot upload attachments), the partial-support rule applies: an operator-actionable stop, or a documented alternate realization (the `## Implementation plan` description section in `references/runtime-bindings.md`).
+
 ## Board-resolution script contract
 
 Every provider exposes **one `tm.py` CLI per provider** at `skills/task-manager-<provider>/scripts/tm.py`, dispatched by **family + verb** (`tm.py <family> <verb> [args]`). Families namespace operation groups so future op groups (`fields`, `task`, etc.) can be added to the same CLI without collision. `resolve_board(intent)` is implemented as a code-enforced cache lifecycle under the **`board` family**, not as ad-hoc prose steps. All providers expose the **same CLI shape and the same exit-code contract** so orchestrators (and the seam) treat them identically:
