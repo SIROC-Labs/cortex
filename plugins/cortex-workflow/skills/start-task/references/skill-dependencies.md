@@ -103,6 +103,7 @@ These skills are included in the `cortex-workflow` plugin itself:
 | `cortex-workflow:task-manager` | All task operations (routed to the active provider) |
 | `cortex-workflow:git-check` | Git state validation |
 | `cortex-workflow:pre-ship-check` | Readiness gate |
+| `cortex-workflow:documentation` | Doc refresh before shipping |
 | `cortex-workflow:work-summary` | Session summary |
 | `cortex-workflow:create-pr` | PR creation |
 | `cortex-workflow:ship-it` | Shipping orchestrator |
