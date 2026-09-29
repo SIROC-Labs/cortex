@@ -20,6 +20,7 @@ Thin orchestrator that calls sub-skills in sequence to ship completed work. This
 ### Sub-skills (must be installed)
 
 - `pre-ship-check` — readiness gate (clean tree, commits, branch state)
+- `documentation` — brings the docs in line with the change (commits its edits)
 - `work-summary` — session recap (git history, conversation context)
 - `create-pr` — PR lifecycle (create, push, format)
 - `task-manager` — task operations (fetch, comment, set status)
@@ -57,11 +58,11 @@ If neither `start-task` nor `log-task` was used but a task URL appeared earlier 
 
 ## Unattended invocation
 
-With `unattended: true` from the invoker: pass the flag through to `pre-ship-check` and `create-pr`; **skip Step 4** (task update) entirely — the invoker routes the card and writes its own comment; on any sub-skill failure return a `failed` report to the invoker instead of asking how to proceed. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
+With `unattended: true` from the invoker: pass the flag through to `pre-ship-check`, `documentation` and `create-pr`; **skip Step 4** (task update) entirely — the invoker routes the card and writes its own comment; on any sub-skill failure return a `failed` report to the invoker instead of asking how to proceed. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
 
 ## The Flow
 
-Follow these 5 steps in order.
+Follow these steps in order.
 
 ### Step 1: Pre-ship Check
 
@@ -71,6 +72,13 @@ Invoke `pre-ship-check`. This sub-skill owns the QA verification gate — it pro
 - If it returns **advisory** warnings — present them to the user and ask whether to proceed or fix first.
 
 ship-it no longer has a separate QA step — all QA handling lives in pre-ship-check.
+
+### Step 1b: Documentation
+
+Invoke `documentation` with `commit: true`. It updates the guides the change affects and commits them as one `docs(...)` commit, so the tree stays clean for `create-pr`. It never pushes.
+
+- If it reports **up to date**, continue.
+- If it reports **needs judgment** items, present them to the user and ask whether to address them now or ship as is.
 
 ### Step 2: Work Summary
 
@@ -117,6 +125,7 @@ Print a single recap:
 
 > Shipped! Here's what happened:
 > - Pre-ship check: passed (or "blocked — resolved X")
+> - Documentation: updated N files (or "up to date")
 > - Work summary: generated
 > - PR created: <pr-url> (or "already existed" / "skipped")
 > - Task moved to "In Review": <task-url> (or "skipped")

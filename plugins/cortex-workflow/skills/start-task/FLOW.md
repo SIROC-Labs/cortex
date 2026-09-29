@@ -429,6 +429,7 @@ Details in `plugins/cortex-workflow/references/qa-routing.md`. Skipped entirely 
              │      (prompts operator if no QA evidence   │
              │       for non-bug tasks)                   │
              │    · git state + lint + build + tests      │
+             │  documentation  (docs commit)              │
              │  work-summary                              │
              │  promote draft PR → ready                  │
              │  move task → "In Review"                   │

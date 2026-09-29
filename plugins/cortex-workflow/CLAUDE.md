@@ -27,6 +27,7 @@ cortex-workflow/
     ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
+    ├── documentation/     ← Doc refresh for finished work, run by ship-it before the PR (bundled)
     ├── create-prd/        ← PRD generation from a task URL, Notion, Figma, local files, or any URL (bundled)
     ├── create-spec/       ← Technical spec authoring from any source (interview-driven → docs/cortex/specs/) (bundled)
     ├── product-one-pager/ ← Product one-pager/brief generation & review against a senior-PM + product-owner bar (bundled)
@@ -83,6 +84,7 @@ fix-bug
 
 ship-it
   ├── pre-ship-check     (readiness gate, owns QA verification gate)
+  ├── documentation      (update docs the change affects, docs commit)
   ├── work-summary       (session summary)
   └── create-pr          (open PR)
 

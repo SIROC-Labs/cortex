@@ -26,6 +26,8 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | `pre-ship-check` run the slow test suite | yes |
 | `pre-ship-check` blocking finding | stop (`failed`); there is no "ship anyway" |
 | `pre-ship-check` advisory warnings | proceed; list them in the verification report |
+| `documentation` removal or large rewrite of a doc section | skip it; list it under "Needs judgment" in the report |
+| `ship-it` documentation "needs judgment" items | ship as is; list them in the verification report |
 | `create-pr` reviewers | the project `CLAUDE.md` `## PR Defaults`, else none |
 | `create-pr` a non-draft PR already exists | update it |
 | `ship-it` task status move and ship comment | skipped; the invoker routes the card and writes its comment |
