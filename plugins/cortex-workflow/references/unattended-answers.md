@@ -13,7 +13,7 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | Sprint-readiness fields (Product Status, Estimate, Sizing) | not applicable; never set or demanded |
 | `implement-feature` entry when no plan is present | `workflow_choice` default `feature-dev` where the runtime binds it, else `EXECUTE_INLINE` |
 | `implement-feature` entry when a plan is present | `EXECUTE_PLAN` with the first binding listed in the bindings cell |
-| A bound skill asks a design or scope question | answer from the card; unanswerable from the card → stop (`clarification`) with the question and a proposed default |
+| A bound skill asks a design or scope question | decide it from the card, the repository and its conventions, and record it in the PR body under "Decisions taken"; stop (`clarification`) only on a stop condition of the readiness skill in this plugin — no clear solution, or a contradiction with the card |
 | Run QA verification (non-bug) | yes |
 | `QA: Investigate Bug` cannot reproduce | stop (`clarification`) quoting what was tried |
 | QA or the test ladder found gaps; close which | all, in this run; never list them for someone to pick |
@@ -31,7 +31,7 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | `create-pr` reviewers | the project `CLAUDE.md` `## PR Defaults`, else none |
 | `create-pr` a non-draft PR already exists | update it |
 | `ship-it` task status move and ship comment | skipped; the invoker routes the card and writes its comment |
-| Merge or enable auto-merge | never |
+| Merge or enable auto-merge | never; the review run in this plugin is the one merger, of a card's PR into its non-`main` milestone branch |
 | Commit and push | yes, on the card's branch only; never to the base branch |
 
 **Verdict vocabulary.** A stop is one of `clarification` (the card lacks an answer; carries numbered questions each with a proposed default and where it comes from) or `failed` (the run cannot proceed; carries the failing command, its last output and what a human must decide or fix). The invoker owns the wording it posts.

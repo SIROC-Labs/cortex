@@ -9,8 +9,11 @@ description: Use when a task is about to be executed by an unattended agent run 
 A task is **ready** when an agent with no human present can carry it to a shipped, verified PR
 **without asking a single question**.
 
-That is the whole bar. Not "a competent engineer could figure it out" — a competent engineer asks.
-Readiness means every question that *would* be asked is already answered on the card.
+Two things make that true. The card states the problem, the goal, what done looks like and how it is
+proved. And the run **decides everything else itself**: it reads the card, the repository and its
+conventions, takes the call a senior engineer on the team would take, and records it in the PR under
+"Decisions taken" for the reviewer to overturn. A question is not the safe option; it is a day of queue
+time. The run stops only on a **stop condition** (below).
 
 ## The two modes
 
@@ -18,12 +21,25 @@ The checks are identical; only what you do with a failure differs.
 
 | Mode | You are | A failed check means |
 |---|---|---|
-| **Audit** | an unattended run holding a claimed card | Return the questions to the invoking workflow, which moves the card to its blocked column and ends the run. Never guess to keep going. |
-| **Author** | writing or fixing a card with the human present | Ask now, patch the card with the answer, **re-run every check from the top**, repeat until READY. |
+| **Audit** | an unattended run holding a claimed card | Decide it, record the decision, and pass the check — unless the failure is a **stop condition**, in which case return the questions to the invoking workflow, which moves the card to its blocked column and ends the run. |
+| **Author** | writing or fixing a card with the human present | Ask now, patch the card with the answer, **re-run every check from the top**, repeat until READY. The human is there; every open point is cheap to close. |
 
 In author mode the loop matters: an answer routinely creates a new unknown (a named threshold raises
 "per what window?"). Re-running only the check that failed ships a card that fails a different check.
 Keep looping until a full pass produces no questions.
+
+## Stop conditions (audit mode)
+
+An unattended run routes a card to blocked for exactly two reasons. Anything else is its decision.
+
+| Stop when | Meaning | Not a stop |
+|---|---|---|
+| **No clear solution** | After reading the card, the repository and its conventions, two or more materially different implementations remain and nothing favours one: not the card's Problem or Goal, not a convention the repo applies anywhere, not the smallest change that satisfies the Definition of done | A missing threshold, name, window or type with any basis to pick from; a choice between two repo conventions where one is nearer the touched code; anything a reviewer overturns with one comment |
+| **Contradiction** | The card conflicts with itself or with reality: the Definition of done cannot follow from the Approach; the fix would undo what the Problem says is wrong; a file, field, endpoint or branch the card names does not exist and nothing corresponds to it; a dependency landed a contract the card's Contract disagrees with; the card spans two repositories | Code that differs from the card's `file:line` because it moved; a stale line number; a name that changed but whose thing is still there |
+
+A decision taken under this rule goes in the PR body under "Decisions taken", as the call made, the
+alternative rejected and why. That entry is the question the run would have asked, answered where the
+reviewer reads it.
 
 ## The checks
 
@@ -37,14 +53,14 @@ Run all of them. Record a verdict per check — a check you did not evaluate is 
 | 4 | **Single reading** | Two engineers reading it write the same code | Two readings that produce materially different code; the card itself posing an open question |
 | 5 | **Contract** | Every name, type, unit, threshold, boundary and error behaviour the change introduces is stated | Any of them left to the implementer, or expressed as a word instead of a number (see the vague-word gate) |
 | 6 | **Verification without live services** | At least one non-live rung proves it: a unit, an integration test against a container, an in-process API test, or an element-scoped browser harness | The only proof is a run against staging, prod, or a real third-party account — see "Verification the agent cannot do" |
-| 7 | **One deployable unit** | One repo, one deploy unit | A card spanning backend and frontend, or two repos, without the split |
+| 7 | **One repository** | One repository, resolvable to one worktree and one base branch | A card spanning two repositories without the split; two cards in one repository that depend on each other |
 | 8 | **Dependencies machine-readable** | Blockers are task-manager dependencies (`get_dependencies(task)` through the task-manager interface) | A blocker stated only in prose ("after the ledger task lands") |
 | 9 | **Scope boundary** | The card names the files, module or surface it may touch, or is small enough that "what you touch" has one reading | An open-ended sweep ("and anywhere else this pattern appears") with no enumeration |
 | 10 | **Category** | The neutral `Type / Category` field is set to a real value — it routes bug-fix versus feature work | Absent, or left at `To be Specified`, when the card could plausibly be either |
 
-Check 4's default-or-stop line: `references/tables.md` → "Default or stop?". The line is cost of being wrong, not confidence; two stacked defaults are a stop.
+In audit mode, a failed check 3, 4, 5, 6, 8, 9 or 10 is a decision unless it meets a stop condition; a failed check 1, 2 or 7 is always a contradiction. Worked examples: `references/tables.md` → "Decide or stop?".
 
-Check 5's vague words and what each needs: `references/tables.md` → "The vague-word gate". Each hit is a failed check 5.
+Check 5's vague words and what each needs: `references/tables.md` → "The vague-word gate". Each hit is a failed check 5 in author mode; in audit mode the run picks the number, states where it came from, and records it.
 
 ## Verification the agent cannot do
 
@@ -55,9 +71,9 @@ is a live run is not unexecutable; it is **incompletely specified**. Ready means
 - **the non-live proof the agent will produce** — the rung, and the fixture or seed data it needs; and
 - **the live check left to the operator** — named as such, with the command or the URL.
 
-A card that says only "verify on staging" fails check 6. A card that says "unit-test the mapper
-against the recorded payload in the description; operator confirms on staging with
-`<the repo's staging command>`" passes.
+A card that says only "verify on staging" fails check 6 in author mode. In audit mode the run picks the
+highest non-live rung the change allows, builds its fixture, and names the staging check as the
+operator's; that is a decision, not a stop.
 
 ## Questions that get answered
 
@@ -91,17 +107,17 @@ READINESS: NOT READY
   Established: <what is already settled, one line>
 ```
 
-In audit mode that question list is returned verbatim to the invoking workflow, which posts it on the card.
+In audit mode that question list is returned verbatim to the invoking workflow, which posts it on the card, and every question names which stop condition it meets.
 
-The arguments for shipping anyway, each answered: `references/tables.md` → "Rationalizations". Read it when you notice one.
+The arguments for stopping when you should decide, and for deciding when you should stop, each answered: `references/tables.md` → "Rationalizations". Read it when you notice one.
 
 ## Red flags
 
-- You are about to write "I'll assume…" in a plan for an unattended run.
-- A check is marked pass because you could work it out, not because the card says it.
+- You are about to stop on a question that has a proposed answer you believe in — that answer is the decision; take it.
+- A question you drafted names no stop condition.
 - The verification story is "run it on staging and look".
-- A question you drafted has no proposed answer attached.
-- You re-ran one check after an answer instead of all ten.
-- Check 4 passed on the strength of a default whose cost of being wrong is a rewrite.
+- You re-ran one check after an answer instead of all ten (author mode).
+- You are about to build something the card's Problem says is the bug.
+- Two engineers would build different things and you cannot say why yours is the one — that is the stop.
 
 Consequences of skipping a check: `references/tables.md` → "Common mistakes".

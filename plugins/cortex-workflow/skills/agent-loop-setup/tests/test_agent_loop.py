@@ -137,6 +137,26 @@ class OrderTest(AgentLoopCase):
         self.assertEqual(code, 0, err)
         self.assertEqual([t["ref"] for t in json.loads(out)], ["c", "b", "d", "a"])
 
+    def test_user_filter_keeps_unassigned_and_own_drops_others(self):
+        payload = {"tasks": [
+            {"ref": "a", "name": "A", "index": 0, "priority": "P0", "assignee": {"ref": "u2", "name": "Other"}},
+            {"ref": "b", "name": "B", "index": 1, "priority": "P1", "assignee": None},
+            {"ref": "c", "name": "C", "index": 2, "priority": "P2", "assignee": {"ref": "u1", "name": "Me"}},
+            {"ref": "d", "name": "D", "index": 3, "priority": "P3", "assignee": "u2"},
+        ], "priority_order": ["P0", "P1", "P2", "P3"]}
+        code, out, err = self.run_cmd(["order", "--user", "u1", "--from-json", "-"], stdin=json.dumps(payload))
+        self.assertEqual(code, 0, err)
+        self.assertEqual([t["ref"] for t in json.loads(out)], ["b", "c"])
+
+    def test_without_user_flag_assignee_is_ignored(self):
+        payload = {"tasks": [
+            {"ref": "a", "name": "A", "index": 0, "priority": "P0", "assignee": {"ref": "u2"}},
+            {"ref": "b", "name": "B", "index": 1, "priority": "P1", "assignee": None},
+        ], "priority_order": ["P0", "P1"]}
+        code, out, _ = self.run_cmd(["order", "--from-json", "-"], stdin=json.dumps(payload))
+        self.assertEqual(code, 0)
+        self.assertEqual([t["ref"] for t in json.loads(out)], ["a", "b"])
+
     def test_unknown_priority_value_sorts_last(self):
         payload = {"tasks": [{"ref": "a", "name": "A", "index": 0, "priority": "Urgent"},
                              {"ref": "b", "name": "B", "index": 1, "priority": "P4"}],
@@ -163,10 +183,16 @@ class GateTest(AgentLoopCase):
         r = self.gate([{"ref": "x", "name": "X", "completed": True, "memberships": []}])
         self.assertTrue(r["pass"])
 
-    def test_in_review_by_ref_passes(self):
+    def test_in_review_by_ref_blocks(self):
         r = self.gate([{"ref": "x", "name": "X", "completed": False, "memberships": [
             {"board": {"ref": "b3", "name": "agent"}, "column": {"ref": "c4", "name": "Pending PR Review"}}]}])
-        self.assertTrue(r["pass"])
+        self.assertFalse(r["pass"])
+        self.assertIn("Pending PR Review", r["blocking"][0]["reason"])
+
+    def test_in_review_by_name_on_other_board_blocks(self):
+        r = self.gate([{"ref": "x", "name": "X", "completed": False, "memberships": [
+            {"board": {"ref": "team", "name": "ENG | Sprint 26.16"}, "column": {"ref": "zz", "name": "Pending PR Review"}}]}])
+        self.assertFalse(r["pass"])
 
     def test_ready_by_ref_passes(self):
         r = self.gate([{"ref": "x", "name": "X", "completed": False, "memberships": [
@@ -203,6 +229,24 @@ class LastRunTest(AgentLoopCase):
         self.assertEqual(rec["task"], "t1")
         self.assertTrue(rec["started"])
         self.assertTrue(rec["ended"])
+
+    def test_kind_review_writes_separate_file(self):
+        self.seed()
+        code, _, err = self.run_cmd(["last-run", "asana", "start", "--kind", "review"])
+        self.assertEqual(code, 0, err)
+        code, out, err = self.run_cmd(["last-run", "asana", "write", "ready", "--kind", "review", "--task", "t2"])
+        self.assertEqual(code, 0, err)
+        review_path = os.path.join(self.home, ".cortex", "agent-loop", "asana.review.last-run.json")
+        with open(review_path) as f:
+            rec = json.load(f)
+        self.assertEqual(rec["outcome"], "ready")
+        self.assertEqual(rec["task"], "t2")
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".cortex", "agent-loop", "asana.last-run.json")))
+
+    def test_unknown_kind_exits_1(self):
+        code, _, err = self.run_cmd(["last-run", "asana", "start", "--kind", "nightly"])
+        self.assertEqual(code, 1)
+        self.assertIn("kind", err)
 
 
 if __name__ == "__main__":

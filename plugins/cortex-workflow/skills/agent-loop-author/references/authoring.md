@@ -44,6 +44,42 @@ on exclusions, and being wrong there costs credibility.
 > Four metrics were dropped as unmeasurable on first pass. On inspection three were measurable; only the
 > reasoning was lazy.
 
+## The milestone
+
+One milestone per run, whatever the card count. It is the unit the operator reviews and releases, and the
+branch every card of this run targets.
+
+**Branch recipe**, per repository under `repos_root` that the cards touch:
+
+```bash
+git -C <repo> fetch origin --prune
+git -C <repo> ls-remote --exit-code --heads origin milestone/<slug> \
+  || git -C <repo> push origin origin/<parent>:refs/heads/milestone/<slug>
+```
+
+`<slug>` is the milestone name lower-cased, non-alphanumerics collapsed to `-`, trimmed; the same in every
+repository. `<parent>` is `main` unless the work extends an unmerged branch, and is recorded per
+repository. Nothing is committed to the milestone branch here; the review run's squash merges fill it.
+
+**Anchor description** (`set_description`), in this order:
+
+```markdown
+## Source
+<one paragraph: what the input asked for, and the exclusions with their reasons>
+
+## Branches
+| Repository | Milestone branch | Parent |
+|---|---|---|
+| <org/repo> | `milestone/<slug>` | `<parent>` |
+
+## Cards
+- <ref> — <title> (<repo>)   ← in dependency order
+
+## Closing
+When every card is in Ready, open `milestone/<slug> → <parent>` in each repository above and review the
+milestone as one change. Extending this milestone means authoring new cards under it with the same base.
+```
+
 ## Common mistakes
 
 | Mistake | Consequence |
@@ -51,7 +87,11 @@ on exclusions, and being wrong there costs credibility.
 | Planning from the summary you wrote | Items lost between reading chunks |
 | Trusting "we can't measure that" without a code check | Wrong exclusions in a stakeholder-facing report |
 | Implementing both sides of a contradiction | Two features that disagree on screen |
-| One card spanning backend and frontend | Hidden deploy ordering; the run cannot ship both halves |
+| One card spanning two repositories | Hidden deploy ordering; the run cannot ship both halves |
+| Two cards in one repository that depend on each other | Serialised work that one card would have carried; the second waits a review cycle for nothing |
+| A card with file-level steps | The run follows a plan written before the code was read, instead of the approach |
+| A card whose base is `main` | The review run refuses it; nothing may merge into `main` unreviewed by a human |
+| No milestone because "it is just one card" | Nothing to extend; the next card from the same source gets a second branch |
 | Leaving a threshold as a word | The run stops and asks, or invents a number |
 | Verifying coverage cards-first | Confirms what you wrote, finds nothing missing |
 | Calling a data-absent item "declined" | Reads as a judgment on the author's idea |

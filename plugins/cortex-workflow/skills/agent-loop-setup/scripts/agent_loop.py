@@ -12,10 +12,10 @@
 #   agent_loop.py read <key>
 #   agent_loop.py write <key> --from-json <path|->
 #   agent_loop.py rotate <key> --from-json <path|->      # list_boards() result
-#   agent_loop.py order --from-json <path|->             # {"tasks":[...],"priority_order":[...]}
+#   agent_loop.py order [--user <ref>] --from-json <path|->   # {"tasks":[...],"priority_order":[...]}
 #   agent_loop.py gate --from-json <path|->              # {"blockers":[...],"board":…,"columns":…,"column_names":…}
-#   agent_loop.py last-run <key> start
-#   agent_loop.py last-run <key> write <outcome> [--task <ref>] [--detail <text>]
+#   agent_loop.py last-run <key> start [--kind build|review]
+#   agent_loop.py last-run <key> write <outcome> [--kind build|review] [--task <ref>] [--detail <text>]
 #
 # Exit codes: 0 ok · 2 no match (rotate found no board for the pattern) · 4 cache
 # missing or invalid (run agent-loop-setup) · 1 argument/parse error.
@@ -37,8 +37,11 @@ DEFAULT_COLUMN_NAMES = {
     "ready": "Ready",
     "done": "Done",
 }
-# Roles a blocker may sit in for the dependency gate to pass.
-SATISFIED_ROLES = ("in_review", "ready", "done")
+# Roles a blocker may sit in for the dependency gate to pass. A card in in_review has
+# an open PR whose work is not yet on its base branch, so it does not satisfy a dependent.
+SATISFIED_ROLES = ("ready", "done")
+# One last-run record per kind of tick: the build tick and the review tick run independently.
+RUN_KINDS = ("build", "review")
 
 
 def err(msg):
@@ -59,8 +62,9 @@ def cache_path(key):
     return os.path.join(CACHE_DIR, key + ".json")
 
 
-def last_run_path(key):
-    return os.path.join(CACHE_DIR, key + ".last-run.json")
+def last_run_path(key, kind="build"):
+    suffix = ".last-run.json" if kind == "build" else "." + kind + ".last-run.json"
+    return os.path.join(CACHE_DIR, key + suffix)
 
 
 def _flag_value(args, flag):
@@ -236,15 +240,28 @@ def cmd_order(args):
             return unset_rank
 
     tasks = [t for t in payload["tasks"] if isinstance(t, dict)]
+    user = _flag_value(args, "--user")
+    if user is not None:
+        tasks = [t for t in tasks if claimable_by(t, user)]
     tasks.sort(key=lambda t: (rank(t), t.get("index", 0)))
     sys.stdout.write(json.dumps(tasks, indent=2) + "\n")
+
+
+# A card is claimable when it is unassigned or assigned to this user; a card assigned
+# to anyone else belongs to their run and is never touched.
+def claimable_by(task, user):
+    assignee = task.get("assignee")
+    if assignee is None or assignee == "":
+        return True
+    ref = assignee.get("ref") if isinstance(assignee, dict) else assignee
+    return str(ref) == str(user)
 
 
 # --- dependency gate ---------------------------------------------------------
 
 # A blocker is satisfied when it is completed, or sits in the agent board's
-# in_review/ready/done column (by ref), or sits on another board in a column whose
-# name equals the agent board's in_review/ready/done name. Anything else blocks: fail closed.
+# ready/done column (by ref), or sits on another board in a column whose name equals
+# the agent board's ready/done name. Anything else blocks: fail closed.
 def blocker_reason(blocker, board_ref, columns, column_names):
     if blocker.get("completed") is True:
         return None
@@ -285,15 +302,19 @@ def cmd_gate(args):
 # --- last run ----------------------------------------------------------------
 
 def cmd_last_run(args):
+    usage = "usage: %s last-run <key> start | write <outcome> [--kind build|review] [--task <ref>] [--detail <text>]" % PROG
     if len(args) < 2:
-        die(1, "usage: %s last-run <key> start | write <outcome> [--task <ref>] [--detail <text>]" % PROG)
+        die(1, usage)
     key, verb = args[0], args[1]
-    path = last_run_path(key)
+    kind = _flag_value(args[2:], "--kind") or "build"
+    if kind not in RUN_KINDS:
+        die(1, "%s: last-run: --kind must be one of %s" % (PROG, "|".join(RUN_KINDS)))
+    path = last_run_path(key, kind)
     if verb == "start":
         _write_json(path, {"started": now_iso(), "ended": None, "outcome": "running", "task": None, "detail": None})
         return
-    if verb != "write" or len(args) < 3:
-        die(1, "usage: %s last-run <key> start | write <outcome> [--task <ref>] [--detail <text>]" % PROG)
+    if verb != "write" or len(args) < 3 or args[2].startswith("--"):
+        die(1, usage)
     prev = _read_json(path) or {}
     rec = {
         "started": prev.get("started") or now_iso(),
