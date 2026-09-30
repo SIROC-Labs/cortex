@@ -16,10 +16,10 @@ The plugin ships no scheduler. The loop is two kinds of tick, each one invocatio
 | Runtime | Build tick | Review tick |
 |---|---|---|
 | Claude Code | `claude -p '/agent-loop-tick' --permission-mode auto` | `claude -p '/agent-loop-review-tick' --permission-mode auto` |
-| Codex | `codex exec -s danger-full-access '$agent-loop-tick'` | `codex exec -s danger-full-access '$agent-loop-review-tick'` |
+| Codex | `codex exec --approve-for-me '$agent-loop-tick'` | `codex exec --approve-for-me '$agent-loop-review-tick'` |
 | OpenCode | `opencode run '/agent-loop-tick'` | `opencode run '/agent-loop-review-tick'` |
 
-Codex (the CLI) invokes a skill as `$<skill-name>`. `workspace-write` blocks network and writes outside the repository; the narrower alternative to `danger-full-access` is `-s workspace-write -c sandbox_workspace_write.network_access=true --add-dir <repos_root> --add-dir ~/.cortex`.
+Codex (the CLI) invokes a skill as `$<skill-name>`. `--approve-for-me` keeps the run in the `workspace-write` sandbox and routes each request to leave it (network, writes outside the repository) through automatic review instead of a prompt.
 
 ## The ways
 
@@ -45,7 +45,7 @@ Codex (the CLI) invokes a skill as `$<skill-name>`. `workspace-write` blocks net
 
 ### `/goal` — Claude Code or Codex, shared context
 
-1. Start a dedicated session in `<repos_root>` (`claude --permission-mode auto`, or `codex -a never -s danger-full-access`).
+1. Start a dedicated session in `<repos_root>` (`claude --permission-mode auto`, or `codex --approve-for-me`).
 2. Type the goal. Claude Code: `/goal Repeat: run /agent-loop-review-tick, then /agent-loop-tick. Done when, in one round, the review tick ends with "nothing to review" and the build tick ends with "queue empty" or "queue blocked".` Codex: the same text with `$agent-loop-review-tick` and `$agent-loop-tick`.
 3. `/goal` shows its state; `/goal clear` stops it (Codex also has `/goal pause` and `/goal resume`).
 
@@ -82,7 +82,7 @@ A runner script holds the lock and runs the two ticks in order; the scheduler ca
    cd "<repos_root>" || { log "FATAL: no <repos_root>"; exit 1; }
    tick() {
        log "start: $1"
-       claude -p "$1" --permission-mode auto >>"$LOG" 2>&1   # Codex: codex exec -s danger-full-access "$1"
+       claude -p "$1" --permission-mode auto >>"$LOG" 2>&1   # Codex: codex exec --approve-for-me "$1"
        log "end: $1 (exit $?)"
    }
    tick '/agent-loop-review-tick'   # Codex: '$agent-loop-review-tick'
@@ -144,7 +144,7 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
    SOCKET="$HOME/Library/Application Support/agterm/agterm.sock"
    WORKDIR="<repos_root>"
    MAX_RUN_SECONDS=14400
-   AGENT="claude --permission-mode auto"   # Codex: AGENT="codex -a never -s danger-full-access"
+   AGENT="claude --permission-mode auto"   # Codex: AGENT="codex --approve-for-me"
    case "${1:-$( [ "$(date +%M)" -lt 30 ] && echo review || echo build )}" in
    review) PROMPT='/agent-loop-review-tick' ;;   # Codex: '$agent-loop-review-tick'
    build) PROMPT='/agent-loop-tick' ;;           # Codex: '$agent-loop-tick'
