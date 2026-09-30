@@ -4,8 +4,8 @@ The plugin ships no scheduler. The loop is two kinds of tick, each one invocatio
 
 ## What every way must keep
 
-- **Review before build.** A merged card frees dependents in the queue, and a handed-back card is rework the next build tick should see.
-- **One tick at a time on this machine**, build or review: both mutate the board and the repositories. Other people's ticks on the same board are safe; each takes only its own or unassigned cards. `~/.cortex/agent-loop/<key>.last-run.json` (build) and `<key>.review.last-run.json` (review) with `outcome: "running"` and a recent `started` mean a run is in flight.
+- **One session per kind.** The build tick and the review tick run in sessions of their own, side by side: each takes cards from a different column and works in its own worktree.
+- **One tick of each kind at a time on this machine.** Two ticks of one kind would both read the same column before either claims. Other people's ticks on the same board are safe; each takes only its own or unassigned cards. `~/.cortex/agent-loop/<key>.last-run.json` (build) and `<key>.review.last-run.json` (review) with `outcome: "running"` and a recent `started` mean a run of that kind is in flight.
 - **Fresh context per tick.** Inheriting the previous card's context is how one task silently adopts another's assumptions. The ways marked *shared* below break this; use them to watch or to drain a board once, not as the standing loop.
 - **A trusted working directory.** Run from `<repos_root>`, a parent of every repository and worktree the runs touch, so no trust prompt blocks the run.
 - **No permission prompt.** Grant what a tick needs up front: shell, git, `gh`, the task-manager transport, the browser MCP for rung 5, network, and writes outside one repository (worktrees, `~/.cortex`).
@@ -26,44 +26,49 @@ Codex (the CLI) invokes a skill as `$<skill-name>`. `--approve-for-me` keeps the
 | Way | Runtimes | Context | Schedule |
 |---|---|---|---|
 | By hand | all | fresh | none: the first run, watched end to end |
-| `/loop` | Claude Code | *shared* | fixed interval, in one open session, 7-day expiry |
+| `/loop` | Claude Code | *shared* | fixed interval, in two open sessions, 7-day expiry |
 | `/goal` | Claude Code, Codex | *shared* | none: runs until the board is drained |
 | System scheduler | all | fresh | cron or launchd on this machine |
-| agterm session | Claude Code, Codex, on macOS with agterm | fresh (`/clear`) | launchd, into one watchable session |
+| agterm sessions | Claude Code, Codex, on macOS with agterm | fresh (`/clear`) | launchd, into two watchable sessions |
 
 ### By hand
 
-1. Open a terminal in `<repos_root>`.
-2. Run the review tick from the table above, then the build tick.
-3. Read the last line of each: `review tick complete — …` and `tick complete — …`.
+1. Open two terminals in `<repos_root>`.
+2. Run the build tick from the table above in one and the review tick in the other.
+3. Read the last line of each: `tick complete — …` and `review tick complete — …`.
 
 ### `/loop` — Claude Code, shared context
 
-1. Start a dedicated session in `<repos_root>`: `claude --permission-mode auto`.
-2. Type `/loop 1h Run /agent-loop-review-tick, then /agent-loop-tick.` One loop runs both in order; two loops would run them at once.
-3. Leave the session open; the loop ends with it, when you cancel it, or after 7 days.
+1. Start two dedicated sessions in `<repos_root>`: `claude --permission-mode auto` in each.
+2. In the build session type `/loop 1h /agent-loop-tick`; in the review session, `/loop 1h /agent-loop-review-tick`.
+3. Leave both sessions open; each loop ends with its session, when you cancel it, or after 7 days.
 
 ### `/goal` — Claude Code or Codex, shared context
 
-1. Start a dedicated session in `<repos_root>` (`claude --permission-mode auto`, or `codex --approve-for-me`).
-2. Type the goal. Claude Code: `/goal Repeat: run /agent-loop-review-tick, then /agent-loop-tick. Done when, in one round, the review tick ends with "nothing to review" and the build tick ends with "queue empty" or "queue blocked".` Codex: the same text with `$agent-loop-review-tick` and `$agent-loop-tick`.
-3. `/goal` shows its state; `/goal clear` stops it (Codex also has `/goal pause` and `/goal resume`).
+1. Start two dedicated sessions in `<repos_root>` (`claude --permission-mode auto`, or `codex --approve-for-me`, in each).
+2. In the build session: `/goal Repeat /agent-loop-tick. Done when it ends with "queue empty" or "queue blocked".` In the review session: `/goal Repeat /agent-loop-review-tick. Done when it ends with "nothing to review".` Codex: the same text with `$agent-loop-tick` and `$agent-loop-review-tick`.
+3. `/goal` shows a session's state; `/goal clear` stops it (Codex also has `/goal pause` and `/goal resume`).
 
 ### System scheduler — cron or launchd
 
-A runner script holds the lock and runs the two ticks in order; the scheduler calls it hourly. Both cron and launchd start jobs with a near-empty `PATH` and never read `~/.zshrc`, so the runner sets both itself.
+One runner script takes the kind as its argument and holds that kind's lock; the scheduler calls it hourly once per kind, so the two kinds run side by side. Both cron and launchd start jobs with a near-empty `PATH` and never read `~/.zshrc`, so the runner sets both itself.
 
-1. Save as `~/.cortex/agent-loop/run-ticks.sh` and `chmod +x` it. Fill `<repos_root>`, the `PATH` entry holding the runtime binary, and the token line (or delete it on the Asana MCP transport).
+1. Save as `~/.cortex/agent-loop/run-tick.sh` and `chmod +x` it. Fill `<repos_root>`, the `PATH` entry holding the runtime binary, and the token line (or delete it on the Asana MCP transport).
 
    ```bash
    #!/bin/bash
-   # One review tick, then one build tick. A second runner exits while the first is alive.
+   # One tick of the given kind. A second runner of the same kind exits while the first is alive.
    set -uo pipefail
    export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
    export ASANA_PERSONAL_ACCESS_TOKEN="<token>"
+   case "${1:-}" in
+   build) PROMPT='/agent-loop-tick' ;;          # Codex: '$agent-loop-tick'
+   review) PROMPT='/agent-loop-review-tick' ;;  # Codex: '$agent-loop-review-tick'
+   *) echo "usage: $0 build|review" >&2; exit 2 ;;
+   esac
    DIR="$HOME/.cortex/agent-loop"
-   LOG="$DIR/run-ticks.log"
-   LOCK="$DIR/run-ticks.lock"
+   LOG="$DIR/run-tick.$1.log"
+   LOCK="$DIR/run-tick.$1.lock"
    log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"; }
 
    # The pid inside the lock tells a live runner from one killed mid-tick.
@@ -80,19 +85,15 @@ A runner script holds the lock and runs the two ticks in order; the scheduler ca
    trap 'rm -rf "$LOCK"' EXIT
 
    cd "<repos_root>" || { log "FATAL: no <repos_root>"; exit 1; }
-   tick() {
-       log "start: $1"
-       claude -p "$1" --permission-mode auto >>"$LOG" 2>&1   # Codex: codex exec --approve-for-me "$1"
-       log "end: $1 (exit $?)"
-   }
-   tick '/agent-loop-review-tick'   # Codex: '$agent-loop-review-tick'
-   tick '/agent-loop-tick'          # Codex: '$agent-loop-tick'
+   log "start: $PROMPT"
+   claude -p "$PROMPT" --permission-mode auto >>"$LOG" 2>&1   # Codex: codex exec --approve-for-me "$PROMPT"
+   log "end: $PROMPT (exit $?)"
    ```
 
-2. Run it once by hand and read `~/.cortex/agent-loop/run-ticks.log`.
-3. Schedule it, one of:
-   - **cron** (Linux; on macOS cron needs Full Disk Access, so prefer launchd): `crontab -e`, add `0 * * * * $HOME/.cortex/agent-loop/run-ticks.sh`.
-   - **launchd** (macOS): save as `~/Library/LaunchAgents/<label>.plist`, with `<label>` a reverse-DNS name such as `com.<you>.agent-loop` and `<home>` your home directory spelled out (launchd expands no variables):
+2. Run `run-tick.sh build` and `run-tick.sh review` once by hand and read `~/.cortex/agent-loop/run-tick.build.log` and `run-tick.review.log`.
+3. Schedule it once per kind, one of:
+   - **cron** (Linux; on macOS cron needs Full Disk Access, so prefer launchd): `crontab -e`, add `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh build` and `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh review`.
+   - **launchd** (macOS): save the plist twice, as `~/Library/LaunchAgents/<label>.build.plist` with `<kind>` = `build` and as `<label>.review.plist` with `<kind>` = `review`. `<label>` is a reverse-DNS name such as `com.<you>.agent-loop`, and `<home>` your home directory spelled out (launchd expands no variables):
 
      ```xml
      <?xml version="1.0" encoding="UTF-8"?>
@@ -100,11 +101,12 @@ A runner script holds the lock and runs the two ticks in order; the scheduler ca
      <plist version="1.0">
      <dict>
          <key>Label</key>
-         <string><label></string>
+         <string><label>.<kind></string>
          <key>ProgramArguments</key>
          <array>
              <string>/bin/bash</string>
-             <string><home>/.cortex/agent-loop/run-ticks.sh</string>
+             <string><home>/.cortex/agent-loop/run-tick.sh</string>
+             <string><kind></string>
          </array>
          <key>StartCalendarInterval</key>
          <dict>
@@ -114,42 +116,43 @@ A runner script holds the lock and runs the two ticks in order; the scheduler ca
          <key>RunAtLoad</key>
          <false/>
          <key>StandardOutPath</key>
-         <string><home>/.cortex/agent-loop/launchd.out.log</string>
+         <string><home>/.cortex/agent-loop/launchd.<kind>.out.log</string>
          <key>StandardErrorPath</key>
-         <string><home>/.cortex/agent-loop/launchd.err.log</string>
+         <string><home>/.cortex/agent-loop/launchd.<kind>.err.log</string>
          <key>ProcessType</key>
          <string>Background</string>
      </dict>
      </plist>
      ```
 
-     Enable: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.plist`. Run now: `launchctl kickstart gui/$(id -u)/<label>`. Disable: `launchctl bootout gui/$(id -u)/<label>`.
+     Per kind: enable `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.<kind>.plist`, run now `launchctl kickstart gui/$(id -u)/<label>.<kind>`, disable `launchctl bootout gui/$(id -u)/<label>.<kind>`.
 
-### agterm session — macOS
+### agterm sessions — macOS
 
-launchd types each tick into one long-lived interactive session in agterm's `Agent Loop` workspace, so every run lands in one scrollback you can open, read and type into. agterm's agent-status hooks give single flight: while the session is `active` a firing skips, while it is `blocked` it skips and notifies. The review tick fires at `:00`, the build tick at `:30`; a long run skips the firings it overlaps.
+launchd types each tick into a long-lived interactive session of its kind in agterm's `Agent Loop` workspace, `build` and `review`, so every run of a kind lands in one scrollback you can open, read and type into. agterm's agent-status hooks give single flight per session: while it is `active` a firing skips, while it is `blocked` it skips and notifies. Each kind fires hourly; a long run skips the firings it overlaps.
 
 1. Save as `~/.cortex/agent-loop/agterm-tick.sh` and `chmod +x` it. Fill `<repos_root>` and `<key>`; for Codex, swap the `AGENT` line and the prompts as the comments say.
 
    ```bash
    #!/bin/bash
-   # One firing: type the due tick into the Agent Loop session, unless it is busy or waiting on you.
+   # One firing: type the tick into its kind's session, unless that session is busy or waiting on you.
    set -uo pipefail
    export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+   case "${1:-}" in
+   build) PROMPT='/agent-loop-tick' ;;          # Codex: '$agent-loop-tick'
+   review) PROMPT='/agent-loop-review-tick' ;;  # Codex: '$agent-loop-review-tick'
+   *) echo "usage: $0 build|review" >&2; exit 2 ;;
+   esac
    DIR="$HOME/.cortex/agent-loop"
-   LOG="$DIR/agterm-tick.log"
+   LOG="$DIR/agterm-tick.$1.log"
+   STARTED="$DIR/agterm-tick.$1.started"
    CACHE="$DIR/<key>.json"
    WORKSPACE="Agent Loop"
-   SESSION="Agent Loop"
+   SESSION="$1"
    SOCKET="$HOME/Library/Application Support/agterm/agterm.sock"
    WORKDIR="<repos_root>"
    MAX_RUN_SECONDS=14400
    AGENT="claude --permission-mode auto"   # Codex: AGENT="codex --approve-for-me"
-   case "${1:-$( [ "$(date +%M)" -lt 30 ] && echo review || echo build )}" in
-   review) PROMPT='/agent-loop-review-tick' ;;   # Codex: '$agent-loop-review-tick'
-   build) PROMPT='/agent-loop-tick' ;;           # Codex: '$agent-loop-tick'
-   *) echo "usage: $0 [review|build]" >&2; exit 2 ;;
-   esac
    log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"; }
    notify() { agtermctl notify "$1" --title "Agent Loop" >/dev/null 2>&1; }
 
@@ -162,7 +165,7 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
        [ -S "$SOCKET" ] || { log "FATAL: agterm socket never appeared"; exit 1; }
    fi
 
-   # id <tab> status <tab> foreground command of the loop session; empty when there is none.
+   # id <tab> status <tab> foreground command of this kind's session; empty when there is none.
    row() {
        agtermctl tree --json 2>/dev/null | jq -r --arg ws "$WORKSPACE" --arg name "$SESSION" '
            .result.tree.workspaces[]? | select(.name == $ws) | .sessions[]? | select(.name == $name)
@@ -171,15 +174,15 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
    IFS=$'\t' read -r sid status foreground <<<"$(row)"
 
    if [ -n "$sid" ]; then
-       age=$(( $(date +%s) - $(cat "$DIR/agterm-tick.started" 2>/dev/null || date +%s) ))
+       age=$(( $(date +%s) - $(cat "$STARTED" 2>/dev/null || date +%s) ))
        if [ "$status" = "active" ]; then
            log "skip: run in flight ($((age / 60))m)"
-           [ "$age" -gt "$MAX_RUN_SECONDS" ] && notify "Run active for $((age / 60))m — check the Agent Loop session"
+           [ "$age" -gt "$MAX_RUN_SECONDS" ] && notify "$SESSION run active for $((age / 60))m — check its session"
            exit 0
        fi
        if [ "$status" = "blocked" ]; then
            log "skip: the session is waiting for you"
-           notify "The loop session needs you"
+           notify "The $SESSION session needs you"
            exit 0
        fi
        case "$foreground" in
@@ -188,7 +191,7 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
        esac
    fi
 
-   date +%s >"$DIR/agterm-tick.started"
+   date +%s >"$STARTED"
    if [ -z "$sid" ]; then
        # The first prompt goes in as argv: keystrokes typed before the agent has booted are lost.
        # Unsetting CLAUDE_CODE_CHILD_SESSION keeps the transcript saved, so a run can be resumed.
@@ -201,7 +204,7 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
        sleep 8
        case "$(row | cut -f3)" in
        *claude* | *codex*) log "start: new session, $PROMPT" ;;
-       *) log "FATAL: the agent exited at start — read the session"; notify "The loop session's agent exited at start"; exit 1 ;;
+       *) log "FATAL: the agent exited at start — read the session"; notify "The $SESSION session's agent exited at start"; exit 1 ;;
        esac
    else
        agtermctl session type $'/clear\n' --target "$sid" >/dev/null 2>&1
@@ -211,18 +214,9 @@ launchd types each tick into one long-lived interactive session in agterm's `Age
    fi
    ```
 
-2. Run `~/.cortex/agent-loop/agterm-tick.sh review` by hand; the `Agent Loop` session appears in agterm with the review tick running.
-3. Save the launchd plist from "System scheduler" with `agterm-tick.sh` in place of `run-ticks.sh`, `agterm.out.log`/`agterm.err.log` for the logs, and two firings:
-
-   ```xml
-   <key>StartCalendarInterval</key>
-   <array>
-       <dict><key>Minute</key><integer>0</integer></dict>
-       <dict><key>Minute</key><integer>30</integer></dict>
-   </array>
-   ```
-
-4. Enable, run and disable it with the same `launchctl` commands. Watch the session with `agtermctl session select --target <id>`, or read it with `agtermctl session text --all --target <id>`; `<id>` is the first column of `agtermctl tree --json` for the `Agent Loop` session.
+2. Run `~/.cortex/agent-loop/agterm-tick.sh build` and `agterm-tick.sh review` by hand; the `build` and `review` sessions appear in agterm's `Agent Loop` workspace with their ticks running.
+3. Save the two launchd plists from "System scheduler" with `agterm-tick.sh` in place of `run-tick.sh` and `agterm.<kind>` in place of `launchd.<kind>` in the log names.
+4. Enable, run and disable each with the same `launchctl` commands. Watch a session with `agtermctl session select --target <id>`, or read it with `agtermctl session text --all --target <id>`; `<id>` is the first column of `agtermctl tree --json` for the `build` or `review` session.
 
 ## Cost
 
