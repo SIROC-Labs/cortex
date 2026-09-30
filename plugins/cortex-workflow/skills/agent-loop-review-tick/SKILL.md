@@ -40,6 +40,6 @@ Ask; run a live service or a paid flow; merge into `main` or a repository's defa
 ## References
 
 - `references/reviewing.md` — the three pass briefs, the validator brief, the suppression scan.
-- `references/fixing.md` — fix-here versus hand-back, the fix budget, how a fix is proved.
+- `references/fixing.md` — fix-here versus hand-back by complexity, how a fix is proved.
 - `references/merging.md` — rebase, gates, CI wait, squash merge and cleanup commands.
 - `references/routing.md` — candidate checks and recoveries, comment shapes, columns, the two stop conditions, the in-flight ceiling, the mirror rule.
