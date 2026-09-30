@@ -1,7 +1,7 @@
 ---
 name: agent-loop-author
 version: 0.1.0
-description: Use when anything has to become work on the agent board — product or stakeholder feedback, review notes, a benchmark table, a UX critique, customer complaints, a bug report, a chat thread, a screenshot, a spec, or a one-line idea — including requests to analyse input, find improvements, plan tasks from it, break it into tickets, or report back on what will be built. Produces cards an unattended run can execute one-shot.
+description: Use when anything has to become work on the agent board — product or stakeholder feedback, review notes, a benchmark table, a UX critique, customer complaints, a bug report, a chat thread, a screenshot, a spec, or a one-line idea — including requests to analyse input, find improvements, plan tasks from it, break it into tickets, or report back on what will be built. Produces one milestone with its feature branch per repository, and cards under it that an unattended run can execute one-shot, one card per parallelizable unit of work in one repository.
 ---
 
 # Authoring agent loop cards
@@ -31,26 +31,49 @@ confirm what you already wrote.
 
 See `references/authoring.md` → "Before planning anything: four verifications".
 
-## Split by deployable unit
+## One card per parallelizable unit, in one repository
 
-One card per repo or platform. A card spanning two deploy units hides an ordering constraint that
-surfaces as a broken release — and an unattended run works in one worktree, so it cannot ship both
-halves anyway.
+A card is the largest piece of work that one run can build and one review can merge on its own, inside
+one repository. Group, then split:
 
-Make cross-unit contract changes **additive**: add the new field or value, keep the old one serving,
-remove it in a follow-up. Then either side can ship first. State in the card which side degrades and how
-— "an unaware client renders it as plain text" is a shipping decision, not a footnote.
+1. Group the asks by repository. A card never spans two: a run works in one worktree, and a review
+   merges into one branch.
+2. Within a repository, merge into **one card** every ask that is sequentially dependent on another —
+   it needs the other's contract (logical) or edits the same files (file overlap). Repeat until no two
+   cards in the same repository depend on each other.
+3. What is left in a repository is independent; those cards run in parallel. Keep them separate.
 
-## Dependencies and branches
+Dependencies therefore only ever cross repositories. Make cross-repo contract changes **additive**: add
+the new field or value, keep the old one serving, remove it in a follow-up. Then either side can ship
+first. State in the card which side degrades and how — "an unaware client renders it as plain text" is a
+shipping decision, not a footnote.
 
-Do not assume the base is `main`. Check whether the branch this work extends is itself merged — an
-unmerged parent makes it the base for everything downstream.
+A bigger card is still a one-shot card: the problem, the approach, the definition of done and the
+verification are exact; how the code gets there is the run's.
 
-Record each card's base branch, and set its blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads dependencies and lets a blocker through once it is completed or sits in the board's in-review, ready or done column; "after the ledger task lands" in a description is invisible to it and the run will start anyway.
+## The milestone and its branches
 
-Chains form for two reasons and both belong in the card: **logical** (needs the other's contract) and
-**file overlap** (edits the same files). File-overlap chains are often the ones that actually constrain
-order.
+Every run of this skill produces exactly one milestone, even for a single card: it is what the
+milestone branch hangs off, and what a later extension adds cards to. See `references/authoring.md` →
+"The milestone".
+
+- **Hosting project.** Ask the operator for the URL of the project that hosts milestones; there is no
+  default. Resolve it through the task-manager interface and confirm it is a board. Refuse the agent
+  board: a milestone there is a section, and the agent board's columns are its six roles.
+- **Anchor.** `ensure_milestone(project, <name>)`, the name proposed from the source in one line and
+  confirmed.
+- **Branches.** Per repository the cards touch, the parent is the branch this work extends: `main`, or
+  an unmerged branch the work builds on. Cut `milestone/<slug>` from `origin/<parent>` and push it, so
+  the readiness check finds it on `origin`. One `<slug>` across every repository. An existing
+  `milestone/<slug>` is reused.
+- **Base branch.** Every card's base is `milestone/<slug>`; no card ever targets `main`. The review
+  run merges each card's PR into that branch; merging the milestone branch into its parent stays the
+  operator's, and the anchor's description says so.
+
+Set blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads
+dependencies and lets a blocker through once it is completed or sits in the board's ready or done column
+— that is, merged into its milestone branch; "after the ledger task lands" in a description is invisible
+to it and the run will start anyway.
 
 ## Card shape
 
@@ -59,14 +82,15 @@ Each card carries all of:
 | Part | Content |
 |---|---|
 | Repo | The repo, resolvable — never inferable from the subject matter |
-| Base branch | The branch to build on, and why if it is not `main` |
+| Base branch | `milestone/<slug>`, always |
 | Problem | The defect with `file:line` evidence, and the quote from the input that motivates it |
 | Goal | One sentence of the end state |
-| Definition of done | Observable outcomes |
-| Spec | The contract: names, types, units, thresholds, boundaries, error behaviour |
-| Execution plan | Ordered file-level steps |
+| Approach | One paragraph: the idea and its direction, the layer it lives in, what it deliberately does not do. No file-level steps, no code |
+| Definition of done | Observable outcomes, one per line, each testable |
+| Contract | Only what is observable from outside the change: wire names, enum values, types, units, thresholds, user-visible numbers, error behaviour. Internal names and structure are the run's |
 | Verification | The non-live proof the agent must produce, its fixtures or seed data — **and** the live check left to the operator, named as theirs |
-| Dependencies | Task-manager dependency links, plus their branch names |
+| Scope boundary | The files, modules or surfaces the card may touch |
+| Dependencies | Task-manager dependency links (cross-repo only), plus their branch names |
 | `Priority` | The neutral Priority field, highest option first. This is the queue's running order; unset sorts last |
 | **Decisions taken** | 2–3 calls you made that the reader might overturn |
 | `Category` | A real value, so the run routes bug-fix versus feature work — `Bug` routes bug-fix, everything else routes feature. Never left at `To be Specified` |
@@ -78,6 +102,10 @@ several to be overturned — that is the section working, not failing.
 service, so a card whose only stated proof is "check it on staging" leaves the agent with no way to
 finish. Name the rung — a unit test on the mapper, an integration test against the container, an
 element-scoped harness — and name the operator's live check separately.
+
+**Approach and Scope boundary are what keep a bigger card single-reading.** Without an execution plan,
+the approach says which way the run goes and the boundary says where it stops; the review run checks
+both against the diff.
 
 ## The readiness gate
 
@@ -100,13 +128,13 @@ case you scoped too narrowly.
 
 ## Creating the cards
 
-Show the full card list in chat for approval first — titles plus the one-line goal, the repository, and the dependency order. Then state the target board and column before writing anything.
+Show the milestone name, the per-repository branch table and the full card list in chat for approval first — titles plus the one-line goal, the repository, and the dependency order. Then state the hosting project, the target board and column before writing anything.
 
-Cards meant for unattended execution go to the agent board's **queue**: `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run agent-loop-setup" when there is none; stop and say so). For each approved card, in dependency order: `create_task(title, description, board, fields={Priority, Category, …})`, then `move_task(card, board, columns.queue)` — a card created without a column may land outside every role and the run never sees it. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs.
+Order of writes: the milestone anchor, the branches, then the cards. Cards meant for unattended execution go to the agent board's **queue**: `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run agent-loop-setup" when there is none; stop and say so). For each approved card, in dependency order: `create_task(title, description, board, milestone=<anchor ref>, fields={Priority, Category, …})`, then `move_task(card, board, columns.queue)` — a card created without a column may land outside every role and the run never sees it. Membership in the milestone places the card in the hosting project too; the agent board stays the queue. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs. Last, `set_description(anchor, …)` with the card list filled in.
 
 **There is one queue and it is ordered by priority.** Reworks and first implementations sit in the same column, so `Priority` decides what runs next — set it on every card, and put the card at the top of the column when it should be taken before its equals. Never assume a card will be picked up because it is a fix.
 
-Create cards only at the level asked for. No milestone, section or project unless it was requested.
+Create nothing beyond the milestone and its cards: no section, no project, no second milestone.
 
 ## Reporting back
 
@@ -132,3 +160,5 @@ See `references/authoring.md` → "Common mistakes".
 - Your coverage check started from the card list.
 - Every "decision taken" survived review — you are not surfacing the real calls.
 - You are about to create a card you have not run `agent-loop-readiness` over.
+- A card's base branch is `main`, or two cards in one repository depend on each other.
+- Your card carries file-level steps — that is the run's plan, not the card's.
