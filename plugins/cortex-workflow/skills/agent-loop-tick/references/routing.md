@@ -7,7 +7,7 @@ The card is the operator's **inbox**: it says what they must do next, in one of 
 | Verdict | Comment, verbatim shape | Column |
 |---|---|---|
 | `shipped` | `🤖 [AGENT] Ready for review` · `PR: <url>` · `Needs from you: <line from the verdict>` | `in_review` — the review run in this plugin takes it from there |
-| `clarification` | `🤖 [AGENT] Needs clarification` · the numbered questions with proposed defaults · `Established: <one line>` · `Answer here, then move the card back to the queue — top of the column, or a higher Priority, if it should be taken next.` | `blocked` |
+| `clarification` | `🤖 [AGENT] Needs clarification` · `Stopped because: <no clear solution | contradiction>` · the numbered questions with proposed defaults · `Established: <one line>` · `Answer here, then move the card back to the queue — top of the column, or a higher Priority, if it should be taken next.` | `blocked` |
 | `failed` | `🤖 [AGENT] Blocked — run stopped` · `Needs from you: <line>` · `Evidence: <url>` · `Worktree: <path>` · `Once resolved, move the card back to the queue.` | `blocked` |
 
 A failure before a PR exists has no PR comment to point at; the verdict's `Needs from you` then carries the `Where / What failed / output / What is needed` block, and it goes on the card in full.

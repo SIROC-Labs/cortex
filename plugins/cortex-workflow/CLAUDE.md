@@ -18,7 +18,7 @@ cortex-workflow/
     ├── agent-loop-author/ ← Any input → one milestone + milestone branches + one-shot cards on the agent board's queue, gated by readiness (bundled)
     │   └── references/    ← any-input enumeration, four verifications, the milestone recipe, common mistakes
     ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
-    │   └── references/    ← default-or-stop, vague-word gate, rationalizations
+    │   └── references/    ← decide-or-stop, vague-word gate, rationalizations
     ├── agent-loop-setup/  ← Agent board: find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json (bundled)
     │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
     │   └── tests/

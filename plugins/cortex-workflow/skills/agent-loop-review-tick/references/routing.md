@@ -11,11 +11,11 @@ Walked per card in `$AL order --user <me>` order. The first card passing every c
 | `🤖 [AGENT] Ready for review` marker with a `PR: <url>` line | `get_comments(card)` | skip, print `stray — <name> (<ref>): no PR` |
 | No live review: a `🤖 [REVIEW] started` newer than the last `🤖 [AGENT]` comment with no `🤖 [REVIEW]` verdict after it, and younger than **3 hours** | comments | skip, print `in flight — <name> (<ref>)`; older than 3 h → adopt (print `adopting — <name> (<ref>)`) |
 | PR `state == OPEN` | `gh pr view` | skip, print `stray — <name> (<ref>): PR <state>` |
-| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **blocked**: `Refused — PR targets <base>; every card must target a milestone branch` |
-| No armed `autoMergeRequest` on any open PR of the head | `gh pr list --head` | **blocked**: `Refused — auto-merge is armed on PR #<n>; disarm it, the review run merges` |
+| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **recover**: read the card's milestone anchor (`get_task(card)` → milestone → its description's Branches table); it names a branch for this repository that exists on `origin` → `gh pr edit <n> --base <branch>` and continue. No milestone, or no branch for this repository → **blocked**: `No way forward — PR targets <base> and no milestone branch is named for <repo>` |
+| No armed `autoMergeRequest` on any open PR of the head | `gh pr list --head` | **recover**: `gh pr merge <n> --disable-auto`, note it in the review report, continue |
 | `statusCheckRollup` has no `PENDING`/`IN_PROGRESS`/`QUEUED` entries | `gh pr view` | skip, print `checks pending — <name> (<ref>)` |
 
-A skipped card is not moved and not commented on. A card assigned to another user never reaches the walk.
+A skipped card is not moved and not commented on. A card assigned to another user never reaches the walk. A recovery is a decision the run records in the PR review; it is never a reason to stop.
 
 ## Comment shapes
 
@@ -25,9 +25,9 @@ Author as Markdown, post with `add_comment`. The first line is exact: the build 
 |---|---|---|
 | pass | `🤖 [REVIEW] Merged into <base>` · `Squash: <sha>` · `PR: <url>` · `Fixed here: <n> findings` · `Left for you: <the card's live check, or "none">` | `ready` |
 | hand back | `🤖 [REVIEW] Changes requested` · `PR: <url>` · numbered findings, one line each: `<kind> — file:line — what is needed` · `Fixed here: <n>` · `Left for rework: <n>` · `The queue takes this card as rework in priority order.` | `queue` |
-| refused / stuck | `🤖 [REVIEW] Blocked — <reason>` · `Needs from you: <one line>` · `PR: <url>` · `Once resolved, move the card back to In Review.` | `blocked` |
+| no way forward | `🤖 [REVIEW] Blocked — <reason>` · `Stopped because: <no way to reach the goal | contradiction>` · `Needs from you: <one line>` · `PR: <url>` · `Once resolved, move the card back to In Review.` | `blocked` |
 
-**Stuck** covers: local head not equal to the PR head and not reconcilable by fetch; a lost commit in the rebase replay; a merge that fails after the gates passed; a worktree that cannot be recreated.
+**No way forward** is the only route to `blocked`, and it covers two things. *No way to reach the goal*: the repository is missing under `repos_root`; the PR head cannot be fetched; a branch protection or required-reviewer rule rejects the merge after the gates passed; no milestone branch exists for a PR targeting `main`. *Contradiction*: the PR's change works against the card's Problem or Goal as written (the reviewer can say which line), or its Definition of done is unreachable from the card's Approach. Everything else has a recovery here or a hand-back to the queue: a drifted worktree is reset to the PR head; a lost commit in the replay is restored from the backup anchor and the rebase retried once, then handed back; a merge that fails because the head moved is re-read and retried once, then skipped for the next run.
 
 ## The PR side
 

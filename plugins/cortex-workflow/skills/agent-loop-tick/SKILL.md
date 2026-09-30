@@ -16,7 +16,7 @@ Take **one** card off the agent board, execute it, route it. `AL=${PLUGIN_ROOT:-
 
 ## The prime directive
 
-**This run is unattended. Never ask a question and wait.** Every decision comes from the card, from the readiness verdict, or from `plugins/cortex-workflow/references/unattended-answers.md`. Anything else is a **clarification stop** (`references/routing.md`). If you are about to write "Should I…", stop and route instead.
+**This run is unattended. Never ask a question and wait.** Every gate answers from the card, from the readiness verdict, or from `plugins/cortex-workflow/references/unattended-answers.md`; everything the card leaves open is **this run's decision**, taken from the card, the repository and its conventions and recorded in the PR under "Decisions taken". A card goes to `blocked` only on a stop condition of `agent-loop-readiness`: no clear solution, or a contradiction with the card. If you are about to write "Should I…", decide; if you cannot say why your choice is the one, that is the stop.
 
 ## Flow
 
@@ -28,7 +28,7 @@ Each step is idempotent so an interrupted run can be adopted by the next one.
 4. **Queue.** `list_tasks(board, queue)` incomplete → `$AL order --user <me>` (cards assigned to others drop out; print one `skipped` line each) → walk in order, `get_dependencies` → `$AL gate` per card (`references/claiming.md`). First pass wins. All gated → print `queue blocked — <n> waiting on dependencies` naming each; outcome `blocked-on-deps`. Nothing claimable → list strays (cards on the board in no role column) as `stray — <name> (<ref>) in <column>`; outcome `queue empty`.
 5. **Claim.** `move_task(card, board, in_progress)`; `set_field(card, "Assignee", <me>)`; mirror per `references/routing.md` → Mirror rule.
 6. **Mode.** `get_comments(card)`: a `🤖 [AGENT] started` marker → **rework**; none → **fresh**. A `🤖 [REVIEW] Changes requested` comment is the review run handing the card back, so it is always rework.
-7. **Gate.** Fresh: invoke `agent-loop-readiness` in audit mode. `NOT READY` → clarification stop with its question list verbatim. Rework: check the delta (`references/claiming.md` → Rework gate); no actionable delta → stop with the specific reason.
+7. **Gate.** Fresh: invoke `agent-loop-readiness` in audit mode. `NOT READY` (a stop condition met) → clarification stop with its question list verbatim, each naming its stop condition. Rework: check the delta (`references/claiming.md` → Rework gate); no actionable delta → stop with the specific reason.
 8. **Run.** Invoke `start-task unattended` (`rework` when in rework mode) with the card URL and, in context: the READY verdict (repository path under `repos_root`, base branch, category, non-live proofs, live checks), the mode, and the full card. Wait for its `UNATTENDED VERDICT` block.
 9. **Route** the card by the verdict (`references/routing.md`): `shipped` → `in_review`; `clarification` or `failed` → `blocked`. Comment, move, mirror. Every path leaves `in_progress`.
 10. **End.** `$AL last-run <key> write <outcome> [--task <ref>] [--detail <text>]` and print one line: `tick complete — <ref> "<name>" → <in_review | blocked | blocked-on-deps | queue empty | unconfigured>`.

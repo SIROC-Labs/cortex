@@ -8,7 +8,7 @@ The review tick fixes what a reviewer would fix in place and hands back what nee
 |---|---|
 | A simplify or refactor finding whose fix changes no test assertion | A Definition of done line not met: **missing functionality** is the builder's |
 | A correctness or security defect with one mechanism, fixed inside the card's Scope boundary | A fix that changes a Contract item, a wire name, an enum value, a payload key or a user-visible number |
-| A suppression removable by fixing the cause in place | A fix that needs a decision the card does not answer |
+| A suppression removable by fixing the cause in place; a decision the card leaves open, taken the way the repo's nearest convention takes it and recorded in the review | A fix with no clear answer: two behaviours would both satisfy the card and nothing in the card, the code or the conventions favours one |
 | A red CI check the budget below covers | A rebase conflict; CI red beyond the budget |
 | **Budget across all fixes: 150 changed lines, 8 files.** | The fix that would cross the budget, and every fix after it |
 

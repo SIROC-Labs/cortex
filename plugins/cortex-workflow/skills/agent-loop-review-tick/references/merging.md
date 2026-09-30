@@ -10,7 +10,7 @@ mergeStateStatus,autoMergeRequest,statusCheckRollup,reviewDecision
 gh pr list --head <head> --state open --json number,autoMergeRequest
 ```
 
-The base is whatever the PR declares. `<base>` equal to `main` or the repository's default branch (`gh repo view --json defaultBranchRef`) is a refusal (`references/routing.md`). An armed `autoMergeRequest` on any open PR on this head is a refusal too: a green push would merge before the review finished.
+The base is whatever the PR declares. `<base>` equal to `main` or the repository's default branch (`gh repo view --json defaultBranchRef`) is retargeted to the milestone branch the card's milestone names for this repository (`gh pr edit <n> --base <branch>`); with none, the card has no way forward (`references/routing.md`). An armed `autoMergeRequest` on any open PR on this head is disarmed first (`gh pr merge <n> --disable-auto`): a green push would otherwise merge before the review finished.
 
 ## Rebase
 
@@ -18,16 +18,21 @@ Run when `git -C <wt> merge-base --is-ancestor origin/<base> HEAD` is false.
 
 ```bash
 git -C <wt> fetch origin
-test "$(git -C <wt> rev-parse HEAD)" = "<headRefOid>"          # local head is the PR head, else stop
+test "$(git -C <wt> rev-parse HEAD)" = "<headRefOid>" \
+  || git -C <wt> reset --hard "<headRefOid>"                      # the worktree is disposable; the PR head is the truth
 git -C <wt> branch -f backup/pr<n>-prerebase HEAD
 git -C <wt> tag -f pr<n>-oldbase "$(git -C <wt> merge-base HEAD origin/<base>)"
-git -C <wt> rebase origin/<base>                                # conflict → git rebase --abort, hand back with the files
+git -C <wt> rebase origin/<base>                                # conflict → "Conflicts" below
 git -C <wt> range-diff pr<n>-oldbase..backup/pr<n>-prerebase origin/<base>..HEAD
 git -C <wt> rev-list --count pr<n>-oldbase..backup/pr<n>-prerebase
 git -C <wt> rev-list --count origin/<base>..HEAD
 ```
 
-Every `range-diff` pairing must be `=` or `!`; a `!` needs a one-line justification from the hunk. An unpaired commit is resolved mechanically, never by eye: `git cherry -v origin/<base> <ref>` on both sides, subjects diffed; a subject only on the backup side is a lost commit, which is a hand-back. Commit counts must match unless `git cherry` shows the difference as already upstream. Then run the affected fast suite: `range-diff` proves text, not behaviour.
+Every `range-diff` pairing must be `=` or `!`; a `!` needs a one-line justification from the hunk. An unpaired commit is resolved mechanically, never by eye: `git cherry -v origin/<base> <ref>` on both sides, subjects diffed; a subject only on the backup side is a lost commit: `git -C <wt> reset --hard backup/pr<n>-prerebase`, retry the rebase once, and hand back if it is lost again. Commit counts must match unless `git cherry` shows the difference as already upstream. Then run the affected fast suite: `range-diff` proves text, not behaviour.
+
+### Conflicts
+
+A conflict is resolved here when the resolution is clear: the two sides change different things in the same hunk and both belong (keep both, in the order the file already implies); one side is a rename or move the other did not see (apply the rename to the other side's lines); a generated or lock file (regenerate with the repo's own command). Resolve, `git -C <wt> rebase --continue`, and run the affected fast suite; a red suite reverts to the backup anchor and hands back. A conflict whose sides want different behaviour from the same code, or that touches the card's Contract, has no clear resolution: `git -C <wt> rebase --abort` and hand back naming the files and both intents. Every resolution is recorded in the review report.
 
 ```bash
 git -C <wt> push --force-with-lease --force-if-includes origin <head>
@@ -85,4 +90,4 @@ git -C <repo> worktree prune
 git -C <repo> rev-parse origin/<base>                            # the squash SHA for the card comment
 ```
 
-`<type>` follows the branch's commits (`feat`, `fix`, …). `--delete-branch` removes the remote head; the local deletions cover the branch and the anchors in the primary checkout. Nothing here touches `<base>`, `main`, or any branch the primary checkout has checked out. A merge that fails (`mergeStateStatus` moved, a new commit on the head) stops before cleanup and routes as stuck.
+`<type>` follows the branch's commits (`feat`, `fix`, …). `--delete-branch` removes the remote head; the local deletions cover the branch and the anchors in the primary checkout. Nothing here touches `<base>`, `main`, or any branch the primary checkout has checked out. A merge that fails because the head moved is re-read and retried once, then left for the next run; one rejected by a protection rule is a card with no way forward.
