@@ -19,7 +19,7 @@ cortex-workflow/
     │   └── references/    ← any-input enumeration, four verifications, the milestone recipe, common mistakes
     ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
     │   └── references/    ← decide-or-stop, vague-word gate, rationalizations
-    ├── agent-loop-setup/  ← Agent board: find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json (bundled)
+    ├── agent-loop-setup/  ← Guided setup: agent board (find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json), pre-flight, first cards, how to run the loops (bundled)
     │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
     │   └── tests/
     ├── agent-loop-tick/   ← One unattended build run: claim an own/unassigned card, gate, start-task unattended, route the card (bundled)
@@ -126,8 +126,9 @@ refine-tasks               (Refinement-status tasks → Unassigned with implemen
   ├── task-manager       (resolve task set, fetch descriptions, upload attachment, set fields, set status)
   └── (codebase read)    (no other skill dependency — runs in the repo)
 
-agent-loop-setup           (attended: board, roles, rotation, repos root → agent-loop cache)
-  └── task-manager       (list_boards, get_board, ensure_board, ensure_columns, get_current_user)
+agent-loop-setup           (attended, four stages: board → pre-flight → first cards → loops; presents how to run the loops, never starts them)
+  ├── task-manager       (list_boards, get_board, ensure_board, ensure_columns, list_fields, get_current_user)
+  └── agent-loop-author  (stage 3, when the operator authors the first cards now)
 
 agent-loop-tick            (unattended build run: one own or unassigned card per run)
   ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, column), move_task, get_dependencies, get_comments, add_comment, set_field)
