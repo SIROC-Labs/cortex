@@ -15,15 +15,17 @@ cortex-workflow/
     ├── task-manager/      ← neutral task-manager interface / seam (bundled)
     ├── task-manager-asana/ ← Asana provider implementation (bundled)
     ├── task-manager-jira/ ← Jira provider implementation (bundled)
-    ├── agent-loop-author/ ← Any input → one-shot cards on the agent board's queue, gated by readiness (bundled)
-    │   └── references/    ← any-input enumeration, four verifications, common mistakes
+    ├── agent-loop-author/ ← Any input → one milestone + milestone branches + one-shot cards on the agent board's queue, gated by readiness (bundled)
+    │   └── references/    ← any-input enumeration, four verifications, the milestone recipe, common mistakes
     ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
     │   └── references/    ← default-or-stop, vague-word gate, rationalizations
     ├── agent-loop-setup/  ← Agent board: find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json (bundled)
     │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
     │   └── tests/
-    ├── agent-loop-tick/   ← One unattended run: claim, gate, start-task unattended, route the card (bundled)
-    │   └── references/    ← claiming, routing, running (per-runtime scheduling)
+    ├── agent-loop-tick/   ← One unattended build run: claim an own/unassigned card, gate, start-task unattended, route the card (bundled)
+    │   └── references/    ← claiming (ownership, ordering, gate, rework), routing, running (both ticks per runtime)
+    ├── agent-loop-review-tick/ ← One unattended review run: review an in-review card's PR, fix small findings, hand back large ones, squash-merge into the milestone branch (bundled)
+    │   └── references/    ← reviewing (pass briefs, validator, suppression scan), fixing, merging, routing
     ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
@@ -127,15 +129,22 @@ refine-tasks               (Refinement-status tasks → Unassigned with implemen
 agent-loop-setup           (attended: board, roles, rotation, repos root → agent-loop cache)
   └── task-manager       (list_boards, get_board, ensure_board, ensure_columns, get_current_user)
 
-agent-loop-tick            (unattended: one card per run)
-  ├── task-manager       (resolve_board("agent-queue"), list_tasks(board, column), move_task, get_dependencies, get_comments, add_comment, set_field)
+agent-loop-tick            (unattended build run: one own or unassigned card per run)
+  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, column), move_task, get_dependencies, get_comments, add_comment, set_field)
   ├── agent-loop-readiness (audit mode gate)
   ├── start-task         (unattended [rework] — returns an UNATTENDED VERDICT block)
-  └── → routes the card by verdict; never asks
+  └── → routes the card by verdict; never asks, never merges
 
-agent-loop-author          (attended: input → cards)
+agent-loop-review-tick     (unattended review run: one own or unassigned in-review card per run)
+  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, in_review), get_comments, add_comment, set_field, move_task)
+  ├── (reviewer agents)  (completeness, security, simplify passes in parallel; one validator; one per-fix validator)
+  ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup)
+  └── → ready (merged) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into main
+
+agent-loop-author          (attended: input → one milestone, milestone branches, cards)
   ├── agent-loop-readiness (author mode gate, loop until READY)
-  ├── task-manager       (resolve_board("agent-queue"), create_task, move_task, add_dependency, set_field)
+  ├── task-manager       (resolve_board("agent-queue"), ensure_milestone, set_description, create_task(milestone=…), move_task, add_dependency, set_field)
+  ├── (git)              (push milestone/<slug> from its parent in every repository the cards touch)
   └── [external] CREATE_PLAN binding for thin inputs
 
 start-task unattended      (mode: gates answered from references/unattended-answers.md)
