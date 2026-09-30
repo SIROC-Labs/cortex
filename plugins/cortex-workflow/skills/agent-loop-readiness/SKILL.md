@@ -37,7 +37,7 @@ Run all of them. Record a verdict per check — a check you did not evaluate is 
 | 4 | **Single reading** | Two engineers reading it write the same code | Two readings that produce materially different code; the card itself posing an open question |
 | 5 | **Contract** | Every name, type, unit, threshold, boundary and error behaviour the change introduces is stated | Any of them left to the implementer, or expressed as a word instead of a number (see the vague-word gate) |
 | 6 | **Verification without live services** | At least one non-live rung proves it: a unit, an integration test against a container, an in-process API test, or an element-scoped browser harness | The only proof is a run against staging, prod, or a real third-party account — see "Verification the agent cannot do" |
-| 7 | **One deployable unit** | One repo, one deploy unit | A card spanning backend and frontend, or two repos, without the split |
+| 7 | **One repository** | One repository, resolvable to one worktree and one base branch | A card spanning two repositories without the split; two cards in one repository that depend on each other |
 | 8 | **Dependencies machine-readable** | Blockers are task-manager dependencies (`get_dependencies(task)` through the task-manager interface) | A blocker stated only in prose ("after the ledger task lands") |
 | 9 | **Scope boundary** | The card names the files, module or surface it may touch, or is small enough that "what you touch" has one reading | An open-ended sweep ("and anywhere else this pattern appears") with no enumeration |
 | 10 | **Category** | The neutral `Type / Category` field is set to a real value — it routes bug-fix versus feature work | Absent, or left at `To be Specified`, when the card could plausibly be either |

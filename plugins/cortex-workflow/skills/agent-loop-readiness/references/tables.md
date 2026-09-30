@@ -58,5 +58,5 @@ These are the arguments that actually get made, in the words they get made in. E
 | Resolving an ambiguity with a default that sets a wire contract | A dashboard or a consuming repo breaks on rename |
 | Asking questions with no proposed answers | Cards sit in `Blocked` for days |
 | Accepting a prose dependency | The run starts before its blocker exists and builds on nothing |
-| One card for backend + frontend | Hidden deploy ordering, surfaced as a broken release |
+| One card for two repositories | Hidden deploy ordering, surfaced as a broken release; the run cannot ship both halves from one worktree |
 | "Verify on staging" as the whole verification plan | The agent has no way to prove the change and stops at QA |
