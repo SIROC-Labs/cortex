@@ -111,7 +111,9 @@
 #
 # Project family:
 #
-#   tm.py project get <project-ref>
+#   tm.py project get      <project-ref>
+#   tm.py project list     <workspace-gid>
+#   tm.py project sections <project-ref>
 #
 # `tm.py --help` (or `-h` / `help`) lists every family and verb.
 #
@@ -1685,7 +1687,7 @@ def task_set_notes(args):
 
 # Fetch a section's tasks as [{gid,name,kind}] (paginated).
 def fetch_section_tasks(section_gid, token):
-    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype&limit=100" % (API_BASE, section_gid)
+    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,completed&limit=100" % (API_BASE, section_gid)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1694,7 +1696,8 @@ def fetch_section_tasks(section_gid, token):
             for t in data:
                 if isinstance(t, dict):
                     out.append({"gid": t.get("gid"), "name": t.get("name"),
-                                "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task"})
+                                "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task",
+                                "completed": bool(t.get("completed"))})
         nxt = payload.get("next_page") if isinstance(payload, dict) else None
         url = nxt.get("uri") if isinstance(nxt, dict) else None
     return out
@@ -2086,6 +2089,36 @@ def project_get(args):
     sys.exit(0)
 
 
+# `project list <workspace-gid>`: the workspace's live boards as [{gid, name}].
+def project_list(args):
+    if not args:
+        die(1, "usage: %s project list <workspace-gid>" % PROG)
+    if not re.fullmatch(r"[0-9]+", args[0]):
+        die(1, "%s: project list: workspace-gid must be numeric (got '%s')" % (PROG, args[0]))
+    token = resolve_token(cache_util.project_key())
+    out = [{"gid": p.get("gid"), "name": p.get("name")}
+           for p in fetch_all_projects(args[0], token)
+           if isinstance(p, dict) and p.get("archived") is not True]
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
+# `project sections <project-ref>`: the board as it is laid out — every section in
+# order, each with its tasks [{gid, name, kind, completed}].
+def project_sections(args):
+    if not args:
+        die(1, "usage: %s project sections <project-ref>" % PROG)
+    if not re.fullmatch(r"[0-9]+", args[0]):
+        die(1, "%s: project sections: project-ref must be numeric (got '%s')" % (PROG, args[0]))
+    token = resolve_token(cache_util.project_key())
+    out = []
+    for sect in fetch_project_sections(args[0], token):
+        out.append({"gid": sect.get("gid"), "name": sect.get("name"),
+                    "tasks": fetch_section_tasks(sect.get("gid"), token)})
+    sys.stdout.write(json.dumps(out, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- user family ------------------------------------------------------------
 
 def user_me(args):
@@ -2152,6 +2185,8 @@ USER_VERBS = {
 
 PROJECT_VERBS = {
     "get": project_get,
+    "list": project_list,
+    "sections": project_sections,
 }
 
 MILESTONE_VERBS = {
