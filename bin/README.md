@@ -45,6 +45,7 @@ cortex <tool> --help    # a tool's own arguments
 |---|---|
 | [`start-task`](start-task/README.md) | Runs the start-task lifecycle — ticket to draft PR — as a program rather than a skill |
 | [`run-milestone`](run-milestone/README.md) | Works a board's milestones through `start-task`, in parallel, to merge |
+| [`tui`](tui/README.md) | Browse boards, queue tasks and watch the runs; a background daemon works the queue |
 
 Run tools from inside the repo you want them to act on.
 
