@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 #
-# run-milestone — works a whole milestone through start-task, in parallel, to merge.
+# run-milestone — works a board's milestones through start-task, in parallel, to merge.
 #
 # A deterministic loop over plain code — no model is called here. It finds the
-# milestone's ready tasks (not done, every dependency done), puts each in the
-# active sprint, assigns it, and runs `start-task` on it. A shipped PR is watched
-# until it merges: review feedback in the meantime is handed back to the task's
-# session through `start-task --phase revise`, and a merge completes the task in
-# Asana, which is what readies its dependents.
+# ready tasks in the milestones it was given (not done, every dependency done),
+# puts each in the sprint it was given, assigns it, and runs `start-task` on it. A
+# shipped PR is watched until it merges: review feedback in the meantime is handed
+# back to the task's session through `start-task --phase revise`, and a merge
+# completes the task in Asana, which is what readies its dependents. A PR that
+# conflicts with its base parks its task until someone asks for a resolve; a PR
+# closed without merging stops it.
 #
 # Every run that is going, waiting on a human, or watching a PR is recorded under
-# `<repo>/.cortex/milestones/<anchor>/`, and a restart reconciles that record
+# `<repo>/.cortex/milestones/<board>/`, and a restart reconciles that record
 # against Asana, GitHub and start-task's own state rather than trusting it.
 #
-#   cortex run-milestone <milestone-url>                 # until the milestone is done
-#   cortex run-milestone <milestone-url> --status        # where every task stands
-#   cortex run-milestone <milestone-url> --backend echo  # anything else goes to start-task
+#   cortex run-milestone <board-url> "M1" --sprint <sprint-url>   # until M1 is done
+#   cortex run-milestone <board-url> M1 M2 --sprint <sprint-url>  # several at once
+#   cortex run-milestone <board-url> --status                     # where every task stands
+#   cortex run-milestone <board-url> M1 --sprint <url> --backend echo  # rest → start-task
 #
 # Dependencies: Python 3 stdlib, git, gh, and start-task (sibling directory).
 
@@ -43,10 +46,14 @@ PR_POLL_START = 60
 PR_POLL_CAP = 600
 
 # A record in one of these has work in flight or a PR being watched — the loop is
-# not finished while any task is in one.
-LIVE = ("running", "awaiting", "revising", "pr_open", "closed")
+# not finished while any task is in one. A conflicting PR is watched only for a
+# resolve request, and holds up nothing but its own dependents.
+LIVE = ("running", "awaiting", "revising", "pr_open", "conflict")
 # A record in one of these is never launched again by the loop.
 SETTLED = LIVE + ("merged", "failed", "stopped")
+
+# What a PR comment has to say for a parked conflict to be resolved.
+RESOLVE_TRIGGER = "please resolve"
 
 
 def log(msg):
@@ -61,22 +68,48 @@ class Stop(Exception):
 # --- pure helpers (unit-tested) ---------------------------------------------
 
 _PROJECT_RE = re.compile(r"/project/(\d+)")
-_ZERO_RE = re.compile(r"^/0/(\d+)/(\d+)")
-_TASK_RE = re.compile(r"/(?:task|item)/(\d+)")
+_ZERO_RE = re.compile(r"^/0/(\d+)(?:/|$)")
 
 
-def parse_milestone_url(url):
-    """(project gid, milestone anchor gid) from an Asana task URL of the
-    milestone's anchor, or (None, None)."""
+def parse_project_ref(ref):
+    """A board's gid from its Asana URL, or a bare gid; None otherwise."""
     from urllib.parse import urlparse
-    path = urlparse(url or "").path
-    m = _ZERO_RE.search(path)
-    if m:
-        return m.group(1), m.group(2)
-    project, task = _PROJECT_RE.search(path), _TASK_RE.search(path)
-    if project and task:
-        return project.group(1), task.group(1)
-    return None, None
+    ref = (ref or "").strip()
+    if re.fullmatch(r"\d+", ref):
+        return ref
+    path = urlparse(ref).path
+    m = _PROJECT_RE.search(path) or _ZERO_RE.search(path)
+    return m.group(1) if m else None
+
+
+def match_milestones(wanted, listing):
+    """The milestones named in `wanted`, out of a board's `milestone list`.
+
+    Each entry may be the milestone's full name, the short name before ` :: `
+    ("M1"), or its task's gid or URL. Returns [{name, ref}] in the order asked;
+    raises ValueError naming anything that matched nothing, or more than one.
+    """
+    out = []
+    for item in wanted:
+        gid = task_ref(item)
+        key = item.strip().lower()
+        hits = [m for m in listing
+                if m.get("ref") == gid
+                or (m.get("name") or "").strip().lower() == key
+                or (m.get("name") or "").split(" :: ")[0].strip().lower() == key]
+        if len(hits) != 1:
+            names = ", ".join(m.get("name") or "?" for m in listing) or "none"
+            raise ValueError("%r matches %s milestone(s) on this board (it has: %s)"
+                             % (item, len(hits) or "no", names))
+        if hits[0] not in out:
+            out.append(hits[0])
+    return out
+
+
+def task_ref(item):
+    """A task gid from a URL or a bare gid, by the provider's own rules."""
+    from asana import asana_extract_ref
+    return asana_extract_ref(item)
 
 
 _PR_RE = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
@@ -86,19 +119,6 @@ def parse_pr_url(url):
     """(owner, repo, number) of a GitHub PR URL, or None."""
     m = _PR_RE.search(url or "")
     return (m.group(1), m.group(2), int(m.group(3))) if m else None
-
-
-def sprint_pattern_for(board_name):
-    """The sprint board pattern for a team, from one of its boards' names.
-
-    Boards are named `<Team> | <Board>` and the team's sprints `<Team> | Sprint
-    …`, so the prefix finds this team's sprint among every team's in the
-    workspace. A name without the separator gives None: the provider defaults.
-    """
-    if not board_name or " | " not in board_name:
-        return None
-    team = board_name.rsplit(" | ", 1)[0]
-    return r"^%s \| Sprint\b" % re.escape(team)
 
 
 def blockers(gid, tasks, records, me_gid):
@@ -176,13 +196,25 @@ def collect_feedback(reviews, review_comments, issue_comments, handled):
     return out
 
 
-def render_feedback(items, conflicting=False):
+def render_feedback(items):
     lines = []
-    if conflicting:
-        lines += ["The PR currently conflicts with its base branch.", ""]
     for _, heading, body in items:
         lines += ["### %s" % heading, "", body, ""]
     return "\n".join(lines).strip() + "\n"
+
+
+def resolve_request(items):
+    """The first feedback item asking for a parked conflict to be resolved."""
+    for item in items:
+        if RESOLVE_TRIGGER in item[2].lower():
+            return item
+    return None
+
+
+def render_resolve(item):
+    return ("The PR conflicts with its base branch, and the operator asked for that to "
+            "be resolved. Merge the base into the branch and resolve the conflicts, "
+            "keeping both sides' intent.\n\n### %s\n\n%s\n" % (item[1], item[2]))
 
 
 def outcome_phase(code, outcome):
@@ -248,9 +280,10 @@ def describe(gid, tasks, records, me_gid):
     if phase == "revising":
         return "revising after review"
     if phase == "pr_open":
-        return "PR open" + (" — conflicts with base" if record.get("conflict_notified") else "")
-    if phase == "closed":
-        return "PR closed without merge — awaiting Justin"
+        return "PR open"
+    if phase == "conflict":
+        return ("PR conflicts with its base — parked; comment `%s` on the PR to have it "
+                "resolved" % RESOLVE_TRIGGER)
     if phase == "failed":
         return "failed: %s" % ((record.get("reason") or "").splitlines() or ["?"])[0]
     if phase == "stopped":
@@ -272,17 +305,21 @@ def run(cmd, cwd=None):
             proc.stderr.decode("utf-8", "replace").strip())
 
 
-class Milestone(object):
-    def __init__(self, url, repo, forward):
-        self.url = url
-        self.project, self.anchor = parse_milestone_url(url)
+class BoardRun(object):
+    """The loop over one board. Which tasks it works is `scope()` — here, the
+    members of the milestones it was given."""
+
+    def __init__(self, board, milestones, sprint, repo, forward):
+        self.project = parse_project_ref(board)
         if not self.project:
-            raise Stop("not a milestone task URL with a project in it: %s" % url)
+            raise Stop("not an Asana board URL or gid: %s" % board)
+        self.wanted = milestones
+        self.sprint_ref = sprint
         self.repo = os.path.abspath(repo)
         self.main_root = st.main_repo_root(self.repo)
         self.forward = forward
         self.dir = os.path.join(self.main_root, st.CORTEX_DIRNAME, MILESTONES_DIRNAME,
-                                self.anchor)
+                                self.project)
         self.data = self.load()
         self.children = {}
         self.refresh_due = 0
@@ -297,8 +334,7 @@ class Milestone(object):
             with open(self.path("state.json")) as f:
                 return json.load(f)
         except (IOError, OSError, ValueError):
-            return {"project": self.project, "anchor": self.anchor,
-                    "tasks": {}, "records": {}}
+            return {"project": self.project, "tasks": {}, "records": {}}
 
     def save(self):
         st.ensure_cortex_dir(self.main_root)
@@ -372,36 +408,37 @@ class Milestone(object):
 
     # setup
 
-    def resolve_people_and_sprint(self):
+    def resolve(self):
+        """Who the tasks are assigned to, which sprint they go into and which
+        milestones are in scope — all from what was given, nothing guessed."""
         _, me = self.asana(["user", "me"])
         self.data["me"] = {"gid": me.get("gid"), "name": me.get("name")}
-        _, project = self.asana(["project", "get", self.project])
-        self.data["board"] = project.get("name")
-        _, key = self.asana(["board", "key"])
-        key = (key or "").strip() if isinstance(key, str) else str(key)
-        code, sprint = self.asana(["board", "resolve", key, "active-sprint"], check=False)
-        if code == 4 or not sprint:
-            log("bootstrapping the CLI's board cache for %s" % project.get("name"))
-            _, cache = self.asana(["board", "read", key], check=False)
-            cache = cache if isinstance(cache, dict) else {}
-            cache["workspace_gid"] = project.get("workspace_gid")
-            pattern = sprint_pattern_for(project.get("name"))
-            if pattern and not cache.get("sprint_patterns"):
-                cache["sprint_patterns"] = [pattern]
-            self.asana(["board", "write", key, json.dumps(cache)])
-            self.asana(["board", "discover", key])
-            _, sprint = self.asana(["board", "resolve", key, "active-sprint"])
-        if not sprint or not sprint.get("gid"):
-            raise Stop("no active sprint found for %s" % project.get("name"))
-        self.data["sprint"] = {"gid": sprint["gid"], "name": sprint.get("name")}
-        log("board %s · sprint %s · assigning to %s"
-            % (project.get("name"), sprint.get("name"), me.get("name")))
+        _, board = self.asana(["project", "get", self.project])
+        self.data["board"] = board.get("name")
+        sprint_gid = parse_project_ref(self.sprint_ref)
+        if not sprint_gid:
+            raise Stop("not an Asana board URL or gid for --sprint: %s" % self.sprint_ref)
+        _, sprint = self.asana(["project", "get", sprint_gid])
+        self.data["sprint"] = {"gid": sprint.get("gid"), "name": sprint.get("name")}
+        _, listing = self.asana(["milestone", "list", self.project])
+        try:
+            self.data["milestones"] = match_milestones(self.wanted, listing or [])
+        except ValueError as e:
+            raise Stop(str(e))
+        log("board %s · %s · sprint %s · assigning to %s"
+            % (board.get("name"), ", ".join(m["name"] for m in self.data["milestones"]),
+               sprint.get("name"), me.get("name")))
+
+    def scope(self):
+        members = []
+        for milestone in self.data["milestones"]:
+            _, rows = self.asana(["milestone", "tasks", self.project, milestone["ref"]])
+            members += [r["gid"] for r in rows or [] if r["gid"] not in members]
+        return members
 
     def refresh(self):
-        _, members = self.asana(["milestone", "tasks", self.project, self.anchor])
         tasks = {}
-        for member in members or []:
-            gid = member["gid"]
+        for gid in self.scope():
             _, task = self.asana(["task", "get", gid])
             previous = self.tasks.get(gid) or {}
             deps = previous.get("deps") or []
@@ -427,6 +464,7 @@ class Milestone(object):
             state = self.start_state(gid)
             live = st.live_run_pid(state.read("run.json"))
             updated = reconcile(record, state.read(st.OUTCOME_FILE), live)
+            updated.pop("next_poll", None)
             if updated != (record or {}):
                 self.records[gid] = updated
                 if updated.get("phase") != (record or {}).get("phase"):
@@ -475,12 +513,12 @@ class Milestone(object):
             return
         self.spawn(gid, [task_url(self.project, gid)], "running")
 
-    def launch_revise(self, gid, items, conflicting):
+    def launch_revise(self, gid, items, text):
         os.makedirs(self.path("feedback"), exist_ok=True)
         path = self.path("feedback", "%s-%d.md" % (self.key_of(gid), time.time()))
         with open(path, "w") as f:
-            f.write(render_feedback(items, conflicting))
-        log("%s: %d new review item(s) — revising" % (self.key_of(gid), len(items)))
+            f.write(text)
+        log("%s: %d review item(s) — revising" % (self.key_of(gid), len(items)))
         self.spawn(gid, [self.key_of(gid), "--phase", "revise",
                          "--feedback-file", path], "revising",
                    inflight=[fid for fid, _, _ in items])
@@ -490,6 +528,8 @@ class Milestone(object):
     def reap(self):
         for gid in list(self.records):
             record = self.records[gid]
+            if gid not in self.tasks and gid not in self.children:
+                continue
             if record.get("phase") not in ("running", "awaiting", "revising"):
                 continue
             proc = self.children.get(gid)
@@ -542,6 +582,9 @@ class Milestone(object):
                                                  record.get("log")))
 
     def poll_pr(self, gid):
+        """One look at a task's PR. Open and mergeable: feedback goes to revise.
+        Conflicting: the task is parked until a comment asks for a resolve. Closed
+        without merging: the task stops. Merged: the task is done."""
         record = self.records[gid]
         if time.time() < record.get("next_poll", 0):
             return
@@ -553,40 +596,41 @@ class Milestone(object):
         view = self.gh_json(["pr", "view", record["pr_url"], "--json",
                              "state,mergedAt,mergeable"])
         changed = False
-        if view is None:
-            pass
-        elif view.get("state") == "MERGED":
-            self.merged(gid)
-            return
-        elif view.get("state") == "CLOSED":
-            if record["phase"] != "closed":
-                self.post_task(gid, "PR %s was closed without merging, so the task is not "
-                                    "complete. Reopen the PR to carry on, or complete or "
-                                    "cancel the task here." % record["pr_url"])
-                self.set_phase(gid, "closed")
-        else:
-            if record["phase"] == "closed":
+        if view is not None:
+            if view.get("state") == "MERGED":
+                self.merged(gid)
+                return
+            if view.get("state") == "CLOSED":
+                self.set_phase(gid, "stopped", reason="PR closed without merging")
+                return
+            mergeable = view.get("mergeable")
+            if mergeable == "CONFLICTING" and record["phase"] == "pr_open":
+                self.post_conflict(gid)
+                self.set_phase(gid, "conflict")
+                changed = True
+            elif mergeable == "MERGEABLE" and record["phase"] == "conflict":
                 self.set_phase(gid, "pr_open")
                 changed = True
-            conflicting = view.get("mergeable") == "CONFLICTING"
-            if conflicting and not record.get("conflict_notified"):
-                self.post_conflict(gid)
-                record["conflict_notified"] = True
-                changed = True
-            elif view.get("mergeable") == "MERGEABLE" and record.get("conflict_notified"):
-                record["conflict_notified"] = False
-            base = "repos/%s/%s" % (owner, name)
-            reviews = self.gh_list("%s/pulls/%d/reviews" % (base, number))
-            inline = self.gh_list("%s/pulls/%d/comments" % (base, number))
-            comments = self.gh_list("%s/issues/%d/comments" % (base, number))
-            if None not in (reviews, inline, comments):
-                items = collect_feedback(reviews, inline, comments, record.get("handled"))
-                if items:
-                    self.launch_revise(gid, items, conflicting)
-                    return
+            items = self.feedback(owner, name, number, record.get("handled"))
+            if items and record["phase"] == "pr_open":
+                self.launch_revise(gid, items, render_feedback(items))
+                return
+            ask = resolve_request(items or [])
+            if ask and record["phase"] == "conflict":
+                self.launch_revise(gid, [ask], render_resolve(ask))
+                return
         record["poll_attempt"] = 0 if changed else record.get("poll_attempt", 0) + 1
         record["next_poll"] = time.time() + st.poll_interval(
             max(1, record["poll_attempt"]), start=PR_POLL_START, cap=PR_POLL_CAP)
+
+    def feedback(self, owner, name, number, handled):
+        base = "repos/%s/%s" % (owner, name)
+        reviews = self.gh_list("%s/pulls/%d/reviews" % (base, number))
+        inline = self.gh_list("%s/pulls/%d/comments" % (base, number))
+        comments = self.gh_list("%s/issues/%d/comments" % (base, number))
+        if None in (reviews, inline, comments):
+            return None
+        return collect_feedback(reviews, inline, comments, handled)
 
     def post_task(self, gid, body):
         self.asana(["comment", "add", gid, st.mark(body)], check=False)
@@ -594,12 +638,12 @@ class Milestone(object):
     def post_conflict(self, gid):
         record = self.records[gid]
         text = ("This PR conflicts with its base — most likely a sibling task merged "
-                "first and touched the same files. Reply on the PR with how to resolve "
-                "it and the reply is applied by merging the base in (never a rebase or "
-                "force-push).")
+                "first and touched the same files. The task is parked. Comment `%s` on "
+                "the PR to have the base merged in and the conflicts resolved (never a "
+                "rebase or force-push), or resolve it yourself." % RESOLVE_TRIGGER)
         run(["gh", "pr", "comment", record["pr_url"], "--body", st.mark(text)], cwd=self.repo)
         self.post_task(gid, "%s\n\n%s" % (text, record["pr_url"]))
-        log("%s: PR conflicts with its base — asked Justin" % self.key_of(gid))
+        log("%s: PR conflicts with its base — parked" % self.key_of(gid))
 
     def merged(self, gid):
         key = self.key_of(gid)
@@ -651,21 +695,22 @@ class Milestone(object):
         for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
             self.launch(gid)
         for gid, record in list(self.records.items()):
-            if record.get("phase") in ("pr_open", "closed"):
+            if gid in self.tasks and record.get("phase") in ("pr_open", "conflict"):
                 self.poll_pr(gid)
         self.save()
 
     def done(self):
         if time.time() >= self.refresh_due:
             return False
-        if any((r or {}).get("phase") in LIVE for r in self.records.values()):
+        if self.children or any((self.records.get(gid) or {}).get("phase") in LIVE
+                                for gid in self.tasks):
             return False
         if ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
             return False
         return True
 
     def run_loop(self):
-        self.resolve_people_and_sprint()
+        self.resolve()
         self.refresh()
         self.reconcile_all()
         self.save()
@@ -708,10 +753,16 @@ class Milestone(object):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cortex run-milestone",
-        description="Work every task in an Asana milestone through start-task, in "
-                    "parallel, until each is merged. Arguments not listed here are "
-                    "passed to every start-task run (e.g. --backend echo).")
-    parser.add_argument("milestone", help="URL of the milestone's task in Asana")
+        description="Work every task in the given milestones of an Asana board through "
+                    "start-task, in parallel, until each is merged. Arguments not "
+                    "listed here are passed to every start-task run (e.g. --backend "
+                    "echo).")
+    parser.add_argument("board", help="URL (or gid) of the board the milestones are on")
+    parser.add_argument("milestones", nargs="*",
+                        help="milestones to work: full name, the short name before "
+                             "' :: ' (e.g. M1), or the milestone task's URL or gid")
+    parser.add_argument("--sprint", default=None,
+                        help="URL (or gid) of the sprint board tasks are added to")
     parser.add_argument("--repo", default=os.getcwd(),
                         help="target repository (default: cwd)")
     parser.add_argument("--status", action="store_true",
@@ -721,20 +772,22 @@ def build_parser():
 
 
 def main(argv):
-    args, forward = build_parser().parse_known_args(argv)
+    parser = build_parser()
+    args, forward = parser.parse_known_args(argv)
     if "--no-wait" in forward:
         sys.stderr.write("run-milestone: --no-wait does not apply — every run waits on "
                          "its own questions\n")
         return 2
+    if not args.status and (not args.milestones or not args.sprint):
+        parser.error("name at least one milestone, and the sprint with --sprint")
     try:
-        milestone = Milestone(args.milestone, args.repo, forward)
+        board = BoardRun(args.board, args.milestones, args.sprint, args.repo, forward)
         if args.status:
-            if not milestone.tasks:
-                raise Stop("no record of this milestone in %s — run it first"
-                           % milestone.dir)
-            milestone.report()
+            if not board.tasks:
+                raise Stop("no record of this board in %s — run it first" % board.dir)
+            board.report()
             return 0
-        return milestone.run_loop()
+        return board.run_loop()
     except Stop as e:
         sys.stderr.write("\nrun-milestone: %s\n" % e)
         return 1

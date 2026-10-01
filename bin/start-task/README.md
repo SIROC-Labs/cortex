@@ -132,7 +132,7 @@ stops with the error as before, since you are at the terminal.
 cortex start-task MT251-47 --phase revise --feedback-file review.md
 ```
 
-Applies review feedback in the task's worktree, resuming the agent's recorded session
+Fetches, then applies review feedback in the task's worktree, resuming the agent's recorded session
 when the same backend still has it (a fresh, fully briefed call otherwise), runs the QA
 gates the change touches, commits, pushes and replies on the PR with what it did. It
 never rebases or force-pushes; a conflict with the base is resolved by merging the base

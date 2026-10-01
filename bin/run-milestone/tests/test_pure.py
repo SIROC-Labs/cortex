@@ -17,13 +17,15 @@ from run_milestone import (  # noqa: E402
     blockers,
     collect_feedback,
     describe,
+    match_milestones,
     outcome_phase,
-    parse_milestone_url,
     parse_pr_url,
+    parse_project_ref,
     ready_tasks,
     reconcile,
     render_feedback,
-    sprint_pattern_for,
+    render_resolve,
+    resolve_request,
 )
 from start_task import EXIT_AWAITING, EXIT_FAILED, EXIT_OK, mark  # noqa: E402
 
@@ -36,21 +38,50 @@ def t(name, deps=(), completed=False, status="Unassigned", assignee_gid=None):
             "deps": [{"ref": ref, "name": ref, "completed": done} for ref, done in deps]}
 
 
-class TestParseMilestoneUrl(unittest.TestCase):
-    def test_project_task_form(self):
-        self.assertEqual(parse_milestone_url(
-            "https://app.asana.com/1/1202999775780036/project/1219020319579527/task/"
-            "1219043367529094?focus=true"),
-            ("1219020319579527", "1219043367529094"))
-
-    def test_zero_form(self):
-        self.assertEqual(parse_milestone_url("https://app.asana.com/0/111/222/f"),
-                         ("111", "222"))
-
-    def test_a_project_url_alone_is_not_a_milestone(self):
-        self.assertEqual(parse_milestone_url(
+class TestParseProjectRef(unittest.TestCase):
+    def test_list_url(self):
+        self.assertEqual(parse_project_ref(
             "https://app.asana.com/1/1202999775780036/project/1219020319579527/list"),
-            (None, None))
+            "1219020319579527")
+
+    def test_zero_form_and_bare_gid(self):
+        self.assertEqual(parse_project_ref("https://app.asana.com/0/1218562510042382/list"),
+                         "1218562510042382")
+        self.assertEqual(parse_project_ref("1218562510042382"), "1218562510042382")
+
+    def test_rejects_other_input(self):
+        self.assertIsNone(parse_project_ref("https://github.com/o/r"))
+        self.assertIsNone(parse_project_ref(None))
+
+
+class TestMatchMilestones(unittest.TestCase):
+    LISTING = [
+        {"name": "Untitled section", "ref": "100"},
+        {"name": "M1 :: Built and working locally", "ref": "101"},
+        {"name": "M2 :: Running in dev", "ref": "102"},
+        {"name": "M10 :: Later", "ref": "110"},
+    ]
+
+    def refs(self, wanted):
+        return [m["ref"] for m in match_milestones(wanted, self.LISTING)]
+
+    def test_short_name_full_name_gid_and_url(self):
+        self.assertEqual(self.refs(["M1"]), ["101"])
+        self.assertEqual(self.refs(["m2 :: running in dev"]), ["102"])
+        self.assertEqual(self.refs(["110"]), ["110"])
+        self.assertEqual(self.refs(
+            ["https://app.asana.com/1/1/project/5/task/102"]), ["102"])
+
+    def test_short_name_does_not_prefix_match(self):
+        self.assertEqual(self.refs(["M1", "M10"]), ["101", "110"])
+
+    def test_several_in_order_without_duplicates(self):
+        self.assertEqual(self.refs(["M2", "M1", "101"]), ["102", "101"])
+
+    def test_unknown_names_say_what_the_board_has(self):
+        with self.assertRaises(ValueError) as ctx:
+            match_milestones(["M7"], self.LISTING)
+        self.assertIn("M1 :: Built and working locally", str(ctx.exception))
 
 
 class TestParsePrUrl(unittest.TestCase):
@@ -61,19 +92,6 @@ class TestParsePrUrl(unittest.TestCase):
     def test_rejects_other_urls(self):
         self.assertIsNone(parse_pr_url("https://github.com/SIROC-Labs/cortex"))
         self.assertIsNone(parse_pr_url(None))
-
-
-class TestSprintPattern(unittest.TestCase):
-    def test_team_prefix_selects_that_teams_sprint(self):
-        import re
-        pattern = sprint_pattern_for("Humanus | Candidate Intake")
-        self.assertTrue(re.search(pattern, "Humanus | Sprint 26/2"))
-        self.assertFalse(re.search(pattern, "ENG | Sprint 26.16"))
-        self.assertFalse(re.search(pattern, "Humanus | Candidate Intake"))
-
-    def test_no_separator_falls_back_to_defaults(self):
-        self.assertIsNone(sprint_pattern_for("Roadmap"))
-        self.assertIsNone(sprint_pattern_for(None))
 
 
 class TestReadiness(unittest.TestCase):
@@ -96,7 +114,7 @@ class TestReadiness(unittest.TestCase):
         self.assertEqual(ready_tasks(g, {"1": {"phase": "merged"}}, ME), ["2", "3"])
 
     def test_a_task_with_a_record_is_not_launched_twice(self):
-        for phase in ("running", "awaiting", "revising", "pr_open", "closed",
+        for phase in ("running", "awaiting", "revising", "pr_open", "conflict",
                       "merged", "failed", "stopped"):
             self.assertEqual(ready_tasks(self.graph(), {"1": {"phase": phase}}, ME), [])
 
@@ -133,8 +151,7 @@ class TestDescribe(unittest.TestCase):
         self.assertEqual(describe("1", g, {}, ME), "ready")
         self.assertEqual(describe("2", g, {}, ME), "waits on 1")
         self.assertEqual(describe("1", g, {"1": {"phase": "awaiting"}}, ME), "awaiting Justin")
-        self.assertIn("conflicts", describe(
-            "1", g, {"1": {"phase": "pr_open", "conflict_notified": True}}, ME))
+        self.assertIn("please resolve", describe("1", g, {"1": {"phase": "conflict"}}, ME))
         self.assertEqual(describe("1", g, {"1": {"phase": "failed", "reason": "QA\nmore"}}, ME),
                          "failed: QA")
 
@@ -193,10 +210,25 @@ class TestCollectFeedback(unittest.TestCase):
                                  ["comment:3"])
         self.assertEqual([i[0] for i in items], ["comment:4"])
 
-    def test_render_mentions_a_conflict(self):
-        text = render_feedback([("comment:1", "Comment by @j", "merge main")], conflicting=True)
-        self.assertIn("conflicts", text)
-        self.assertIn("merge main", text)
+    def test_render_carries_every_item(self):
+        text = render_feedback([("comment:1", "Comment by @j", "rename it"),
+                                ("inline:2", "`a.py` — @j", "typo")])
+        self.assertIn("### Comment by @j", text)
+        self.assertIn("typo", text)
+
+
+class TestResolveRequest(unittest.TestCase):
+    def test_finds_the_request_case_insensitively(self):
+        items = [("comment:1", "h", "looks fine"), ("comment:2", "h", "Please resolve, thanks")]
+        self.assertEqual(resolve_request(items)[0], "comment:2")
+
+    def test_other_comments_are_not_a_request(self):
+        self.assertIsNone(resolve_request([("comment:1", "h", "resolved the thread")]))
+        self.assertIsNone(resolve_request([]))
+
+    def test_the_resolve_brief_says_merge_not_rebase(self):
+        text = render_resolve(("comment:2", "Comment by @j", "please resolve"))
+        self.assertIn("Merge the base into the branch", text)
 
 
 class TestReconcile(unittest.TestCase):

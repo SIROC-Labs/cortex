@@ -1440,6 +1440,8 @@ def phase_revise(args, state=None):
         die("the worktree is gone: %s" % worktree)
 
     step("Revising")
+    with repo_lock(context["git"]["main_root"]):
+        git(["fetch", "origin"], cwd=worktree, check=False)
     session = state.read("session.json") or {}
     resume = session.get("token") if session.get("backend") == args.backend else None
     info("resuming session %s" % resume if resume else "no session to resume — fresh call")
