@@ -770,6 +770,11 @@ def worktree_for_branch(porcelain, branch):
 
 POLL_START = 30
 POLL_CAP = 120
+# An answer can also be handed over locally — by the TUI — as a file in the
+# task's state. It is looked for this often, so it lands at once rather than on
+# the next Asana poll.
+ANSWER_FILE = "answer.json"
+ANSWER_CHECK = 1
 
 
 def parse_agent_questions(structured):
@@ -833,6 +838,14 @@ def select_answer(comments, watermark):
             continue
         return comment
     return None
+
+
+def local_answer(record, asked_at):
+    """The text of an answer handed over locally, when it answers the question
+    asked at `asked_at`. One left over from an earlier question is not it."""
+    if not isinstance(record, dict) or record.get("asked_at") != asked_at:
+        return None
+    return (record.get("text") or "").strip() or None
 
 
 def poll_interval(attempt, start=POLL_START, cap=POLL_CAP):
@@ -1086,21 +1099,30 @@ def escalate(state, ref, cwd, args, kind, body, extra=None):
         raise Awaiting("waiting on a reply in the task (%s)" % kind)
     info("waiting for a reply (Ctrl-C to stop; progress is saved)")
 
-    attempt, waited = 0, 0
+    attempt, waited, next_poll, next_note = 0, 0, 0, 600
     while True:
-        answer = select_answer(asana(["comment", "list", ref], cwd=cwd), watermark)
-        if answer:
-            info("reply from %s after %s" % (answer.get("author") or "someone",
-                                             _elapsed(waited)))
+        text = local_answer(state.read(ANSWER_FILE), watermark)
+        if text:
+            info("answer handed over locally after %s" % _elapsed(waited))
+            state.remove(ANSWER_FILE)
             state.remove("awaiting.json")
-            return (answer.get("text") or "").strip()
-        attempt += 1
-        delay = poll_interval(attempt)
-        time.sleep(delay)
-        waited += delay
-        WAITED[0] += delay
-        if waited % 600 < delay:
+            return text
+        if waited >= next_poll:
+            answer = select_answer(asana(["comment", "list", ref], cwd=cwd), watermark)
+            if answer:
+                info("reply from %s after %s" % (answer.get("author") or "someone",
+                                                 _elapsed(waited)))
+                state.remove(ANSWER_FILE)
+                state.remove("awaiting.json")
+                return (answer.get("text") or "").strip()
+            attempt += 1
+            next_poll = waited + poll_interval(attempt)
+        time.sleep(ANSWER_CHECK)
+        waited += ANSWER_CHECK
+        WAITED[0] += ANSWER_CHECK
+        if waited >= next_note:
             info("still waiting (%s)" % _elapsed(waited))
+            next_note += 600
 
 
 def ask_task(questions, ref, cwd, state, label, args):
@@ -1138,7 +1160,8 @@ def raise_problem(state, ref, cwd, args, kind, headline, detail=None):
     warn(headline)
     return escalate(state, ref, cwd, args, kind,
                     format_problem_comment(headline, detail, branch),
-                    {"headline": headline})
+                    {"headline": headline,
+                     "detail": (detail or "").strip()[-1500:] or None})
 
 
 def render_resume_section(worktree, transcript):

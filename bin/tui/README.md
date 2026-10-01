@@ -34,13 +34,30 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task: its state, PR and task links, the question or problem it is waiting on — then any live start-task run this repo's daemon does not own | `⏎` its log · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
+| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
 | **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
 | **3 Sprint** | the boards again — pick the one queued tasks are added to | `⏎` use it |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
 
 Queueing the first task starts the daemon if it is not running. Nothing starts until
 a sprint is picked; nothing about the sprint is guessed.
+
+## Waiting on you
+
+A run that needs you — the agent's questions, QA still red after its repairs, a refused
+push, a stalled call, a failed step — and a PR parked on a conflict all show on the Runs
+tab first, flagged ⚑, and the header counts them. `⏎` shows the whole of it: every
+question with its reasoning, or the problem with the output that caused it.
+
+- `a` answers in one line at the bottom of the screen; `A` opens `$VISUAL` / `$EDITOR`
+  with the questions as `#` comments, like `git commit`.
+- The answer is handed straight to the waiting run, which looks for one every second,
+  and is posted to the task in Asana as your comment, so the conversation stays where
+  it was asked. A run that is not alive when you answer finds it when it starts again.
+- On a parked conflict, `a` asks for a resolve: it posts `please resolve` on the PR,
+  which the loop picks up within a minute.
+
+Answering on the task in Asana still works exactly as before.
 
 ## Asana data and its cache
 

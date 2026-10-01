@@ -21,8 +21,11 @@ import argparse
 import curses
 import json
 import os
+import shlex
 import subprocess
 import sys
+import tempfile
+import textwrap
 import time
 import webbrowser
 
@@ -53,11 +56,84 @@ def matches(text, query):
     return all(word in text for word in (query or "").lower().split())
 
 
-def run_rows(control, data, live, me_gid=None, agents=()):
-    """The Runs tab: every queued task in queue order, then every live start-task
-    run nothing here owns, then every agent left working with no run at all."""
+def wait_summary(wait):
+    """One line for what a task is waiting on you for."""
+    if wait.get("kind") == "conflict":
+        return "PR conflicts with its base — a to have it resolved"
+    questions = wait.get("questions") or []
+    if questions:
+        more = len(questions) - 1
+        return questions[0].get("q", "") + (" (+%d more)" % more if more else "")
+    return wait.get("headline") or "waiting on a reply"
+
+
+def wait_lines(wait, width):
+    """The whole of a wait, wrapped to the screen, as [(text, style)]."""
+    width = max(20, width - 4)
+    out = []
+
+    def para(text, style, indent=""):
+        for line in (text or "").splitlines() or [""]:
+            for piece in textwrap.wrap(line, width - len(indent)) or [""]:
+                out.append((indent + piece, style))
+
+    if wait.get("kind") == "conflict":
+        para("The PR conflicts with its base, most likely because a sibling task merged "
+             "first and touched the same files. The task is parked until you ask for "
+             "a resolve: the base is then merged in and the conflicts resolved — never "
+             "a rebase or force-push.", "normal")
+        return out
+    for n, q in enumerate(wait.get("questions") or [], 1):
+        para("%d. %s" % (n, q.get("q", "")), "bold")
+        if q.get("why"):
+            para(q["why"], "dim", "   ")
+        out.append(("", "normal"))
+    if wait.get("headline"):
+        para(wait["headline"], "bold")
+    if wait.get("detail"):
+        out.append(("", "normal"))
+        for line in wait["detail"].splitlines()[-200:]:
+            out.append(("  " + line[:width], "dim"))
+    return out
+
+
+def answer_template(title, wait):
+    """What the editor opens with: the wait as comments, room for the answer."""
+    lines = ["", "", "# Answer for %s" % title, "#"]
+    lines += ["# " + text if text else "#" for text, _ in wait_lines(wait, 78)]
+    lines += ["#", "# Lines starting with # are dropped. An empty answer sends nothing."]
+    return "\n".join(lines) + "\n"
+
+
+def parse_answer(text):
+    """The answer in an edited template, or None for an empty one."""
+    kept = [line for line in (text or "").splitlines() if not line.lstrip().startswith("#")]
+    return "\n".join(kept).strip() or None
+
+
+def read_waits(main_root, control, data):
+    """What each queued task is waiting on you for: an outstanding question or
+    problem from its run (its `awaiting.json`), or a parked conflict."""
+    tasks, records = data.get("tasks") or {}, data.get("records") or {}
+    waits = {}
+    for item in control.get("queue") or []:
+        gid = item["gid"]
+        key = (tasks.get(gid) or {}).get("key")
+        awaiting = st.State(main_root, key).read("awaiting.json") if key else None
+        if awaiting and awaiting.get("asked_at"):
+            waits[gid] = dict(awaiting, key=key)
+        elif (records.get(gid) or {}).get("phase") == "conflict":
+            waits[gid] = {"kind": "conflict", "key": key}
+    return waits
+
+
+def run_rows(control, data, live, me_gid=None, agents=(), waits=None):
+    """The Runs tab: every task waiting on you first, then the rest of the queue
+    in its order, then every live start-task run nothing here owns, then every
+    agent left working with no run at all."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
     me_gid = me_gid or (data.get("me") or {}).get("gid")
+    waits = waits or {}
     rows = []
     for item in control.get("queue") or []:
         gid = item["gid"]
@@ -73,10 +149,15 @@ def run_rows(control, data, live, me_gid=None, agents=()):
         style = PHASE_STYLE.get(record.get("phase"))
         if not style:
             style = "dim" if task and task.get("completed") else "normal"
+        wait = waits.get(gid)
+        if wait:
+            status, style = "⚑ " + wait_summary(wait), "warn"
         rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
-                     "style": style, "log": record.get("log"),
+                     "style": style, "log": record.get("log"), "wait": wait,
+                     "pr_url": record.get("pr_url"),
                      "links": [u for u in (record.get("pr_url"),
                                            task_url(item.get("board"), gid)) if u]})
+    rows.sort(key=lambda r: not r.get("wait"))
     managed = [r.get("pid") for r in records.values() if r.get("pid")]
     for tid, pid in dm.unmanaged(live, managed):
         rows.append({"kind": "orphan", "id": pid, "style": "warn", "links": [],
@@ -204,7 +285,9 @@ HELP = [
     "            number again takes it back to its top",
     "filter      /   then type; ⏎ keeps it, esc clears it",
     "",
-    "Runs        x stop and unqueue · r retry · o open the PR or task",
+    "Runs        ⏎ on a ⚑ task reads what it is waiting on · a answer it in one line ·",
+    "            A answer in $EDITOR · on a parked conflict, a asks for a resolve",
+    "            x stop and unqueue · r retry · o open the PR or task",
     "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
     "Sprint      ⏎ use the board as the sprint",
     "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
@@ -282,6 +365,10 @@ class App(object):
         self.log_scroll = 0
         self.help = False
         self.page = 10
+        self.question = None
+        self.compose = None
+        self.edit_request = None
+        self.posting = {}
         self.snapshot()
 
     # data
@@ -300,6 +387,7 @@ class App(object):
         self.data = dm.read_json(os.path.join(dm.queue_dir(self.main_root), "state.json")) or {}
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
+        self.waits = read_waits(self.main_root, self.control, self.data)
         self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
 
     def fetch_boards(self):
@@ -344,6 +432,15 @@ class App(object):
                     self.message = "could not refresh the board: %s" % done[1]
                 else:
                     self.sections[gid], self.sections_at[gid] = done[0], now
+        for gid in list(self.posting):
+            done = self.loader.take("answer-%s" % gid)
+            if done:
+                kind = self.posting.pop(gid)
+                if done[1] and kind == "answer":
+                    self.message = ("could not copy the answer to Asana (%s) — the run "
+                                    "has it all the same" % done[1])
+                elif done[1]:
+                    self.message = "could not ask for the resolve: %s" % done[1]
         if TABS[self.tab] in ("Boards", "Sprint"):
             if self.board and TABS[self.tab] == "Boards":
                 self.refresh_board(self.board[0], BOARD_SHOWN_MAX_AGE)
@@ -365,7 +462,8 @@ class App(object):
         name = TABS[self.tab]
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
-            return run_rows(self.control, self.data, self.live, agents=self.agents)
+            return run_rows(self.control, self.data, self.live, agents=self.agents,
+                            waits=self.waits)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
@@ -410,6 +508,52 @@ class App(object):
             "" if self.control.get("sprint") else " — pick a sprint (tab 3) before they start"
         ) + started
 
+    def answer(self, gid, text):
+        """Hand an answer to the task's waiting run. It goes in the run's state,
+        which the run looks at every second, and onto the task in Asana as your
+        comment, so the conversation stays where the question was asked."""
+        wait = self.waits.get(gid) or {}
+        if not wait.get("asked_at") or not wait.get("key"):
+            self.message = "nothing is waiting on an answer there any more"
+            return
+        st.State(self.main_root, wait["key"]).write(
+            st.ANSWER_FILE, {"asked_at": wait["asked_at"], "text": text, "at": time.time()})
+        self.posting[gid] = "answer"
+        self.loader.start("answer-%s" % gid, "answer",
+                          lambda: self.asana(["comment", "add", gid, text]))
+        self.question = None
+        self.message = "answered %s — the run picks it up now" % wait["key"]
+        self.snapshot()
+
+    def resolve(self, gid, pr_url):
+        """Ask for a parked conflict to be resolved, the way a person would: a
+        `please resolve` comment on the PR, which the loop looks for each minute."""
+        def post():
+            code = subprocess.run(["gh", "pr", "comment", pr_url, "--body", "please resolve"],
+                                  cwd=self.main_root, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if code.returncode != 0:
+                raise Stop(code.stderr.decode("utf-8", "replace").strip() or "gh failed")
+        self.posting[gid] = "resolve"
+        self.loader.start("answer-%s" % gid, "resolve", post)
+        self.question = None
+        self.message = "asked for a resolve on %s — picked up within a minute" % pr_url
+
+    def start_answer(self, row, editor=False):
+        wait = (row or {}).get("wait")
+        if not wait:
+            self.message = "nothing is waiting on you there"
+        elif wait.get("kind") == "conflict":
+            if not row.get("pr_url"):
+                self.message = "no PR recorded for that task"
+                return
+            self.ask("post `please resolve` on %s? (y/n)" % row["pr_url"],
+                     lambda: self.resolve(row["id"], row["pr_url"]))
+        elif editor:
+            self.edit_request = row["id"]
+        else:
+            self.compose = {"gid": row["id"], "text": ""}
+
     def command(self, op, gid):
         applied = self.data.get("applied", 0)
         self.change_control(lambda c: dm.add_command(c, op, gid, applied))
@@ -417,7 +561,9 @@ class App(object):
     def act(self, key, row):
         name = TABS[self.tab]
         if name == "Runs" and row:
-            if key == "x" and row["kind"] == "task":
+            if key in ("a", "A") and row["kind"] == "task":
+                self.start_answer(row, editor=key == "A")
+            elif key == "x" and row["kind"] == "task":
                 self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
                     self.command("stop", row["id"]),
                     self.change_control(lambda c: dm.queue_remove(c, [row["id"]]))))
@@ -468,7 +614,9 @@ class App(object):
             self.board = (row["id"], row["name"])
             self.refresh_board(row["id"], BOARD_OPEN_MAX_AGE)
         elif name == "Runs":
-            if row.get("log"):
+            if row.get("wait"):
+                self.question = row["id"]
+            elif row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
             else:
                 self.message = "no log yet — the run has not started"
@@ -516,6 +664,38 @@ class App(object):
             return True
         if self.help:
             self.help = False
+            return True
+        if self.compose is not None:
+            if key == "enter":
+                text = self.compose["text"].strip()
+                gid, self.compose = self.compose["gid"], None
+                if text:
+                    self.answer(gid, text)
+                else:
+                    self.message = "nothing sent"
+            elif key == "esc":
+                self.compose = None
+                self.message = "nothing sent"
+            elif key == "backspace":
+                self.compose["text"] = self.compose["text"][:-1]
+            elif key == "ctrl-u":
+                self.compose["text"] = ""
+            elif len(key) == 1:
+                self.compose["text"] += key
+            return True
+        if self.question and not self.log_path:
+            row = next((r for r in rows if r["id"] == self.question), None)
+            if row is None or not row.get("wait"):
+                self.question = None
+                self.message = "answered — nothing waiting there now"
+            elif key in ("a", "A"):
+                self.start_answer(row, editor=key == "A")
+            elif key == "l" and row.get("log"):
+                self.log_path, self.log_scroll = row["log"], 0
+            elif key == "o" and row.get("links"):
+                webbrowser.open(row["links"][-1])
+            elif NAV.get(key) == "back" or key == "q":
+                self.question = None
             return True
         if self.log_path:
             action = NAV.get(key)
@@ -571,8 +751,12 @@ class App(object):
             return "↑↓ ^F ^B scroll · g/G top/end · ←/esc/q back"
         if self.typing:
             return "type to filter · enter keep · esc clear"
+        if self.compose is not None:
+            return "enter send · esc cancel · ^U clear"
+        if self.question:
+            return "a answer · A answer in $EDITOR · l log · o open the task · ←/esc back"
         return {
-            "Runs": "⏎/→ log · x stop · r retry · o open PR",
+            "Runs": "⏎/→ question or log · a answer · A in $EDITOR · x stop · r retry · o open PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
             "Sprint": "⏎ use as sprint · / filter",
@@ -590,15 +774,28 @@ class App(object):
             " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])
                              if self.daemon.get("forward") else "") if self.alive else "",
             sprint), "bold")
+        if self.waits:
+            flag = "  ⚑ %d waiting on you " % len(self.waits)
+            _put_at(scr, 0, max(0, w - len(flag) - 1), flag, w, styles["warn"])
         x = 0
         for i, t in enumerate(TABS):
             label = " %d %s " % (i + 1, t)
             _put_at(scr, 1, x, label, w, styles["sel"] if i == self.tab else styles["dim"])
             x += len(label) + 1
         self.page = max(1, h - 8)
+        rows_now = self.view() if TABS[self.tab] == "Runs" else []
+        asked = next((r for r in rows_now if r["id"] == self.question and r.get("wait")), None)
         if self.help:
             for i, line in enumerate(HELP[:h - 4]):
                 put(3 + i, line)
+        elif asked and not self.log_path:
+            wait = asked["wait"]
+            put(2, "Runs › %s %s — waiting on you" % (asked["cols"][0], asked["cols"][1]), "dim")
+            if wait.get("asked_at"):
+                put(3, "asked %s · %s" % (wait["asked_at"][:16].replace("T", " "),
+                                          wait.get("kind") or "questions"), "dim")
+            for i, (line, style) in enumerate(wait_lines(wait, w)[:h - 8]):
+                put(5 + i, "  " + line, style)
         elif self.log_path:
             lines = _tail(self.log_path, 2000)
             body = h - 4
@@ -634,15 +831,17 @@ class App(object):
             detail = []
             if row and TABS[self.tab] == "Runs" and row["kind"] == "task":
                 detail = [row["cols"][2]] + row.get("links", [])
-                awaiting = st.State(self.main_root, row["cols"][0]).read("awaiting.json") \
-                    if row["cols"][0] != "…" else None
-                for q in (awaiting or {}).get("questions") or []:
-                    detail.append("Q: %s" % q.get("q"))
-                if (awaiting or {}).get("headline"):
-                    detail.append(awaiting["headline"])
+                if row.get("wait"):
+                    detail = ["⚑ waiting on you — ⏎ to read it all, a to answer"] + detail[1:]
             for i, line in enumerate(detail[:4]):
                 put(h - 6 + i, "  " + line, "dim")
-        put(h - 2, self.message, "warn")
+        if self.compose is not None:
+            prompt = "answer › "
+            text = self.compose["text"]
+            room = max(1, w - len(prompt) - 3)
+            put(h - 2, prompt + (text[-room:] if len(text) > room else text) + "▏", "warn")
+        else:
+            put(h - 2, self.message, "warn")
         put(h - 1, self.help_line(), "dim")
         scr.refresh()
 
@@ -698,7 +897,34 @@ def run_ui(main_root, forward):
                     return
             except Stop as e:
                 app.message = str(e)
+            if app.edit_request:
+                gid, app.edit_request = app.edit_request, None
+                wait = app.waits.get(gid) or {}
+                text = edit_answer(scr, answer_template(wait.get("key") or gid, wait))
+                if text:
+                    app.answer(gid, text)
+                else:
+                    app.message = "nothing sent"
     curses.wrapper(loop)
+
+
+def edit_answer(scr, template):
+    """Open $VISUAL / $EDITOR on the template and return the answer written, the
+    way `git commit` does."""
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    fd, path = tempfile.mkstemp(prefix="cortex-answer-", suffix=".md")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(template)
+        curses.def_prog_mode()
+        curses.endwin()
+        subprocess.call(shlex.split(editor) + [path])
+        curses.reset_prog_mode()
+        scr.clear()
+        with open(path) as f:
+            return parse_answer(f.read())
+    finally:
+        os.remove(path)
 
 
 def print_status(main_root):
@@ -709,11 +935,18 @@ def print_status(main_root):
                                          " (pid %s)" % info.get("pid") if alive else ""))
     sys.stdout.write("sprint:  %s\n" % ((control.get("sprint") or {}).get("name") or "none"))
     live = dm.live_runs(main_root)
-    rows = run_rows(control, data, live, agents=dm.live_agents(main_root, [p for _, p in live]))
+    waits = read_waits(main_root, control, data)
+    rows = run_rows(control, data, live, agents=dm.live_agents(main_root, [p for _, p in live]),
+                    waits=waits)
     if not rows:
         sys.stdout.write("\nnothing queued\n")
+    if waits:
+        sys.stdout.write("\n⚑ %d waiting on you — answer in `cortex tui`, or on the task\n"
+                         % len(waits))
     for row in rows:
         sys.stdout.write("\n  %-8s %s\n           %s\n" % tuple(row["cols"]))
+        for text, _ in wait_lines(row.get("wait") or {}, 100) if row.get("wait") else []:
+            sys.stdout.write("           %s\n" % text)
         for link in row.get("links") or []:
             sys.stdout.write("           %s\n" % link)
     others = [(p, i, a) for p, i, a in dm.registered() if i.get("main_root") != main_root]

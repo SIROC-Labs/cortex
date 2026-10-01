@@ -805,6 +805,21 @@ class TestEscalate(unittest.TestCase):
         start_task.escalate(self.state, "1", "/", self.Args(), "qa", "QA red")
         self.assertEqual(len(self.posted), 1)
 
+    def test_an_answer_handed_over_locally_lands_without_an_asana_reply(self):
+        self.state.write("awaiting.json", {"kind": "questions", "asked_at": "T1"})
+        self.state.write("answer.json", {"asked_at": "T1", "text": " use nonprod "})
+        answer = start_task.escalate(self.state, "1", "/", self.Args(), "questions", "Q")
+        self.assertEqual(answer, "use nonprod")
+        self.assertIsNone(self.state.read("answer.json"))
+        self.assertIsNone(self.state.read("awaiting.json"))
+
+    def test_a_local_answer_to_another_question_is_not_taken(self):
+        self.state.write("awaiting.json", {"kind": "questions", "asked_at": "T2"})
+        self.state.write("answer.json", {"asked_at": "T1", "text": "old"})
+        self.comments = [{"created_at": "T3", "text": "the real answer"}]
+        answer = start_task.escalate(self.state, "1", "/", self.Args(), "questions", "Q")
+        self.assertEqual(answer, "the real answer")
+
     def test_no_wait_posts_and_stops_leaving_the_record(self):
         args = self.Args()
         args.no_wait = True

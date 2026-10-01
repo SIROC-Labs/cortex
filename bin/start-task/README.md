@@ -112,7 +112,10 @@ the run's own posts. It posts as you, so every comment it writes, on the task or
 PR, starts with `🤖 cortex ·`, and a comment carrying that mark is never an answer. The
 wait is unbounded and costs one request every two minutes; Ctrl-C stops it and the
 pending question stays in `awaiting.json`, which `--status` prints. A rerun looks for
-the answer to that question before doing anything else, rather than asking again.
+the answer to that question before doing anything else, rather than asking again. An
+answer can also be handed over locally as `answer.json` in the task's state (that is
+how `cortex tui` answers); the wait looks for one every second, and takes it only when
+it answers the question actually pending.
 `--no-wait` posts and exits with code 3 instead of waiting.
 
 ### When anything else stops the run

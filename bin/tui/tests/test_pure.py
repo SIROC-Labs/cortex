@@ -18,8 +18,10 @@ import cache  # noqa: E402
 import daemon as dm  # noqa: E402
 import tui  # noqa: E402
 from tui import (  # noqa: E402
-    NAV, App, board_list_rows, board_rows, decode_escape, decode_key, fit, matches, run_rows,
+    NAV, App, answer_template, board_list_rows, board_rows, decode_escape, decode_key, fit,
+    matches, parse_answer, read_waits, run_rows, wait_lines, wait_summary,
 )
+from daemon import st  # noqa: E402
 
 
 class TestQueue(unittest.TestCase):
@@ -475,6 +477,138 @@ class TestAppKeys(unittest.TestCase):
         self.press("j")
         self.assertFalse(self.app.help)
         self.assertFalse(self.app.key("q", []))
+
+
+QUESTION = {"kind": "questions", "asked_at": "2026-10-01T10:00:00.000Z", "label": "implement",
+            "questions": [{"q": "Which VPC — nonprod or shared?", "why": "two in tfvars"},
+                          {"q": "Fail closed?", "why": ""}]}
+PROBLEM = {"kind": "qa", "asked_at": "2026-10-01T11:00:00.000Z",
+           "headline": "QA gate still failing at 'backend'", "detail": "line 1\nE   assert 2 == 3"}
+
+
+class TestWaits(unittest.TestCase):
+    def test_summaries(self):
+        self.assertEqual(wait_summary(QUESTION), "Which VPC — nonprod or shared? (+1 more)")
+        self.assertEqual(wait_summary(PROBLEM), "QA gate still failing at 'backend'")
+        self.assertIn("a to have it resolved", wait_summary({"kind": "conflict"}))
+
+    def test_the_whole_wait_is_shown(self):
+        text = [t for t, _ in wait_lines(QUESTION, 80)]
+        self.assertIn("1. Which VPC — nonprod or shared?", text)
+        self.assertIn("   two in tfvars", text)
+        self.assertIn("2. Fail closed?", text)
+        problem = [t for t, _ in wait_lines(PROBLEM, 80)]
+        self.assertIn("QA gate still failing at 'backend'", problem)
+        self.assertIn("  E   assert 2 == 3", problem)
+
+    def test_long_questions_wrap_to_the_screen(self):
+        long_q = {"questions": [{"q": "word " * 40}]}
+        self.assertTrue(all(len(t) <= 36 for t, _ in wait_lines(long_q, 40)))
+
+    def test_the_editor_template_round_trips_to_just_the_answer(self):
+        template = answer_template("HCI-24", QUESTION)
+        self.assertIn("# 1. Which VPC — nonprod or shared?", template)
+        self.assertIsNone(parse_answer(template))
+        self.assertEqual(parse_answer("nonprod, and fail closed\n\n" + template),
+                         "nonprod, and fail closed")
+
+    def test_waiting_tasks_sort_first_and_are_flagged(self):
+        control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
+        data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
+                          "2": {"key": "A-2", "name": "two", "deps": []}}, "records": {}}
+        rows = run_rows(control, data, [], waits={"2": QUESTION})
+        self.assertEqual([r["id"] for r in rows], ["2", "1"])
+        self.assertTrue(rows[0]["cols"][2].startswith("⚑ Which VPC"))
+        self.assertEqual(rows[0]["style"], "warn")
+
+
+class TestReadWaits(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_questions_problems_and_parked_conflicts_are_waits(self):
+        st.State(self.root, "A-1").write("awaiting.json", QUESTION)
+        control = {"queue": [{"gid": "1"}, {"gid": "2"}, {"gid": "3"}]}
+        data = {"tasks": {"1": {"key": "A-1"}, "2": {"key": "A-2"}, "3": {"key": "A-3"}},
+                "records": {"2": {"phase": "conflict"}, "3": {"phase": "running"}}}
+        waits = read_waits(self.root, control, data)
+        self.assertEqual(sorted(waits), ["1", "2"])
+        self.assertEqual(waits["1"]["key"], "A-1")
+        self.assertEqual(waits["2"]["kind"], "conflict")
+
+
+class TestAnswering(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        isolate_cache(self)
+        st.State(self.root, "A-1").write("awaiting.json", QUESTION)
+        with dm.control_file(self.root) as c:
+            dm.queue_add(c, [{"gid": "1", "board": "9", "name": "one"},
+                             {"gid": "2", "board": "9", "name": "two"}])
+        os.makedirs(dm.queue_dir(self.root), exist_ok=True)
+        dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), {
+            "tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
+                      "2": {"key": "A-2", "name": "two", "deps": []}},
+            "records": {"1": {"phase": "awaiting"},
+                        "2": {"phase": "conflict", "pr_url": "https://github.com/o/r/pull/7"}}})
+        self.posted = []
+        self.app = App(self.root, [])
+        self.app.asana = lambda args: self.posted.append(args)
+
+    def press(self, *keys):
+        for k in keys:
+            self.app.key(k, self.app.view())
+
+    def handed_over(self):
+        return st.State(self.root, "A-1").read(st.ANSWER_FILE)
+
+    def test_enter_on_a_waiting_task_opens_its_questions(self):
+        self.press("1")
+        self.assertEqual(self.app.view()[0]["id"], "1")
+        self.press("enter")
+        self.assertEqual(self.app.question, "1")
+        self.press("esc")
+        self.assertIsNone(self.app.question)
+
+    def test_a_one_line_answer_reaches_the_run_and_the_task(self):
+        self.press("1", "enter", "a")
+        self.press(*"use nonprod")
+        self.press("enter")
+        handed = self.handed_over()
+        self.assertEqual(handed["text"], "use nonprod")
+        self.assertEqual(handed["asked_at"], QUESTION["asked_at"])
+        for _ in range(100):
+            self.app.sync()
+            if self.posted:
+                break
+            tui.time.sleep(0.01)
+        self.assertEqual(self.posted, [["comment", "add", "1", "use nonprod"]])
+
+    def test_typing_an_answer_does_not_trigger_keys(self):
+        self.press("1", "a", *"q2x")
+        self.assertEqual(self.app.compose["text"], "q2x")
+        self.assertEqual(tui.TABS[self.app.tab], "Runs")
+
+    def test_escape_or_an_empty_answer_sends_nothing(self):
+        self.press("1", "a", *"draft", "esc")
+        self.press("a", "enter")
+        self.assertIsNone(self.handed_over())
+
+    def test_A_asks_for_the_editor(self):
+        self.press("1", "A")
+        self.assertEqual(self.app.edit_request, "1")
+
+    def test_a_on_a_parked_conflict_asks_then_requests_a_resolve(self):
+        asked = []
+        self.app.resolve = lambda gid, url: asked.append((gid, url))
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press("a")
+        self.assertIn("please resolve", self.app.message)
+        self.press("y")
+        self.assertEqual(asked, [("2", "https://github.com/o/r/pull/7")])
 
 
 if __name__ == "__main__":
