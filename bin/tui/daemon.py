@@ -23,6 +23,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +61,7 @@ def code_version(paths=CODE_FILES):
     return digest.hexdigest()[:12]
 
 
-def command_feedback(sent, applied, results, alive, now):
+def command_feedback(sent, applied, results, alive, now, busy=()):
     """What to tell the person about a command they sent: (message, settled).
     `sent` is {id, op, key, at}; `results` the daemon's record of what it did."""
     result = next((r for r in results or [] if r.get("id") == sent["id"]), None)
@@ -76,6 +77,9 @@ def command_feedback(sent, applied, results, alive, now):
     if not alive:
         return ("the daemon is not running, so %s for %s is waiting — s on the Daemons "
                 "tab starts it" % (sent["op"], sent["key"]), False)
+    if busy:
+        return ("the daemon is busy (%s) — %s for %s is next"
+                % ("; ".join(busy), sent["op"], sent["key"]), False)
     if now - sent["at"] > 15:
         return "the daemon has not picked up %s for %s yet…" % (sent["op"], sent["key"]), False
     return "%s asked for %s…" % (sent["op"], sent["key"]), False
@@ -120,14 +124,17 @@ def pending_commands(control, applied):
 
 
 def daemon_health(info, alive, now):
-    """What a daemon record says: "running", "stale" (alive, not looping),
-    "crashed" (recorded, process gone) or "stopped" (no record)."""
+    """What a daemon record says: "running", "busy" (looping, but in the middle of
+    something slow it names), "stale" (alive, not looping), "crashed" (recorded,
+    process gone) or "stopped" (no record)."""
     if not info:
         return "stopped"
     if not alive:
         return "crashed"
-    if now - (info.get("beat") or 0) > STALE_AFTER:
+    if now - (info.get("loop_at") or info.get("beat") or 0) > STALE_AFTER:
         return "stale"
+    if info.get("busy"):
+        return "busy"
     return "running"
 
 
@@ -354,8 +361,20 @@ class QueueRun(Engine):
     def heartbeat(self, started, version):
         write_json(os.path.join(self.dir, "daemon.json"), {
             "pid": os.getpid(), "main_root": self.main_root, "started": started,
-            "beat": time.time(), "forward": self.forward, "code": version,
+            "beat": time.time(), "loop_at": self.loop_at, "forward": self.forward,
+            "code": version, "busy": sorted(set(self.busy.values())),
         })
+
+    def beat_forever(self, started, version):
+        """Publish the heartbeat — and what is taking long — every second, from
+        its own thread, so a slow step in the loop is shown, not mistaken for a
+        hang."""
+        while True:
+            try:
+                self.heartbeat(started, version)
+            except OSError:
+                pass
+            time.sleep(1)
 
     def idle(self):
         """No run in flight — launched or adopted — so restarting loses nothing."""
@@ -377,24 +396,26 @@ class QueueRun(Engine):
         started = time.time()
         version = code_version()
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        self.loop_at = time.time()
         self.heartbeat(started, version)
         write_json(registry_path(self.main_root),
                    {"pid": os.getpid(), "main_root": self.main_root, "started": started})
         log("daemon up for %s (pid %d)" % (self.main_root, os.getpid()))
         try:
+            threading.Thread(target=self.beat_forever, args=(started, version),
+                             daemon=True).start()
             self.resolve_me()
             self.apply_control()
             self.refresh()
             self.reconcile_all()
             while True:
-                if code_version() != version and self.idle():
+                self.loop_at = time.time()
+                if code_version() != version and self.idle() and not self.busy:
                     self.reload()
                 self.apply_control()
+                self.save()
                 if self.control["queue"] or self.children:
                     self.tick()
-                else:
-                    self.save()
-                self.heartbeat(started, version)
                 time.sleep(SERVE_TICK)
         finally:
             self.kill_all()

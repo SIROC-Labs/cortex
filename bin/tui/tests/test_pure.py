@@ -58,6 +58,11 @@ class TestCommands(unittest.TestCase):
 
 
 class TestDaemonHealth(unittest.TestCase):
+    def test_busy_names_itself_and_a_wedged_loop_is_stale_even_if_beating(self):
+        self.assertEqual(dm.daemon_health({"beat": 99, "loop_at": 95, "busy": ["x"]}, True, 100),
+                         "busy")
+        self.assertEqual(dm.daemon_health({"beat": 99, "loop_at": 0}, True, 1000), "stale")
+
     def test_states(self):
         self.assertEqual(dm.daemon_health(None, False, 100), "stopped")
         self.assertEqual(dm.daemon_health({"beat": 90}, False, 100), "crashed")
@@ -666,6 +671,12 @@ class TestCommandFeedback(unittest.TestCase):
             True, 101)
         self.assertTrue(settled)
         self.assertIn("did not act on merge for HCI-26", message)
+
+    def test_a_busy_daemon_says_what_it_is_doing(self):
+        message, settled = dm.command_feedback(self.SENT, 3, [], True, 130,
+                                               ["removing HCI-26's worktree"])
+        self.assertFalse(settled)
+        self.assertIn("busy (removing HCI-26's worktree) — merge for HCI-26 is next", message)
 
     def test_waiting_then_overdue_then_no_daemon(self):
         self.assertEqual(dm.command_feedback(self.SENT, 3, [], True, 101),

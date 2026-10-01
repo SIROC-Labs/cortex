@@ -613,7 +613,7 @@ class App(object):
         for sent in list(self.sent):
             message, settled = dm.command_feedback(
                 sent, self.data.get("applied", 0), self.data.get("results"),
-                self.alive, time.time())
+                self.alive, time.time(), (self.daemon or {}).get("busy") or ())
             self.message = message
             if settled:
                 self.sent.remove(sent)
@@ -833,6 +833,8 @@ class App(object):
         put = lambda y, text, style="normal": _put(scr, y, text, w, styles[style])  # noqa: E731
         health = dm.daemon_health(self.daemon, self.alive, time.time())
         sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in tab 3"
+        if health == "busy":
+            health = "busy: %s" % "; ".join(self.daemon.get("busy") or [])
         put(0, "cortex · %s · daemon %s%s · sprint: %s" % (
             os.path.basename(self.main_root), health,
             " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])

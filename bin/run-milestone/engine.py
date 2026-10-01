@@ -16,6 +16,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -378,6 +379,21 @@ def has_value(display):
         return False
 
 
+def merge_refresh(local, fetched):
+    """Fold a background re-read of Asana into what the loop knows now. The read
+    may have started before a merge the loop has since made, so completion only
+    ever moves forward: a task or dependency done here stays done."""
+    done = {gid for gid, t in local.items() if t.get("completed")}
+    for gid, task in fetched.items():
+        if gid in done:
+            task["completed"] = True
+        known = {d.get("ref"): d for d in (local.get(gid) or {}).get("deps") or []}
+        for dep in task.get("deps") or []:
+            if dep.get("ref") in done or (known.get(dep.get("ref")) or {}).get("completed"):
+                dep["completed"] = True
+    return fetched
+
+
 def task_url(board, gid):
     return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
 
@@ -403,6 +419,11 @@ class Engine(object):
         self.data = self.load()
         self.children = {}
         self.refresh_due = 0
+        # Slow work done off the loop, by name, with what it is — for whoever is
+        # watching to see why something is taking a while.
+        self.busy = {}
+        self.refreshing = None
+        self.fetched = None
 
     # state
 
@@ -505,17 +526,56 @@ class Engine(object):
         raise NotImplementedError
 
     def refresh(self, only=None):
-        """Re-read the tasks in scope from Asana. `only` re-reads just those gids —
-        the ones newly in scope — and keeps the rest as last read."""
+        """Re-read the tasks in scope from Asana, now. `only` re-reads just those
+        gids — the ones newly in scope — and keeps the rest as last read."""
+        self.data["tasks"] = self.fetch_tasks(self.scope(), dict(self.tasks), only)
+        if only is None:
+            self.data["refreshed_at"] = time.time()
+            self.refresh_due = time.time() + REFRESH_EVERY
+
+    def start_refresh(self):
+        """Re-read everything in a thread, so a board of tasks — dozens of calls —
+        never holds up commands, merges or noticing a run finish."""
+        previous = dict(self.tasks)
+
+        def work():
+            self.busy["refresh"] = "reading the tasks from Asana"
+            try:
+                self.fetched = (self.fetch_tasks(self.scope(), previous), None)
+            except Exception as e:  # reported by the loop, never fatal
+                self.fetched = (None, str(e))
+            finally:
+                self.busy.pop("refresh", None)
+
+        self.refreshing = threading.Thread(target=work, daemon=True)
+        self.refreshing.start()
+
+    def take_refresh(self):
+        """Fold in a finished background re-read. True when one landed."""
+        if self.refreshing is None or self.refreshing.is_alive() or self.fetched is None:
+            return False
+        tasks, error = self.fetched
+        self.refreshing, self.fetched = None, None
+        if error:
+            log("could not re-read Asana (%s) — trying again shortly" % error)
+            self.refresh_due = time.time() + 60
+            return False
+        self.data["tasks"] = merge_refresh(self.tasks, tasks)
+        self.data["refreshed_at"] = time.time()
+        self.refresh_due = time.time() + REFRESH_EVERY
+        return True
+
+    def fetch_tasks(self, items, previous, only=None):
+        """The tasks in `items`, read from Asana. A completed task's dependencies
+        are not re-read — they no longer matter."""
         tasks = {}
-        for item in self.scope():
+        for item in items:
             gid = item["gid"]
-            if only is not None and gid not in only and gid in self.tasks:
-                tasks[gid] = self.tasks[gid]
+            if only is not None and gid not in only and gid in previous:
+                tasks[gid] = previous[gid]
                 continue
             _, task = self.asana(["task", "get", gid])
-            previous = self.tasks.get(gid) or {}
-            deps = previous.get("deps") or []
+            deps = (previous.get(gid) or {}).get("deps") or []
             if not task.get("completed"):
                 _, deps = self.asana(["task", "dependencies", gid])
             tasks[gid] = {
@@ -529,10 +589,7 @@ class Engine(object):
                 "deps": deps or [],
                 "board_gid": item.get("board"),
             }
-        self.data["tasks"] = tasks
-        if only is None:
-            self.data["refreshed_at"] = time.time()
-            self.refresh_due = time.time() + REFRESH_EVERY
+        return tasks
 
     def reconcile_all(self):
         for gid in self.tasks:
@@ -729,6 +786,13 @@ class Engine(object):
         record = self.records[gid]
         merge = record["merge"]
         url = record["pr_url"]
+        self.busy["loop"] = "merging %s" % self.key_of(gid)
+        try:
+            self.merge_step_for(gid, owner, name, record, merge, url)
+        finally:
+            self.busy.pop("loop", None)
+
+    def merge_step_for(self, gid, owner, name, record, merge, url):
         view = self.gh_json(["pr", "view", url, "--json", "state,mergeable,mergeStateStatus,"
                                                           "isDraft,baseRefName,statusCheckRollup"])
         record["next_poll"] = time.time() + MERGE_POLL
@@ -819,6 +883,7 @@ class Engine(object):
 
     def merged(self, gid):
         key = self.key_of(gid)
+        self.busy["loop"] = "finishing %s in Asana" % key
         self.record_actual(gid)
         self.asana(["task", "complete", gid])
         code, _ = self.asana(["task", "set-status", gid, "Done"], check=False)
@@ -826,17 +891,28 @@ class Engine(object):
             log("%s: could not move to Done" % key)
         worktree = (self.start_state(gid).read("context.json") or {}).get("git", {}).get("worktree")
         if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:
-            with st.repo_lock(self.main_root):
-                code, _, err = run(["git", "worktree", "remove", worktree], cwd=self.main_root)
-            if code != 0:
-                log("%s: left the worktree in place (%s)" % (key, err))
+            # Thousands of files in node_modules and .venv: done in a thread that
+            # the process waits for on the way out, so it is never left half done.
+            threading.Thread(target=self.remove_worktree, args=(key, worktree)).start()
         self.tasks[gid]["completed"] = True
         for task in self.tasks.values():
             for dep in task.get("deps") or []:
                 if dep.get("ref") == gid:
                     dep["completed"] = True
         self.set_phase(gid, "merged")
+        self.busy.pop("loop", None)
         self.refresh_due = 0
+
+    def remove_worktree(self, key, worktree):
+        name = "worktree-%s" % key
+        self.busy[name] = "removing %s's worktree" % key
+        try:
+            with st.repo_lock(self.main_root):
+                code, _, err = run(["git", "worktree", "remove", worktree], cwd=self.main_root)
+            if code != 0:
+                log("%s: left the worktree in place (%s)" % (key, err))
+        finally:
+            self.busy.pop(name, None)
 
     def record_actual(self, gid):
         """Put the task's run time — what its start-task runs spent working, not
@@ -889,9 +965,10 @@ class Engine(object):
 
     def tick(self):
         self.reap()
-        if time.time() >= self.refresh_due:
-            self.refresh()
+        if self.take_refresh():
             self.stop_finished_elsewhere()
+        if time.time() >= self.refresh_due and self.refreshing is None:
+            self.start_refresh()
         if self.data.get("sprint"):
             for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
                 self.launch(gid)
@@ -901,7 +978,7 @@ class Engine(object):
         self.save()
 
     def done(self):
-        if time.time() >= self.refresh_due:
+        if self.refreshing is not None or time.time() >= self.refresh_due:
             return False
         if self.children or any((self.records.get(gid) or {}).get("phase") in LIVE
                                 for gid in self.tasks):

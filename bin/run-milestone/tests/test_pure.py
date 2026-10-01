@@ -24,6 +24,7 @@ from engine import (  # noqa: E402
     describe,
     has_value,
     kill_tree,
+    merge_refresh,
     outcome_phase,
     parse_pr_url,
     parse_project_ref,
@@ -414,6 +415,30 @@ class TestDescribeMerge(unittest.TestCase):
             "stage": "checks running: e2e"}}}, ME), "merging — checks running: e2e")
         self.assertEqual(describe("1", g, {"1": {"phase": "pr_open", "merge": {
             "blocked": "needs a review"}}}, ME), "merge blocked: needs a review")
+
+
+class TestMergeRefresh(unittest.TestCase):
+    """A background re-read can start before a merge the loop then makes; folding
+    it in must not undo that merge."""
+
+    def test_a_task_merged_meanwhile_stays_done_and_frees_its_dependents(self):
+        local = {"1": {"completed": True, "deps": []},
+                 "2": {"completed": False, "deps": [{"ref": "1", "completed": True}]}}
+        fetched = {"1": {"completed": False, "deps": []},
+                   "2": {"completed": False, "deps": [{"ref": "1", "completed": False}]}}
+        out = merge_refresh(local, fetched)
+        self.assertTrue(out["1"]["completed"])
+        self.assertTrue(out["2"]["deps"][0]["completed"])
+
+    def test_newer_facts_from_asana_still_land(self):
+        local = {"1": {"completed": False, "deps": [{"ref": "x", "completed": False}]}}
+        fetched = {"1": {"completed": False, "deps": [{"ref": "x", "completed": True}],
+                         "status": "Canceled"},
+                   "3": {"completed": False, "deps": []}}
+        out = merge_refresh(local, fetched)
+        self.assertTrue(out["1"]["deps"][0]["completed"])
+        self.assertEqual(out["1"]["status"], "Canceled")
+        self.assertIn("3", out)
 
 
 if __name__ == "__main__":
