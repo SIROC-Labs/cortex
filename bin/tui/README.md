@@ -15,13 +15,28 @@ The work is done by a background daemon, one per repo, through the same engine a
 not — and its PR is watched to merge. Closing the TUI leaves the daemon working;
 opening it again, from any terminal, picks up where it is.
 
+## Keys
+
+The same everywhere a list is shown — arrows, vi and emacs keys all work:
+
+| | |
+|---|---|
+| move | `↑` `↓` · `j` `k` · `Ctrl-N` `Ctrl-P` |
+| page / half page | `PgDn` `PgUp` · `Ctrl-F` `Ctrl-B` / `Ctrl-D` `Ctrl-U` |
+| top / end | `Home` `End` · `g` `G` |
+| in | `⏎` · `→` · `l` — open a board, a run's log |
+| out | `←` · `h` · `Esc` · `⌫` — clear the filter, then leave the board |
+| tabs | `1`–`4` (or `Alt-1`–`4`) straight to one; the current tab's number again takes it back to its top. `Tab` / `Shift-Tab` cycle |
+| filter | `/`, then type — `⏎` keeps it, `Esc` clears it |
+| help | `?` |
+
 ## Tabs
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task: its state, PR and task links, the question or problem it is waiting on — then any live start-task run this repo's daemon does not own | `x` stop and unqueue · `r` retry a failed or stopped task · `l` its log · `o` open the PR (or task) |
-| **2 Boards** | every board in the workspace; open one to see its sections and tasks | `enter` open · `space` queue or unqueue a task, or on a section queue all of it · `/` filter · `R` reload · `esc` back |
-| **3 Sprint** | the boards again — pick the one queued tasks are added to | `enter` use it |
+| **1 Runs** | every queued task: its state, PR and task links, the question or problem it is waiting on — then any live start-task run this repo's daemon does not own | `⏎` its log · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
+| **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
+| **3 Sprint** | the boards again — pick the one queued tasks are added to | `⏎` use it |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
 
 Queueing the first task starts the daemon if it is not running. Nothing starts until

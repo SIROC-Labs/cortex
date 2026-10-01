@@ -140,6 +140,109 @@ def fit(cols, width):
     return "  ".join(parts)[:max(0, width - 1)]
 
 
+# --- keys -------------------------------------------------------------------
+#
+# Keys are read raw and decoded here rather than left to curses: a terminal that
+# ignores keypad mode sends arrows as `ESC [ B`, which curses hands over as three
+# separate keys — an escape (back), a `[` and a `B`. Decoding the sequence
+# ourselves makes every terminal behave the same.
+
+_CSI_FINAL = {"A": "up", "B": "down", "C": "right", "D": "left", "H": "home",
+              "F": "end", "Z": "btab"}
+_CSI_TILDE = {"1": "home", "7": "home", "4": "end", "8": "end", "5": "pgup",
+              "6": "pgdn", "3": "delete", "2": "insert"}
+_CONTROL = {9: "tab", 10: "enter", 13: "enter", 8: "backspace", 127: "backspace",
+            3: "ctrl-c", 14: "ctrl-n", 16: "ctrl-p", 6: "ctrl-f", 2: "ctrl-b",
+            4: "ctrl-d", 21: "ctrl-u"}
+_CURSES = {"KEY_UP": "up", "KEY_DOWN": "down", "KEY_LEFT": "left", "KEY_RIGHT": "right",
+           "KEY_NPAGE": "pgdn", "KEY_PPAGE": "pgup", "KEY_HOME": "home", "KEY_END": "end",
+           "KEY_ENTER": "enter", "KEY_BACKSPACE": "backspace", "KEY_BTAB": "btab",
+           "KEY_DC": "delete"}
+
+# What each key does wherever lists are shown. Vi, emacs and the arrow keys all
+# work; a number goes straight to its tab.
+NAV = {
+    "down": "down", "j": "down", "ctrl-n": "down",
+    "up": "up", "k": "up", "ctrl-p": "up",
+    "pgdn": "pgdn", "ctrl-f": "pgdn",
+    "pgup": "pgup", "ctrl-b": "pgup",
+    "ctrl-d": "halfdown", "ctrl-u": "halfup",
+    "home": "home", "g": "home",
+    "end": "end", "G": "end",
+    "right": "open", "l": "open", "enter": "open",
+    "left": "back", "h": "back", "esc": "back", "backspace": "back",
+    "tab": "next", "btab": "next",
+}
+for _n in range(1, len(TABS) + 1):
+    NAV[str(_n)] = NAV["alt-%d" % _n] = "tab"
+MOVES = ("down", "up", "pgdn", "pgup", "halfdown", "halfup", "home", "end")
+
+HELP = [
+    "move        ↑ ↓   j k   ^N ^P",
+    "page        PgDn PgUp   ^F ^B      half page   ^D ^U",
+    "top / end   Home End   g G",
+    "in          ⏎   →   l           (open a board, a run's log, pick a sprint)",
+    "out         ←   h   esc   ⌫      (clear the filter, then leave the board)",
+    "tabs        1-4 (or alt-1..4)   tab / shift-tab to cycle — the current tab's",
+    "            number again takes it back to its top",
+    "filter      /   then type; ⏎ keeps it, esc clears it",
+    "",
+    "Runs        x stop and unqueue · r retry · o open the PR or task",
+    "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
+    "Sprint      ⏎ use the board as the sprint",
+    "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
+    "",
+    "q quits the UI; the daemon keeps working.                      any key closes this",
+]
+
+
+def decode_escape(seq):
+    """A key from what followed an ESC: nothing (a bare escape), one character
+    (alt+key), or a CSI / SS3 sequence like `[B`, `OB`, `[5~` or `[1;5A`."""
+    if not seq:
+        return "esc"
+    if seq[0] not in "[O" or len(seq) == 1:
+        return "alt-%s" % seq
+    final, params = seq[-1], seq[1:-1]
+    if final == "~":
+        return _CSI_TILDE.get(params.split(";")[0])
+    return _CSI_FINAL.get(final)
+
+
+def decode_key(code):
+    """A key from one curses getch() value, or None for one that means nothing."""
+    if code in _CONTROL:
+        return _CONTROL[code]
+    for name, token in _CURSES.items():
+        if code == getattr(curses, name, None):
+            return token
+    if 32 <= code < 127:
+        return chr(code)
+    return None
+
+
+def read_key(scr):
+    """One keypress as a token, or None when nothing was pressed."""
+    code = scr.getch()
+    if code == -1:
+        return None
+    if code != 27:
+        return decode_key(code)
+    scr.timeout(40)
+    seq = ""
+    while True:
+        nxt = scr.getch()
+        if nxt == -1 or nxt >= 256:
+            break
+        seq += chr(nxt)
+        if seq[0] not in "[O":
+            break
+        if len(seq) > 1 and 0x40 <= ord(seq[-1]) <= 0x7e:
+            break
+    scr.timeout(1000)
+    return decode_escape(seq)
+
+
 # --- the app ----------------------------------------------------------------
 
 class App(object):
@@ -158,6 +261,8 @@ class App(object):
         self.confirm = None
         self.log_path = None
         self.log_scroll = 0
+        self.help = False
+        self.page = 10
         self.snapshot()
 
     # data
@@ -229,6 +334,9 @@ class App(object):
 
     def queue(self, items):
         items = [i for i in items if not i.get("completed")]
+        if not items:
+            self.message = "already complete — nothing to queue"
+            return
         added = self.change_control(lambda c: dm.queue_add(c, items))
         started = ""
         if added and not self.alive:
@@ -242,114 +350,154 @@ class App(object):
         applied = self.data.get("applied", 0)
         self.change_control(lambda c: dm.add_command(c, op, gid, applied))
 
-    def act(self, key, rows):
-        row = self.selected(rows)
+    def act(self, key, row):
         name = TABS[self.tab]
         if name == "Runs" and row:
-            if key == ord("x") and row["kind"] == "task":
+            if key == "x" and row["kind"] == "task":
                 self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
                     self.command("stop", row["id"]),
                     self.change_control(lambda c: dm.queue_remove(c, [row["id"]]))))
-            elif key == ord("x") and row["kind"] == "orphan":
+            elif key == "x" and row["kind"] == "orphan":
                 self.ask("stop start-task pid %d? (y/n)" % row["id"],
                          lambda: dm.kill_pid(row["id"]))
-            elif key == ord("r") and row["kind"] == "task":
+            elif key == "r" and row["kind"] == "task":
                 self.command("retry", row["id"])
                 self.message = "retry asked — a failed or stopped task starts again when ready"
-            elif key == ord("l") and row.get("log"):
-                self.log_path, self.log_scroll = row["log"], 0
-            elif key == ord("o") and row.get("links"):
+            elif key == "o" and row.get("links"):
                 webbrowser.open(row["links"][0])
-        elif name == "Boards":
-            if self.board is None and row and key in (10, 13, curses.KEY_ENTER):
-                self.board = (row["id"], row["name"])
-                self.message = "loading %s…" % row["name"]
-                self.load_sections(row["id"])
-                self.message = ""
-            elif self.board and key in (27, curses.KEY_BACKSPACE, 127, curses.KEY_LEFT):
-                self.board = None
-            elif self.board and key == ord("R"):
+        elif name == "Boards" and self.board:
+            if key == "R":
                 self.load_sections(self.board[0], force=True)
-            elif self.board and row and key == ord(" "):
-                if row["kind"] == "section":
-                    self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
-                                 "completed": t.get("completed")} for t in row["tasks"]])
+                self.message = "reloaded"
+            elif key == " " and row and row["kind"] == "section":
+                self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
+                             "completed": t.get("completed")} for t in row["tasks"]])
+            elif key == " " and row:
+                if row["id"] in {q["gid"] for q in self.control["queue"]}:
+                    self.change_control(lambda c: dm.queue_remove(c, [row["id"]]))
+                    self.message = ("unqueued — a run already going is left to finish; "
+                                    "x on the Runs tab stops it")
                 else:
-                    queued = {q["gid"] for q in self.control["queue"]}
-                    if row["id"] in queued:
-                        self.change_control(lambda c: dm.queue_remove(c, [row["id"]]))
-                        self.message = "unqueued — a run already going is left to finish; " \
-                                       "x on the Runs tab stops it"
-                    else:
-                        self.queue([{"gid": row["id"], "board": row["board"],
-                                     "name": row["name"], "completed": row.get("completed")}])
-        elif name == "Sprint" and row and key in (10, 13, curses.KEY_ENTER):
-            sprint = {"gid": row["id"], "name": row["name"]}
-            self.change_control(lambda c: c.update(sprint=sprint))
-            self.message = "sprint: %s" % row["name"]
+                    self.queue([{"gid": row["id"], "board": row["board"],
+                                 "name": row["name"], "completed": row.get("completed")}])
+        elif name == "Boards" and key == "R":
+            self.boards = None
         elif name == "Daemons":
-            if key == ord("s"):
+            if key == "s":
                 if self.alive:
                     self.message = "this repo's daemon is already running"
                 else:
                     self.ensure_daemon()
-            elif key == ord("x") and row and row["alive"]:
+            elif key == "x" and row and row["alive"]:
                 self.ask("stop the daemon for %s and its runs? (y/n)" % row["cols"][0],
                          lambda: dm.stop_daemon(row["info"]))
-            elif key == ord("d") and row and not row["alive"]:
+            elif key == "d" and row and not row["alive"]:
                 os.remove(row["id"])
                 self.message = "cleared the crashed daemon's entry"
+
+    def open(self, row, key):
+        """Go into the selected row: a board's tasks, a run's log — or, with enter
+        only, pick the sprint."""
+        name = TABS[self.tab]
+        if not row:
+            return
+        if name == "Boards" and not self.board:
+            self.board = (row["id"], row["name"])
+            self.load_sections(row["id"])
+        elif name == "Runs":
+            if row.get("log"):
+                self.log_path, self.log_scroll = row["log"], 0
+            else:
+                self.message = "no log yet — the run has not started"
+        elif name == "Sprint" and key == "enter":
+            sprint = {"gid": row["id"], "name": row["name"]}
+            self.change_control(lambda c: c.update(sprint=sprint))
+            self.message = "sprint: %s" % row["name"]
+
+    def back(self):
+        """Out one level: a filter first, then the board you are in."""
+        vk = self.view_key()
+        if self.query.get(vk):
+            self.query[vk] = ""
+            self.cursor[vk] = 0
+        elif TABS[self.tab] == "Boards" and self.board:
+            self.board = None
+
+    def goto(self, tab):
+        if tab == self.tab:
+            self.board = None if TABS[tab] == "Boards" else self.board
+            self.query[self.view_key()] = ""
+        self.tab = tab
 
     def ask(self, prompt, fn):
         self.confirm = (prompt, fn)
         self.message = prompt
 
+    def move(self, key, count):
+        vk = self.view_key()
+        step = {"down": 1, "up": -1, "pgdn": self.page, "pgup": -self.page,
+                "halfdown": max(1, self.page // 2), "halfup": -max(1, self.page // 2),
+                "home": -count, "end": count}[key]
+        self.cursor[vk] = max(0, min(self.cursor.get(vk, 0) + step, max(0, count - 1)))
+
     def key(self, key, rows):
-        """One keypress. Returns False to quit."""
+        """One keypress, as a token from `decode_key`. Returns False to quit."""
         vk = self.view_key()
         if self.confirm:
-            prompt, fn = self.confirm
+            _, fn = self.confirm
             self.confirm = None
             self.message = ""
-            if key == ord("y"):
+            if key == "y":
                 fn()
                 self.snapshot()
             return True
+        if self.help:
+            self.help = False
+            return True
         if self.log_path:
-            if key in (ord("q"), 27):
+            action = NAV.get(key)
+            if action in MOVES:
+                lines = len(_tail(self.log_path, 2000))
+                step = {"down": -1, "up": 1, "pgdn": -self.page, "pgup": self.page,
+                        "halfdown": -(self.page // 2), "halfup": self.page // 2,
+                        "home": lines, "end": -lines}[action]
+                self.log_scroll = max(0, min(lines, self.log_scroll + step))
+            elif action == "back" or key == "q":
                 self.log_path = None
-            elif key in (curses.KEY_UP, ord("k")):
-                self.log_scroll += 1
-            elif key in (curses.KEY_DOWN, ord("j")):
-                self.log_scroll = max(0, self.log_scroll - 1)
             return True
         if self.typing:
-            if key in (10, 13, 27, curses.KEY_ENTER):
+            if key == "enter":
                 self.typing = False
-            elif key in (curses.KEY_BACKSPACE, 127, 8):
+            elif key == "esc":
+                self.typing = False
+                self.query[vk] = ""
+            elif key == "backspace":
                 self.query[vk] = self.query.get(vk, "")[:-1]
-            elif 32 <= key < 127:
-                self.query[vk] = self.query.get(vk, "") + chr(key)
-            self.cursor[vk] = 0
+            elif key in ("up", "down"):
+                self.move(key, len(rows))
+            elif len(key) == 1:
+                self.query[vk] = self.query.get(vk, "") + key
+                self.cursor[vk] = 0
             return True
-        if key == ord("q"):
+        action = NAV.get(key)
+        if key in ("q", "ctrl-c"):
             return False
-        if key in (9, curses.KEY_RIGHT) and not self.board:
-            self.tab = (self.tab + 1) % len(TABS)
-        elif ord("1") <= key <= ord(str(len(TABS))):
-            self.tab = key - ord("1")
-        elif key in (curses.KEY_DOWN, ord("j")):
-            self.cursor[vk] = min(self.cursor.get(vk, 0) + 1, max(0, len(rows) - 1))
-        elif key in (curses.KEY_UP, ord("k")):
-            self.cursor[vk] = max(0, self.cursor.get(vk, 0) - 1)
-        elif key == curses.KEY_NPAGE:
-            self.cursor[vk] = min(self.cursor.get(vk, 0) + 10, max(0, len(rows) - 1))
-        elif key == curses.KEY_PPAGE:
-            self.cursor[vk] = max(0, self.cursor.get(vk, 0) - 10)
-        elif key == ord("/") and TABS[self.tab] in ("Boards", "Sprint"):
+        if key == "?":
+            self.help = True
+        elif action == "tab":
+            self.goto(int(key[-1]) - 1)
+        elif action == "next":
+            self.goto((self.tab + (1 if key == "tab" else -1)) % len(TABS))
+        elif action in MOVES:
+            self.move(action, len(rows))
+        elif action == "open":
+            self.open(self.selected(rows), key)
+        elif action == "back":
+            self.back()
+        elif key == "/":
             self.typing = True
         else:
-            self.act(key, rows)
+            self.act(key, self.selected(rows))
         return True
 
     # drawing
@@ -357,16 +505,16 @@ class App(object):
     def help_line(self):
         name = TABS[self.tab]
         if self.log_path:
-            return "↑/↓ scroll · q back"
+            return "↑↓ ^F ^B scroll · g/G top/end · ←/esc/q back"
         if self.typing:
-            return "type to filter · enter done"
+            return "type to filter · enter keep · esc clear"
         return {
-            "Runs": "x stop · r retry · l log · o open PR/task",
-            "Boards": ("space queue/unqueue (on a section: all of it) · / filter · R reload · esc back"
-                       if self.board else "enter open · / filter"),
-            "Sprint": "enter use as sprint · / filter",
+            "Runs": "⏎/→ log · x stop · r retry · o open PR",
+            "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
+                       if self.board else "⏎/→ open · / filter · R reload"),
+            "Sprint": "⏎ use as sprint · / filter",
             "Daemons": "s start this repo's · x stop · d clear crashed",
-        }[name] + " · 1-4 tabs · q quit (the daemon keeps running)"
+        }[name] + " · 1-4 tabs · ? keys · q quit"
 
     def draw(self, scr, styles):
         scr.erase()
@@ -379,9 +527,16 @@ class App(object):
             " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])
                              if self.daemon.get("forward") else "") if self.alive else "",
             sprint), "bold")
-        put(1, "  ".join(("[%d %s]" if i == self.tab else " %d %s ") % (i + 1, t)
-                         for i, t in enumerate(TABS)), "normal")
-        if self.log_path:
+        x = 0
+        for i, t in enumerate(TABS):
+            label = " %d %s " % (i + 1, t)
+            _put_at(scr, 1, x, label, w, styles["sel"] if i == self.tab else styles["dim"])
+            x += len(label) + 1
+        self.page = max(1, h - 8)
+        if self.help:
+            for i, line in enumerate(HELP[:h - 4]):
+                put(3 + i, line)
+        elif self.log_path:
             lines = _tail(self.log_path, 2000)
             body = h - 4
             end = max(0, len(lines) - self.log_scroll)
@@ -394,9 +549,10 @@ class App(object):
                 except Stop as e:
                     self.message = str(e)
             rows = self.view()
-            title = self.board[1] if TABS[self.tab] == "Boards" and self.board else ""
+            crumb = TABS[self.tab] + (" › %s" % self.board[1]
+                                      if TABS[self.tab] == "Boards" and self.board else "")
             query = self.query.get(self.view_key(), "")
-            put(2, "%s%s" % (title, ("  filter: %s%s" % (query, "▏" if self.typing else ""))
+            put(2, "%s%s" % (crumb, ("   / %s%s" % (query, "▏" if self.typing else ""))
                              if query or self.typing else ""), "dim")
             body = h - 8
             cur = min(self.cursor.get(self.view_key(), 0), max(0, len(rows) - 1))
@@ -426,8 +582,12 @@ class App(object):
 
 
 def _put(scr, y, text, width, attr):
+    _put_at(scr, y, 0, text, width, attr)
+
+
+def _put_at(scr, y, x, text, width, attr):
     try:
-        scr.addnstr(y, 0, text, max(0, width - 1), attr)
+        scr.addnstr(y, x, text, max(0, width - 1 - x), attr)
     except curses.error:
         pass
 
@@ -461,8 +621,8 @@ def run_ui(main_root, forward):
         while True:
             app.snapshot()
             app.draw(scr, styles)
-            key = scr.getch()
-            if key == -1 or key == curses.KEY_RESIZE:
+            key = read_key(scr)
+            if key is None:
                 continue
             try:
                 if not app.key(key, app.view() if not app.log_path else []):

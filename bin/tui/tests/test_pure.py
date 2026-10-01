@@ -15,7 +15,10 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import daemon as dm  # noqa: E402
-from tui import board_list_rows, board_rows, fit, matches, run_rows  # noqa: E402
+import tui  # noqa: E402
+from tui import (  # noqa: E402
+    NAV, App, board_list_rows, board_rows, decode_escape, decode_key, fit, matches, run_rows,
+)
 
 
 class TestQueue(unittest.TestCase):
@@ -158,6 +161,154 @@ class TestFit(unittest.TestCase):
         line = fit(["HCI-24", "x" * 80, "status " * 20], 60)
         self.assertLessEqual(len(line), 59)
         self.assertIn("…", line)
+
+
+class TestDecodeEscape(unittest.TestCase):
+    """Arrows must work whether the terminal sends CSI (`ESC [ B`) or SS3
+    (`ESC O B`) — curses only decodes the one its terminfo names."""
+
+    def test_arrows_in_both_forms(self):
+        for final, name in (("A", "up"), ("B", "down"), ("C", "right"), ("D", "left")):
+            self.assertEqual(decode_escape("[" + final), name)
+            self.assertEqual(decode_escape("O" + final), name)
+
+    def test_modified_arrows_still_move(self):
+        self.assertEqual(decode_escape("[1;5B"), "down")
+
+    def test_paging_home_end_and_shift_tab(self):
+        self.assertEqual(decode_escape("[5~"), "pgup")
+        self.assertEqual(decode_escape("[6~"), "pgdn")
+        self.assertEqual(decode_escape("[H"), "home")
+        self.assertEqual(decode_escape("[4~"), "end")
+        self.assertEqual(decode_escape("[Z"), "btab")
+
+    def test_bare_escape_and_alt_keys(self):
+        self.assertEqual(decode_escape(""), "esc")
+        self.assertEqual(decode_escape("2"), "alt-2")
+
+    def test_unknown_sequences_mean_nothing(self):
+        self.assertIsNone(decode_escape("[99~"))
+
+
+class TestDecodeKey(unittest.TestCase):
+    def test_control_keys(self):
+        self.assertEqual([decode_key(c) for c in (14, 16, 6, 2, 4, 21, 9, 10, 127)],
+                         ["ctrl-n", "ctrl-p", "ctrl-f", "ctrl-b", "ctrl-d", "ctrl-u",
+                          "tab", "enter", "backspace"])
+
+    def test_curses_keys_and_characters(self):
+        import curses
+        self.assertEqual(decode_key(curses.KEY_DOWN), "down")
+        self.assertEqual(decode_key(curses.KEY_NPAGE), "pgdn")
+        self.assertEqual(decode_key(ord("j")), "j")
+        self.assertIsNone(decode_key(curses.KEY_RESIZE))
+
+
+class TestNav(unittest.TestCase):
+    def test_vi_emacs_and_arrows_agree(self):
+        for keys, action in ((("down", "j", "ctrl-n"), "down"), (("up", "k", "ctrl-p"), "up"),
+                             (("pgdn", "ctrl-f"), "pgdn"), (("pgup", "ctrl-b"), "pgup"),
+                             (("right", "l", "enter"), "open"),
+                             (("left", "h", "esc", "backspace"), "back")):
+            for k in keys:
+                self.assertEqual(NAV[k], action, k)
+
+    def test_numbers_and_alt_numbers_pick_a_tab(self):
+        for n in "1234":
+            self.assertEqual(NAV[n], "tab")
+            self.assertEqual(NAV["alt-" + n], "tab")
+
+
+class TestAppKeys(unittest.TestCase):
+    """Key handling without a terminal: the app is driven by tokens."""
+
+    BOARDS = [{"gid": "1", "name": "Alpha"}, {"gid": "2", "name": "Beta"},
+              {"gid": "3", "name": "Gamma"}]
+    SECTIONS = [{"gid": "s", "name": "M1", "tasks": [
+        {"gid": "t1", "name": "one", "kind": "task"}, {"gid": "t2", "name": "two", "kind": "task"}]}]
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.app = App(self.root, [])
+        self.app.boards = list(self.BOARDS)
+        self.app.sections = {"2": self.SECTIONS}
+
+    def press(self, *keys):
+        for k in keys:
+            self.app.key(k, self.app.view())
+
+    def test_a_number_goes_straight_to_its_tab(self):
+        self.press("3")
+        self.assertEqual(tui.TABS[self.app.tab], "Sprint")
+        self.press("alt-1")
+        self.assertEqual(tui.TABS[self.app.tab], "Runs")
+
+    def test_tab_and_shift_tab_cycle(self):
+        self.press("tab", "tab")
+        self.assertEqual(self.app.tab, 2)
+        self.press("btab", "btab", "btab")
+        self.assertEqual(self.app.tab, 3)
+
+    def test_moving_in_every_style_and_clamping(self):
+        self.press("2", "down", "j", "ctrl-n")
+        self.assertEqual(self.app.cursor["Boards"], 2)
+        self.press("up", "ctrl-p", "k", "k")
+        self.assertEqual(self.app.cursor["Boards"], 0)
+        self.press("G")
+        self.assertEqual(self.app.cursor["Boards"], 2)
+        self.press("g")
+        self.assertEqual(self.app.cursor["Boards"], 0)
+        self.press("ctrl-f")
+        self.assertEqual(self.app.cursor["Boards"], 2)
+
+    def test_into_a_board_and_back_out_keeps_the_place(self):
+        self.press("2", "down", "right")
+        self.assertEqual(self.app.board, ("2", "Beta"))
+        self.press("down")
+        self.assertEqual(self.app.cursor["board:2"], 1)
+        self.press("left")
+        self.assertIsNone(self.app.board)
+        self.assertEqual(self.app.cursor["Boards"], 1)
+        for out in ("esc", "h", "backspace"):
+            self.press("enter", out)
+            self.assertIsNone(self.app.board, out)
+
+    def test_the_current_tabs_number_takes_it_to_its_top(self):
+        self.press("2", "down", "enter")
+        self.assertIsNotNone(self.app.board)
+        self.press("2")
+        self.assertIsNone(self.app.board)
+
+    def test_back_clears_a_filter_before_leaving_the_board(self):
+        self.press("2", "down", "enter", "/", "t", "w", "enter")
+        self.assertEqual(self.app.query["board:2"], "tw")
+        self.press("esc")
+        self.assertEqual(self.app.query["board:2"], "")
+        self.assertIsNotNone(self.app.board)
+        self.press("esc")
+        self.assertIsNone(self.app.board)
+
+    def test_typing_takes_letters_that_are_otherwise_keys(self):
+        self.press("2", "/", "j", "q", "2")
+        self.assertEqual(self.app.query["Boards"], "jq2")
+        self.assertEqual(tui.TABS[self.app.tab], "Boards")
+        self.press("esc")
+        self.assertEqual(self.app.query["Boards"], "")
+        self.assertFalse(self.app.typing)
+
+    def test_right_does_not_pick_the_sprint_enter_does(self):
+        self.press("3", "down", "right")
+        self.assertIsNone(self.app.control.get("sprint"))
+        self.press("enter")
+        self.assertEqual(self.app.control["sprint"]["gid"], "2")
+
+    def test_q_quits_and_help_closes_on_any_key(self):
+        self.press("?")
+        self.assertTrue(self.app.help)
+        self.press("j")
+        self.assertFalse(self.app.help)
+        self.assertFalse(self.app.key("q", []))
 
 
 if __name__ == "__main__":
