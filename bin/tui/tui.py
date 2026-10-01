@@ -29,10 +29,16 @@ import webbrowser
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daemon as dm  # noqa: E402
+from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
 from engine import ASANA, Stop, describe, task_url  # noqa: E402
 from daemon import st  # noqa: E402
 
 TABS = ("Runs", "Boards", "Sprint", "Daemons")
+# How old a cached copy may be before the view showing it re-reads Asana behind it.
+BOARDS_MAX_AGE = 300
+BOARD_OPEN_MAX_AGE = 30
+BOARD_SHOWN_MAX_AGE = 60
+
 PHASE_STYLE = {
     "running": "ok", "revising": "ok", "pr_open": "ok", "merged": "dim",
     "awaiting": "warn", "conflict": "warn", "failed": "bad", "stopped": "dim",
@@ -87,9 +93,16 @@ def board_list_rows(boards, query, sprint=None):
             for b in boards or [] if matches(b["name"], query)]
 
 
-def board_rows(board_gid, sections, queued, records, query):
+def board_rows(board_gid, sections, queued, records, query, live=None):
     """A board as sections and their tasks. A section stays when its name or any of
-    its tasks match the query; a task when it matches or its section does."""
+    its tasks match the query; a task when it matches or its section does. `live`
+    is what the daemon last read of a task, laid over the cached board — it is
+    newer for anything the daemon is working."""
+    live = live or {}
+    sections = [dict(sec, tasks=[dict(t, completed=t.get("completed")
+                                      or bool((live.get(t["gid"]) or {}).get("completed")))
+                                 for t in sec.get("tasks") or []])
+                for sec in sections or []]
     rows = []
     for section in sections or []:
         hit = matches(section["name"], query)
@@ -221,7 +234,7 @@ def decode_key(code):
     return None
 
 
-def read_key(scr):
+def read_key(scr, idle=1000):
     """One keypress as a token, or None when nothing was pressed."""
     code = scr.getch()
     if code == -1:
@@ -239,7 +252,7 @@ def read_key(scr):
             break
         if len(seq) > 1 and 0x40 <= ord(seq[-1]) <= 0x7e:
             break
-    scr.timeout(1000)
+    scr.timeout(idle)
     return decode_escape(seq)
 
 
@@ -254,9 +267,11 @@ class App(object):
         self.query = {}
         self.typing = False
         self.board = None
-        self.boards = None
+        self.cache = Cache()
+        self.loader = Loader()
+        self.boards, self.boards_at = self.cache.get("boards")
         self.sections = {}
-        self.workspace = None
+        self.sections_at = {}
         self.message = ""
         self.confirm = None
         self.log_path = None
@@ -282,19 +297,63 @@ class App(object):
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
 
-    def load_boards(self):
-        if self.boards is None:
-            if self.workspace is None:
-                me = self.asana(["user", "me"])
-                self.workspace = ((me.get("workspaces") or [{}])[0]).get("gid")
-            self.boards = sorted(self.asana(["project", "list", self.workspace]),
-                                 key=lambda b: b["name"].lower())
-        return self.boards
+    def fetch_boards(self):
+        me, _ = self.cache.get("me")
+        if not me:
+            me = self.asana(["user", "me"])
+            self.cache.put("me", me)
+        workspace = ((me.get("workspaces") or [{}])[0]).get("gid")
+        boards = sorted(self.asana(["project", "list", workspace]),
+                        key=lambda b: b["name"].lower())
+        self.cache.put("boards", boards)
+        return boards
 
-    def load_sections(self, gid, force=False):
-        if force or gid not in self.sections:
-            self.sections[gid] = self.asana(["project", "sections", gid])
-        return self.sections[gid]
+    def fetch_sections(self, gid):
+        sections = self.asana(["project", "sections", gid])
+        self.cache.put("sections-%s" % gid, sections)
+        return sections
+
+    def refresh_boards(self, max_age=BOARDS_MAX_AGE):
+        if is_stale(self.boards_at, time.time(), max_age):
+            self.loader.start("boards", "boards", self.fetch_boards)
+
+    def refresh_board(self, gid, max_age):
+        if gid not in self.sections:
+            self.sections[gid], self.sections_at[gid] = self.cache.get("sections-%s" % gid)
+        if is_stale(self.sections_at.get(gid), time.time(), max_age):
+            self.loader.start("sections-%s" % gid, gid, lambda: self.fetch_sections(gid))
+
+    def sync(self):
+        """Take finished loads, and start the ones the screen now needs."""
+        now = time.time()
+        done = self.loader.take("boards")
+        if done:
+            if done[1]:
+                self.message = "could not refresh the boards: %s" % done[1]
+            else:
+                self.boards, self.boards_at = done[0], now
+        for gid in list(self.sections):
+            done = self.loader.take("sections-%s" % gid)
+            if done:
+                if done[1]:
+                    self.message = "could not refresh the board: %s" % done[1]
+                else:
+                    self.sections[gid], self.sections_at[gid] = done[0], now
+        if TABS[self.tab] in ("Boards", "Sprint"):
+            if self.board and TABS[self.tab] == "Boards":
+                self.refresh_board(self.board[0], BOARD_SHOWN_MAX_AGE)
+            else:
+                self.refresh_boards()
+
+    def loading(self):
+        """(busy, age) of what is on screen: whether a load is running for it, and
+        how old the copy shown is."""
+        if TABS[self.tab] == "Boards" and self.board:
+            gid = self.board[0]
+            return self.loader.busy("sections-%s" % gid), self.sections_at.get(gid)
+        if TABS[self.tab] in ("Boards", "Sprint"):
+            return self.loader.busy("boards"), self.boards_at
+        return False, None
 
     def view(self):
         """(view name, rows) for what is on screen."""
@@ -305,7 +364,7 @@ class App(object):
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
-                              self.data.get("records") or {}, query)
+                              self.data.get("records") or {}, query, self.data.get("tasks"))
         if name in ("Boards", "Sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
         return daemon_rows(dm.registered(), time.time())
@@ -367,8 +426,7 @@ class App(object):
                 webbrowser.open(row["links"][0])
         elif name == "Boards" and self.board:
             if key == "R":
-                self.load_sections(self.board[0], force=True)
-                self.message = "reloaded"
+                self.refresh_board(self.board[0], max_age=-1)
             elif key == " " and row and row["kind"] == "section":
                 self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
                              "completed": t.get("completed")} for t in row["tasks"]])
@@ -380,8 +438,8 @@ class App(object):
                 else:
                     self.queue([{"gid": row["id"], "board": row["board"],
                                  "name": row["name"], "completed": row.get("completed")}])
-        elif name == "Boards" and key == "R":
-            self.boards = None
+        elif name in ("Boards", "Sprint") and key == "R":
+            self.refresh_boards(max_age=-1)
         elif name == "Daemons":
             if key == "s":
                 if self.alive:
@@ -403,7 +461,7 @@ class App(object):
             return
         if name == "Boards" and not self.board:
             self.board = (row["id"], row["name"])
-            self.load_sections(row["id"])
+            self.refresh_board(row["id"], BOARD_OPEN_MAX_AGE)
         elif name == "Runs":
             if row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
@@ -543,24 +601,27 @@ class App(object):
             for i, line in enumerate(lines[max(0, end - body):end]):
                 put(3 + i, line)
         else:
-            if TABS[self.tab] in ("Boards", "Sprint") and self.boards is None:
-                try:
-                    self.load_boards()
-                except Stop as e:
-                    self.message = str(e)
             rows = self.view()
+            busy, age = self.loading()
             crumb = TABS[self.tab] + (" › %s" % self.board[1]
                                       if TABS[self.tab] == "Boards" and self.board else "")
             query = self.query.get(self.view_key(), "")
             put(2, "%s%s" % (crumb, ("   / %s%s" % (query, "▏" if self.typing else ""))
                              if query or self.typing else ""), "dim")
+            if busy or age:
+                status = ("%s refreshing…" % spinner(time.time()) if busy and age
+                          else "%s loading…" % spinner(time.time()) if busy
+                          else age_label(age, time.time()))
+                _put_at(scr, 2, max(0, w - len(status) - 2), status, w,
+                        styles["warn"] if busy else styles["dim"])
             body = h - 8
             cur = min(self.cursor.get(self.view_key(), 0), max(0, len(rows) - 1))
             top = max(0, cur - body + 1)
             if not rows:
-                put(3, {"Runs": "nothing queued — browse a board (tab 2) and press space on a task",
-                        "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
-                    "dim")
+                put(3, "%s loading from Asana…" % spinner(time.time()) if busy else
+                    {"Runs": "nothing queued — browse a board (tab 2) and press space on a task",
+                     "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
+                    "warn" if busy else "dim")
             for i, row in enumerate(rows[top:top + body]):
                 style = "sel" if top + i == cur else row.get("style", "normal")
                 put(3 + i, fit(row["cols"], w), style)
@@ -620,8 +681,11 @@ def run_ui(main_root, forward):
         app = App(main_root, forward)
         while True:
             app.snapshot()
+            app.sync()
             app.draw(scr, styles)
-            key = read_key(scr)
+            idle = 100 if app.loader.busy() else 1000
+            scr.timeout(idle)
+            key = read_key(scr, idle)
             if key is None:
                 continue
             try:

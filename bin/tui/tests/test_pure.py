@@ -14,6 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import cache  # noqa: E402
 import daemon as dm  # noqa: E402
 import tui  # noqa: E402
 from tui import (  # noqa: E402
@@ -163,6 +164,144 @@ class TestFit(unittest.TestCase):
         self.assertIn("…", line)
 
 
+def isolate_cache(test):
+    saved = os.environ.get("XDG_CACHE_HOME")
+    os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp()
+
+    def restore():
+        shutil.rmtree(os.environ["XDG_CACHE_HOME"], True)
+        if saved is None:
+            os.environ.pop("XDG_CACHE_HOME", None)
+        else:
+            os.environ["XDG_CACHE_HOME"] = saved
+    test.addCleanup(restore)
+
+
+class TestCache(unittest.TestCase):
+    def setUp(self):
+        isolate_cache(self)
+
+    def test_lives_under_xdg_cache_home(self):
+        self.assertTrue(cache.cache_dir().startswith(os.environ["XDG_CACHE_HOME"]))
+        self.assertTrue(cache.cache_dir().endswith(os.path.join("cortex", "asana")))
+
+    def test_roundtrip_with_its_age(self):
+        c = cache.Cache()
+        c.put("sections-1", [{"gid": "s"}], at=100.0)
+        self.assertEqual(c.get("sections-1"), ([{"gid": "s"}], 100.0))
+
+    def test_a_missing_or_broken_copy_is_no_copy(self):
+        c = cache.Cache()
+        self.assertEqual(c.get("nope"), (None, None))
+        os.makedirs(c.root, exist_ok=True)
+        with open(c.path("bad"), "w") as f:
+            f.write("{not json")
+        self.assertEqual(c.get("bad"), (None, None))
+
+
+class TestAge(unittest.TestCase):
+    def test_labels(self):
+        self.assertEqual(cache.age_label(None, 0), "not loaded yet")
+        self.assertEqual(cache.age_label(100, 105), "updated just now")
+        self.assertEqual(cache.age_label(100, 130), "updated 30s ago")
+        self.assertEqual(cache.age_label(0, 300), "updated 5m ago")
+        self.assertEqual(cache.age_label(0, 7200), "updated 2h ago")
+
+    def test_staleness(self):
+        self.assertTrue(cache.is_stale(None, 0, 60))
+        self.assertFalse(cache.is_stale(100, 150, 60))
+        self.assertTrue(cache.is_stale(100, 161, 60))
+
+
+class TestLoader(unittest.TestCase):
+    def wait(self, loader, key):
+        for _ in range(200):
+            done = loader.take(key)
+            if done:
+                return done
+            tui.time.sleep(0.01)
+        self.fail("load never finished")
+
+    def test_one_load_per_key_and_its_result_once(self):
+        import threading
+        gate = threading.Event()
+        loader = cache.Loader()
+        self.assertTrue(loader.start("k", "label", lambda: gate.wait() and "data"))
+        self.assertFalse(loader.start("k", "label", lambda: "again"))
+        self.assertTrue(loader.busy("k"))
+        gate.set()
+        self.assertEqual(self.wait(loader, "k"), ("data", None))
+        self.assertIsNone(loader.take("k"))
+        self.assertFalse(loader.busy("k"))
+
+    def test_a_failure_is_reported_not_raised(self):
+        loader = cache.Loader()
+        loader.start("k", "label", lambda: 1 / 0)
+        data, error = self.wait(loader, "k")
+        self.assertIsNone(data)
+        self.assertIn("division", error)
+
+
+class TestStaleWhileRevalidate(unittest.TestCase):
+    SECTIONS = [{"gid": "s", "name": "M1", "tasks": [
+        {"gid": "t1", "name": "one", "kind": "task", "completed": False}]}]
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        isolate_cache(self)
+        self.fetches = []
+        self.app = App(self.root, [])
+        self.app.boards = [{"gid": "1", "name": "Alpha"}]
+        self.app.boards_at = tui.time.time()
+        self.app.fetch_sections = lambda gid: self.fetches.append(gid) or self.SECTIONS
+
+    def settle(self):
+        for _ in range(200):
+            self.app.sync()
+            if not self.app.loader.busy():
+                self.app.sync()
+                return
+            tui.time.sleep(0.01)
+
+    def open_board(self):
+        self.app.key("2", self.app.view())
+        self.app.key("enter", self.app.view())
+
+    def test_a_fresh_copy_is_shown_and_not_refetched(self):
+        self.app.cache.put("sections-1", self.SECTIONS)
+        self.open_board()
+        self.settle()
+        self.assertEqual(self.fetches, [])
+        self.assertEqual(self.app.sections["1"], self.SECTIONS)
+
+    def test_a_stale_copy_is_shown_at_once_and_refreshed_behind_it(self):
+        old = [{"gid": "s", "name": "old", "tasks": []}]
+        self.app.cache.put("sections-1", old, at=tui.time.time() - 3600)
+        self.open_board()
+        self.assertEqual(self.app.sections["1"], old)
+        self.settle()
+        self.assertEqual(self.fetches, ["1"])
+        self.assertEqual(self.app.sections["1"], self.SECTIONS)
+
+    def test_no_copy_loads_in_the_background(self):
+        self.open_board()
+        self.assertIsNone(self.app.sections["1"])
+        self.settle()
+        self.assertEqual(self.app.sections["1"], self.SECTIONS)
+
+    def test_R_refetches_even_a_fresh_copy(self):
+        self.app.cache.put("sections-1", self.SECTIONS)
+        self.open_board()
+        self.app.key("R", self.app.view())
+        self.settle()
+        self.assertEqual(self.fetches, ["1"])
+
+    def test_the_daemons_view_of_a_task_overrides_the_cache(self):
+        rows = board_rows("1", self.SECTIONS, set(), {}, "", {"t1": {"completed": True}})
+        self.assertEqual(rows[1]["cols"][1], "done")
+
+
 class TestDecodeEscape(unittest.TestCase):
     """Arrows must work whether the terminal sends CSI (`ESC [ B`) or SS3
     (`ESC O B`) — curses only decodes the one its terminfo names."""
@@ -230,9 +369,12 @@ class TestAppKeys(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
+        isolate_cache(self)
         self.app = App(self.root, [])
         self.app.boards = list(self.BOARDS)
         self.app.sections = {"2": self.SECTIONS}
+        self.app.sections_at = {"2": tui.time.time()}
+        self.app.fetch_sections = lambda gid: self.SECTIONS
 
     def press(self, *keys):
         for k in keys:

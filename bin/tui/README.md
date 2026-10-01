@@ -42,6 +42,24 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 Queueing the first task starts the daemon if it is not running. Nothing starts until
 a sprint is picked; nothing about the sprint is guessed.
 
+## Asana data and its cache
+
+Nothing waits on the network to draw. Boards and their sections are cached in
+`$XDG_CACHE_HOME/cortex/asana/` (`~/.cache/cortex/asana/` by default) and shown at
+once, with their age at the right of the breadcrumb (`updated 4m ago`). When the copy
+is older than the view tolerates, Asana is re-read in the background — a spinner says
+so, you can keep moving or leave the view, and the screen updates when it lands:
+
+| View | Re-read when the copy is older than |
+|---|---|
+| a board, when you open it | 30 seconds |
+| a board, while it is on screen | 1 minute |
+| the list of boards | 5 minutes |
+
+`R` re-reads whatever is shown, now. What the daemon knows — a task it merged, a
+run in flight — is laid over the cached board, so the parts that change most are
+never stale. The cache is only ever a copy; deleting it costs one slower first look.
+
 ## No ghost runs
 
 - Every daemon registers in `~/.cortex/cli/daemons/`, so the Daemons tab — from any
@@ -66,5 +84,5 @@ a sprint is picked; nothing about the sprint is guessed.
 ## Tests
 
 ```bash
-python3 tests/test_pure.py   # queue and commands, daemon health, unowned runs, tab rows
+python3 tests/test_pure.py   # queue, daemon health, unowned runs, rows, keys, cache
 ```
