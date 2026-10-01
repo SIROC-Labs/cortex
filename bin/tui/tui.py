@@ -21,6 +21,7 @@ import argparse
 import curses
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -236,6 +237,16 @@ def daemon_rows(entries, now):
                      "cols": [root, health, "pid %s" % info.get("pid"),
                               "%d live run(s)" % runs]})
     return rows
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
+
+
+def log_line(line):
+    """A log line as (text, style): terminal escape codes removed, and a line the
+    run had set in bold — a step heading — kept bold."""
+    bold = "\x1b[1m" in line
+    return _ANSI.sub("", line).replace("\t", "    "), "bold" if bold else "normal"
 
 
 def fit(cols, width):
@@ -838,7 +849,7 @@ class App(object):
             body = h - 4
             end = max(0, len(lines) - self.log_scroll)
             for i, line in enumerate(lines[max(0, end - body):end]):
-                put(3 + i, line)
+                put(3 + i, *log_line(line))
         else:
             rows = self.view()
             busy, age = self.loading()

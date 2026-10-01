@@ -112,7 +112,11 @@ def info(msg):
 
 
 def step(msg):
-    sys.stdout.write("\n\033[1m%s\033[0m\n" % msg)
+    # Bold only on a terminal: a log file should read as plain text.
+    if sys.stdout.isatty():
+        sys.stdout.write("\n\033[1m%s\033[0m\n" % msg)
+    else:
+        sys.stdout.write("\n%s\n" % msg)
     sys.stdout.flush()
 
 

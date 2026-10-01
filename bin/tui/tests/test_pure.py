@@ -19,7 +19,7 @@ import daemon as dm  # noqa: E402
 import tui  # noqa: E402
 from tui import (  # noqa: E402
     NAV, App, answer_template, board_list_rows, board_rows, decode_escape, decode_key, fit,
-    matches, parse_answer, read_waits, run_rows, wait_lines, wait_summary,
+    log_line, matches, parse_answer, read_waits, run_rows, wait_lines, wait_summary,
 )
 from daemon import st  # noqa: E402
 
@@ -638,6 +638,15 @@ class TestAnswering(unittest.TestCase):
         self.assertIn("please resolve", self.app.message)
         self.press("y")
         self.assertEqual(asked, [("2", "https://github.com/o/r/pull/7")])
+
+
+class TestLogLine(unittest.TestCase):
+    def test_escape_codes_are_removed_and_headings_stay_bold(self):
+        self.assertEqual(log_line("\x1b[1mFetching task\x1b[0m"), ("Fetching task", "bold"))
+        self.assertEqual(log_line("  status → In Progress"), ("  status → In Progress", "normal"))
+
+    def test_colour_and_cursor_codes_go_too(self):
+        self.assertEqual(log_line("\x1b[32mok\x1b[39m \x1b[2Kdone")[0], "ok done")
 
 
 if __name__ == "__main__":
