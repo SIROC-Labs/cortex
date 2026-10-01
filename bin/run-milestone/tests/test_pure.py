@@ -13,11 +13,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from run_milestone import (  # noqa: E402
+from engine import (  # noqa: E402
     blockers,
     collect_feedback,
     describe,
-    match_milestones,
     outcome_phase,
     parse_pr_url,
     parse_project_ref,
@@ -27,6 +26,7 @@ from run_milestone import (  # noqa: E402
     render_resolve,
     resolve_request,
 )
+from run_milestone import match_milestones  # noqa: E402
 from start_task import EXIT_AWAITING, EXIT_FAILED, EXIT_OK, mark  # noqa: E402
 
 ME = "42"
@@ -132,7 +132,7 @@ class TestReadiness(unittest.TestCase):
     def test_a_dependency_outside_the_milestone_gates_until_completed(self):
         g = {"1": t("a", deps=[("elsewhere", False)])}
         self.assertEqual(ready_tasks(g, {}, ME), [])
-        self.assertIn("outside the milestone", blockers("1", g, {}, ME)[0])
+        self.assertIn("not in this run", blockers("1", g, {}, ME)[0])
         g["1"]["deps"][0]["completed"] = True
         self.assertEqual(ready_tasks(g, {}, ME), ["1"])
 

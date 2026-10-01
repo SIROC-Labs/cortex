@@ -44,7 +44,8 @@ Each pass:
    - a merge completes the task in Asana, moves it to Done and removes its worktree;
      whatever that readies starts on the next pass;
    - a conflict with the base parks the task: it is posted once to the PR and the task,
-     and nothing more happens to it until a PR comment says `please resolve`. That goes
+     and nothing more happens to it until a PR comment says `please resolve` (checked
+     every minute). That goes
      through `revise`, which fetches, merges the base in and resolves the conflicts —
      never a rebase or force-push. A conflict you resolve yourself un-parks it too;
    - a PR closed without merging stops the task. Nothing is posted and nothing waits on
