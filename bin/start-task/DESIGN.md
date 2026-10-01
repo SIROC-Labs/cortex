@@ -187,12 +187,19 @@ with the answer. Three things make this cheap rather than clever:
   The ask cycle is entirely orchestrator-side, which is why it works on every backend
   including `echo`, and why adding a provider still costs one module.
 - **The watermark is the question comment's own `created_at`**, minted by Asana. Any
-  comment after it is the answer. There is deliberately no author filter: the run
-  comments with the operator's own token, so filtering "our own" comments would discard
-  the very reply it waits for.
-- **The wait is unbounded.** Polling backs off to one request every two minutes, so a
-  run left overnight costs almost nothing. `--no-ask` opts out; Ctrl-C leaves the
-  pending question in `awaiting.json`.
+  unmarked comment after it is the answer. There is deliberately no author filter: the
+  run comments with the operator's own token, so filtering by author would discard the
+  very reply it waits for. Instead every post the run makes starts with `BOT_MARK`, and
+  a marked comment is never an answer.
+- **The wait is unbounded and survives a restart.** Polling backs off to one request
+  every two minutes, so a run left overnight costs almost nothing. Ctrl-C leaves the
+  pending question in `awaiting.json`, and a rerun waits on that question rather than
+  posting it again. `--no-wait` posts and exits 3. There is no way to ship past a
+  question.
+- **Every other stop goes the same way.** In a full run, QA still red, a refused push,
+  a stalled call, an unmet precondition or a failed step is posted with `escalate` and
+  waited on like a question. The reply is guidance for the next call, or for a failed
+  step simply the signal to go again from the top.
 
 The agent's session does not survive the wait: the answer may be hours later, and
 holding a provider session open that long buys nothing. The resumed call is therefore a
@@ -246,16 +253,23 @@ backend cannot see them, and an empty list there is not proof none occurred.
 Reads `.start-task.json` from the target repo:
 
 ```json
-{"lint": "npm run lint", "build": "npm run build", "test": "npm test"}
+{"gates": [
+  {"name": "backend", "run": "make verify", "paths": ["apps/api/", "uv.lock"]},
+  {"name": "frontend", "run": "npm run verify", "cwd": "apps/frontend",
+   "paths": ["apps/frontend/"]}
+]}
 ```
 
-Explicit config, not auto-detection. Each command runs in the worktree; a non-zero exit
-is a failure. On failure, one model call per attempt with `prompts/qa_fix.md` and the
-failing command's output, re-running the gate after each. Bounded to 2 attempts, then
-stop and report — never ship a red gate.
+Explicit config, not auto-detection. A gate runs only when the branch changed a file
+under one of its `paths` (against the merge-base with its base, uncommitted and
+untracked files included), so a backend-only change never pays for the frontend suite.
+An undeterminable diff runs everything: a skipped gate ships a break, an extra one only
+costs minutes. The flat `{"lint", "build", "test"}` form predates gates and always runs.
+A non-zero exit is a failure. On failure, one model call per attempt with
+`prompts/qa_fix.md` and the failing command's output, re-running the gate after each.
+Bounded to 2 attempts, then ask — never ship a red gate.
 
-Missing keys are skipped with a warning. A missing `.start-task.json` skips the phase
-entirely with a warning.
+A missing `.start-task.json` skips the phase entirely with a warning.
 
 This covers the mechanical half of QA. Visual and behavioural verification — "does this
 screen look right" — is out of scope; see Non-goals.

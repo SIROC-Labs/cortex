@@ -45,17 +45,28 @@ Backends
   [x] echo
 ```
 
-Optionally, in the target repo, a `.start-task.json` describing the QA gate:
+Optionally, in the target repo, a `.start-task.json` describing the QA gates:
 
 ```json
 {
-  "lint":  "npm run lint",
-  "build": "npm run build",
-  "test":  "npm test"
+  "gates": [
+    {"name": "backend", "run": "make verify",
+     "paths": ["apps/api/", "apps/core/", "pyproject.toml", "uv.lock", "Makefile"]},
+    {"name": "frontend", "run": "npm run verify", "cwd": "apps/frontend",
+     "paths": ["apps/frontend/"]}
+  ]
 }
 ```
 
-Any key may be omitted. Without the file, the QA phase is skipped with a warning.
+A gate runs when a file the branch changed against its base — committed or not — is
+one of its `paths` or sits under one; a gate with no `paths` always runs. `cwd` is
+relative to the repo root. A docs-only change runs nothing. When the diff cannot be
+worked out, every gate runs. The older flat form (`"lint"`, `"build"`, `"test"` as
+commands) still works and always runs. Without the file, the QA phase is skipped with a
+warning.
+
+The CLI keeps its Asana cache in `~/.cortex/cli/` — never the skills'
+`~/.cortex/cortex-workflow/`.
 
 ## Use
 
@@ -96,10 +107,51 @@ Blocked — asking 1217932680420187
 ```
 
 Any comment on the task after the question counts as the answer — there is no
-convention to remember, and a teammate can unblock a run that is not theirs. The wait
-is unbounded and costs one request every two minutes; Ctrl-C stops it and the pending
-question stays in `awaiting.json`, which `--status` prints. `--no-ask` turns the whole
-cycle off.
+convention to remember, and a teammate can unblock a run that is not theirs — except
+the run's own posts. It posts as you, so every comment it writes, on the task or the
+PR, starts with `🤖 cortex ·`, and a comment carrying that mark is never an answer. The
+wait is unbounded and costs one request every two minutes; Ctrl-C stops it and the
+pending question stays in `awaiting.json`, which `--status` prints. A rerun looks for
+the answer to that question before doing anything else, rather than asking again.
+`--no-wait` posts and exits with code 3 instead of waiting.
+
+### When anything else stops the run
+
+A full run (no `--phase`) treats every stop short of a ready PR the same way: QA still
+red after its repair attempts, a push or `gh pr ready` that fails, a call that stalls at
+the turn limit, a precondition that is not met, a step that errors. Each is posted to
+the task with what went wrong, and the run waits for your reply — then goes on with it:
+the reply is handed to the QA repair or the stalled session as guidance, or, for a
+failed step, the run starts again from the top (finished phases are skipped). A
+question is never treated as done, and nothing ships past one. A single `--phase` run
+stops with the error as before, since you are at the terminal.
+
+### When the PR gets a review
+
+```bash
+cortex start-task MT251-47 --phase revise --feedback-file review.md
+```
+
+Applies review feedback in the task's worktree, resuming the agent's recorded session
+when the same backend still has it (a fresh, fully briefed call otherwise), runs the QA
+gates the change touches, commits, pushes and replies on the PR with what it did. It
+never rebases or force-pushes; a conflict with the base is resolved by merging the base
+in, and only when the feedback asks for it. `run-milestone` calls this for you.
+
+### Outcomes
+
+Every run ends with an exit code and an `outcome.json` in the task's state — also at
+`--result-file <path>` when given — so whatever launched it never reads the console:
+
+| Exit | `status` | |
+|---|---|---|
+| 0 | `shipped`, `revised`, `done` | a full run shipped / a revise was pushed / a single phase finished |
+| 1 | `failed` | `reason` says why |
+| 3 | `awaiting` | `--no-wait` posted a question; rerun to pick the reply up |
+| 130 | — | interrupted |
+
+The outcome carries `task`, `gid`, `pr_url`, `branch`, `worktree` and the agent's
+`session`.
 
 The agent's session does not survive the wait, so the resumed call is a fresh one:
 it is given the original task, the answer, and `git diff --stat` of its own earlier
@@ -151,7 +203,7 @@ still has that session is between you and it.
 
 | Flag | Default | |
 |---|---|---|
-| `--phase` | all | run one of `prologue`, `implement`, `qa`, `ship` alone, even if already done |
+| `--phase` | all | run one of `prologue`, `implement`, `qa`, `ship` alone, even if already done, or `revise` |
 | `--status` | off | report phase progress and do no work |
 | `--backends` | off | list providers and whether they are usable |
 | `--repo` | cwd | target repository |
@@ -165,7 +217,9 @@ still has that session is between you and it.
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 | `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
-| `--no-ask` | off | never ask the task manager; a blocked agent just ends the run |
+| `--no-wait` | off | post a question or problem and exit 3 instead of waiting |
+| `--feedback`, `--feedback-file` | — | the review feedback for `revise` |
+| `--result-file` | — | also write the outcome JSON here |
 
 `--backend echo` runs the whole flow with no model at all, for exercising the phases
 themselves. `--agent-cmd` is the escape hatch when a run stalls on a permission
@@ -178,11 +232,12 @@ appearing to have honoured it.
 |---|---|---|
 | `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.cortex/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
 | `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, files_changed, notes}` block back |
-| `qa` | 0–2 | Runs lint/build/test; on failure hands the output to one repair call, retries the gate, max 2 attempts |
-| `ship` | 0 | Commits, pushes, sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
+| `qa` | 0–2 | Runs the gates the change touches; on failure hands the output to a repair call, retries the gate, max 2 attempts before asking |
+| `ship` | 0 | Commits, pushes (checked), sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
+| `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
 State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `attachments/`, `run.json` (the live run's
+`result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `attachments/`, `run.json` (the live run's
 pid, so an abandoned terminal is findable), `session.json` (the agent's last session,
 for picking the conversation up by hand), `awaiting.json` while a question is
 outstanding, and `<phase>.failure.log`
@@ -196,7 +251,8 @@ relocated the first time a run touches that task.
 ## Preconditions
 
 `prologue` refuses to start a task that is already in progress, is blocked by an
-incomplete dependency, or belongs to someone else. An unassigned task is claimed rather
+incomplete dependency, or belongs to someone else. A task this run already started
+passes on a rerun: its status moved because of the run itself. An unassigned task is claimed rather
 than rejected. A missing Estimate and a task off the sprint board are warnings unless
 you pass `--strict`.
 
@@ -252,7 +308,7 @@ them.
   `--agent-cmd` if it bites.
 - **External links are text only.** The implement call runs with no MCP servers, so a
   Figma or Notion link in the ticket is passed through as a URL the agent cannot open.
-- **`asana.py` is a copy** of the plugin's `tm.py` (plus three read verbs it lacks). It
-  will drift.
-- **No pause flow.** A blocked run stops and reports; it does not commit WIP or post a
-  blocking question.
+- **`asana.py` is a copy** of the plugin's `tm.py` (plus the read verbs, `task complete`
+  and `project get` it lacks). It will drift. It shares no runtime files with the skill.
+- **Parallel QA can collide.** Runs share the machine: gates that bind fixed ports or a
+  shared database will fight when several tasks hit QA at once.
