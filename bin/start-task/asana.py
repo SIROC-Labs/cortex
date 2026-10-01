@@ -156,7 +156,8 @@ TASK_ID_POLL_ATTEMPTS = 8
 TASK_ID_POLL_INTERVAL = 0.5
 # Bump when build_fields_map's entry shape changes so stale caches re-discover.
 # v2 adds name/format/precision (needed for Estimate unit handling).
-FIELDS_SCHEMA_VERSION = 2
+# v3 adds the Actual field.
+FIELDS_SCHEMA_VERSION = 3
 # Board classification patterns (regex strings). A project is a SPRINT if its name
 # matches any sprint pattern; a BACKLOG board if it matches any backlog pattern AND no
 # sprint pattern. Defaults cover the known siroc conventions; a workspace with a
@@ -675,6 +676,7 @@ def _capture_stdout(fn, args):
 # generic "status"/"state" — is not stolen, and so a bare "Type" field maps to
 # Category. Assignee is native (not a custom field) and is injected separately.
 CANONICAL_FIELD_PATTERNS = [
+    ("Actual", ["actual"]),
     ("Platform", ["platform"]),
     ("Priority", ["priority", "urgency", "severity"]),
     ("Sizing", ["story points", "t-shirt", "sizing", "size", "points"]),
@@ -777,10 +779,12 @@ def write_fields_map(key, project_gid, fields_map):
     if not isinstance(cache, dict):
         cache = {}
     cache["provider"] = PROVIDER
-    cache["fields_schema_version"] = FIELDS_SCHEMA_VERSION
+    # The version covers every project's map, so a map written in an older shape
+    # must not survive under the new stamp.
     fields = cache.get("fields")
-    if not isinstance(fields, dict):
+    if not isinstance(fields, dict) or cache.get("fields_schema_version") != FIELDS_SCHEMA_VERSION:
         fields = {}
+    cache["fields_schema_version"] = FIELDS_SCHEMA_VERSION
     fields[project_gid] = fields_map
     cache["fields"] = fields
     cache_util.write_cache(key, cache)
@@ -943,6 +947,20 @@ def estimate_number_value(minutes, entry):
         hours = round(minutes / 60.0, p)
         return int(hours) if p == 0 else hours
     return int(round(minutes))
+
+
+# Pure: a value for a NUMBER field, rounded to the field's own precision. Asana
+# rejects a string for a number field, and a value finer than the field shows is
+# noise. Raises ValueError for something that is not a number.
+def number_value(value, entry):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("value '%s' is not a number" % (value,))
+    precision = entry.get("precision") if isinstance(entry, dict) else None
+    p = precision if isinstance(precision, int) and precision >= 0 else 2
+    number = round(number, p)
+    return int(number) if p == 0 else number
 
 
 # opt_fields for `task get` (per ../references/rest.md → Fetch Task Details), kept
@@ -1354,6 +1372,8 @@ def resolve_field_write(key, token, project_gids, name, value):
         raise ValueError("value '%s' does not match any enum option for '%s'" % (value, name))
     if name == "Estimate":
         return ("custom_field", field_gid, estimate_number_value(parse_estimate_to_minutes(value, entry), entry))
+    if ftype == "number":
+        return ("custom_field", field_gid, number_value(value, entry))
     return ("custom_field", field_gid, value)
 
 

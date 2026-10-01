@@ -95,6 +95,8 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_AWAITING = 3
 OUTCOME_FILE = "outcome.json"
+# When the task moved to In Progress — the start of its actual time.
+TIMING_FILE = "timing.json"
 
 
 # --- output -----------------------------------------------------------------
@@ -571,6 +573,9 @@ def phase_prologue(args):
                            "In Progress"], cwd=repo, check=False)
     info("status → In Progress" if code == 0
          else "could not set status: %s" % errout)
+    # First write wins: a resumed run is the same stretch of work, not a new one.
+    if not (state.read(TIMING_FILE) or {}).get("in_progress_at"):
+        state.write(TIMING_FILE, {"in_progress_at": time.time()})
 
     marker = "🏁 Starting work — branch: `%s`" % branch
     if any(marker in (c.get("text") or "") for c in comments):

@@ -14,10 +14,13 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine import (  # noqa: E402
+    actual_hours,
     blockers,
     collect_feedback,
     describe,
+    has_value,
     outcome_phase,
+    parse_iso,
     parse_pr_url,
     parse_project_ref,
     ready_tasks,
@@ -279,6 +282,32 @@ class TestReconcile(unittest.TestCase):
         for phase in ("merged", "pr_open", "failed", "stopped"):
             self.assertEqual(reconcile({"phase": phase, "since": 10}, None, None)["phase"],
                              phase)
+
+
+class TestActualTime(unittest.TestCase):
+    def test_hours_from_in_progress_to_merge_at_two_places(self):
+        self.assertEqual(actual_hours(1000, 1000 + 3600 * 3 + 900), 3.25)
+        self.assertEqual(actual_hours(0, 61), 0.02)
+
+    def test_unknown_or_backwards_ends_give_nothing(self):
+        self.assertIsNone(actual_hours(None, 100))
+        self.assertIsNone(actual_hours(100, None))
+        self.assertIsNone(actual_hours(200, 100))
+
+    def test_githubs_merge_stamp_is_utc(self):
+        self.assertEqual(parse_iso("1970-01-01T01:00:00Z"), 3600)
+        self.assertIsNone(parse_iso(None))
+        self.assertIsNone(parse_iso("yesterday"))
+
+    def test_a_value_someone_entered_is_kept_an_empty_or_zero_one_is_not(self):
+        self.assertTrue(has_value("1.38"))
+        for empty in (None, "", "0", "0.00"):
+            self.assertFalse(has_value(empty), empty)
+
+    def test_merged_shows_the_hours(self):
+        g = {"1": t("a", completed=True)}
+        self.assertEqual(describe("1", g, {"1": {"phase": "merged", "actual_hours": 3.25}}, ME),
+                         "merged — 3.25h from In Progress")
 
 
 if __name__ == "__main__":

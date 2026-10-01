@@ -228,7 +228,8 @@ def describe(gid, tasks, records, me_gid):
     phase = record.get("phase")
     task = tasks[gid]
     if phase == "merged":
-        return "merged"
+        hours = record.get("actual_hours")
+        return "merged — %.2fh from In Progress" % hours if hours is not None else "merged"
     if task.get("completed"):
         return "completed"
     if phase == "running":
@@ -248,6 +249,33 @@ def describe(gid, tasks, records, me_gid):
         return "stopped: %s" % record.get("reason")
     blocked = blockers(gid, tasks, records, me_gid)
     return "; ".join(blocked) if blocked else "ready"
+
+
+def parse_iso(stamp):
+    """Seconds since the epoch from an ISO-8601 UTC stamp like GitHub's
+    `2026-10-01T12:00:00Z`, or None."""
+    import calendar
+    try:
+        return calendar.timegm(time.strptime((stamp or "").replace("Z", "")[:19],
+                                             "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return None
+
+
+def actual_hours(started_at, merged_at):
+    """Hours from In Progress to merged, at the hundredth Asana shows. None when
+    either end is unknown or they are the wrong way round."""
+    if started_at is None or merged_at is None or merged_at < started_at:
+        return None
+    return round((merged_at - started_at) / 3600.0, 2)
+
+
+def has_value(display):
+    """Whether a number field already holds something a person put there."""
+    try:
+        return float(display) != 0
+    except (TypeError, ValueError):
+        return False
 
 
 def task_url(board, gid):
@@ -547,7 +575,7 @@ class Engine(object):
         changed = False
         if view is not None:
             if view.get("state") == "MERGED":
-                self.merged(gid)
+                self.merged(gid, parse_iso(view.get("mergedAt")))
                 return
             if view.get("state") == "CLOSED":
                 self.set_phase(gid, "stopped", reason="PR closed without merging")
@@ -597,8 +625,9 @@ class Engine(object):
         self.post_task(gid, "%s\n\n%s" % (text, record["pr_url"]))
         log("%s: PR conflicts with its base — parked" % self.key_of(gid))
 
-    def merged(self, gid):
+    def merged(self, gid, merged_at=None):
         key = self.key_of(gid)
+        self.record_actual(gid, merged_at or time.time())
         self.asana(["task", "complete", gid])
         code, _ = self.asana(["task", "set-status", gid, "Done"], check=False)
         if code != 0:
@@ -616,6 +645,24 @@ class Engine(object):
                     dep["completed"] = True
         self.set_phase(gid, "merged")
         self.refresh_due = 0
+
+    def record_actual(self, gid, merged_at):
+        """Put the time from In Progress to merge in the task's Actual field —
+        unless someone already filled it in, or the start was never recorded."""
+        key = self.key_of(gid)
+        started = (self.start_state(gid).read(st.TIMING_FILE) or {}).get("in_progress_at")
+        hours = actual_hours(started, merged_at)
+        if hours is None:
+            log("%s: no In Progress time recorded — Actual left alone" % key)
+            return
+        _, task = self.asana(["task", "get", gid], check=False)
+        if has_value(((task or {}).get("fields") or {}).get("Actual")):
+            log("%s: Actual already set (%s) — left alone" % (key, task["fields"]["Actual"]))
+            return
+        code, _ = self.asana(["task", "set-field", gid, "Actual", str(hours)], check=False)
+        log("%s: Actual → %.2fh" % (key, hours) if code == 0
+            else "%s: could not set Actual" % key)
+        self.record(gid)["actual_hours"] = hours
 
     def stop_finished_elsewhere(self):
         """A task completed or canceled in Asana by hand is left alone from here."""

@@ -813,5 +813,50 @@ class TestEscalate(unittest.TestCase):
         self.assertEqual(self.state.read("awaiting.json")["kind"], "qa")
 
 
+class TestActualField(unittest.TestCase):
+    """The Actual field is a number in hours; asana.py has to know it and write
+    it as one."""
+
+    def test_actual_is_a_known_field_and_does_not_steal_estimate(self):
+        import asana
+        self.assertEqual(asana.match_canonical("Actual"), "Actual")
+        self.assertEqual(asana.match_canonical("Actual time"), "Actual")
+        self.assertEqual(asana.match_canonical("Estimate"), "Estimate")
+
+    def test_number_values_are_numbers_at_the_fields_precision(self):
+        import asana
+        self.assertEqual(asana.number_value("3.256", {"precision": 2}), 3.26)
+        self.assertEqual(asana.number_value("3.6", {"precision": 0}), 4)
+        with self.assertRaises(ValueError):
+            asana.number_value("soon", {"precision": 2})
+
+
+class TestFieldsCacheVersion(unittest.TestCase):
+    """The schema version is stamped on the whole cache; a map written in an
+    older shape must not be kept under a newer stamp."""
+
+    def setUp(self):
+        import asana
+        import cache_util
+        self.asana, self.cache_util = asana, cache_util
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.saved = cache_util.CACHE_DIR
+        cache_util.CACHE_DIR = self.root
+        self.addCleanup(setattr, cache_util, "CACHE_DIR", self.saved)
+
+    def test_an_old_version_drops_every_projects_map(self):
+        self.cache_util.write_cache("k", {"provider": "asana", "fields_schema_version": 2,
+                                          "fields": {"old": {"Estimate": {}}}})
+        self.asana.write_fields_map("k", "new", {"Actual": {"id": "1"}})
+        self.assertIsNone(self.asana.cached_fields_map("k", "old"))
+        self.assertEqual(self.asana.cached_fields_map("k", "new"), {"Actual": {"id": "1"}})
+
+    def test_the_current_version_keeps_other_maps(self):
+        self.asana.write_fields_map("k", "a", {"x": {}})
+        self.asana.write_fields_map("k", "b", {"y": {}})
+        self.assertEqual(self.asana.cached_fields_map("k", "a"), {"x": {}})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

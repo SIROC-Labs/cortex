@@ -237,7 +237,8 @@ appearing to have honoured it.
 | `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
 State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `attachments/`, `run.json` (the live run's
+`result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `timing.json`
+(when the task first moved to In Progress — a rerun keeps it), `attachments/`, `run.json` (the live run's
 pid, so an abandoned terminal is findable), `session.json` (the agent's last session,
 for picking the conversation up by hand), `awaiting.json` while a question is
 outstanding, and `<phase>.failure.log`

@@ -42,7 +42,9 @@ Each pass:
      which applies it in the task's session, runs the gates the change touches, pushes
      and replies on the PR;
    - a merge completes the task in Asana, moves it to Done and removes its worktree;
-     whatever that readies starts on the next pass;
+     whatever that readies starts on the next pass. The time from In Progress to the
+     merge (GitHub's merge time, so wall-clock — waiting on review included) goes in
+     the task's `Actual` field, in hours, unless someone already filled it in;
    - a conflict with the base parks the task: it is posted once to the PR and the task,
      and nothing more happens to it until a PR comment says `please resolve` (checked
      every minute). That goes
