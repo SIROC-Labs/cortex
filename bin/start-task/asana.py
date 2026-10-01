@@ -55,6 +55,7 @@
 #   tm.py task set-parent    <task-ref> <parent-ref>
 #   tm.py task add-to-board  <task-ref> <board-ref>
 #   tm.py task set-status    <task-ref> <status-name>
+#   tm.py task complete      <task-ref>
 #
 # add-dependency/set-parent/add-to-board are single POSTs (addDependencies /
 # setParent / addProject), all via urllib. set-status is TWO-AXIS per
@@ -107,6 +108,10 @@
 # User family:
 #
 #   tm.py user me
+#
+# Project family:
+#
+#   tm.py project get <project-ref>
 #
 # `tm.py --help` (or `-h` / `help`) lists every family and verb.
 #
@@ -1046,6 +1051,7 @@ def project_task(raw):
         "ref": raw.get("gid"),
         "name": raw.get("name"),
         "kind": "milestone" if raw.get("resource_subtype") == "milestone" else "task",
+        "completed": bool(raw.get("completed")),
         "description": raw.get("notes"),
         "assignee": assignee,
         "assignee_gid": assignee_gid,
@@ -1618,6 +1624,22 @@ def task_set_status(args):
     die(1, "%s: task set-status: '%s' is not a known Product Status option or board section on task %s's project(s)" % (PROG, status_name, task_gid))
 
 
+# Mark a task completed — the Asana checkbox, which is what a dependent's readiness
+# is judged by. Distinct from set-status: a "Done" section does not complete a task.
+def task_complete(args):
+    if not args:
+        die(1, "usage: %s task complete <task-ref>" % PROG)
+    task_gid = args[0]
+    if not re.fullmatch(r"[0-9]+", task_gid):
+        die(1, "%s: task complete: task-ref must be numeric (got '%s')" % (PROG, task_gid))
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    updated = api_json("%s/tasks/%s" % (API_BASE, task_gid), token, "PUT",
+                       {"data": {"completed": True}})
+    print_task_projection(updated)
+    sys.exit(0)
+
+
 # Set (replace) a task's description/notes. <task-ref> is a task GID; the body is
 # authored as Markdown (positional arg or --body-file), converted to Asana HTML the
 # same way comments are (md_to_html → render_body), and PUT to the task's html_notes
@@ -2039,6 +2061,31 @@ def ref_parse(args):
     sys.exit(0)
 
 
+# --- project family ---------------------------------------------------------
+
+# `project get <project-ref>`: {gid, name, workspace_gid} — what a caller needs to
+# bootstrap the board cache for a board it was handed by URL.
+def project_get(args):
+    if not args:
+        die(1, "usage: %s project get <project-ref>" % PROG)
+    project_gid = args[0]
+    if not re.fullmatch(r"[0-9]+", project_gid):
+        die(1, "%s: project get: project-ref must be numeric (got '%s')" % (PROG, project_gid))
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    payload = api_get("%s/projects/%s?opt_fields=name,workspace.gid" % (API_BASE, project_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        die(1, "%s: project get: Asana response had no project data" % PROG)
+    workspace = data.get("workspace")
+    sys.stdout.write(json.dumps({
+        "gid": data.get("gid"),
+        "name": data.get("name"),
+        "workspace_gid": workspace.get("gid") if isinstance(workspace, dict) else None,
+    }, indent=2) + "\n")
+    sys.exit(0)
+
+
 # --- user family ------------------------------------------------------------
 
 def user_me(args):
@@ -2087,6 +2134,7 @@ TASK_VERBS = {
     "set-parent": task_set_parent,
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
+    "complete": task_complete,
 }
 
 COMMENT_VERBS = {
@@ -2102,6 +2150,10 @@ USER_VERBS = {
     "me": user_me,
 }
 
+PROJECT_VERBS = {
+    "get": project_get,
+}
+
 MILESTONE_VERBS = {
     "list": milestone_list,
     "tasks": milestone_tasks,
@@ -2115,6 +2167,7 @@ FAMILIES = {
     "comment": COMMENT_VERBS,
     "ref": REF_VERBS,
     "user": USER_VERBS,
+    "project": PROJECT_VERBS,
     "milestone": MILESTONE_VERBS,
 }
 
