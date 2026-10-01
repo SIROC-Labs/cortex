@@ -17,8 +17,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent import AgentResult, get_backend  # noqa: E402
 
+import start_task  # noqa: E402
 from start_task import (  # noqa: E402
+    BOT_MARK,
+    Awaiting,
     State,
+    build_outcome,
     checkpoint_problems,
     ensure_cortex_dir,
     evaluate_gate,
@@ -26,12 +30,17 @@ from start_task import (  # noqa: E402
     extract_last_json_block,
     failure_detail,
     format_questions_comment,
+    is_marked,
     live_run_pid,
+    mark,
     parse_agent_questions,
+    path_matches,
+    pending_kind,
     phases_to_run,
     poll_interval,
     record_session,
     select_answer,
+    select_gates,
     should_continue,
     slugify,
     task_key,
@@ -164,6 +173,16 @@ class TestEvaluateGate(unittest.TestCase):
         self.assertEqual(evaluate_gate(off_sprint, [], "42")["blocking"], [])
         strict = evaluate_gate(off_sprint, [], "42", strict=True)["blocking"]
         self.assertTrue(any("sprint" in b for b in strict))
+
+    def test_a_resumed_run_passes_its_own_started_status(self):
+        gate = evaluate_gate(task(status="In Progress"), [], "42", resuming=True)
+        self.assertEqual(gate["blocking"], [])
+        self.assertTrue(any("resuming" in w for w in gate["warnings"]))
+
+    def test_resuming_does_not_excuse_incomplete_dependencies(self):
+        gate = evaluate_gate(task(status="In Progress"),
+                             [{"name": "dep", "completed": False}], "42", resuming=True)
+        self.assertEqual(len(gate["blocking"]), 1)
 
     def test_reports_every_failure_at_once(self):
         verdict = evaluate_gate(
@@ -354,10 +373,6 @@ class TestStateMigration(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.root, ".start-task", "HGM-1")))
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class TestFailureDetail(unittest.TestCase):
     """A backend that exits non-zero with an empty stderr told us nothing. The
     reason is in whatever it printed, so that is what must reach the operator."""
@@ -479,6 +494,12 @@ class TestSelectAnswer(unittest.TestCase):
         # discard the very reply it waits for.
         reply = self.c("2026-09-15T12:05:00.000Z", "nonprod", author="Justin")
         self.assertIsNotNone(select_answer([reply], self.ASKED))
+
+    def test_the_runs_own_marked_posts_are_not_answers(self):
+        bot = self.c("2026-09-15T12:05:00.000Z", mark("🚀 Shipped — x"))
+        real = self.c("2026-09-15T12:06:00.000Z", "nonprod")
+        self.assertEqual(select_answer([bot, real], self.ASKED)["text"], "nonprod")
+        self.assertIsNone(select_answer([bot], self.ASKED))
 
     def test_blank_and_undated_comments_are_skipped(self):
         blank = self.c("2026-09-15T12:05:00.000Z", "   ")
@@ -626,3 +647,171 @@ class TestWorktreeForBranch(unittest.TestCase):
 
     def test_empty_input(self):
         self.assertIsNone(worktree_for_branch("", "main"))
+
+
+class TestMarker(unittest.TestCase):
+    def test_marked_posts_are_recognised(self):
+        self.assertTrue(is_marked(mark("hello")))
+        self.assertTrue(is_marked("\n  " + mark("hello")))
+
+    def test_a_human_quoting_the_bot_is_not_the_bot(self):
+        self.assertFalse(is_marked("> %s hello\n\nno, do it the other way" % BOT_MARK))
+        self.assertFalse(is_marked("thanks"))
+        self.assertFalse(is_marked(None))
+
+
+class TestSelectGates(unittest.TestCase):
+    CONFIG = {"gates": [
+        {"name": "backend", "run": "make verify",
+         "paths": ["apps/api/", "apps/core/", "apps/worker/", "tools/",
+                   "pyproject.toml", "uv.lock", "Makefile"]},
+        {"name": "frontend", "run": "npm run verify", "cwd": "apps/frontend",
+         "paths": ["apps/frontend/"]},
+    ]}
+
+    def names(self, changed, config=None):
+        return [g[0] for g in select_gates(config or self.CONFIG, changed)]
+
+    def test_backend_only_change_runs_only_the_backend_gate(self):
+        self.assertEqual(self.names(["apps/api/src/x.py"]), ["backend"])
+
+    def test_frontend_only_change_runs_only_the_frontend_gate_in_its_dir(self):
+        gates = select_gates(self.CONFIG, ["apps/frontend/src/a.tsx"])
+        self.assertEqual(gates, [("frontend", "npm run verify", "apps/frontend")])
+
+    def test_both_sides_run_both(self):
+        self.assertEqual(self.names(["uv.lock", "apps/frontend/package.json"]),
+                         ["backend", "frontend"])
+
+    def test_docs_only_runs_nothing(self):
+        self.assertEqual(self.names(["docs/notes.md", "README.md"]), [])
+
+    def test_unknown_diff_runs_everything(self):
+        self.assertEqual(self.names(None), ["backend", "frontend"])
+
+    def test_a_gate_without_paths_always_runs(self):
+        self.assertEqual(self.names(["docs/x.md"], {"gates": [{"run": "true"}]}), ["true"])
+
+    def test_flat_keys_still_work_and_always_run(self):
+        self.assertEqual(self.names(["docs/x.md"], {"lint": "l", "test": "t"}),
+                         ["lint", "test"])
+
+    def test_a_gate_without_a_command_is_an_error(self):
+        with self.assertRaises(ValueError):
+            select_gates({"gates": [{"name": "x", "paths": ["a/"]}]}, ["a/b"])
+
+
+class TestPathMatches(unittest.TestCase):
+    def test_directory_prefix_with_or_without_slash(self):
+        self.assertTrue(path_matches("apps/api/x.py", "apps/api/"))
+        self.assertTrue(path_matches("apps/api/x.py", "apps/api"))
+
+    def test_a_sibling_with_the_same_prefix_does_not_match(self):
+        self.assertFalse(path_matches("apps/api-docs/x.md", "apps/api"))
+
+    def test_exact_file(self):
+        self.assertTrue(path_matches("Makefile", "Makefile"))
+        self.assertFalse(path_matches("docs/Makefile", "Makefile"))
+
+    def test_blank_pattern_matches_nothing(self):
+        self.assertFalse(path_matches("x", "  "))
+
+
+class TestBuildOutcome(unittest.TestCase):
+    def test_carries_what_a_launcher_needs(self):
+        context = {"task": {"id": "HCI-24", "gid": "123"},
+                   "git": {"pr_url": "https://github.com/o/r/pull/7", "branch": "HCI-24/x",
+                           "worktree": "/wt"}}
+        out = build_outcome("shipped", "url", context,
+                            {"token": "s1", "backend": "claude-cli", "command": "c"})
+        self.assertEqual(out["status"], "shipped")
+        self.assertEqual(out["task"], "HCI-24")
+        self.assertEqual(out["gid"], "123")
+        self.assertEqual(out["pr_url"], "https://github.com/o/r/pull/7")
+        self.assertEqual(out["branch"], "HCI-24/x")
+        self.assertEqual(out["session"]["token"], "s1")
+
+    def test_a_run_that_failed_before_any_state_still_says_so(self):
+        out = build_outcome("failed", "https://app.asana.com/0/1/2", None, None, "boom")
+        self.assertEqual(out["task"], "https://app.asana.com/0/1/2")
+        self.assertIsNone(out["pr_url"])
+        self.assertIsNone(out["session"])
+        self.assertEqual(out["reason"], "boom")
+
+
+class TestPendingKind(unittest.TestCase):
+    def test_kind_is_read(self):
+        self.assertEqual(pending_kind({"kind": "qa"}), "qa")
+
+    def test_a_record_from_before_kinds_is_questions(self):
+        self.assertEqual(pending_kind({"questions": [{"q": "x"}]}), "questions")
+
+    def test_nothing_pending(self):
+        self.assertIsNone(pending_kind(None))
+        self.assertIsNone(pending_kind({}))
+
+
+class TestEscalate(unittest.TestCase):
+    """The wait must survive a restart: a question already posted is not posted
+    again, and a reply that arrived while nothing was running still counts."""
+
+    class Args(object):
+        no_wait = False
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.state = State(self.root, "HCI-1")
+        self.state.ensure()
+        self.posted, self.comments = [], []
+        self.saved = start_task.asana, start_task.time.sleep
+        self.addCleanup(self.restore)
+        start_task.asana = self.fake_asana
+        start_task.time.sleep = lambda s: None
+
+    def restore(self):
+        start_task.asana, start_task.time.sleep = self.saved
+
+    def fake_asana(self, args, cwd):
+        if args[:2] == ["comment", "add"]:
+            self.posted.append(args[3])
+            return {"created_at": "2026-10-01T10:00:00.000Z"}
+        if args[:2] == ["comment", "list"]:
+            return self.comments
+        raise AssertionError(args)
+
+    def test_posts_marked_and_returns_the_first_human_reply(self):
+        self.comments = [
+            {"created_at": "2026-10-01T10:00:00.000Z", "text": "the question"},
+            {"created_at": "2026-10-01T10:05:00.000Z", "text": mark("bot noise")},
+            {"created_at": "2026-10-01T10:06:00.000Z", "text": "go ahead"},
+        ]
+        answer = start_task.escalate(self.state, "1", "/", self.Args(), "qa", "QA red")
+        self.assertEqual(answer, "go ahead")
+        self.assertEqual(len(self.posted), 1)
+        self.assertTrue(is_marked(self.posted[0]))
+        self.assertIsNone(self.state.read("awaiting.json"))
+
+    def test_a_pending_wait_of_the_same_kind_is_not_posted_again(self):
+        self.state.write("awaiting.json", {"kind": "qa", "asked_at": "2026-10-01T09:00:00.000Z"})
+        self.comments = [{"created_at": "2026-10-01T09:30:00.000Z", "text": "fixed it"}]
+        answer = start_task.escalate(self.state, "1", "/", self.Args(), "qa", "QA red")
+        self.assertEqual(answer, "fixed it")
+        self.assertEqual(self.posted, [])
+
+    def test_a_pending_wait_of_another_kind_is_replaced(self):
+        self.state.write("awaiting.json", {"kind": "push", "asked_at": "2026-10-01T09:00:00.000Z"})
+        self.comments = [{"created_at": "2026-10-01T10:01:00.000Z", "text": "ok"}]
+        start_task.escalate(self.state, "1", "/", self.Args(), "qa", "QA red")
+        self.assertEqual(len(self.posted), 1)
+
+    def test_no_wait_posts_and_stops_leaving_the_record(self):
+        args = self.Args()
+        args.no_wait = True
+        with self.assertRaises(Awaiting):
+            start_task.escalate(self.state, "1", "/", args, "qa", "QA red")
+        self.assertEqual(self.state.read("awaiting.json")["kind"], "qa")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

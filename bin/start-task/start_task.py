@@ -27,6 +27,8 @@
 # selected backend needs (the default needs only `claude` on PATH).
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -64,7 +66,7 @@ NOT_STARTED = {
     "unassigned", "scheduled", "assigned",
 }
 
-PHASES = ("prologue", "implement", "qa", "ship")
+PHASES = ("prologue", "implement", "qa", "ship", "revise")
 
 # Turn ceiling applied to every model call. It is a checkpoint rather than a
 # limit on the work: a call that hits it is resumed while it keeps making
@@ -82,6 +84,17 @@ CONTINUE_PROMPT = (
 
 MAX_QA_ATTEMPTS = 2
 INLINE_ATTACHMENT_MAX_BYTES = 256 * 1024
+
+# Every comment the run posts — on the task or the PR — starts with this. The run
+# posts as the operator (their token, their gh login), so authorship cannot tell
+# its own posts from the operator's replies; the mark can.
+BOT_MARK = "\U0001f916 cortex \u00b7"
+
+# How a run ended, for whatever launched it. The same word is in `outcome.json`.
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_AWAITING = 3
+OUTCOME_FILE = "outcome.json"
 
 
 # --- output -----------------------------------------------------------------
@@ -101,9 +114,21 @@ def warn(msg):
     sys.stdout.flush()
 
 
-def die(msg, code=1):
-    sys.stderr.write("\nstart-task: %s\n" % msg)
-    sys.exit(code)
+class Failure(Exception):
+    """The run cannot go on. Raised rather than exiting, so a full run can post it
+    to the task and wait instead of dying, and so every exit writes an outcome."""
+
+    def __init__(self, msg, escalate=True):
+        Exception.__init__(self, msg)
+        self.escalate = escalate
+
+
+class Awaiting(Exception):
+    """A question is posted and --no-wait says not to sit on it."""
+
+
+def die(msg, escalate=True):
+    raise Failure(msg, escalate=escalate)
 
 
 # --- process helpers --------------------------------------------------------
@@ -177,12 +202,16 @@ def extract_external_links(*texts):
     return seen
 
 
-def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_deps=False):
+def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_deps=False,
+                  resuming=False):
     """Decide whether a task may be started. Pure: no network, no side effects.
 
     Returns {blocking: [...], warnings: [...], self_assign: bool}. The caller acts
     on `self_assign` (an unassigned task is claimed, not rejected) and refuses to
     proceed when `blocking` is non-empty.
+
+    `resuming` is a task this run already started: its status moved because of
+    us, so a started status is expected rather than a reason to stop.
     """
     blocking = []
     warnings = []
@@ -190,10 +219,16 @@ def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_dep
 
     status = (task.get("status") or "").strip().lower()
     if not status:
-        blocking.append("no status set — expected one of: %s"
-                        % ", ".join(sorted(NOT_STARTED)))
+        if not resuming:
+            blocking.append("no status set — expected one of: %s"
+                            % ", ".join(sorted(NOT_STARTED)))
     elif status not in NOT_STARTED:
-        blocking.append("status is %r — not a not-yet-started state" % task.get("status"))
+        if resuming:
+            warnings.append("status is %r — resuming a run already started"
+                            % task.get("status"))
+        else:
+            blocking.append("status is %r — not a not-yet-started state"
+                            % task.get("status"))
 
     incomplete = [d for d in (dependencies or []) if not d.get("completed")]
     if incomplete:
@@ -232,6 +267,65 @@ def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_dep
 def task_key(task):
     """Human key (MT251-47) when the project has one, else the Asana gid."""
     return task.get("task_id") or task.get("ref")
+
+
+def mark(body):
+    """A comment body as the run posts it: carrying `BOT_MARK`."""
+    return "%s %s" % (BOT_MARK, body)
+
+
+def is_marked(text):
+    """Whether a comment is one the run posted itself."""
+    return (text or "").lstrip().startswith(BOT_MARK)
+
+
+def path_matches(path, pattern):
+    """A changed file against one entry of a gate's `paths`: the file itself, or a
+    directory it sits under. A trailing slash is optional."""
+    pattern = pattern.strip().rstrip("/")
+    return bool(pattern) and (path == pattern or path.startswith(pattern + "/"))
+
+
+def select_gates(config, changed):
+    """The QA commands that apply to a branch, as [(name, command, cwd)].
+
+    A gate under `gates` runs when a changed file matches one of its `paths`, or
+    always when it lists none. `changed` of None means the diff could not be
+    worked out, so every gate runs — a gate wrongly skipped ships a break, one
+    wrongly run costs minutes. The flat `lint`/`build`/`test` keys predate gates
+    and always run.
+    """
+    out = []
+    for gate in config.get("gates") or []:
+        if not isinstance(gate, dict) or not gate.get("run"):
+            raise ValueError("every gate needs a `run` command: %r" % (gate,))
+        paths = gate.get("paths") or []
+        if changed is None or not paths or any(
+                path_matches(f, p) for f in changed for p in paths):
+            out.append((gate.get("name") or gate["run"], gate["run"], gate.get("cwd")))
+    out += [(name, config[name], None) for name in ("lint", "build", "test")
+            if config.get(name)]
+    return out
+
+
+def build_outcome(status, task_ref, context=None, session=None, reason=None):
+    """What a run tells whatever launched it. Built from state, never from the
+    console, so a caller needs no knowledge of what the run printed."""
+    context = context or {}
+    git_info = context.get("git") or {}
+    session = session or {}
+    return {
+        "status": status,
+        "task": (context.get("task") or {}).get("id") or task_ref,
+        "gid": (context.get("task") or {}).get("gid"),
+        "pr_url": git_info.get("pr_url"),
+        "branch": git_info.get("branch"),
+        "worktree": git_info.get("worktree"),
+        "session": {"token": session.get("token"), "backend": session.get("backend"),
+                    "command": session.get("command")} if session.get("token") else None,
+        "reason": reason,
+        "at": time.time(),
+    }
 
 
 def render_prompt(name, **kwargs):
@@ -423,6 +517,11 @@ def phase_prologue(args):
     me = asana(["user", "me"], cwd=repo)
     deps = asana(["task", "dependencies", ref], cwd=repo) or []
     tid = task_key(task)
+    args.task_key = tid
+    state = State(main_root, tid)
+    recorded = state.read("context.json") or {}
+    resuming = ("prologue" in state.phases_done()
+                and bool((recorded.get("git") or {}).get("branch")))
     info("%s — %s" % (tid, task.get("name")))
     info("status: %s · assignee: %s · estimate: %s"
          % (task.get("status"), task.get("assignee") or "none",
@@ -430,13 +529,14 @@ def phase_prologue(args):
 
     step("Preconditions")
     gate = evaluate_gate(task, deps, (me or {}).get("gid"), strict=args.strict,
-                         ignore_deps=args.ignore_deps)
+                         ignore_deps=args.ignore_deps, resuming=resuming)
     for w in gate["warnings"]:
         warn(w)
     if gate["blocking"]:
         for b in gate["blocking"]:
             sys.stderr.write("  ✗ %s\n" % b)
-        die("preconditions not met — resolve them in Asana and re-run")
+        die("preconditions not met — resolve them in Asana and re-run:\n%s"
+            % "\n".join("- %s" % b for b in gate["blocking"]))
     if gate["self_assign"]:
         asana(["task", "set-field", ref, "Assignee", (me or {}).get("gid")], cwd=repo)
         info("unassigned — claimed for %s" % (me or {}).get("name"))
@@ -449,7 +549,6 @@ def phase_prologue(args):
     info("%d subtask(s) · %d comment(s) · %d attachment(s) · %d dependency/ies"
          % (len(subtasks), len(comments), len(attachments_meta), len(deps)))
 
-    state = State(main_root, tid)
     state.ensure()
     attachments = []
     for att in attachments_meta:
@@ -464,6 +563,56 @@ def phase_prologue(args):
              "(no MCP servers in the implement call)" % len(links))
 
     step("Branch and PR")
+    with repo_lock(main_root):
+        branch, base, worktree, pr_url = set_up_branch(args, repo, main_root, tid, task)
+
+    step("Updating Asana")
+    code, _, errout = run([sys.executable, ASANA, "task", "set-status", ref,
+                           "In Progress"], cwd=repo, check=False)
+    info("status → In Progress" if code == 0
+         else "could not set status: %s" % errout)
+
+    marker = "🏁 Starting work — branch: `%s`" % branch
+    if any(marker in (c.get("text") or "") for c in comments):
+        info("start comment already present")
+    else:
+        comment = mark(marker + ("\nPR: %s" % pr_url if pr_url else ""))
+        run([sys.executable, ASANA, "comment", "add", ref, comment],
+            cwd=repo, check=False)
+        info("posted start comment")
+
+    context = {
+        "task": {
+            "id": tid, "gid": ref, "url": args.task,
+            "name": task.get("name"), "description": task.get("description"),
+            "category": (task.get("fields") or {}).get("Category"),
+            "status": task.get("status"),
+            "estimate": (task.get("fields") or {}).get("Estimate"),
+            "assignee": task.get("assignee"),
+        },
+        "subtasks": subtasks,
+        "dependencies": deps,
+        "comments": comments,
+        "attachments": attachments,
+        "external_links": links,
+        "git": {"branch": branch, "base": base, "worktree": worktree,
+                "pr_url": pr_url, "main_root": main_root},
+        "repo": {"root": worktree},
+    }
+    state.write("context.json", context)
+    state.mark_done("prologue")
+
+    step("Ready")
+    info("context: %s" % state.path("context.json"))
+    info("worktree: %s" % worktree)
+    info("next: cortex start-task %s --phase implement" % tid)
+    return tid
+
+
+def set_up_branch(args, repo, main_root, tid, task):
+    """The task's branch, worktree and draft PR, reusing any that exist. Returns
+    (branch, base, worktree, pr_url). Every git write that touches the shared repo is in
+    here, so parallel runs can take it one at a time under `repo_lock`."""
     slug = slugify(task.get("name"))
     branch = "%s/%s" % (tid, slug)
     branches, existing_pr = find_existing_work(repo, tid)
@@ -527,48 +676,7 @@ def phase_prologue(args):
             warn("could not create draft PR: %s" % (errout or out))
     else:
         info("existing PR: %s" % pr_url)
-
-    step("Updating Asana")
-    code, _, errout = run([sys.executable, ASANA, "task", "set-status", ref,
-                           "In Progress"], cwd=repo, check=False)
-    info("status → In Progress" if code == 0
-         else "could not set status: %s" % errout)
-
-    marker = "🏁 Starting work — branch: `%s`" % branch
-    if any(marker in (c.get("text") or "") for c in comments):
-        info("start comment already present")
-    else:
-        comment = marker + ("\nPR: %s" % pr_url if pr_url else "")
-        run([sys.executable, ASANA, "comment", "add", ref, comment],
-            cwd=repo, check=False)
-        info("posted start comment")
-
-    context = {
-        "task": {
-            "id": tid, "gid": ref, "url": args.task,
-            "name": task.get("name"), "description": task.get("description"),
-            "category": (task.get("fields") or {}).get("Category"),
-            "status": task.get("status"),
-            "estimate": (task.get("fields") or {}).get("Estimate"),
-            "assignee": task.get("assignee"),
-        },
-        "subtasks": subtasks,
-        "dependencies": deps,
-        "comments": comments,
-        "attachments": attachments,
-        "external_links": links,
-        "git": {"branch": branch, "base": base, "worktree": worktree,
-                "pr_url": pr_url, "main_root": main_root},
-        "repo": {"root": worktree},
-    }
-    state.write("context.json", context)
-    state.mark_done("prologue")
-
-    step("Ready")
-    info("context: %s" % state.path("context.json"))
-    info("worktree: %s" % worktree)
-    info("next: cortex start-task %s --phase implement" % tid)
-    return tid
+    return branch, base, worktree, pr_url
 
 
 # --- implement --------------------------------------------------------------
@@ -593,6 +701,20 @@ def worktree_path(main_root, task_id, slug=None):
         name = "%s+%s" % (task_id, slug.replace("/", "-"))
     return os.path.abspath(
         os.path.join(main_root, CORTEX_DIRNAME, WORKTREES_DIRNAME, name))
+
+
+@contextlib.contextmanager
+def repo_lock(main_root):
+    """Hold the repo's git lock. Parallel runs share one object store and one set
+    of refs; `fetch --prune` and `worktree add` racing each other is how a
+    worktree ends up half-made, so those go through here one run at a time."""
+    ensure_cortex_dir(main_root)
+    with open(os.path.join(main_root, CORTEX_DIRNAME, "git.lock"), "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def ensure_cortex_dir(main_root):
@@ -685,18 +807,20 @@ def format_questions_comment(questions, branch=None):
 
 
 def select_answer(comments, watermark):
-    """The first comment that answers the question: posted after `watermark`, with
-    something in it.
+    """The first comment that answers the question: posted after `watermark`, not
+    carrying `BOT_MARK`, with something in it.
 
     There is deliberately no author filter. The run comments with the operator's
     own token, so "ignore our own comments" would discard the very reply it waits
-    for. The watermark alone excludes the question comment, because the watermark
-    IS that comment's created_at — minted by the task manager, so it needs no
+    for; the mark is what tells the run's posts apart. The watermark is the
+    question comment's created_at — minted by the task manager, so it needs no
     agreement with the local clock.
     """
     for comment in comments or []:
         created = comment.get("created_at") or ""
         if not created or created <= watermark:
+            continue
+        if is_marked(comment.get("text")):
             continue
         if not (comment.get("text") or "").strip():
             continue
@@ -784,6 +908,7 @@ def record_session(state, label, cwd, backend, result):
     state.write("session.json", {
         "label": label,
         "token": result.resume_token,
+        "backend": backend.name,
         "cwd": cwd,
         "command": backend.resume_command(result.resume_token, cwd),
         "at": time.time(),
@@ -829,10 +954,16 @@ def should_continue(result, fingerprint, previous):
     return True, None
 
 
-def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
+def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
+               resume=None):
     """One unit of work for a model, through the seam. A call stopped by the turn
     ceiling is resumed for as long as it keeps changing the worktree, so the
     ceiling bounds a single call and not the task. Returns the final AgentResult.
+
+    `resume` continues an earlier session instead of starting one; a session the
+    provider no longer has is replaced by a fresh call with the same prompt. A call
+    that fails, or stalls at the ceiling, goes to the task (`ref`) when the run
+    waits on failures, and is retried with the reply.
     """
     autonomy = autonomy or args.autonomy
     backend = get_backend(args.backend)
@@ -840,11 +971,12 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
     if not usable:
         die("backend %r is unavailable: %s" % (args.backend, reason))
 
-    resume, previous, hop = None, None, 0
+    first_resume = resume
+    next_prompt, previous, hop = prompt, None, 0
     while True:
         hop += 1
         request = AgentRequest(
-            prompt=CONTINUE_PROMPT if resume else prompt,
+            prompt=next_prompt,
             cwd=cwd,
             model=args.model,
             allowed_tools=tools_for(autonomy),
@@ -855,7 +987,7 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
             extra={"argv": args.agent_cmd} if args.agent_cmd else {},
         )
         info("%s: calling %s%s"
-             % (label, backend.name, " (continuation %d)" % hop if resume else ""))
+             % (label, backend.name, " (continuation %d)" % hop if hop > 1 else ""))
         result = backend.run(request)
 
         for item in result.unsupported:
@@ -868,22 +1000,39 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None):
                     ", ".join(sorted(set(result.denied_tools)))))
         info("%s: %s" % (label, result.summary()))
         if not result.ok:
+            if first_resume and hop == 1:
+                warn("%s: could not resume the earlier session (%s) — starting a "
+                     "fresh one" % (label, failure_detail(result)))
+                resume, next_prompt, first_resume = None, prompt, None
+                continue
             saved = ""
             if state is not None and result.text:
-                saved = "\n  raw output: %s" % state.write_text(
+                saved = "\nraw output: %s" % state.write_text(
                     "%s.failure.log" % label, result.text)
-            die("%s failed: %s%s" % (label, failure_detail(result), saved))
+            if state is None or ref is None:
+                die("%s failed: %s%s" % (label, failure_detail(result), saved))
+            raise_problem(state, ref, cwd, args, "agent", "%s failed" % label,
+                          failure_detail(result) + saved)
+            continue
 
         fingerprint = worktree_fingerprint(cwd)
         go, stopped_because = should_continue(result, fingerprint, previous)
-        if not go:
-            if stopped_because:
-                warn("%s stopped at the turn limit — %s" % (label, stopped_because))
-            record_session(state, label, cwd, backend, result)
-            return result
-        info("%s: hit the turn limit, resuming the session" % label)
-        resume, previous = result.resume_token, fingerprint
-
+        if go:
+            info("%s: hit the turn limit, resuming the session" % label)
+            resume, previous, next_prompt = result.resume_token, fingerprint, CONTINUE_PROMPT
+            continue
+        record_session(state, label, cwd, backend, result)
+        if stopped_because:
+            warn("%s stopped at the turn limit — %s" % (label, stopped_because))
+        if (stopped_because and result.resume_token and state is not None
+                and ref is not None and getattr(args, "wait_on_failure", False)):
+            answer = raise_problem(state, ref, cwd, args, "stall",
+                                   "%s stopped at the turn limit — %s"
+                                   % (label, stopped_because))
+            resume, previous = result.resume_token, None
+            next_prompt = "The operator replied:\n\n%s\n\n%s" % (answer, CONTINUE_PROMPT)
+            continue
+        return result
 
 
 def _elapsed(seconds):
@@ -894,45 +1043,94 @@ def _elapsed(seconds):
     return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
 
 
-def ask_task(questions, ref, cwd, state, label):
-    """Post the questions to the task and block until someone replies there.
+def pending_kind(pending):
+    """What an `awaiting.json` is waiting on. One written before there were kinds
+    is an agent's questions — the only thing that could be pending then."""
+    if not isinstance(pending, dict):
+        return None
+    return pending.get("kind") or ("questions" if pending.get("questions") else None)
 
-    Unbounded on purpose: an idle wait is one request every two minutes, so the
-    run simply sits there. Ctrl-C leaves `awaiting.json` behind, which is what
-    tells a later run — or a human — what it was waiting for.
+
+def escalate(state, ref, cwd, args, kind, body, extra=None):
+    """Post `body` to the task and block until someone replies there. Returns the
+    reply's text.
+
+    Every way a run can stop short of a ready PR comes through here, so none of
+    them is silent. A question already pending for the same `kind` is not posted
+    again: a run restarted mid-wait picks the wait up, and a reply that came in
+    while nothing was running still counts. Unbounded on purpose — an idle wait is
+    one request every two minutes. `--no-wait` posts and stops instead.
     """
-    context = state.read("context.json", {})
-    branch = (context.get("git") or {}).get("branch")
-
-    step("Blocked — asking %s" % ref)
-    for q in questions:
-        info("Q: %s" % q["q"])
-
-    story = asana(["comment", "add", ref, format_questions_comment(questions, branch)],
-                  cwd=cwd)
-    watermark = (story or {}).get("created_at")
-    if not watermark:
-        die("posted the question but the task manager returned no timestamp — "
-            "cannot tell a reply from the question itself")
-    info("posted — waiting for a reply (Ctrl-C to stop; progress is saved)")
-    state.write("awaiting.json", {"label": label, "task": ref,
-                                  "asked_at": watermark, "questions": questions})
+    pending = state.read("awaiting.json") or {}
+    if pending_kind(pending) == kind and pending.get("asked_at"):
+        watermark = pending["asked_at"]
+        info("already asked at %s — checking for a reply" % watermark)
+    else:
+        story = asana(["comment", "add", ref, mark(body)], cwd=cwd)
+        watermark = (story or {}).get("created_at")
+        if not watermark:
+            die("posted to the task but the task manager returned no timestamp — "
+                "cannot tell a reply from the post itself", escalate=False)
+        record = {"kind": kind, "task": ref, "asked_at": watermark}
+        record.update(extra or {})
+        state.write("awaiting.json", record)
+        info("posted to the task")
+    if args.no_wait:
+        raise Awaiting("waiting on a reply in the task (%s)" % kind)
+    info("waiting for a reply (Ctrl-C to stop; progress is saved)")
 
     attempt, waited = 0, 0
     while True:
+        answer = select_answer(asana(["comment", "list", ref], cwd=cwd), watermark)
+        if answer:
+            info("reply from %s after %s" % (answer.get("author") or "someone",
+                                             _elapsed(waited)))
+            state.remove("awaiting.json")
+            return (answer.get("text") or "").strip()
         attempt += 1
         delay = poll_interval(attempt)
         time.sleep(delay)
         waited += delay
-        comments = asana(["comment", "list", ref], cwd=cwd)
-        answer = select_answer(comments, watermark)
-        if answer:
-            info("answer from %s after %s" % (answer.get("author") or "someone",
-                                              _elapsed(waited)))
-            state.remove("awaiting.json")
-            return (answer.get("text") or "").strip()
         if waited % 600 < delay:
             info("still waiting (%s)" % _elapsed(waited))
+
+
+def ask_task(questions, ref, cwd, state, label, args):
+    """The agent's questions, posted to the task; returns the reply."""
+    context = state.read("context.json", {})
+    branch = (context.get("git") or {}).get("branch")
+    step("Blocked — asking %s" % ref)
+    for q in questions:
+        info("Q: %s" % q["q"])
+    return escalate(state, ref, cwd, args, "questions",
+                    format_questions_comment(questions, branch),
+                    {"label": label, "questions": questions})
+
+
+def format_problem_comment(headline, detail=None, branch=None):
+    """A stop that is not the agent's question — QA still red, a push refused, a
+    stalled call, a failed step — in a form a human can act on from the task."""
+    lines = ["\u26a0\ufe0f **%s**" % headline]
+    if detail:
+        lines += ["", "```", detail.strip()[-1500:], "```"]
+    lines += ["", "Fix it or tell me how, then reply on this task — the run picks "
+                  "up from your reply."]
+    if branch:
+        lines += ["", "Branch: `%s`" % branch]
+    return "\n".join(lines)
+
+
+def raise_problem(state, ref, cwd, args, kind, headline, detail=None):
+    """Post a problem and wait for the reply, or — outside a full run, where a
+    human is at the terminal — stop with it as before. Returns the reply."""
+    if not getattr(args, "wait_on_failure", False):
+        die("%s%s" % (headline, "\n" + detail if detail else ""), escalate=False)
+    branch = ((state.read("context.json", {}).get("git")) or {}).get("branch")
+    step("Stopped — asking %s" % ref)
+    warn(headline)
+    return escalate(state, ref, cwd, args, kind,
+                    format_problem_comment(headline, detail, branch),
+                    {"headline": headline})
 
 
 def render_resume_section(worktree, transcript):
@@ -954,24 +1152,29 @@ def render_resume_section(worktree, transcript):
     return "\n".join(lines)
 
 
-def call_agent_resumable(build_prompt, cwd, args, label, ref, state, autonomy=None):
+def call_agent_resumable(build_prompt, cwd, args, label, ref, state, autonomy=None,
+                         resume=None):
     """Call the agent, and when it comes back blocked, ask the task and call again
     with the answer. Returns the first result that is work rather than a question.
 
-    The loop is unbounded: `--no-ask` is the way out, not a round cap.
+    A question still pending from an earlier run is waited on first, so a restart
+    neither asks it twice nor carries on without its answer. The loop is unbounded:
+    a question is never treated as done.
     """
     transcript = []
+    pending = state.read("awaiting.json") or {}
+    if pending_kind(pending) == "questions" and pending.get("label") == label:
+        questions = pending.get("questions") or []
+        answer = ask_task(questions, ref, cwd, state, label, args)
+        transcript.append({"questions": questions, "answer": answer})
     while True:
         outcome = call_agent(build_prompt(transcript), cwd, args, label,
-                             autonomy=autonomy, state=state)
+                             autonomy=autonomy, state=state, ref=ref, resume=resume)
+        resume = None
         questions = parse_agent_questions(outcome.structured)
         if questions is None:
             return outcome
-        if args.no_ask:
-            warn("agent asked %d question(s) but --no-ask is set — treating as done"
-                 % len(questions))
-            return outcome
-        answer = ask_task(questions, ref, cwd, state, label)
+        answer = ask_task(questions, ref, cwd, state, label, args)
         transcript.append({"questions": questions, "answer": answer})
 
 
@@ -1018,25 +1221,47 @@ def phase_implement(args, state=None):
 
 # --- qa ---------------------------------------------------------------------
 
-def qa_commands(worktree):
+def qa_config(worktree):
     path = os.path.join(worktree, QA_CONFIG)
     try:
         with open(path, "r") as f:
-            config = json.load(f)
+            return json.load(f)
     except (IOError, OSError):
         return None
     except ValueError as e:
         die("%s is not valid JSON (%s)" % (path, e))
-    return [(name, config[name]) for name in ("lint", "build", "test")
-            if config.get(name)]
+
+
+def changed_files(worktree, base):
+    """Every file the branch touches against its base — committed, staged, unstaged
+    and untracked. None when the base cannot be found, which runs every gate."""
+    code, merge_base, _ = git(["merge-base", "HEAD", base], cwd=worktree, check=False)
+    if code != 0 or not merge_base:
+        return None
+    _, diff, _ = git(["diff", "--name-only", merge_base], cwd=worktree, check=False)
+    _, untracked, _ = git(["ls-files", "--others", "--exclude-standard"],
+                          cwd=worktree, check=False)
+    return sorted({f for f in (diff + "\n" + untracked).splitlines() if f.strip()})
+
+
+def qa_commands(worktree, base):
+    config = qa_config(worktree)
+    if config is None:
+        return None
+    changed = changed_files(worktree, base)
+    try:
+        return select_gates(config, changed)
+    except ValueError as e:
+        die("%s: %s" % (QA_CONFIG, e))
 
 
 def run_qa_gate(commands, worktree):
     """Run each command in order. Returns (name, cmd, output) of the first failure,
     or None when the whole gate is green."""
-    for name, cmd in commands:
-        info("%s: %s" % (name, cmd))
-        proc = subprocess.run(cmd, cwd=worktree, shell=True,
+    for name, cmd, subdir in commands:
+        cwd = os.path.join(worktree, subdir) if subdir else worktree
+        info("%s: %s%s" % (name, cmd, " (in %s)" % subdir if subdir else ""))
+        proc = subprocess.run(cmd, cwd=cwd, shell=True, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         output = proc.stdout.decode("utf-8", "replace")
         if proc.returncode != 0:
@@ -1050,21 +1275,31 @@ def phase_qa(args, state=None):
     state = state or State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
     context = state.read("context.json")
     worktree = context["repo"]["root"]
+    ref = context["task"]["gid"]
 
     step("QA")
-    commands = qa_commands(worktree)
+    commands = qa_commands(worktree, context["git"].get("base") or "origin/main")
     if commands is None:
         warn("no %s in %s — skipping QA" % (QA_CONFIG, worktree))
         state.mark_done("qa")
         return state
     if not commands:
-        warn("%s defines no lint/build/test commands — skipping QA" % QA_CONFIG)
+        info("no gate in %s applies to the files this branch changed" % QA_CONFIG)
         state.mark_done("qa")
         return state
 
     failure = run_qa_gate(commands, worktree)
-    attempt = 0
-    while failure and attempt < MAX_QA_ATTEMPTS:
+    attempt, guidance = 0, None
+    while failure:
+        if attempt >= MAX_QA_ATTEMPTS:
+            name, _, output = failure
+            state.write("qa.json", {"passed": False, "stage": name,
+                                    "attempts": attempt, "output": output[-8000:]})
+            guidance = raise_problem(
+                state, ref, worktree, args, "qa",
+                "QA gate still failing at %r after %d repair attempt(s) — not shipping"
+                % (name, attempt), output)
+            attempt = 0
         attempt += 1
         name, cmd, output = failure
         info("repair attempt %d/%d" % (attempt, MAX_QA_ATTEMPTS))
@@ -1074,15 +1309,10 @@ def phase_qa(args, state=None):
             stage=name, command=cmd,
             output=output[-8000:],
         )
-        call_agent(prompt, worktree, args, "qa-repair-%d" % attempt, state=state)
+        if guidance:
+            prompt += "\n\n## From the operator\n\n%s\n" % guidance
+        call_agent(prompt, worktree, args, "qa-repair-%d" % attempt, state=state, ref=ref)
         failure = run_qa_gate(commands, worktree)
-
-    if failure:
-        name, _, output = failure
-        state.write("qa.json", {"passed": False, "stage": name,
-                                "attempts": attempt, "output": output[-8000:]})
-        die("QA gate still failing at %r after %d repair attempt(s) — not shipping"
-            % (name, attempt))
 
     state.write("qa.json", {"passed": True, "attempts": attempt})
     state.mark_done("qa")
@@ -1092,51 +1322,159 @@ def phase_qa(args, state=None):
 
 # --- ship -------------------------------------------------------------------
 
+def commit_and_push(context, message, args, state):
+    """Commit whatever the worktree holds and push the branch. A push that fails
+    is a stop, not a warning: an unpushed branch is a PR that does not show the
+    work it claims."""
+    worktree = context["repo"]["root"]
+    branch = context["git"]["branch"]
+    _, dirty, _ = git(["status", "--porcelain"], cwd=worktree)
+    if dirty:
+        git(["add", "-A"], cwd=worktree)
+        git(["commit", "-m", message], cwd=worktree)
+        info("committed working tree")
+    while True:
+        code, _, errout = git(["push", "-u", "origin", branch], cwd=worktree, check=False)
+        if code == 0:
+            info("pushed %s" % branch)
+            return
+        raise_problem(state, context["task"]["gid"], worktree, args, "push",
+                      "could not push %s" % branch, errout)
+
+
+def lookup_pr(branch, cwd):
+    """The open PR for a branch, when the context lost track of it."""
+    code, out, _ = run(["gh", "pr", "list", "--head", branch, "--state", "open",
+                        "--json", "url"], cwd=cwd, check=False)
+    if code != 0 or not out:
+        return None
+    try:
+        prs = json.loads(out)
+    except ValueError:
+        return None
+    return prs[0].get("url") if prs else None
+
+
 def phase_ship(args, state=None):
     state = state or State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
     context = state.read("context.json")
     result = state.read("result.json", {})
     worktree = context["repo"]["root"]
     ref = context["task"]["gid"]
-    pr_url = context["git"]["pr_url"]
+    branch = context["git"]["branch"]
 
     step("Shipping")
-    _, dirty, _ = git(["status", "--porcelain"], cwd=worktree)
-    if dirty:
-        git(["add", "-A"], cwd=worktree)
-        git(["commit", "-m", "%s :: %s" % (
-            context["task"]["id"],
-            (result.get("summary") or context["task"]["name"]).splitlines()[0][:70],
-        )], cwd=worktree)
-        info("committed working tree")
-    git(["push", "origin", context["git"]["branch"]], cwd=worktree, check=False)
+    commit_and_push(context, "%s :: %s" % (
+        context["task"]["id"],
+        (result.get("summary") or context["task"]["name"]).splitlines()[0][:70],
+    ), args, state)
 
-    if pr_url:
-        files = result.get("files_changed") or []
-        body = "## Task\n%s\n\n## What changed\n%s\n" % (
-            context["task"]["url"], result.get("summary") or "(no summary)")
-        if files:
-            body += "\n## Files\n%s\n" % "\n".join("- `%s`" % f for f in files)
-        if result.get("notes"):
-            body += "\n## Notes\n%s\n" % result["notes"]
-        run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
+    pr_url = context["git"].get("pr_url")
+    while not pr_url:
+        pr_url = lookup_pr(branch, worktree)
+        if not pr_url:
+            raise_problem(state, ref, worktree, args, "pr",
+                          "there is no open PR for %s" % branch)
+    if pr_url != context["git"].get("pr_url"):
+        context["git"]["pr_url"] = pr_url
+        state.write("context.json", context)
+
+    files = result.get("files_changed") or []
+    body = "## Task\n%s\n\n## What changed\n%s\n" % (
+        context["task"]["url"], result.get("summary") or "(no summary)")
+    if files:
+        body += "\n## Files\n%s\n" % "\n".join("- `%s`" % f for f in files)
+    if result.get("notes"):
+        body += "\n## Notes\n%s\n" % result["notes"]
+    run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
+    while True:
         code, _, errout = run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
-        info("PR marked ready: %s" % pr_url if code == 0
-             else "could not mark PR ready: %s" % errout)
-    else:
-        warn("no PR URL in context — skipping PR promotion")
+        if code == 0:
+            info("PR marked ready: %s" % pr_url)
+            break
+        raise_problem(state, ref, worktree, args, "pr",
+                      "could not mark %s ready for review" % pr_url, errout)
 
     repo = context["git"]["main_root"]
     code, _, errout = run([sys.executable, ASANA, "task", "set-status", ref,
                            "In Review"], cwd=repo, check=False)
     info("status → In Review" if code == 0 else "could not set status: %s" % errout)
 
-    comment = "🚀 Shipped — %s\n\n%s" % (
-        pr_url or context["git"]["branch"], result.get("summary") or "")
+    comment = mark("🚀 Shipped — %s\n\n%s" % (pr_url, result.get("summary") or ""))
     run([sys.executable, ASANA, "comment", "add", ref, comment],
         cwd=repo, check=False)
     info("posted ship comment")
     state.mark_done("ship")
+    return state
+
+
+# --- revise -----------------------------------------------------------------
+#
+# Review feedback on a shipped PR, applied in the task's own worktree — in the
+# agent's own session when it can still be resumed — then QA'd, pushed and
+# answered on the PR. Not part of a full run: it is what happens after one.
+
+def read_feedback(args):
+    if args.feedback_file:
+        try:
+            with open(args.feedback_file, "r") as f:
+                return f.read().strip()
+        except (IOError, OSError) as e:
+            die("cannot read --feedback-file %s (%s)" % (args.feedback_file, e),
+                escalate=False)
+    return (args.feedback or "").strip()
+
+
+def phase_revise(args, state=None):
+    state = state or State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
+    context = state.read("context.json")
+    if not context:
+        die("no context.json — run the task first", escalate=False)
+    feedback = read_feedback(args)
+    if not feedback:
+        die("revise needs the feedback: --feedback or --feedback-file", escalate=False)
+    worktree = context["repo"]["root"]
+    ref = context["task"]["gid"]
+    pr_url = context["git"].get("pr_url")
+    if not os.path.isdir(worktree):
+        die("the worktree is gone: %s" % worktree)
+
+    step("Revising")
+    session = state.read("session.json") or {}
+    resume = session.get("token") if session.get("backend") == args.backend else None
+    info("resuming session %s" % resume if resume else "no session to resume — fresh call")
+
+    def build_prompt(transcript):
+        prompt = render_prompt(
+            "revise.md",
+            task=json.dumps(context["task"], indent=2),
+            branch=context["git"]["branch"],
+            base=context["git"].get("base") or "origin/main",
+            pr=pr_url or "(none)",
+            feedback=feedback,
+        )
+        return prompt + render_resume_section(worktree, transcript) if transcript else prompt
+
+    outcome = call_agent_resumable(build_prompt, worktree, args, "revise", ref, state,
+                                   resume=resume)
+    result = outcome.structured or {"summary": outcome.text.strip()[:2000]}
+    phase_qa(args, state)
+    commit_and_push(context, "%s :: address review feedback" % context["task"]["id"],
+                    args, state)
+
+    reply = (result.get("reply") or result.get("summary") or "").strip()
+    if pr_url:
+        body = mark("Addressed review feedback\n\n%s" % (reply or "(no summary)"))
+        while True:
+            code, _, errout = run(["gh", "pr", "comment", pr_url, "--body", body],
+                                  cwd=worktree, check=False)
+            if code == 0:
+                info("replied on %s" % pr_url)
+                break
+            raise_problem(state, ref, worktree, args, "pr",
+                          "could not reply on %s" % pr_url, errout)
+    state.write("revise.json", {"at": time.time(), "summary": result.get("summary"),
+                                "reply": reply})
     return state
 
 
@@ -1148,17 +1486,56 @@ def phase_ship(args, state=None):
 RESUMABLE = ("implement", "qa", "ship")
 
 
-def phase_run(args):
-    tid = phase_prologue(args)
-    args.task = tid
-    state = State(main_repo_root(os.path.abspath(args.repo)), tid)
-
+def acquire_run(state):
+    """Claim the task for this process, or stop when another live run has it."""
     other = live_run_pid(state.read("run.json"))
     if other and other != os.getpid():
         die("another run for %s is already going (pid %d). Wait for it, or kill it:\n"
-            "  kill %d" % (tid, other, other))
+            "  kill %d" % (state.task_id, other, other), escalate=False)
     state.write("run.json", {"pid": os.getpid(), "started": time.time()})
 
+
+def phase_run(args):
+    """Every phase in order. Anything that stops it short of a ready PR is posted
+    to the task, and the run waits for a reply and goes again from the top: the
+    prologue is idempotent and every later phase is skipped once done."""
+    args.wait_on_failure = True
+    url = args.task
+    state = None
+    try:
+        while True:
+            args.task = url
+            try:
+                tid = phase_prologue(args)
+                state = State(main_repo_root(os.path.abspath(args.repo)), tid)
+                acquire_run(state)
+                run_remaining(state, args)
+                break
+            except Failure as failure:
+                tid = getattr(args, "task_key", None)
+                if not failure.escalate or not tid:
+                    raise
+                state = State(main_repo_root(os.path.abspath(args.repo)), tid)
+                ref = (state.read("context.json", {}).get("task") or {}).get("gid")
+                if not ref:
+                    ref = asana(["ref", "parse", url], cwd=os.path.abspath(args.repo))
+                sys.stderr.write("\nstart-task: %s\n" % failure)
+                escalate(state, str(ref).strip(), os.path.abspath(args.repo), args,
+                         "failure",
+                         format_problem_comment("The run stopped: %s"
+                                                % str(failure).splitlines()[0],
+                                                str(failure)))
+    finally:
+        if state is not None and live_run_pid(state.read("run.json")) == os.getpid():
+            state.remove("run.json")
+    args.task = tid
+    state.remove("awaiting.json")
+    step("Done")
+    info("task %s shipped" % tid)
+    report_session(state)
+
+
+def run_remaining(state, args):
     done = state.phases_done()
     problems = checkpoint_problems(state.read("context.json", {}))
     if problems and done:
@@ -1171,15 +1548,8 @@ def phase_run(args):
     for phase in RESUMABLE:
         if phase in done:
             info("%s already done — skipping (--phase %s to redo)" % (phase, phase))
-
-    try:
-        for phase in phases_to_run(RESUMABLE, done):
-            state = PHASE_HANDLERS[phase](args, state) or state
-    finally:
-        state.remove("run.json")
-    step("Done")
-    info("task %s shipped" % tid)
-    report_session(state)
+    for phase in phases_to_run(RESUMABLE, done):
+        state = PHASE_HANDLERS[phase](args, state) or state
 
 
 def phase_status(args):
@@ -1210,9 +1580,18 @@ def phase_status(args):
 
     awaiting = state.read("awaiting.json")
     if awaiting:
-        warn("waiting on an answer in the task since %s:" % awaiting.get("asked_at"))
+        warn("waiting on a reply in the task since %s (%s):"
+             % (awaiting.get("asked_at"), awaiting.get("kind") or "questions"))
+        if awaiting.get("headline"):
+            info("  %s" % awaiting["headline"])
         for q in awaiting.get("questions") or []:
             info("  Q: %s" % q.get("q"))
+
+    outcome = state.read(OUTCOME_FILE)
+    if outcome:
+        info("last outcome: %s%s" % (outcome.get("status"),
+                                     " — %s" % outcome["reason"].splitlines()[0]
+                                     if outcome.get("reason") else ""))
 
     for problem in checkpoint_problems(context):
         warn(problem)
@@ -1246,9 +1625,16 @@ def build_parser():
                         help="make Estimate and sprint membership blocking")
     parser.add_argument("--ignore-deps", action="store_true",
                         help="warn instead of blocking on incomplete dependencies")
-    parser.add_argument("--no-ask", action="store_true",
-                        help="do not ask the task manager when the agent is blocked; "
-                             "treat a questions block as the end of the run")
+    parser.add_argument("--no-wait", action="store_true",
+                        help="post a question or problem to the task and exit (code "
+                             "%d) instead of waiting; a rerun picks the reply up"
+                             % EXIT_AWAITING)
+    parser.add_argument("--feedback", default=None,
+                        help="revise: the review feedback to apply")
+    parser.add_argument("--feedback-file", default=None,
+                        help="revise: read the feedback from this file")
+    parser.add_argument("--result-file", default=None,
+                        help="also write the run's outcome JSON here")
 
     parser.add_argument("--backend", default=DEFAULT_BACKEND,
                         choices=backend_names(),
@@ -1282,7 +1668,31 @@ PHASE_HANDLERS = {
     "implement": phase_implement,
     "qa": phase_qa,
     "ship": phase_ship,
+    "revise": phase_revise,
 }
+
+
+def write_outcome(args, status, reason=None):
+    """Record how the run ended in the task's state and, when asked, at
+    --result-file. Whatever launched the run reads this, never the console."""
+    tid = getattr(args, "task_key", None) or args.task
+    state = None
+    try:
+        candidate = State(main_repo_root(os.path.abspath(args.repo)), tid)
+        if os.path.isdir(candidate.dir):
+            state = candidate
+    except Failure:
+        pass
+    outcome = build_outcome(status, tid,
+                            state.read("context.json") if state else None,
+                            state.read("session.json") if state else None,
+                            reason)
+    if state:
+        state.write(OUTCOME_FILE, outcome)
+    if args.result_file:
+        with open(args.result_file, "w") as f:
+            json.dump(outcome, f, indent=2)
+            f.write("\n")
 
 
 def main(argv):
@@ -1291,21 +1701,43 @@ def main(argv):
 
     if args.backends:
         phase_backends(args)
-        return 0
+        return EXIT_OK
     if args.task is None:
         parser.error("a task URL or id is required")
     if args.status:
         phase_status(args)
-        return 0
-    if args.phase:
-        # Handlers return the state they worked in; the prologue returns a task id
-        # and has no session to report.
-        outcome = PHASE_HANDLERS[args.phase](args)
-        if isinstance(outcome, State):
-            report_session(outcome)
-        return 0
-    phase_run(args)
-    return 0
+        return EXIT_OK
+    try:
+        if args.phase == "revise":
+            args.wait_on_failure = True
+            state = State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
+            acquire_run(state)
+            try:
+                phase_revise(args, state)
+            finally:
+                state.remove("run.json")
+            report_session(state)
+            status = "revised"
+        elif args.phase:
+            # Handlers return the state they worked in; the prologue returns a task
+            # id and has no session to report.
+            outcome = PHASE_HANDLERS[args.phase](args)
+            if isinstance(outcome, State):
+                report_session(outcome)
+            status = "done"
+        else:
+            phase_run(args)
+            status = "shipped"
+    except Awaiting as waiting:
+        info(str(waiting))
+        write_outcome(args, "awaiting", str(waiting))
+        return EXIT_AWAITING
+    except Failure as failure:
+        sys.stderr.write("\nstart-task: %s\n" % failure)
+        write_outcome(args, "failed", str(failure))
+        return EXIT_FAILED
+    write_outcome(args, status)
+    return EXIT_OK
 
 
 if __name__ == "__main__":
