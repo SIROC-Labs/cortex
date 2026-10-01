@@ -395,6 +395,7 @@ class App(object):
         self.compose = None
         self.edit_request = None
         self.posting = {}
+        self.sent = []
         self.snapshot()
 
     # data
@@ -458,6 +459,8 @@ class App(object):
                     self.message = "could not refresh the board: %s" % done[1]
                 else:
                     self.sections[gid], self.sections_at[gid] = done[0], now
+        if self.sent:
+            self.follow_commands()
         for gid in list(self.posting):
             done = self.loader.take("answer-%s" % gid)
             if done:
@@ -600,7 +603,20 @@ class App(object):
 
     def command(self, op, gid):
         applied = self.data.get("applied", 0)
-        self.change_control(lambda c: dm.add_command(c, op, gid, applied))
+        cid = self.change_control(lambda c: dm.add_command(c, op, gid, applied))
+        key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key") or gid
+        self.sent.append({"id": cid, "op": op, "key": key, "at": time.time()})
+        self.follow_commands()
+
+    def follow_commands(self):
+        """Say what became of each command sent: done, ignored, or still waiting."""
+        for sent in list(self.sent):
+            message, settled = dm.command_feedback(
+                sent, self.data.get("applied", 0), self.data.get("results"),
+                self.alive, time.time())
+            self.message = message
+            if settled:
+                self.sent.remove(sent)
 
     def act(self, key, row):
         name = TABS[self.tab]
@@ -822,6 +838,10 @@ class App(object):
             " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])
                              if self.daemon.get("forward") else "") if self.alive else "",
             sprint), "bold")
+        if self.alive and self.daemon.get("code") != dm.code_version():
+            note = ("  daemon runs older code — x then s on the Daemons tab restarts it "
+                    if not self.daemon.get("code") else "  daemon updates once its runs finish ")
+            _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
         if self.waits:
             flag = "  ⚑ %d waiting on you " % len(self.waits)
             _put_at(scr, 0, max(0, w - len(flag) - 1), flag, w, styles["warn"])

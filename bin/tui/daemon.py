@@ -37,7 +37,48 @@ SERVE_TICK = 2
 STALE_AFTER = 120
 
 
+# The code a daemon runs in-process. When any of it changes, the daemon restarts
+# onto the new code at the first moment no run is in flight.
+CODE_FILES = (
+    os.path.join(HERE, "daemon.py"),
+    os.path.join(os.path.dirname(HERE), "run-milestone", "engine.py"),
+    os.path.join(os.path.dirname(HERE), "start-task", "start_task.py"),
+)
+COMMANDS = ("stop", "retry", "merge", "merge-cancel")
+
+
 # --- pure helpers (unit-tested) ---------------------------------------------
+
+def code_version(paths=CODE_FILES):
+    """A short fingerprint of the daemon's code, from the files' change times."""
+    digest = hashlib.sha1()
+    for path in paths:
+        try:
+            digest.update(("%s:%d;" % (path, os.stat(path).st_mtime_ns)).encode())
+        except OSError:
+            digest.update(("%s:missing;" % path).encode())
+    return digest.hexdigest()[:12]
+
+
+def command_feedback(sent, applied, results, alive, now):
+    """What to tell the person about a command they sent: (message, settled).
+    `sent` is {id, op, key, at}; `results` the daemon's record of what it did."""
+    result = next((r for r in results or [] if r.get("id") == sent["id"]), None)
+    if applied >= sent["id"]:
+        if result and not result.get("ok"):
+            return ("the daemon did not act on %s for %s: %s"
+                    % (sent["op"], sent["key"], result.get("note") or "unknown command"), True)
+        return ({"merge": "merging %s — the Runs tab shows each step" % sent["key"],
+                 "merge-cancel": "no longer merging %s" % sent["key"],
+                 "stop": "stopped %s" % sent["key"],
+                 "retry": "%s will start again when it is ready" % sent["key"]}
+                .get(sent["op"], "done"), True)
+    if not alive:
+        return ("the daemon is not running, so %s for %s is waiting — s on the Daemons "
+                "tab starts it" % (sent["op"], sent["key"]), False)
+    if now - sent["at"] > 15:
+        return "the daemon has not picked up %s for %s yet…" % (sent["op"], sent["key"]), False
+    return "%s asked for %s…" % (sent["op"], sent["key"]), False
 
 def empty_control():
     return {"queue": [], "sprint": None, "commands": []}
@@ -287,8 +328,15 @@ class QueueRun(Engine):
             if new:
                 self.reconcile_all()
         applied = self.data.get("applied", 0)
+        results = self.data.setdefault("results", [])
         for command in pending_commands(control, applied):
             gid = command["gid"]
+            if command["op"] not in COMMANDS:
+                log("ignored a command this daemon does not know: %s" % command["op"])
+                results.append({"id": command["id"], "ok": False,
+                                "note": "this daemon does not know %r" % command["op"]})
+            else:
+                results.append({"id": command["id"], "ok": True})
             if command["op"] == "stop":
                 self.stop(gid, "stopped from the TUI")
             elif command["op"] == "merge":
@@ -301,12 +349,25 @@ class QueueRun(Engine):
                     self.set_phase(gid, None, reason=None)
             applied = command["id"]
         self.data["applied"] = applied
+        self.data["results"] = results[-20:]
 
-    def heartbeat(self, started):
+    def heartbeat(self, started, version):
         write_json(os.path.join(self.dir, "daemon.json"), {
             "pid": os.getpid(), "main_root": self.main_root, "started": started,
-            "beat": time.time(), "forward": self.forward,
+            "beat": time.time(), "forward": self.forward, "code": version,
         })
+
+    def idle(self):
+        """No run in flight — launched or adopted — so restarting loses nothing."""
+        return not self.children and not any(
+            st.live_run_pid({"pid": r.get("pid")}) for r in self.records.values() if r.get("pid"))
+
+    def reload(self):
+        """Become a fresh daemon on the current code: the same pid, the same files,
+        nothing interrupted. Only called when idle."""
+        log("code changed — restarting onto it")
+        self.save()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def serve(self):
         info, alive = daemon_info(self.main_root)
@@ -314,8 +375,9 @@ class QueueRun(Engine):
             raise Stop("a daemon is already running for %s (pid %s)"
                        % (self.main_root, info["pid"]))
         started = time.time()
+        version = code_version()
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        self.heartbeat(started)
+        self.heartbeat(started, version)
         write_json(registry_path(self.main_root),
                    {"pid": os.getpid(), "main_root": self.main_root, "started": started})
         log("daemon up for %s (pid %d)" % (self.main_root, os.getpid()))
@@ -325,12 +387,14 @@ class QueueRun(Engine):
             self.refresh()
             self.reconcile_all()
             while True:
+                if code_version() != version and self.idle():
+                    self.reload()
                 self.apply_control()
                 if self.control["queue"] or self.children:
                     self.tick()
                 else:
                     self.save()
-                self.heartbeat(started)
+                self.heartbeat(started, version)
                 time.sleep(SERVE_TICK)
         finally:
             self.kill_all()

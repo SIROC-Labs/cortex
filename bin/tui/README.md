@@ -114,6 +114,14 @@ never stale. The cache is only ever a copy; deleting it costs one slower first l
   the repo's worktrees with no run over it (one left by a run killed some other way)
   is listed on the Runs tab as well, and `x` stops it.
 
+## Updates
+
+The daemon restarts itself onto new code — after a `git pull`, say — at the first
+moment no run is in flight, so nothing is interrupted; until then the header says it
+will update once its runs finish. Every command the TUI sends (merge, stop, retry) is
+followed until the daemon acts on it, and the TUI says if it was not understood or not
+picked up.
+
 ## Files
 
 `<repo>/.cortex/queue/`:

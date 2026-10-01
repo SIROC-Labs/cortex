@@ -640,6 +640,55 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual(asked, [("2", "https://github.com/o/r/pull/7")])
 
 
+class TestCodeVersion(unittest.TestCase):
+    def test_changes_when_a_file_changes(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        path = os.path.join(root, "engine.py")
+        with open(path, "w") as f:
+            f.write("x")
+        before = dm.code_version([path])
+        self.assertEqual(dm.code_version([path]), before)
+        os.utime(path, ns=(1, 1))
+        self.assertNotEqual(dm.code_version([path]), before)
+
+
+class TestCommandFeedback(unittest.TestCase):
+    SENT = {"id": 4, "op": "merge", "key": "HCI-26", "at": 100}
+
+    def test_applied_and_understood(self):
+        self.assertEqual(dm.command_feedback(self.SENT, 4, [{"id": 4, "ok": True}], True, 101),
+                         ("merging HCI-26 — the Runs tab shows each step", True))
+
+    def test_applied_but_not_understood_says_so(self):
+        message, settled = dm.command_feedback(
+            self.SENT, 4, [{"id": 4, "ok": False, "note": "this daemon does not know 'merge'"}],
+            True, 101)
+        self.assertTrue(settled)
+        self.assertIn("did not act on merge for HCI-26", message)
+
+    def test_waiting_then_overdue_then_no_daemon(self):
+        self.assertEqual(dm.command_feedback(self.SENT, 3, [], True, 101),
+                         ("merge asked for HCI-26…", False))
+        self.assertIn("has not picked up", dm.command_feedback(self.SENT, 3, [], True, 130)[0])
+        self.assertIn("not running", dm.command_feedback(self.SENT, 3, [], False, 101)[0])
+
+
+class TestUnknownCommands(unittest.TestCase):
+    def test_a_command_the_daemon_does_not_know_is_recorded_not_dropped(self):
+        import subprocess
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        subprocess.run(["git", "init", "-q", root], check=True)
+        with dm.control_file(root) as c:
+            dm.add_command(c, "frobnicate", "1")
+            dm.add_command(c, "merge-cancel", "1")
+        run = dm.QueueRun(root, [])
+        run.apply_control()
+        self.assertEqual(run.data["applied"], 2)
+        self.assertEqual([(r["id"], r["ok"]) for r in run.data["results"]], [(1, False), (2, True)])
+
+
 class TestLogLine(unittest.TestCase):
     def test_escape_codes_are_removed_and_headings_stay_bold(self):
         self.assertEqual(log_line("\x1b[1mFetching task\x1b[0m"), ("Fetching task", "bold"))
