@@ -27,7 +27,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import Engine, Stop, log, st  # noqa: E402
+from engine import Engine, Stop, kill_tree, log, st  # noqa: E402
 
 QUEUE_DIRNAME = "queue"
 REGISTRY = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "daemons")
@@ -96,6 +96,30 @@ def unmanaged(live_runs, managed_pids):
     all of them shown, so none is a ghost."""
     managed = set(managed_pids)
     return sorted((tid, pid) for tid, pid in live_runs if pid not in managed)
+
+
+def orphan_agents(rows, worktrees_dir, owners):
+    """Processes working in this repo's worktrees that no live run owns:
+    [(worktree, pid)]. An agent whose run was killed keeps editing unseen; this is
+    how it is found. Only the topmost such process of a tree is listed — stopping
+    it is what matters. `rows` is [(pid, ppid, command)]."""
+    parent = {pid: ppid for pid, ppid, _ in rows}
+    marker = worktrees_dir.rstrip("/") + "/"
+    working = {pid: cmd for pid, _, cmd in rows if marker in cmd}
+    owners = set(owners)
+    out = []
+    for pid, cmd in working.items():
+        seen, up, owned = set(), parent.get(pid), False
+        while up and up not in seen:
+            if up in owners or up in working:
+                owned = True
+                break
+            seen.add(up)
+            up = parent.get(up)
+        if not owned:
+            tree = cmd.split(marker, 1)[1].split("/")[0].split()[0]
+            out.append((tree, pid))
+    return sorted(out)
 
 
 # --- files ------------------------------------------------------------------
@@ -203,12 +227,40 @@ def stop_daemon(info):
         return False
 
 
-def kill_pid(pid):
+def ps_rows():
+    """[(pid, ppid, command)] for every process on the machine."""
     try:
-        os.kill(pid, signal.SIGTERM)
-        return True
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+    except OSError:
+        return []
+    rows = []
+    for line in out.decode("utf-8", "replace").splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    return rows
+
+
+def live_agents(main_root, owners):
+    worktrees = os.path.join(main_root, st.CORTEX_DIRNAME, st.WORKTREES_DIRNAME)
+    return orphan_agents(ps_rows(), worktrees, owners)
+
+
+def kill_pid(pid):
+    """Stop a stray process and what it started. One left in the group of a run
+    that is gone takes the rest of that group with it."""
+    try:
+        group = os.getpgid(pid)
     except OSError:
         return False
+    if group != pid and not st.live_run_pid({"pid": group}):
+        try:
+            os.killpg(group, signal.SIGTERM)
+            return True
+        except OSError:
+            pass
+    return kill_tree(pid)
 
 
 # --- the daemon -------------------------------------------------------------

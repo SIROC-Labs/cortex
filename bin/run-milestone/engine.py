@@ -229,7 +229,7 @@ def describe(gid, tasks, records, me_gid):
     task = tasks[gid]
     if phase == "merged":
         hours = record.get("actual_hours")
-        return "merged — %.2fh from In Progress" % hours if hours is not None else "merged"
+        return "merged — %.2fh of run time" % hours if hours is not None else "merged"
     if task.get("completed"):
         return "completed"
     if phase == "running":
@@ -251,23 +251,26 @@ def describe(gid, tasks, records, me_gid):
     return "; ".join(blocked) if blocked else "ready"
 
 
-def parse_iso(stamp):
-    """Seconds since the epoch from an ISO-8601 UTC stamp like GitHub's
-    `2026-10-01T12:00:00Z`, or None."""
-    import calendar
+def actual_hours(worked_seconds):
+    """A task's run time in hours, at the hundredth Asana shows. None when no run
+    recorded any."""
+    if not worked_seconds or worked_seconds <= 0:
+        return None
+    return round(worked_seconds / 3600.0, 2)
+
+
+def kill_tree(pid):
+    """Stop a run and everything it started. A run launched here leads its own
+    process group, so its agent and QA commands go with it; anything else gets
+    the signal on its own. Returns whether there was something to stop."""
     try:
-        return calendar.timegm(time.strptime((stamp or "").replace("Z", "")[:19],
-                                             "%Y-%m-%dT%H:%M:%S"))
-    except ValueError:
-        return None
-
-
-def actual_hours(started_at, merged_at):
-    """Hours from In Progress to merged, at the hundredth Asana shows. None when
-    either end is unknown or they are the wrong way round."""
-    if started_at is None or merged_at is None or merged_at < started_at:
-        return None
-    return round((merged_at - started_at) / 3600.0, 2)
+        if os.getpgid(pid) == pid:
+            os.killpg(pid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+        return True
+    except OSError:
+        return False
 
 
 def has_value(display):
@@ -474,8 +477,10 @@ class Engine(object):
         logfile.flush()
         cmd = ([sys.executable, START_TASK] + argv
                + ["--repo", self.repo, "--result-file", result] + self.forward)
+        # Its own process group, so stopping the run stops its agent too.
         proc = subprocess.Popen(cmd, cwd=self.repo, stdin=subprocess.DEVNULL,
-                                stdout=logfile, stderr=subprocess.STDOUT)
+                                stdout=logfile, stderr=subprocess.STDOUT,
+                                start_new_session=True)
         logfile.close()
         self.children[gid] = proc
         self.set_phase(gid, phase, pid=proc.pid, log=self.path("logs", "%s.log" % key),
@@ -575,7 +580,7 @@ class Engine(object):
         changed = False
         if view is not None:
             if view.get("state") == "MERGED":
-                self.merged(gid, parse_iso(view.get("mergedAt")))
+                self.merged(gid)
                 return
             if view.get("state") == "CLOSED":
                 self.set_phase(gid, "stopped", reason="PR closed without merging")
@@ -625,9 +630,9 @@ class Engine(object):
         self.post_task(gid, "%s\n\n%s" % (text, record["pr_url"]))
         log("%s: PR conflicts with its base — parked" % self.key_of(gid))
 
-    def merged(self, gid, merged_at=None):
+    def merged(self, gid):
         key = self.key_of(gid)
-        self.record_actual(gid, merged_at or time.time())
+        self.record_actual(gid)
         self.asana(["task", "complete", gid])
         code, _ = self.asana(["task", "set-status", gid, "Done"], check=False)
         if code != 0:
@@ -646,14 +651,14 @@ class Engine(object):
         self.set_phase(gid, "merged")
         self.refresh_due = 0
 
-    def record_actual(self, gid, merged_at):
-        """Put the time from In Progress to merge in the task's Actual field —
-        unless someone already filled it in, or the start was never recorded."""
+    def record_actual(self, gid):
+        """Put the task's run time — what its start-task runs spent working, not
+        waiting — in its Actual field, unless someone already filled it in."""
         key = self.key_of(gid)
-        started = (self.start_state(gid).read(st.TIMING_FILE) or {}).get("in_progress_at")
-        hours = actual_hours(started, merged_at)
+        worked = (self.start_state(gid).read(st.TIMING_FILE) or {}).get("worked_seconds")
+        hours = actual_hours(worked)
         if hours is None:
-            log("%s: no In Progress time recorded — Actual left alone" % key)
+            log("%s: no run time recorded — Actual left alone" % key)
             return
         _, task = self.asana(["task", "get", gid], check=False)
         if has_value(((task or {}).get("fields") or {}).get("Actual")):
@@ -685,10 +690,7 @@ class Engine(object):
         proc = self.children.pop(gid, None)
         pid = proc.pid if proc else (self.records.get(gid) or {}).get("pid")
         if pid and st.live_run_pid({"pid": pid}):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
+            kill_tree(pid)
 
     def kill_all(self):
         """Stop every run this engine launched or adopted, so none outlives it

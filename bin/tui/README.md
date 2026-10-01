@@ -70,6 +70,10 @@ never stale. The cache is only ever a copy; deleting it costs one slower first l
   the daemon owns it — a hand run, a `run-milestone` loop, an orphan of a crashed
   daemon — and `x` stops it. A restarted daemon adopts an orphan of its own instead
   of starting it again.
+- Every run is started in its own process group, and stopping it stops the group —
+  its agent and QA commands too, not just the run. An agent still working in one of
+  the repo's worktrees with no run over it (one left by a run killed some other way)
+  is listed on the Runs tab as well, and `x` stops it.
 
 ## Files
 

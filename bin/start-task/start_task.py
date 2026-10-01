@@ -32,6 +32,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -95,8 +96,12 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_AWAITING = 3
 OUTCOME_FILE = "outcome.json"
-# When the task moved to In Progress — the start of its actual time.
+# How long runs have worked on the task, summed across every run of it — the
+# task's actual time. Waiting on a human does not count.
 TIMING_FILE = "timing.json"
+
+# Seconds this process has spent waiting on a reply, so far.
+WAITED = [0.0]
 
 
 # --- output -----------------------------------------------------------------
@@ -573,9 +578,6 @@ def phase_prologue(args):
                            "In Progress"], cwd=repo, check=False)
     info("status → In Progress" if code == 0
          else "could not set status: %s" % errout)
-    # First write wins: a resumed run is the same stretch of work, not a new one.
-    if not (state.read(TIMING_FILE) or {}).get("in_progress_at"):
-        state.write(TIMING_FILE, {"in_progress_at": time.time()})
 
     marker = "🏁 Starting work — branch: `%s`" % branch
     if any(marker in (c.get("text") or "") for c in comments):
@@ -1096,6 +1098,7 @@ def escalate(state, ref, cwd, args, kind, body, extra=None):
         delay = poll_interval(attempt)
         time.sleep(delay)
         waited += delay
+        WAITED[0] += delay
         if waited % 600 < delay:
             info("still waiting (%s)" % _elapsed(waited))
 
@@ -1679,17 +1682,33 @@ PHASE_HANDLERS = {
 }
 
 
+def task_state(args):
+    """The task's state, when the run got far enough to have one."""
+    tid = getattr(args, "task_key", None) or args.task
+    try:
+        state = State(main_repo_root(os.path.abspath(args.repo)), tid)
+    except Failure:
+        return None
+    return state if os.path.isdir(state.dir) else None
+
+
+def record_work(args, seconds):
+    """Add this run's working time to the task's total. Every run of a task adds
+    its own, so a resumed or revised task sums what each run did."""
+    state = task_state(args)
+    if state is None or seconds <= 0:
+        return
+    timing = state.read(TIMING_FILE) or {}
+    timing["worked_seconds"] = round((timing.get("worked_seconds") or 0) + seconds, 1)
+    timing["runs"] = (timing.get("runs") or 0) + 1
+    state.write(TIMING_FILE, timing)
+
+
 def write_outcome(args, status, reason=None):
     """Record how the run ended in the task's state and, when asked, at
     --result-file. Whatever launched the run reads this, never the console."""
     tid = getattr(args, "task_key", None) or args.task
-    state = None
-    try:
-        candidate = State(main_repo_root(os.path.abspath(args.repo)), tid)
-        if os.path.isdir(candidate.dir):
-            state = candidate
-    except Failure:
-        pass
+    state = task_state(args)
     outcome = build_outcome(status, tid,
                             state.read("context.json") if state else None,
                             state.read("session.json") if state else None,
@@ -1714,6 +1733,16 @@ def main(argv):
     if args.status:
         phase_status(args)
         return EXIT_OK
+    # A stop from outside unwinds like Ctrl-C, so the time worked is still kept.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
+    started = time.time()
+    try:
+        return run_task(args)
+    finally:
+        record_work(args, time.time() - started - WAITED[0])
+
+
+def run_task(args):
     try:
         if args.phase == "revise":
             args.wait_on_failure = True

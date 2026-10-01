@@ -69,6 +69,28 @@ class TestUnmanaged(unittest.TestCase):
         self.assertEqual(dm.unmanaged([], [10]), [])
 
 
+class TestOrphanAgents(unittest.TestCase):
+    WT = "/repo/.cortex/worktrees"
+    AGENT = "claude -p --add-dir /repo/.cortex/worktrees/HCI-6+ci8-mailbox --model x"
+
+    def test_an_agent_whose_run_is_gone_is_found(self):
+        rows = [(1, 0, "launchd"), (500, 1, self.AGENT)]
+        self.assertEqual(dm.orphan_agents(rows, self.WT, []), [("HCI-6+ci8-mailbox", 500)])
+
+    def test_an_agent_under_a_live_run_is_owned(self):
+        rows = [(1, 0, "launchd"), (400, 1, "python start_task.py ..."), (500, 400, self.AGENT)]
+        self.assertEqual(dm.orphan_agents(rows, self.WT, [400]), [])
+
+    def test_only_the_top_of_a_stray_tree_is_listed(self):
+        rows = [(500, 1, self.AGENT),
+                (501, 500, "bash -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && make")]
+        self.assertEqual([pid for _, pid in dm.orphan_agents(rows, self.WT, [])], [500])
+
+    def test_other_repos_and_processes_are_not_ours(self):
+        rows = [(500, 1, "claude -p --add-dir /other/.cortex/worktrees/X+y"), (9, 1, "vim")]
+        self.assertEqual(dm.orphan_agents(rows, self.WT, []), [])
+
+
 class TestControlFile(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
@@ -102,8 +124,10 @@ class TestRunRows(unittest.TestCase):
                 "tasks": {"1": {"key": "HCI-1", "name": "CI1", "completed": False,
                                 "status": "Unassigned", "deps": []}},
                 "records": {"1": {"phase": "running", "pid": 10, "log": "/l"}}}
-        rows = run_rows(control, data, [("HCI-1", 10), ("HCI-7", 77)])
-        self.assertEqual([r["kind"] for r in rows], ["task", "task", "orphan"])
+        rows = run_rows(control, data, [("HCI-1", 10), ("HCI-7", 77)],
+                        agents=[("HCI-6+mailbox", 500)])
+        self.assertEqual([r["kind"] for r in rows], ["task", "task", "orphan", "orphan"])
+        self.assertIn("no run owns it", rows[3]["cols"][1])
         self.assertEqual(rows[0]["cols"][2], "queued — not read yet")
         self.assertEqual(rows[1]["cols"][:2], ["HCI-1", "CI1"])
         self.assertEqual(rows[1]["style"], "ok")

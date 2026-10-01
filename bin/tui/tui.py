@@ -53,9 +53,9 @@ def matches(text, query):
     return all(word in text for word in (query or "").lower().split())
 
 
-def run_rows(control, data, live, me_gid=None):
+def run_rows(control, data, live, me_gid=None, agents=()):
     """The Runs tab: every queued task in queue order, then every live start-task
-    run nothing here owns."""
+    run nothing here owns, then every agent left working with no run at all."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
     me_gid = me_gid or (data.get("me") or {}).get("gid")
     rows = []
@@ -82,6 +82,10 @@ def run_rows(control, data, live, me_gid=None):
         rows.append({"kind": "orphan", "id": pid, "style": "warn", "links": [],
                      "cols": [tid, "start-task pid %d" % pid,
                               "not run by this repo's daemon — x stops it"]})
+    for tree, pid in agents:
+        rows.append({"kind": "orphan", "id": pid, "style": "bad", "links": [],
+                     "cols": [tree.split("+")[0], "agent pid %d, no run owns it" % pid,
+                              "still working in %s — x stops it" % tree]})
     return rows
 
 
@@ -296,6 +300,7 @@ class App(object):
         self.data = dm.read_json(os.path.join(dm.queue_dir(self.main_root), "state.json")) or {}
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
+        self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
 
     def fetch_boards(self):
         me, _ = self.cache.get("me")
@@ -360,7 +365,7 @@ class App(object):
         name = TABS[self.tab]
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
-            return run_rows(self.control, self.data, self.live)
+            return run_rows(self.control, self.data, self.live, agents=self.agents)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
@@ -417,7 +422,7 @@ class App(object):
                     self.command("stop", row["id"]),
                     self.change_control(lambda c: dm.queue_remove(c, [row["id"]]))))
             elif key == "x" and row["kind"] == "orphan":
-                self.ask("stop start-task pid %d? (y/n)" % row["id"],
+                self.ask("stop pid %d and what it started? (y/n)" % row["id"],
                          lambda: dm.kill_pid(row["id"]))
             elif key == "r" and row["kind"] == "task":
                 self.command("retry", row["id"])
@@ -703,7 +708,8 @@ def print_status(main_root):
     sys.stdout.write("daemon:  %s%s\n" % (dm.daemon_health(info, alive, time.time()),
                                          " (pid %s)" % info.get("pid") if alive else ""))
     sys.stdout.write("sprint:  %s\n" % ((control.get("sprint") or {}).get("name") or "none"))
-    rows = run_rows(control, data, dm.live_runs(main_root))
+    live = dm.live_runs(main_root)
+    rows = run_rows(control, data, live, agents=dm.live_agents(main_root, [p for _, p in live]))
     if not rows:
         sys.stdout.write("\nnothing queued\n")
     for row in rows:

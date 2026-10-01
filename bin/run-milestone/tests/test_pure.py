@@ -19,8 +19,8 @@ from engine import (  # noqa: E402
     collect_feedback,
     describe,
     has_value,
+    kill_tree,
     outcome_phase,
-    parse_iso,
     parse_pr_url,
     parse_project_ref,
     ready_tasks,
@@ -285,19 +285,13 @@ class TestReconcile(unittest.TestCase):
 
 
 class TestActualTime(unittest.TestCase):
-    def test_hours_from_in_progress_to_merge_at_two_places(self):
-        self.assertEqual(actual_hours(1000, 1000 + 3600 * 3 + 900), 3.25)
-        self.assertEqual(actual_hours(0, 61), 0.02)
+    def test_run_time_in_hours_at_two_places(self):
+        self.assertEqual(actual_hours(3 * 3600 + 900), 3.25)
+        self.assertEqual(actual_hours(61), 0.02)
 
-    def test_unknown_or_backwards_ends_give_nothing(self):
-        self.assertIsNone(actual_hours(None, 100))
-        self.assertIsNone(actual_hours(100, None))
-        self.assertIsNone(actual_hours(200, 100))
-
-    def test_githubs_merge_stamp_is_utc(self):
-        self.assertEqual(parse_iso("1970-01-01T01:00:00Z"), 3600)
-        self.assertIsNone(parse_iso(None))
-        self.assertIsNone(parse_iso("yesterday"))
+    def test_no_recorded_run_time_gives_nothing(self):
+        for none in (None, 0, -5):
+            self.assertIsNone(actual_hours(none))
 
     def test_a_value_someone_entered_is_kept_an_empty_or_zero_one_is_not(self):
         self.assertTrue(has_value("1.38"))
@@ -307,7 +301,33 @@ class TestActualTime(unittest.TestCase):
     def test_merged_shows_the_hours(self):
         g = {"1": t("a", completed=True)}
         self.assertEqual(describe("1", g, {"1": {"phase": "merged", "actual_hours": 3.25}}, ME),
-                         "merged — 3.25h from In Progress")
+                         "merged — 3.25h of run time")
+
+
+class TestKillTree(unittest.TestCase):
+    """Stopping a run must stop what it started: the agent outliving the run is
+    how work carries on that nobody can see."""
+
+    def test_a_run_in_its_own_group_takes_its_children_with_it(self):
+        import subprocess
+        import time as _time
+        proc = subprocess.Popen(["sh", "-c", "sleep 30 & echo $!; wait"],
+                                stdout=subprocess.PIPE, start_new_session=True)
+        child = int(proc.stdout.readline())
+        self.assertTrue(kill_tree(proc.pid))
+        proc.wait(timeout=5)
+        for _ in range(50):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            _time.sleep(0.05)
+        else:
+            os.kill(child, 9)
+            self.fail("the run's child outlived it")
+
+    def test_nothing_to_stop(self):
+        self.assertFalse(kill_tree(2 ** 22 + 12345))
 
 
 if __name__ == "__main__":
