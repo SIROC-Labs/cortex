@@ -34,7 +34,9 @@ import re
 import subprocess
 
 
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cortex", "cortex-workflow")
+# The CLI's own namespace. The skills keep theirs under ~/.cortex/cortex-workflow;
+# the two never read each other's files.
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cortex", "cli")
 
 
 def _git_output(args):
@@ -90,8 +92,12 @@ def write_cache(key, obj):
         os.makedirs(CACHE_DIR, exist_ok=True)
     file = cache_path(key)
     text = json.dumps(obj, indent=2)
-    with open(file, "w") as f:
+    # Written aside and renamed, so a run reading the cache while a parallel run
+    # writes it sees the old file or the new one, never half of either.
+    tmp = "%s.%d.tmp" % (file, os.getpid())
+    with open(tmp, "w") as f:
         f.write(text + "\n")
+    os.replace(tmp, file)
 
 
 def now_iso():

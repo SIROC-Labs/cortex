@@ -133,7 +133,7 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "task-manager", "scripts"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_util
 
 PROG = "asana.py"
