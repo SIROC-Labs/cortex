@@ -376,10 +376,15 @@ class Engine(object):
     def scope(self):
         raise NotImplementedError
 
-    def refresh(self):
+    def refresh(self, only=None):
+        """Re-read the tasks in scope from Asana. `only` re-reads just those gids —
+        the ones newly in scope — and keeps the rest as last read."""
         tasks = {}
         for item in self.scope():
             gid = item["gid"]
+            if only is not None and gid not in only and gid in self.tasks:
+                tasks[gid] = self.tasks[gid]
+                continue
             _, task = self.asana(["task", "get", gid])
             previous = self.tasks.get(gid) or {}
             deps = previous.get("deps") or []
@@ -397,8 +402,9 @@ class Engine(object):
                 "board_gid": item.get("board"),
             }
         self.data["tasks"] = tasks
-        self.data["refreshed_at"] = time.time()
-        self.refresh_due = time.time() + REFRESH_EVERY
+        if only is None:
+            self.data["refreshed_at"] = time.time()
+            self.refresh_due = time.time() + REFRESH_EVERY
 
     def reconcile_all(self):
         for gid in self.tasks:
@@ -505,7 +511,8 @@ class Engine(object):
         except (IOError, OSError, ValueError):
             pass
         if code is None:
-            outcome = self.start_state(gid).read(st.OUTCOME_FILE)
+            # An adopted run: no exit code to read, so its outcome is the word.
+            outcome = outcome or self.start_state(gid).read(st.OUTCOME_FILE)
             if outcome and outcome.get("at", 0) > record.get("since", 0):
                 code = st.EXIT_FAILED if outcome.get("status") == "failed" else st.EXIT_OK
         phase, reason = outcome_phase(code, outcome)
@@ -620,15 +627,27 @@ class Engine(object):
             canceled = (task.get("status") or "").lower() == "canceled"
             if not (task.get("completed") or canceled):
                 continue
-            proc = self.children.pop(gid, None)
-            pid = proc.pid if proc else record.get("pid")
-            if pid and st.live_run_pid({"pid": pid}):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
-            self.set_phase(gid, "stopped", pid=None,
-                           reason="canceled in Asana" if canceled else "completed in Asana")
+            self.stop(gid, "canceled in Asana" if canceled else "completed in Asana")
+
+    def stop(self, gid, reason):
+        """End whatever is running for a task and leave it be. Its worktree stays."""
+        self.kill(gid)
+        self.set_phase(gid, "stopped", pid=None, reason=reason)
+
+    def kill(self, gid):
+        proc = self.children.pop(gid, None)
+        pid = proc.pid if proc else (self.records.get(gid) or {}).get("pid")
+        if pid and st.live_run_pid({"pid": pid}):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+
+    def kill_all(self):
+        """Stop every run this engine launched or adopted, so none outlives it
+        unseen. Their records stay as they are; a restart relaunches them."""
+        for gid in set(self.children) | {g for g, r in self.records.items() if r.get("pid")}:
+            self.kill(gid)
 
     # loop
 
@@ -637,8 +656,9 @@ class Engine(object):
         if time.time() >= self.refresh_due:
             self.refresh()
             self.stop_finished_elsewhere()
-        for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
-            self.launch(gid)
+        if self.data.get("sprint"):
+            for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
+                self.launch(gid)
         for gid, record in list(self.records.items()):
             if gid in self.tasks and record.get("phase") in ("pr_open", "conflict"):
                 self.poll_pr(gid)
