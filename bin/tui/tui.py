@@ -243,10 +243,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
 
 
 def log_line(line):
-    """A log line as (text, style): terminal escape codes removed, and a line the
-    run had set in bold — a step heading — kept bold."""
-    bold = "\x1b[1m" in line
-    return _ANSI.sub("", line).replace("\t", "    "), "bold" if bold else "normal"
+    """A log line as (text, style): terminal escape codes removed. A step heading
+    — any line not indented, or one a run set in bold — shows bold; a run's
+    opening header stands out."""
+    text = _ANSI.sub("", line).replace("\t", "    ")
+    if text.startswith("━━"):
+        return text, "warn"
+    heading = "\x1b[1m" in line or (text.strip() and not text[0].isspace())
+    return text, "bold" if heading else "normal"
 
 
 def fit(cols, width):

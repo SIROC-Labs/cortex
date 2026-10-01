@@ -112,11 +112,12 @@ def info(msg):
 
 
 def step(msg):
-    # Bold only on a terminal: a log file should read as plain text.
+    # Bold on a terminal; in a log file, plain text with the time, so a slow step
+    # shows as one.
     if sys.stdout.isatty():
         sys.stdout.write("\n\033[1m%s\033[0m\n" % msg)
     else:
-        sys.stdout.write("\n%s\n" % msg)
+        sys.stdout.write("\n%s  %s\n" % (time.strftime("%H:%M:%S"), msg))
     sys.stdout.flush()
 
 
@@ -1474,12 +1475,18 @@ def phase_revise(args, state=None):
     if not os.path.isdir(worktree):
         die("the worktree is gone: %s" % worktree)
 
-    step("Revising")
+    step("Fetching the base")
     with repo_lock(context["git"]["main_root"]):
         git(["fetch", "origin"], cwd=worktree, check=False)
+    info("origin fetched — %s is current" % (context["git"].get("base") or "origin/main"))
+
+    step("Applying the feedback")
+    for line in [l for l in feedback.splitlines() if l.strip()][:6]:
+        info("› %s" % line.strip()[:110])
     session = state.read("session.json") or {}
     resume = session.get("token") if session.get("backend") == args.backend else None
-    info("resuming session %s" % resume if resume else "no session to resume — fresh call")
+    info("resuming the task's own session %s" % resume if resume
+         else "no session to resume — a fresh, fully briefed call")
 
     def build_prompt(transcript):
         prompt = render_prompt(
@@ -1495,12 +1502,15 @@ def phase_revise(args, state=None):
     outcome = call_agent_resumable(build_prompt, worktree, args, "revise", ref, state,
                                    resume=resume)
     result = outcome.structured or {"summary": outcome.text.strip()[:2000]}
+    info("done: %s" % (result.get("summary") or "(no summary)").splitlines()[0][:140])
     phase_qa(args, state)
+    step("Pushing")
     commit_and_push(context, "%s :: address review feedback" % context["task"]["id"],
                     args, state)
 
     reply = (result.get("reply") or result.get("summary") or "").strip()
     if pr_url:
+        step("Replying on the PR")
         body = mark("Addressed review feedback\n\n%s" % (reply or "(no summary)"))
         while True:
             code, _, errout = run(["gh", "pr", "comment", pr_url, "--body", body],

@@ -394,6 +394,25 @@ def merge_refresh(local, fetched):
     return fetched
 
 
+def phase_note(phase, record):
+    """What a task's log says when it enters a phase, or None when the run it
+    starts writes its own account."""
+    reason = (record.get("reason") or "").splitlines()
+    return {
+        "awaiting": "Waiting on you — the question is on the task and the TUI's Runs tab",
+        "pr_open": (None if record.get("merge") is not None
+                    else "PR open — watching for review comments and the merge"),
+        "conflict": "PR conflicts with its base — parked until a resolve or a merge is asked for",
+        "failed": "Failed: %s" % (reason[0] if reason else "see above"),
+        "stopped": "Stopped: %s" % (reason[0] if reason else "?"),
+    }.get(phase)
+
+
+def run_header(label, at=None):
+    """The line that opens each run in a task's log, saying why it started."""
+    return "\n━━ %s · %s ━━\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)), label)
+
+
 def task_url(board, gid):
     return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
 
@@ -462,9 +481,27 @@ class Engine(object):
 
     def set_phase(self, gid, phase, **fields):
         record = self.record(gid)
-        if record.get("phase") != phase:
+        changed = record.get("phase") != phase
+        if changed:
             log("%s %s → %s" % (self.key_of(gid), record.get("phase") or "new", phase))
         record.update(fields, phase=phase, since=time.time())
+        if changed and phase_note(phase, record):
+            self.note(gid, phase_note(phase, record))
+
+    def log_path(self, gid):
+        return self.path("logs", "%s.log" % self.key_of(gid))
+
+    def note(self, gid, heading, details=()):
+        """A step in the task's own log, beside what its runs wrote — so the log
+        tells the whole story, not just the part start-task did."""
+        try:
+            os.makedirs(self.path("logs"), exist_ok=True)
+            with open(self.log_path(gid), "a") as f:
+                f.write("\n%s  %s\n" % (time.strftime("%H:%M:%S"), heading))
+                for line in details:
+                    f.write("  %s\n" % line)
+        except OSError:
+            pass
 
     def start_state(self, gid):
         return st.State(self.main_root, self.key_of(gid))
@@ -617,7 +654,7 @@ class Engine(object):
             self.asana(["task", "set-field", gid, "Assignee", self.data["me"]["gid"]])
             log("%s assigned to %s" % (task["key"], self.data["me"]["name"]))
 
-    def spawn(self, gid, argv, phase, **fields):
+    def spawn(self, gid, argv, phase, label, **fields):
         key = self.key_of(gid)
         os.makedirs(self.path("logs"), exist_ok=True)
         os.makedirs(self.path("results"), exist_ok=True)
@@ -626,8 +663,8 @@ class Engine(object):
             os.remove(result)
         except OSError:
             pass
-        logfile = open(self.path("logs", "%s.log" % key), "a")
-        logfile.write("\n==== %s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), phase))
+        logfile = open(self.log_path(gid), "a")
+        logfile.write(run_header(label))
         logfile.flush()
         cmd = ([sys.executable, START_TASK] + argv
                + ["--repo", self.repo, "--result-file", result] + self.forward)
@@ -637,8 +674,7 @@ class Engine(object):
                                 start_new_session=True)
         logfile.close()
         self.children[gid] = proc
-        self.set_phase(gid, phase, pid=proc.pid, log=self.path("logs", "%s.log" % key),
-                       **fields)
+        self.set_phase(gid, phase, pid=proc.pid, log=self.log_path(gid), **fields)
 
     def launch(self, gid):
         try:
@@ -646,17 +682,17 @@ class Engine(object):
         except Stop as e:
             self.set_phase(gid, "failed", reason=str(e))
             return
-        self.spawn(gid, [task_url(self.tasks[gid].get("board_gid"), gid)], "running")
+        self.spawn(gid, [task_url(self.tasks[gid].get("board_gid"), gid)], "running",
+                   "start-task: from the ticket to a ready PR")
 
-    def launch_revise(self, gid, items, text):
+    def launch_revise(self, gid, items, text, why):
         os.makedirs(self.path("feedback"), exist_ok=True)
         path = self.path("feedback", "%s-%d.md" % (self.key_of(gid), time.time()))
         with open(path, "w") as f:
             f.write(text)
-        log("%s: %s — revising" % (self.key_of(gid), "%d review item(s)" % len(items)
-                                   if items else "to get it merged"))
+        log("%s: revising — %s" % (self.key_of(gid), why))
         self.spawn(gid, [self.key_of(gid), "--phase", "revise",
-                         "--feedback-file", path], "revising",
+                         "--feedback-file", path], "revising", "revise: %s" % why,
                    inflight=[fid for fid, _, _ in items])
 
     # watching
@@ -753,11 +789,14 @@ class Engine(object):
                 changed = True
             items = self.feedback(owner, name, number, record.get("handled"))
             if items and record["phase"] == "pr_open":
-                self.launch_revise(gid, items, render_feedback(items))
+                self.launch_revise(gid, items, render_feedback(items),
+                                   "addressing %d review comment(s): %s"
+                                   % (len(items), "; ".join(h for _, h, _ in items)))
                 return
             ask = resolve_request(items or [])
             if ask and record["phase"] == "conflict":
-                self.launch_revise(gid, [ask], render_resolve(ask))
+                self.launch_revise(gid, [ask], render_resolve(ask),
+                                   "resolving conflicts with the base, as asked")
                 return
         record["poll_attempt"] = 0 if changed else record.get("poll_attempt", 0) + 1
         if record["phase"] == "conflict":
@@ -772,13 +811,16 @@ class Engine(object):
         record["merge"] = {"requested_at": time.time(), "attempts": {}, "stage": "starting",
                            "blocked": None}
         record["next_poll"] = 0
+        log("%s: merge asked for" % self.key_of(gid))
+        self.note(gid, "Merge asked for — conflicts and failing checks are handled on the way",
+                  ["review comments from here on are not acted on"])
         if record.get("phase") == "conflict":
             self.set_phase(gid, "pr_open")
-        log("%s: merge asked for" % self.key_of(gid))
 
     def cancel_merge(self, gid):
         self.record(gid).pop("merge", None)
         log("%s: merge no longer asked for" % self.key_of(gid))
+        self.note(gid, "Merge called off — back to watching the PR")
 
     def drive_merge(self, gid, owner, name):
         """One step towards merging: whatever GitHub says stands in the way, do
@@ -793,6 +835,20 @@ class Engine(object):
             self.busy.pop("loop", None)
 
     def merge_step_for(self, gid, owner, name, record, merge, url):
+        blocked = merge.get("blocked")
+        self.merge_step_once(gid, owner, name, record, merge, url)
+        if merge.get("blocked") and merge["blocked"] != blocked:
+            self.note(gid, "Merge blocked: %s" % merge["blocked"],
+                      ["fix it, then m in the TUI tries again"])
+
+    def stage(self, gid, merge, text):
+        """Where a merge has got to; each new stage goes in the task's log as it
+        starts, ahead of any run it launches."""
+        if merge.get("stage") != text:
+            self.note(gid, "Merge: %s" % text)
+        merge["stage"] = text
+
+    def merge_step_once(self, gid, owner, name, record, merge, url):
         view = self.gh_json(["pr", "view", url, "--json", "state,mergeable,mergeStateStatus,"
                                                           "isDraft,baseRefName,statusCheckRollup"])
         record["next_poll"] = time.time() + MERGE_POLL
@@ -812,7 +868,7 @@ class Engine(object):
             if not method:
                 merge["blocked"] = "no merge method the repo allows"
                 return
-            merge["stage"] = "merging (%s)" % method
+            self.stage(gid, merge, "merging (%s)" % method)
             code, _, err = run(["gh", "pr", "merge", url, "--" + method], cwd=self.repo)
             if code == 0:
                 log("%s: merged (%s)" % (key, method))
@@ -820,28 +876,32 @@ class Engine(object):
             else:
                 merge["blocked"] = "gh pr merge refused: %s" % (err.splitlines() or ["?"])[-1]
         elif action == "ready":
-            merge["stage"] = "marking the PR ready"
+            self.stage(gid, merge, "marking the PR ready")
             run(["gh", "pr", "ready", url], cwd=self.repo)
         elif action == "update":
-            merge["stage"] = "bringing the branch up to date"
+            self.stage(gid, merge, "bringing the branch up to date")
             code, _, err = run(["gh", "pr", "update-branch", url], cwd=self.repo)
             if code != 0:
                 merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
-                merge["stage"] = "resolving conflicts"
-                self.launch_revise(gid, [], render_merge_resolve(base))
+                self.stage(gid, merge, "resolving conflicts")
+                self.launch_revise(gid, [], render_merge_resolve(base),
+                                   "resolving conflicts with %s, to merge" % base)
         elif action == "resolve":
             merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
-            merge["stage"] = "resolving conflicts (%d)" % merge["attempts"]["resolve"]
+            self.stage(gid, merge, "resolving conflicts (%d)" % merge["attempts"]["resolve"])
             log("%s: conflicts with %s — resolving to merge" % (key, base))
-            self.launch_revise(gid, [], render_merge_resolve(base))
+            self.launch_revise(gid, [], render_merge_resolve(base),
+                               "resolving conflicts with %s, to merge" % base)
         elif action == "fix_ci":
             merge["attempts"]["ci"] = merge["attempts"].get("ci", 0) + 1
-            merge["stage"] = "fixing failing checks (%d)" % merge["attempts"]["ci"]
+            self.stage(gid, merge, "fixing failing checks (%d)" % merge["attempts"]["ci"])
             log("%s: checks failing (%s) — fixing to merge"
                 % (key, ", ".join(n for n, _ in detail)))
-            self.launch_revise(gid, [], render_ci_fix(detail))
+            self.launch_revise(gid, [], render_ci_fix(detail),
+                               "fixing failing checks (%s), to merge"
+                               % ", ".join(n for n, _ in detail))
         elif action == "wait":
-            merge["stage"] = detail
+            self.stage(gid, merge, detail)
         else:
             merge["blocked"] = detail
             log("%s: merge blocked — %s" % (key, detail))
@@ -889,6 +949,11 @@ class Engine(object):
         code, _ = self.asana(["task", "set-status", gid, "Done"], check=False)
         if code != 0:
             log("%s: could not move to Done" % key)
+        hours = self.record(gid).get("actual_hours")
+        self.note(gid, "Merged — finishing up", [
+            "Asana: completed%s" % ("" if code else ", moved to Done"),
+            "Actual: %.2fh of run time" % hours if hours is not None else "Actual: left alone",
+            "worktree: being removed"])
         worktree = (self.start_state(gid).read("context.json") or {}).get("git", {}).get("worktree")
         if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:
             # Thousands of files in node_modules and .venv: done in a thread that

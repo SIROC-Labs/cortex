@@ -25,6 +25,8 @@ from engine import (  # noqa: E402
     has_value,
     kill_tree,
     merge_refresh,
+    phase_note,
+    run_header,
     outcome_phase,
     parse_pr_url,
     parse_project_ref,
@@ -439,6 +441,23 @@ class TestMergeRefresh(unittest.TestCase):
         self.assertTrue(out["1"]["deps"][0]["completed"])
         self.assertEqual(out["1"]["status"], "Canceled")
         self.assertIn("3", out)
+
+
+class TestTaskLogNotes(unittest.TestCase):
+    def test_each_phase_says_what_is_happening(self):
+        self.assertIn("watching", phase_note("pr_open", {}))
+        self.assertIsNone(phase_note("pr_open", {"merge": {}}))  # the merge notes its own steps
+        self.assertEqual(phase_note("failed", {"reason": "QA red\nmore"}), "Failed: QA red")
+        self.assertIn("parked", phase_note("conflict", {}))
+
+    def test_runs_write_their_own_account(self):
+        for phase in ("running", "revising", "merged", None):
+            self.assertIsNone(phase_note(phase, {}))
+
+    def test_the_run_header_says_why(self):
+        line = run_header("revise: resolving conflicts with main, to merge", at=0)
+        self.assertTrue(line.strip().startswith("━━ "))
+        self.assertIn("revise: resolving conflicts with main, to merge", line)
 
 
 if __name__ == "__main__":

@@ -705,6 +705,11 @@ class TestLogLine(unittest.TestCase):
         self.assertEqual(log_line("\x1b[1mFetching task\x1b[0m"), ("Fetching task", "bold"))
         self.assertEqual(log_line("  status → In Progress"), ("  status → In Progress", "normal"))
 
+    def test_plain_headings_are_bold_and_run_headers_stand_out(self):
+        self.assertEqual(log_line("20:01:08  Applying the feedback")[1], "bold")
+        self.assertEqual(log_line("━━ 2026-10-01 20:01:08 · revise: x ━━")[1], "warn")
+        self.assertEqual(log_line("")[1], "normal")
+
     def test_colour_and_cursor_codes_go_too(self):
         self.assertEqual(log_line("\x1b[32mok\x1b[39m \x1b[2Kdone")[0], "ok done")
 
