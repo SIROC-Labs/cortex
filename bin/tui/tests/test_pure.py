@@ -600,6 +600,35 @@ class TestAnswering(unittest.TestCase):
         self.press("1", "A")
         self.assertEqual(self.app.edit_request, "1")
 
+    def test_m_asks_then_tells_the_daemon_to_merge(self):
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press("m")
+        self.assertIn("merge A-2", self.app.message)
+        self.press("y")
+        self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
+                         [("merge", "2")])
+
+    def test_m_on_a_merge_in_progress_calls_it_off(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"]["merge"] = {"stage": "checks running"}
+        dm.write_json(path, data)
+        self.app.snapshot()
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press("m", "y")
+        self.assertEqual(self.app.control["commands"][-1]["op"], "merge-cancel")
+
+    def test_a_blocked_merge_waits_on_you(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"]["merge"] = {"blocked": "checks still failing: e2e"}
+        dm.write_json(path, data)
+        self.app.snapshot()
+        self.assertEqual(self.app.waits["2"]["kind"], "merge")
+        self.assertIn("m tries again", wait_summary(self.app.waits["2"]))
+
     def test_a_on_a_parked_conflict_asks_then_requests_a_resolve(self):
         asked = []
         self.app.resolve = lambda gid, url: asked.append((gid, url))

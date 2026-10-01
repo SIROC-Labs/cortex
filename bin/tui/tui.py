@@ -59,7 +59,9 @@ def matches(text, query):
 def wait_summary(wait):
     """One line for what a task is waiting on you for."""
     if wait.get("kind") == "conflict":
-        return "PR conflicts with its base — a to have it resolved"
+        return "PR conflicts with its base — a to have it resolved, m to merge"
+    if wait.get("kind") == "merge":
+        return wait["headline"] + " — m tries again"
     questions = wait.get("questions") or []
     if questions:
         more = len(questions) - 1
@@ -81,7 +83,14 @@ def wait_lines(wait, width):
         para("The PR conflicts with its base, most likely because a sibling task merged "
              "first and touched the same files. The task is parked until you ask for "
              "a resolve: the base is then merged in and the conflicts resolved — never "
-             "a rebase or force-push.", "normal")
+             "a rebase or force-push. Or press m to resolve and merge it in one go.",
+             "normal")
+        return out
+    if wait.get("kind") == "merge":
+        para(wait.get("headline") or "", "bold")
+        out.append(("", "normal"))
+        para("The merge stopped short of main. Fix what stands in the way on GitHub, "
+             "then press m to try again — it picks up from wherever the PR is.", "normal")
         return out
     for n, q in enumerate(wait.get("questions") or [], 1):
         para("%d. %s" % (n, q.get("q", "")), "bold")
@@ -122,6 +131,9 @@ def read_waits(main_root, control, data):
         awaiting = st.State(main_root, key).read("awaiting.json") if key else None
         if awaiting and awaiting.get("asked_at"):
             waits[gid] = dict(awaiting, key=key)
+        elif ((records.get(gid) or {}).get("merge") or {}).get("blocked"):
+            waits[gid] = {"kind": "merge", "key": key,
+                          "headline": "Merge blocked: %s" % records[gid]["merge"]["blocked"]}
         elif (records.get(gid) or {}).get("phase") == "conflict":
             waits[gid] = {"kind": "conflict", "key": key}
     return waits
@@ -154,7 +166,8 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None):
             status, style = "⚑ " + wait_summary(wait), "warn"
         rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
                      "style": style, "log": record.get("log"), "wait": wait,
-                     "pr_url": record.get("pr_url"),
+                     "pr_url": record.get("pr_url"), "phase": record.get("phase"),
+                     "merge": record.get("merge"),
                      "links": [u for u in (record.get("pr_url"),
                                            task_url(item.get("board"), gid)) if u]})
     rows.sort(key=lambda r: not r.get("wait"))
@@ -285,7 +298,9 @@ HELP = [
     "            number again takes it back to its top",
     "filter      /   then type; ⏎ keeps it, esc clears it",
     "",
-    "Runs        ⏎ on a ⚑ task reads what it is waiting on · a answer it in one line ·",
+    "Runs        m merge: get it onto main — conflicts resolved, failing checks fixed,",
+    "            then merged; m again calls it off · on a blocked merge, m tries again",
+    "            ⏎ on a ⚑ task reads what it is waiting on · a answer it in one line ·",
     "            A answer in $EDITOR · on a parked conflict, a asks for a resolve",
     "            x stop and unqueue · r retry · o open the PR or task",
     "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
@@ -543,6 +558,8 @@ class App(object):
         wait = (row or {}).get("wait")
         if not wait:
             self.message = "nothing is waiting on you there"
+        elif wait.get("kind") == "merge":
+            self.message = "fix what blocks it, then m tries the merge again"
         elif wait.get("kind") == "conflict":
             if not row.get("pr_url"):
                 self.message = "no PR recorded for that task"
@@ -554,6 +571,22 @@ class App(object):
         else:
             self.compose = {"gid": row["id"], "text": ""}
 
+    def merge(self, row):
+        """Ask for a task to be got onto main: conflicts resolved, failing checks
+        fixed, merged. Asked again on a merge in progress, it is called off; on a
+        blocked one, it is tried again from where the PR stands."""
+        merge = row.get("merge")
+        name = row["cols"][0]
+        if row.get("phase") in ("merged", "stopped", "failed"):
+            self.message = "nothing to merge there"
+        elif merge and not merge.get("blocked"):
+            self.ask("stop trying to merge %s? (y/n)" % name,
+                     lambda: self.command("merge-cancel", row["id"]))
+        else:
+            when = "" if row.get("pr_url") else " once its PR is up"
+            self.ask("merge %s%s — resolving conflicts and fixing failing checks as needed? "
+                     "(y/n)" % (name, when), lambda: self.command("merge", row["id"]))
+
     def command(self, op, gid):
         applied = self.data.get("applied", 0)
         self.change_control(lambda c: dm.add_command(c, op, gid, applied))
@@ -563,6 +596,8 @@ class App(object):
         if name == "Runs" and row:
             if key in ("a", "A") and row["kind"] == "task":
                 self.start_answer(row, editor=key == "A")
+            elif key == "m" and row["kind"] == "task":
+                self.merge(row)
             elif key == "x" and row["kind"] == "task":
                 self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
                     self.command("stop", row["id"]),
@@ -690,6 +725,8 @@ class App(object):
                 self.message = "answered — nothing waiting there now"
             elif key in ("a", "A"):
                 self.start_answer(row, editor=key == "A")
+            elif key == "m":
+                self.merge(row)
             elif key == "l" and row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
             elif key == "o" and row.get("links"):
@@ -754,9 +791,9 @@ class App(object):
         if self.compose is not None:
             return "enter send · esc cancel · ^U clear"
         if self.question:
-            return "a answer · A answer in $EDITOR · l log · o open the task · ←/esc back"
+            return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
-            "Runs": "⏎/→ question or log · a answer · A in $EDITOR · x stop · r retry · o open PR",
+            "Runs": "⏎/→ question or log · a answer · A in $EDITOR · m merge · x stop · r retry · o PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
             "Sprint": "⏎ use as sprint · / filter",

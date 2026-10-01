@@ -16,6 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine import (  # noqa: E402
     actual_hours,
     blockers,
+    check_states,
+    merge_method,
+    merge_step,
+    render_ci_fix,
     collect_feedback,
     describe,
     has_value,
@@ -328,6 +332,88 @@ class TestKillTree(unittest.TestCase):
 
     def test_nothing_to_stop(self):
         self.assertFalse(kill_tree(2 ** 22 + 12345))
+
+
+def run_check(name, status="COMPLETED", conclusion="SUCCESS"):
+    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+            "detailsUrl": "https://ci/%s" % name}
+
+
+class TestCheckStates(unittest.TestCase):
+    def test_running_failed_and_passed_runs(self):
+        pending, failing = check_states([
+            run_check("verify"), run_check("e2e", status="IN_PROGRESS", conclusion=None),
+            run_check("test", conclusion="FAILURE"), run_check("lint", conclusion="SKIPPED")])
+        self.assertEqual(pending, ["e2e"])
+        self.assertEqual(failing, [("test", "https://ci/test")])
+
+    def test_commit_statuses(self):
+        pending, failing = check_states([
+            {"__typename": "StatusContext", "context": "deploy", "state": "PENDING"},
+            {"__typename": "StatusContext", "context": "sec", "state": "ERROR", "targetUrl": "u"}])
+        self.assertEqual((pending, failing), (["deploy"], [("sec", "u")]))
+
+
+class TestMergeStep(unittest.TestCase):
+    def view(self, status, mergeable="MERGEABLE", checks=(), draft=False):
+        return {"mergeStateStatus": status, "mergeable": mergeable,
+                "statusCheckRollup": list(checks), "isDraft": draft}
+
+    def test_clean_merges(self):
+        self.assertEqual(merge_step(self.view("CLEAN"), {}), ("merge", None))
+        self.assertEqual(merge_step(self.view("UNSTABLE"), {}), ("merge", None))
+
+    def test_conflicts_are_resolved_until_the_limit(self):
+        dirty = self.view("DIRTY", "CONFLICTING")
+        self.assertEqual(merge_step(dirty, {"resolve": 2}), ("resolve", None))
+        action, why = merge_step(dirty, {"resolve": 3})
+        self.assertEqual(action, "blocked")
+        self.assertIn("3 resolve", why)
+
+    def test_running_checks_are_waited_on(self):
+        action, why = merge_step(self.view("BLOCKED", checks=[
+            run_check("e2e", status="QUEUED", conclusion=None)]), {})
+        self.assertEqual(action, "wait")
+        self.assertIn("e2e", why)
+
+    def test_failed_checks_are_fixed_until_the_limit(self):
+        failed = self.view("BLOCKED", checks=[run_check("verify", conclusion="FAILURE")])
+        self.assertEqual(merge_step(failed, {})[0], "fix_ci")
+        self.assertEqual(merge_step(failed, {})[1], [("verify", "https://ci/verify")])
+        self.assertEqual(merge_step(failed, {"ci": 2})[0], "blocked")
+
+    def test_blocked_with_green_checks_needs_a_person(self):
+        self.assertEqual(merge_step(self.view("BLOCKED", checks=[run_check("v")]), {})[0],
+                         "blocked")
+
+    def test_drafts_behind_and_unknown(self):
+        self.assertEqual(merge_step(self.view("CLEAN", draft=True), {})[0], "ready")
+        self.assertEqual(merge_step(self.view("BEHIND"), {})[0], "update")
+        self.assertEqual(merge_step(self.view("UNKNOWN", "UNKNOWN"), {})[0], "wait")
+
+    def test_the_ci_brief_names_the_failures_and_how_to_look(self):
+        text = render_ci_fix([("verify", "https://ci/verify")])
+        self.assertIn("verify — https://ci/verify", text)
+        self.assertIn("--log-failed", text)
+
+
+class TestMergeMethod(unittest.TestCase):
+    def test_squash_first_within_what_the_rules_allow(self):
+        everything = {"squashMergeAllowed": True, "mergeCommitAllowed": True,
+                      "rebaseMergeAllowed": True}
+        self.assertEqual(merge_method(everything, []), "squash")
+        self.assertEqual(merge_method(everything, ["rebase"]), "rebase")
+        self.assertEqual(merge_method(dict(everything, squashMergeAllowed=False), []), "merge")
+        self.assertIsNone(merge_method(everything, ["octopus"]))
+
+
+class TestDescribeMerge(unittest.TestCase):
+    def test_merging_and_blocked(self):
+        g = {"1": t("a")}
+        self.assertEqual(describe("1", g, {"1": {"phase": "pr_open", "merge": {
+            "stage": "checks running: e2e"}}}, ME), "merging — checks running: e2e")
+        self.assertEqual(describe("1", g, {"1": {"phase": "pr_open", "merge": {
+            "blocked": "needs a review"}}}, ME), "merge blocked: needs a review")
 
 
 if __name__ == "__main__":

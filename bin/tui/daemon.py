@@ -291,6 +291,10 @@ class QueueRun(Engine):
             gid = command["gid"]
             if command["op"] == "stop":
                 self.stop(gid, "stopped from the TUI")
+            elif command["op"] == "merge":
+                self.request_merge(gid)
+            elif command["op"] == "merge-cancel":
+                self.cancel_merge(gid)
             elif command["op"] == "retry":
                 record = self.records.get(gid) or {}
                 if record.get("phase") in ("failed", "stopped"):

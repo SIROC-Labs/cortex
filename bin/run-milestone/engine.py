@@ -43,6 +43,16 @@ SETTLED = LIVE + ("merged", "failed", "stopped")
 # What a PR comment has to say for a parked conflict to be resolved.
 RESOLVE_TRIGGER = "please resolve"
 
+# While a merge is asked for, the PR is looked at this often: something is
+# happening, and the next step depends on it.
+MERGE_POLL = 15
+# How many times a merge resolves conflicts, or fixes failing checks, before it
+# stops and says why. Conflicts recur as siblings land; a check that stays red
+# after two fixes needs a person.
+MERGE_LIMITS = {"resolve": 3, "ci": 2}
+_CHECK_FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
+                 "STARTUP_FAILURE"}
+
 
 def log(msg):
     sys.stdout.write("%s  %s\n" % (time.strftime("%H:%M:%S"), msg))
@@ -175,6 +185,88 @@ def render_resolve(item):
             "keeping both sides' intent.\n\n### %s\n\n%s\n" % (item[1], item[2]))
 
 
+def check_states(rollup):
+    """(pending names, failing [(name, url)]) from a PR's statusCheckRollup, which
+    mixes check runs (status + conclusion) and commit statuses (state)."""
+    pending, failing = [], []
+    for check in rollup or []:
+        name = check.get("name") or check.get("context") or "?"
+        url = check.get("detailsUrl") or check.get("targetUrl")
+        if check.get("__typename") == "StatusContext" or "state" in check and "status" not in check:
+            state = (check.get("state") or "").upper()
+            if state in ("PENDING", "EXPECTED"):
+                pending.append(name)
+            elif state in ("FAILURE", "ERROR"):
+                failing.append((name, url))
+        elif (check.get("status") or "").upper() != "COMPLETED":
+            pending.append(name)
+        elif (check.get("conclusion") or "").upper() in _CHECK_FAILED:
+            failing.append((name, url))
+    return sorted(set(pending)), sorted(set(failing))
+
+
+def merge_step(view, attempts, limits=None):
+    """The next thing to do for a PR that is to be merged: (action, detail).
+
+    merge · ready (it is a draft) · update (behind its base) · resolve (conflicts)
+    · fix_ci (a check failed; detail is the failures) · wait (checks running, or
+    GitHub still working it out) · blocked (detail says why a person is needed).
+    """
+    limits = limits or MERGE_LIMITS
+    attempts = attempts or {}
+    status = view.get("mergeStateStatus")
+    if view.get("isDraft"):
+        return "ready", None
+    if status == "DIRTY" or view.get("mergeable") == "CONFLICTING":
+        if attempts.get("resolve", 0) >= limits["resolve"]:
+            return "blocked", "still conflicting after %d resolve(s)" % attempts["resolve"]
+        return "resolve", None
+    if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
+        return "merge", None
+    if status == "BEHIND":
+        return "update", None
+    if status == "BLOCKED":
+        pending, failing = check_states(view.get("statusCheckRollup"))
+        if failing:
+            if attempts.get("ci", 0) >= limits["ci"]:
+                return "blocked", "checks still failing after %d fix(es): %s" % (
+                    attempts["ci"], ", ".join(n for n, _ in failing))
+            return "fix_ci", failing
+        if pending:
+            return "wait", "checks running: %s" % ", ".join(pending)
+        return "blocked", "GitHub will not merge it yet (a review or a rule, not a check)"
+    return "wait", "GitHub is still working out whether it can merge"
+
+
+def merge_method(repo, rule_methods):
+    """The merge method to use: one both the repo and its rules allow, squash
+    first, then a merge commit, then rebase. None when nothing is allowed."""
+    allowed = {"squash": repo.get("squashMergeAllowed", True),
+               "merge": repo.get("mergeCommitAllowed", True),
+               "rebase": repo.get("rebaseMergeAllowed", True)}
+    for method in ("squash", "merge", "rebase"):
+        if allowed[method] and (not rule_methods or method in rule_methods):
+            return method
+    return None
+
+
+def render_merge_resolve(base):
+    return ("Merge was asked for, and the PR conflicts with its base. Merge `%s` into "
+            "the branch and resolve the conflicts, keeping both sides' intent — what "
+            "landed on the base is already reviewed and merged, so work around it "
+            "rather than undo it.\n" % base)
+
+
+def render_ci_fix(failing):
+    lines = ["Merge was asked for, and required checks failed on the PR:", ""]
+    lines += ["- %s%s" % (name, " — %s" % url if url else "") for name, url in failing]
+    lines += ["", "Find out why with `gh pr checks` and `gh run view <run-id> --log-failed`, "
+              "and fix the cause. If a failure is plainly flaky and unrelated to this "
+              "change, re-run it with `gh run rerun <run-id> --failed` instead of "
+              "changing code, and say so in your reply."]
+    return "\n".join(lines) + "\n"
+
+
 def outcome_phase(code, outcome):
     """What a finished start-task process means for the loop: (phase, reason)."""
     outcome = outcome or {}
@@ -238,6 +330,11 @@ def describe(gid, tasks, records, me_gid):
         return "awaiting Justin"
     if phase == "revising":
         return "revising after review"
+    merge = record.get("merge")
+    if merge and merge.get("blocked") and phase in ("pr_open", "conflict"):
+        return "merge blocked: %s" % merge["blocked"]
+    if merge and phase in ("pr_open", "conflict", "revising"):
+        return "merging — %s" % (merge.get("stage") or "starting")
     if phase == "pr_open":
         return "PR open"
     if phase == "conflict":
@@ -499,7 +596,8 @@ class Engine(object):
         path = self.path("feedback", "%s-%d.md" % (self.key_of(gid), time.time()))
         with open(path, "w") as f:
             f.write(text)
-        log("%s: %d review item(s) — revising" % (self.key_of(gid), len(items)))
+        log("%s: %s — revising" % (self.key_of(gid), "%d review item(s)" % len(items)
+                                   if items else "to get it merged"))
         self.spawn(gid, [self.key_of(gid), "--phase", "revise",
                          "--feedback-file", path], "revising",
                    inflight=[fid for fid, _, _ in items])
@@ -575,6 +673,9 @@ class Engine(object):
             self.set_phase(gid, "failed", reason="no PR URL recorded")
             return
         owner, name, number = parts
+        if record.get("merge") and not record["merge"].get("blocked"):
+            self.drive_merge(gid, owner, name)
+            return
         view = self.gh_json(["pr", "view", record["pr_url"], "--json",
                              "state,mergedAt,mergeable"])
         changed = False
@@ -607,6 +708,92 @@ class Engine(object):
         else:
             record["next_poll"] = time.time() + st.poll_interval(
                 max(1, record["poll_attempt"]), start=PR_POLL_START, cap=PR_POLL_CAP)
+
+    def request_merge(self, gid):
+        """Get the task onto its base: from here the PR is driven to merge."""
+        record = self.record(gid)
+        record["merge"] = {"requested_at": time.time(), "attempts": {}, "stage": "starting",
+                           "blocked": None}
+        record["next_poll"] = 0
+        if record.get("phase") == "conflict":
+            self.set_phase(gid, "pr_open")
+        log("%s: merge asked for" % self.key_of(gid))
+
+    def cancel_merge(self, gid):
+        self.record(gid).pop("merge", None)
+        log("%s: merge no longer asked for" % self.key_of(gid))
+
+    def drive_merge(self, gid, owner, name):
+        """One step towards merging: whatever GitHub says stands in the way, do
+        the thing that removes it — or say why it cannot be done."""
+        record = self.records[gid]
+        merge = record["merge"]
+        url = record["pr_url"]
+        view = self.gh_json(["pr", "view", url, "--json", "state,mergeable,mergeStateStatus,"
+                                                          "isDraft,baseRefName,statusCheckRollup"])
+        record["next_poll"] = time.time() + MERGE_POLL
+        if view is None:
+            return
+        if view.get("state") == "MERGED":
+            self.merged(gid)
+            return
+        if view.get("state") == "CLOSED":
+            self.set_phase(gid, "stopped", reason="PR closed without merging")
+            return
+        action, detail = merge_step(view, merge["attempts"])
+        base = view.get("baseRefName") or "main"
+        key = self.key_of(gid)
+        if action == "merge":
+            method = self.merge_method_for(owner, name, base)
+            if not method:
+                merge["blocked"] = "no merge method the repo allows"
+                return
+            merge["stage"] = "merging (%s)" % method
+            code, _, err = run(["gh", "pr", "merge", url, "--" + method], cwd=self.repo)
+            if code == 0:
+                log("%s: merged (%s)" % (key, method))
+                record["next_poll"] = 0
+            else:
+                merge["blocked"] = "gh pr merge refused: %s" % (err.splitlines() or ["?"])[-1]
+        elif action == "ready":
+            merge["stage"] = "marking the PR ready"
+            run(["gh", "pr", "ready", url], cwd=self.repo)
+        elif action == "update":
+            merge["stage"] = "bringing the branch up to date"
+            code, _, err = run(["gh", "pr", "update-branch", url], cwd=self.repo)
+            if code != 0:
+                merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
+                merge["stage"] = "resolving conflicts"
+                self.launch_revise(gid, [], render_merge_resolve(base))
+        elif action == "resolve":
+            merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
+            merge["stage"] = "resolving conflicts (%d)" % merge["attempts"]["resolve"]
+            log("%s: conflicts with %s — resolving to merge" % (key, base))
+            self.launch_revise(gid, [], render_merge_resolve(base))
+        elif action == "fix_ci":
+            merge["attempts"]["ci"] = merge["attempts"].get("ci", 0) + 1
+            merge["stage"] = "fixing failing checks (%d)" % merge["attempts"]["ci"]
+            log("%s: checks failing (%s) — fixing to merge"
+                % (key, ", ".join(n for n, _ in detail)))
+            self.launch_revise(gid, [], render_ci_fix(detail))
+        elif action == "wait":
+            merge["stage"] = detail
+        else:
+            merge["blocked"] = detail
+            log("%s: merge blocked — %s" % (key, detail))
+
+    def merge_method_for(self, owner, name, base):
+        cache = self.data.setdefault("merge_methods", {})
+        slug = "%s/%s@%s" % (owner, name, base)
+        if slug not in cache:
+            repo = self.gh_json(["repo", "view", "%s/%s" % (owner, name), "--json",
+                                 "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"])
+            rules = self.gh_json(["api", "repos/%s/%s/rules/branches/%s" % (owner, name, base)])
+            methods = []
+            for rule in rules or []:
+                methods += ((rule.get("parameters") or {}).get("allowed_merge_methods") or [])
+            cache[slug] = merge_method(repo or {}, methods)
+        return cache[slug]
 
     def feedback(self, owner, name, number, handled):
         base = "repos/%s/%s" % (owner, name)

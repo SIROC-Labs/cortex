@@ -54,6 +54,10 @@ Each pass:
    - a PR closed without merging stops the task. Nothing is posted and nothing waits on
      it; its dependents stay blocked.
 
+The engine can also drive a PR to merge — resolving conflicts and fixing failing checks
+on the way — when asked to; `cortex tui`'s `m` is how. `run-milestone` itself never
+merges.
+
 A run that needs you — the agent's questions, QA still red, a refused push — waits on
 the task itself (see `start-task`); only its dependents wait with it. A run that fails
 outright is recorded and blocks only its dependents. A task you complete or cancel in
