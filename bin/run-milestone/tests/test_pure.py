@@ -309,7 +309,14 @@ class TestActualTime(unittest.TestCase):
     def test_merged_shows_the_hours(self):
         g = {"1": t("a", completed=True)}
         self.assertEqual(describe("1", g, {"1": {"phase": "merged", "actual_hours": 3.25}}, ME),
-                         "merged — 3.25h of run time")
+                         "merged — 03:15 of run time")
+
+    def test_hhmm(self):
+        from engine import hhmm
+        self.assertEqual(hhmm(0.46), "00:28")
+        self.assertEqual(hhmm(2.69), "02:41")
+        self.assertEqual(hhmm(0), "00:00")
+        self.assertEqual(hhmm(12.5), "12:30")
 
 
 class TestKillTree(unittest.TestCase):

@@ -329,7 +329,7 @@ def describe(gid, tasks, records, me_gid):
     task = tasks[gid]
     if phase == "merged":
         hours = record.get("actual_hours")
-        return "merged — %.2fh of run time" % hours if hours is not None else "merged"
+        return "merged — %s of run time" % hhmm(hours) if hours is not None else "merged"
     if task.get("completed"):
         return "completed"
     if phase == "running":
@@ -399,6 +399,12 @@ def merge_refresh(local, fetched):
             if dep.get("ref") in done or (known.get(dep.get("ref")) or {}).get("completed"):
                 dep["completed"] = True
     return fetched
+
+
+def hhmm(hours):
+    """Hours as HH:MM, to the nearest minute."""
+    minutes = int(round(hours * 60))
+    return "%02d:%02d" % (minutes // 60, minutes % 60)
 
 
 def phase_note(phase, record):
