@@ -500,10 +500,17 @@ def find_existing_work(repo, task_id):
     return branches, pr_url
 
 
+def base_ref(name):
+    """A base branch as the remote-tracking ref to branch off. Always origin/…:
+    given a bare branch name that exists only on the remote — `feature/x` —
+    `git worktree add -b` ignores -b and checks out a new local `feature/x`."""
+    return name if name.startswith("origin/") else "origin/" + name
+
+
 def resolve_base(repo, explicit):
     """Base ref, read from the remote — the local base branch is never checked out."""
     if explicit:
-        return explicit if "/" in explicit else "origin/" + explicit
+        return base_ref(explicit)
     git(["fetch", "origin"], cwd=repo, check=False)
     code, _, _ = run(["git", "rev-parse", "--verify", "--quiet", "origin/main"],
                      cwd=repo, check=False)
@@ -668,6 +675,10 @@ def set_up_branch(args, repo, main_root, tid, task):
         branch = existing
     else:
         git(["worktree", "add", worktree, "-b", branch, base], cwd=repo)
+        _, on, _ = git(["branch", "--show-current"], cwd=worktree, check=False)
+        if on != branch:
+            die("the worktree came up on %r, not %r — nothing was committed or pushed; "
+                "remove %s and the local branch %r, then run again" % (on, branch, worktree, on))
         info("created %s off %s in %s" % (branch, base, worktree))
 
     pr_url = existing_pr

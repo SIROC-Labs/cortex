@@ -910,5 +910,36 @@ class TestRunTimeClock(unittest.TestCase):
         self.assertEqual(state.read("timing.json")["worked_seconds"], 480.0)
 
 
+class TestBaseRef(unittest.TestCase):
+    """A base given by name must reach git as the remote-tracking ref: given a
+    bare `feature/x`, `git worktree add -b T/x feature/x` checks out a new local
+    `feature/x` instead of creating T/x."""
+
+    def test_names_get_origin(self):
+        self.assertEqual(start_task.base_ref("feature/candidate-intake-M1"),
+                         "origin/feature/candidate-intake-M1")
+        self.assertEqual(start_task.base_ref("main"), "origin/main")
+
+    def test_an_origin_ref_is_left_as_it_is(self):
+        self.assertEqual(start_task.base_ref("origin/feature/x"), "origin/feature/x")
+
+    def test_git_makes_the_branch_asked_for_off_a_remote_only_base(self):
+        import subprocess
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        def git(*args, cwd=root):
+            return subprocess.run(["git"] + list(args), cwd=cwd, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        git("init", "-q", "--bare", "-b", "main", "o.git")
+        git("clone", "-q", "o.git", "w")
+        work = os.path.join(root, "w")
+        git("commit", "-q", "--allow-empty", "-m", "c1", cwd=work)
+        git("push", "-q", "origin", "main", "main:feature/x", cwd=work)
+        git("fetch", "-q", cwd=work)
+        wt = os.path.join(root, "wt")
+        git("worktree", "add", wt, "-b", "T-1/task", start_task.base_ref("feature/x"), cwd=work)
+        self.assertEqual(git("branch", "--show-current", cwd=wt), "T-1/task")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
