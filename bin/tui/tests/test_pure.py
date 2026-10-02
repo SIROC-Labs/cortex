@@ -504,7 +504,7 @@ class TestAppKeys(unittest.TestCase):
         self.press("home", "enter")
         self.assertEqual(self.app.compose["kind"], "branch")
         self.press(*"milestone/m1", "enter")
-        self.assertIn("create milestone/m1 on origin from main", self.app.message)
+        self.assertIn("create milestone/m1 on origin from origin/main", self.app.message)
         self.assertEqual(self.created, [])
         self.press("y")
         self.assertEqual(self.created, ["milestone/m1"])
@@ -777,7 +777,7 @@ class TestSetup(unittest.TestCase):
     def test_branch_rows_start_with_new_and_search_only_filters(self):
         rows = branch_rows(["main", "develop"], "main", "", None)
         self.assertEqual([r["kind"] for r in rows], ["new", "branch", "branch"])
-        self.assertIn("from main", rows[0]["cols"][1])
+        self.assertIn("from origin/main", rows[0]["cols"][1])
         self.assertEqual([r["id"] for r in branch_rows(["main", "develop"], "main", "dev", None)],
                          ["+new", "develop"])
         picked = branch_rows(["main", "develop"], "main", "", "develop")

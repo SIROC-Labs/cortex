@@ -48,8 +48,9 @@ a sprint is picked; nothing about the sprint is guessed.
 - **Target branch** — the branch new runs branch off and open their PR against; the
   repo's default branch unless you pick another. The list is origin's branches (`/`
   searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
-  characters, `/` included — and creates it on origin from the default branch once you
-  confirm; it is a push. PRs already open keep the base they have. The UI's git calls
+  characters, `/` included — and creates it on origin from `origin/<default>` once you
+  confirm — fetched first, so it starts at what is on GitHub, never at a local copy
+  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have. The UI's git calls
   never prompt: if SSH needs a passphrase or a new host key, the call fails and says
   so instead of taking over the terminal.
 - **Merging** — when a shipped PR is merged without you asking; `⏎` cycles:

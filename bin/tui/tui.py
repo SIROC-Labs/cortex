@@ -226,7 +226,8 @@ def branch_rows(branches, default, query, current):
     """Branches to pick the target from, filtered, after a row for starting a new
     one from the default branch."""
     rows = [{"kind": "new", "id": "+new", "style": "warn",
-             "cols": ["+ New branch…", "from %s, on origin" % (default or "the default branch")]}]
+             "cols": ["+ New branch…", "from origin/%s, as it is on GitHub now"
+                      % (default or "the default branch")]}]
     for b in branches or []:
         if not matches(b, query):
             continue
@@ -540,7 +541,7 @@ class App(object):
         elif name in (self.branches or []):
             self.set_base(name)
         else:
-            self.ask("create %s on origin from %s? (y/n)"
+            self.ask("create %s on origin from origin/%s (fetched first)? (y/n)"
                      % (name, self.default_branch or "the default branch"),
                      lambda: self.create_branch(name))
 
@@ -561,7 +562,7 @@ class App(object):
 
         self.loader.start("create-branch", name, work)
         self.creating = name
-        self.message = "creating %s from %s…" % (name, default)
+        self.message = "fetching origin/%s and creating %s from it…" % (default, name)
 
     def sync(self):
         """Take finished loads, and start the ones the screen now needs."""
@@ -1097,7 +1098,7 @@ class App(object):
             for i, line in enumerate(detail[:4]):
                 put(h - 6 + i, "  " + line, "dim")
         if self.compose is not None:
-            prompt = ("new branch from %s › " % (self.default_branch or "the default branch")
+            prompt = ("new branch from origin/%s › " % (self.default_branch or "the default branch")
                       if self.compose.get("kind") == "branch" else "answer › ")
             text = self.compose["text"]
             room = max(1, w - len(prompt) - 3)
