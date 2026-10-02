@@ -1,0 +1,34 @@
+{
+  "name": "cortex-qa-tools",
+  "version": "0.1.0",
+  "description": "Browser and mobile MCP servers (chrome-devtools, mobile-mcp) for cortex-workflow QA. Enable per project.",
+  "author": {
+    "name": "SIROC Team",
+    "url": "https://github.com/SIROC-Labs"
+  },
+  "homepage": "https://github.com/SIROC-Labs/cortex",
+  "repository": "https://github.com/SIROC-Labs/cortex",
+  "license": "Proprietary",
+  "keywords": [
+    "qa",
+    "mcp",
+    "chrome-devtools",
+    "mobile"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Cortex QA Tools",
+    "shortDescription": "Browser and mobile MCP servers for cortex-workflow QA.",
+    "longDescription": "Chrome DevTools MCP and mobile-mcp, the testing tools that the cortex-workflow web-qa and mobile-qa skills drive. Install only where you run browser or mobile QA: every session with this plugin starts both servers.",
+    "developerName": "SIROC Team",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/SIROC-Labs/cortex",
+    "defaultPrompt": [
+      "QA this branch in the browser."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

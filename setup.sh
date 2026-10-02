@@ -23,6 +23,10 @@ MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
+# Marketplace plugins this script never installs; each project opts in. cortex-qa-tools
+# carries the QA MCP servers, which a runtime starts in every session that enables it.
+OPT_IN_PLUGINS="cortex-qa-tools"
+
 OPENCODE=false
 CODEX=false
 ALL=false
@@ -133,9 +137,10 @@ add_to_profile() {
 # The end-of-script banner tells the user to reload for future sessions.
 
 # Resolve the plugin list from the marketplace manifest — the single source of
-# truth. --dev reads the local clone (the install source); otherwise fetch from
-# the remote repo, so a standalone setup.sh (no clone) works and the list always
-# matches what actually gets installed. Requires gh access, verified in Step 1.
+# truth — minus OPT_IN_PLUGINS. --dev reads the local clone (the install source);
+# otherwise fetch from the remote repo, so a standalone setup.sh (no clone) works
+# and the list always matches what actually gets installed. Requires gh access,
+# verified in Step 1.
 resolve_plugins() {
   local manifest_json=""
   if [ "$DEV" = true ] && [ -f "${SCRIPT_DIR}/.claude-plugin/marketplace.json" ]; then
@@ -145,7 +150,7 @@ resolve_plugins() {
       -H "Accept: application/vnd.github.raw" 2>/dev/null) || true
   fi
   printf '%s' "$manifest_json" \
-    | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins']))" 2>/dev/null
+    | python3 -c "import sys,json;skip=sys.argv[1].split();print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins'] if p['name'] not in skip))" "$OPT_IN_PLUGINS" 2>/dev/null
 }
 
 # In --dev, force a clean re-point to the local clone: remove the installed plugins
@@ -158,6 +163,20 @@ repoint_dev() {
     "$1" plugin "$2" "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
   done
   "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
+}
+
+# How to opt a repo into the QA MCP servers. Args: the runtimes to cover.
+print_qa_tools_hint() {
+  echo "  Browser/mobile QA (web-qa, mobile-qa) needs the QA MCP servers. They are opt-in:"
+  local runtime
+  for runtime in "$@"; do
+    case "$runtime" in
+      claude)   echo -e "    Claude Code, in each repo:  ${GREEN}claude plugin install cortex-qa-tools@${MARKETPLACE_NAME} --scope project${NC}" ;;
+      codex)    echo -e "    Codex, every session:       ${GREEN}codex plugin add cortex-qa-tools@${MARKETPLACE_NAME}${NC}" ;;
+      opencode) echo    "    OpenCode, in each repo:     add the servers to opencode.json, see https://github.com/${MARKETPLACE_REPO}/blob/main/.opencode/INSTALL.md" ;;
+    esac
+  done
+  echo ""
 }
 
 ready_banner() {
@@ -398,8 +417,8 @@ configure_opencode() {
   # Ensure config directory exists
   mkdir -p "$CONFIG_DIR"
 
-  # Add plugins and merge mcpServers into opencode.json. Default to the remote
-  # git+ URL; only in --dev mode pass the local clone path to use instead.
+  # Add plugins to opencode.json. Default to the remote git+ URL; only in --dev
+  # mode pass the local clone path to use instead.
   local DEV_ROOT=""
   [ "$DEV" = true ] && DEV_ROOT="$SCRIPT_DIR"
 
@@ -458,9 +477,8 @@ for name, entry in (("cortex-workflow", cortex_entry), ("superpowers", superpowe
         existing.add(name)
 config["plugin"] = plugins
 
-# MCP servers are registered at load time by the OpenCode adapter
-# (.opencode/plugins/cortex-workflow.js) from the plugin's bundled .mcp.json — the
-# single source of truth (shared with Claude and Codex). Not written here.
+# The QA MCP servers (plugins/cortex-qa-tools/.mcp.json) are opt-in per project:
+# each repo that runs browser/mobile QA declares them in its own opencode.json.
 
 perm = config.get("permission", {})
 ext = perm.get("external_directory", {})
@@ -514,9 +532,9 @@ configure_codex() {
     MP_SOURCE="$SCRIPT_DIR"
 
     # Validate the local marketplace + per-plugin manifests before registering them.
-    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/cortex-workflow/.mcp.json")
+    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/cortex-qa-tools/.mcp.json")
     local p
-    for p in $PLUGINS; do
+    for p in $PLUGINS $OPT_IN_PLUGINS; do
       MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
     done
     local manifest
@@ -553,10 +571,9 @@ PYEOF
     return 1
   fi
 
-  # MCP servers (mobile-mcp, chrome-devtools) are declared in the plugin manifest
-  # (.codex-plugin/plugin.json -> ./.mcp.json) and load automatically when the plugin
-  # is enabled — no `codex mcp add` needed. Verified: they stay available with zero
-  # [mcp_servers] entries in config.toml.
+  # The QA MCP servers (mobile-mcp, chrome-devtools) ship in the opt-in
+  # cortex-qa-tools plugin (.codex-plugin/plugin.json -> ./.mcp.json); they load when
+  # that plugin is added — no `codex mcp add` needed. It is not installed here.
 
   if [ "$INSTALL_PLUGINS" != true ]; then
     info "Skipping plugin install — choose from the marketplace:"
@@ -720,6 +737,7 @@ if [ "$ALL" = true ]; then
     echo "  Restart each installed agent to load the plugin and skills."
   fi
   echo ""
+  print_qa_tools_hint claude codex opencode
 elif [ "$OPENCODE" = true ]; then
   # ─────────────────────────────────────────────
   # OpenCode: configure plugin and show instructions
@@ -735,9 +753,10 @@ elif [ "$OPENCODE" = true ]; then
   echo ""
   echo "  To update later, re-run: bash setup.sh --opencode"
   echo ""
+  print_qa_tools_hint opencode
 elif [ "$CODEX" = true ]; then
   # ─────────────────────────────────────────────
-  # Codex: configure marketplace, declared MCPs, and show instructions
+  # Codex: configure marketplace, plugins, and show instructions
   # ─────────────────────────────────────────────
   step 5 "Codex plugin configuration"
   configure_codex
@@ -745,8 +764,7 @@ elif [ "$CODEX" = true ]; then
   step 6 "Done"
   ready_banner
   if [ "$INSTALL_PLUGINS" = true ]; then
-    echo "  ${PLUGINS_LABEL} + superpowers (from openai-curated) are installed;"
-    echo "  the declared MCP servers load automatically from the plugin manifest."
+    echo "  ${PLUGINS_LABEL} + superpowers (from openai-curated) are installed."
   else
     echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
     echo -e "    ${GREEN}codex plugin add <plugin>@${MARKETPLACE_NAME}${NC}"
@@ -754,6 +772,7 @@ elif [ "$CODEX" = true ]; then
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
+  print_qa_tools_hint codex
 else
   # ─────────────────────────────────────────────
   # Claude Code: install marketplace + plugin (user/global scope)
@@ -785,6 +804,7 @@ else
     echo -e "    claude plugin list                                — See installed plugins"
     echo -e "    claude plugin update ${PRIMARY_PLUGIN}@${MARKETPLACE_NAME}  — Pull latest version"
     echo ""
+    print_qa_tools_hint claude
   else
     echo "  Claude Code CLI not found on PATH — finish install from inside Claude Code:"
     echo ""

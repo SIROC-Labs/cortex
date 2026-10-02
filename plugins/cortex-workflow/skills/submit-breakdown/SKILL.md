@@ -266,7 +266,7 @@ When a working prototype exists (an HTML file, a hosted URL, or screenshots from
 
 **How to render screenshots from an HTML prototype:**
 1. Download the prototype HTML file (from a task attachment or local path).
-2. Open it using the Chrome DevTools MCP (`new_page` with `file://` URL or hosted URL).
+2. Open it using the Chrome DevTools MCP (`new_page` with `file://` URL or hosted URL). If its tools are absent from the session, the project has not enabled the QA MCP servers: tell the user (enable commands: `../start-task/references/skill-dependencies.md` → MCP Servers) and skip this phase.
 3. Navigate the prototype to each relevant screen — use `evaluate_script` to drive the UI (click buttons, advance wizard steps) since prototypes are typically JS-heavy SPAs that don't respond to standard accessibility-tree clicks.
 4. Take a `fullPage: true` screenshot per screen and save to a local temp directory within the project working dir (e.g. `docs/cortex/screenshots/`).
 5. Map each screenshot to the tasks it covers (one screenshot may apply to multiple tasks — upload it to each one).

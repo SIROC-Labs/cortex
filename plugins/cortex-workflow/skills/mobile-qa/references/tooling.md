@@ -19,7 +19,9 @@
 
 ### When mobile-mcp is unavailable
 
-Run this first:
+If no mobile-mcp tools (`mobile_list_available_devices`, …) exist in this session at all, the project has not enabled the QA MCP servers. Tell the operator to enable them for this project (per-runtime commands: `../../start-task/references/skill-dependencies.md` → MCP Servers), restart the agent session, and re-run. Stop there.
+
+If the tools exist but fail, run this first:
 
 ```bash
 which node 2>/dev/null && node --version

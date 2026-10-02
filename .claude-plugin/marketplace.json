@@ -33,6 +33,12 @@
       "source": "./plugins/dev-toolkit",
       "description": "Independent, reusable development utilities",
       "version": "0.3.1"
+    },
+    {
+      "name": "cortex-qa-tools",
+      "source": "./plugins/cortex-qa-tools",
+      "description": "Browser and mobile MCP servers (chrome-devtools, mobile-mcp) for cortex-workflow QA. Enable per project.",
+      "version": "0.1.0"
     }
   ]
 }

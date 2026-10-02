@@ -1,0 +1,8 @@
+{
+  "name": "cortex-qa-tools",
+  "description": "Browser and mobile MCP servers (chrome-devtools, mobile-mcp) for cortex-workflow QA. Enable per project.",
+  "version": "0.1.0",
+  "author": {
+    "name": "SIROC Team"
+  }
+}

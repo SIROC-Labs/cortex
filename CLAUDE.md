@@ -35,13 +35,15 @@ Each skill lives at `plugins/<plugin>/skills/<name>/SKILL.md` with YAML frontmat
 
 ## Multi-Agent Support
 
-Both plugins (`cortex-workflow`, `dev-toolkit`) support Claude Code, OpenCode, and Codex:
+All plugins (`cortex-workflow`, `dev-toolkit`, `cortex-qa-tools`) support Claude Code, OpenCode, and Codex:
 
 - **Claude Code** — `bash setup.sh` or `/plugin install cortex-workflow@siroc-cortex`
 - **OpenCode** — `bash setup.sh --opencode` (see `.opencode/INSTALL.md`)
 - **Codex** — `bash setup.sh --codex` (see `.codex/INSTALL.md`)
 
-Skills are agent-agnostic and work with all runtimes. Per-runtime skill resolution goes through `plugins/cortex-workflow/references/runtime-bindings.md`; OpenCode additionally gets a thin adapter at `.opencode/plugins/cortex-workflow.js` that handles skill registration, MCP registration, tool name mapping, and bootstrap injection.
+Skills are agent-agnostic and work with all runtimes. Per-runtime skill resolution goes through `plugins/cortex-workflow/references/runtime-bindings.md`; OpenCode additionally gets a thin adapter at `.opencode/plugins/cortex-workflow.js` that handles skill registration, tool name mapping, and bootstrap injection.
+
+`cortex-qa-tools` holds only the QA MCP servers (`plugins/cortex-qa-tools/.mcp.json`). Keep MCP servers out of `cortex-workflow` and `dev-toolkit`: a runtime starts a plugin's stdio servers in every session where the plugin is enabled, so they belong in an opt-in plugin that projects enable when they need them. `setup.sh` skips plugins listed in `OPT_IN_PLUGINS`.
 
 ## Behavior
 

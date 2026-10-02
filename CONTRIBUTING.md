@@ -29,6 +29,7 @@
      codex plugin add superpowers@openai-curated
      ```
      `superpowers` comes from the official `openai-curated` catalog, not from `siroc-cortex`.
+4. `cortex-qa-tools` (the QA MCP servers) is never installed by the script. To work on `web-qa` or `mobile-qa`, enable it in the repo you test against, as described in the README's [Browser and mobile QA tools](README.md#browser-and-mobile-qa-tools-per-project) section.
 
 ## Development loop
 

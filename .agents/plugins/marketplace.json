@@ -26,6 +26,17 @@
         "installation": "INSTALLED_BY_DEFAULT"
       },
       "category": "Developer Tools"
+    },
+    {
+      "name": "cortex-qa-tools",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cortex-qa-tools"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
     }
   ]
 }
