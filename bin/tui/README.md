@@ -46,9 +46,12 @@ a sprint is picked; nothing about the sprint is guessed.
 
 - **Sprint** — the board queued tasks are added to.
 - **Target branch** — the branch new runs branch off and open their PR against; the
-  repo's default branch unless you pick another. `/` filters the repo's branches, and
-  typing a name that does not exist offers to create it on origin from the default
-  branch (it asks first — it is a push). PRs already open keep the base they have.
+  repo's default branch unless you pick another. The list is origin's branches (`/`
+  searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
+  characters, `/` included — and creates it on origin from the default branch once you
+  confirm; it is a push. PRs already open keep the base they have. The UI's git calls
+  never prompt: if SSH needs a passphrase or a new host key, the call fails and says
+  so instead of taking over the terminal.
 - **Merging** — when a shipped PR is merged without you asking; `⏎` cycles:
   - *automatically, unless it targets the default branch* (the default, and the
     recommendation): a PR into `milestone/m1` lands by itself, one into `main` waits

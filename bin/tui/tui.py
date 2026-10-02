@@ -44,6 +44,10 @@ MERGE_LABELS = {
     "asked": "only when asked — m on a task",
 }
 BRANCHES_MAX_AGE = 60
+# git run from the UI must never ask for anything: a prompt would take over the
+# terminal the UI is drawing on, and look like a hang. It fails instead, saying why.
+NO_PROMPT = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+                 GIT_SSH_COMMAND=os.environ.get("GIT_SSH_COMMAND", "ssh") + " -o BatchMode=yes")
 # How old a cached copy may be before the view showing it re-reads Asana behind it.
 BOARDS_MAX_AGE = 300
 BOARD_OPEN_MAX_AGE = 30
@@ -219,13 +223,10 @@ def parse_ls_remote(text):
 
 
 def branch_rows(branches, default, query, current):
-    """Branches to pick the target from, filtered — and, when the filter names a
-    branch that does not exist, a row to create it from the default branch."""
-    rows = []
-    name = (query or "").strip()
-    if name and name not in (branches or []) and valid_branch_name(name):
-        rows.append({"kind": "create", "id": name, "style": "warn",
-                     "cols": ["+ create %s" % name, "from %s, on origin" % (default or "the default")]})
+    """Branches to pick the target from, filtered, after a row for starting a new
+    one from the default branch."""
+    rows = [{"kind": "new", "id": "+new", "style": "warn",
+             "cols": ["+ New branch…", "from %s, on origin" % (default or "the default branch")]}]
     for b in branches or []:
         if not matches(b, query):
             continue
@@ -379,7 +380,7 @@ HELP = [
     "            x stop and unqueue · r retry · o open the PR or task",
     "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
     "Setup       ⏎ on Sprint picks the sprint board · on Target branch picks the branch",
-    "            new runs PR into (/ then a new name offers to create it on origin) ·",
+    "            new runs PR into — + New branch… (or n) creates one on origin ·",
     "            on Merging cycles: unless the default branch / always / only when asked",
     "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
     "",
@@ -517,7 +518,7 @@ class App(object):
 
     def fetch_branches(self):
         code = subprocess.run(["git", "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*"],
-                              cwd=self.main_root, stdin=subprocess.DEVNULL,
+                              cwd=self.main_root, stdin=subprocess.DEVNULL, env=NO_PROMPT,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if code.returncode != 0:
             raise Stop(code.stderr.decode("utf-8", "replace").strip() or "git ls-remote failed")
@@ -529,6 +530,20 @@ class App(object):
         if is_stale(self.branches_at, time.time(), max_age):
             self.loader.start("branches", "branches", self.fetch_branches)
 
+    def new_branch(self, name):
+        """A name typed for a new target branch: checked, then confirmed — it is a
+        push to origin."""
+        if not name:
+            self.message = "no branch created"
+        elif not valid_branch_name(name):
+            self.message = "%r is not a name git takes for a branch" % name
+        elif name in (self.branches or []):
+            self.set_base(name)
+        else:
+            self.ask("create %s on origin from %s? (y/n)"
+                     % (name, self.default_branch or "the default branch"),
+                     lambda: self.create_branch(name))
+
     def create_branch(self, name):
         """Create the target branch on origin from the default branch, then use it."""
         default = self.default_branch or "main"
@@ -538,7 +553,8 @@ class App(object):
                         ["git", "push", "origin", "refs/remotes/origin/%s:refs/heads/%s"
                          % (default, name)]):
                 done = subprocess.run(cmd, cwd=self.main_root, stdin=subprocess.DEVNULL,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                      env=NO_PROMPT, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
                 if done.returncode != 0:
                     raise Stop(done.stderr.decode("utf-8", "replace").strip().splitlines()[-1])
             return self.fetch_branches()
@@ -720,7 +736,7 @@ class App(object):
         elif editor:
             self.edit_request = row["id"]
         else:
-            self.compose = {"gid": row["id"], "text": ""}
+            self.compose = {"kind": "answer", "gid": row["id"], "text": ""}
 
     def merge(self, row):
         """Ask for a task to be got onto main: conflicts resolved, failing checks
@@ -788,7 +804,13 @@ class App(object):
                 else:
                     self.queue([{"gid": row["id"], "board": row["board"],
                                  "name": row["name"], "completed": row.get("completed")}])
-        elif name in ("Boards", "Sprint") and key == "R":
+        elif name == "Boards" and key == "R":
+            self.refresh_boards(max_age=-1)
+        elif name == "Setup" and self.setup == "base" and key == "n":
+            self.compose = {"kind": "branch", "text": ""}
+        elif name == "Setup" and self.setup == "base" and key == "R":
+            self.refresh_branches(max_age=-1)
+        elif name == "Setup" and self.setup == "sprint" and key == "R":
             self.refresh_boards(max_age=-1)
         elif name == "Daemons":
             if key == "s":
@@ -825,10 +847,8 @@ class App(object):
             self.setup = None
             self.message = "sprint: %s" % row["name"]
         elif name == "Setup" and self.setup == "base" and key == "enter":
-            if row["kind"] == "create":
-                self.ask("create %s on origin from %s? (y/n)"
-                         % (row["id"], self.default_branch or "the default branch"),
-                         lambda: self.create_branch(row["id"]))
+            if row["kind"] == "new":
+                self.compose = {"kind": "branch", "text": ""}
             else:
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
@@ -894,9 +914,11 @@ class App(object):
         if self.compose is not None:
             if key == "enter":
                 text = self.compose["text"].strip()
-                gid, self.compose = self.compose["gid"], None
-                if text:
-                    self.answer(gid, text)
+                compose, self.compose = self.compose, None
+                if compose.get("kind") == "branch":
+                    self.new_branch(text)
+                elif text:
+                    self.answer(compose["gid"], text)
                 else:
                     self.message = "nothing sent"
             elif key == "esc":
@@ -980,15 +1002,16 @@ class App(object):
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:
-            return "enter send · esc cancel · ^U clear"
+            return ("enter create · esc cancel · ^U clear — any characters, / included"
+                    if self.compose.get("kind") == "branch" else "enter send · esc cancel · ^U clear")
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
             "Runs": "⏎/→ question or log · a answer · A in $EDITOR · m merge · x stop · r retry · o PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
-            "Setup": ("⏎ use it · / filter or type a new branch name · ←/esc back"
-                      if self.setup else "⏎ change it (on Merging: cycles through the three)"),
+            "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
+                      else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it (on Merging: cycles through the three)"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
         }[name] + " · 1-4 tabs · ? keys · q quit"
 
@@ -1074,7 +1097,8 @@ class App(object):
             for i, line in enumerate(detail[:4]):
                 put(h - 6 + i, "  " + line, "dim")
         if self.compose is not None:
-            prompt = "answer › "
+            prompt = ("new branch from %s › " % (self.default_branch or "the default branch")
+                      if self.compose.get("kind") == "branch" else "answer › ")
             text = self.compose["text"]
             room = max(1, w - len(prompt) - 3)
             put(h - 2, prompt + (text[-room:] if len(text) > room else text) + "▏", "warn")

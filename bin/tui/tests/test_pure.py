@@ -492,16 +492,36 @@ class TestAppKeys(unittest.TestCase):
         self.press("up", "enter")
         self.assertIsNone(self.app.control["base"])  # the default is stored as "no override"
 
-    def test_a_new_branch_name_offers_to_create_it_and_asks_first(self):
-        created = []
-        self.app.branches, self.app.default_branch = ["main"], "main"
+    def new_branch_setup(self):
+        self.created = []
+        self.app.branches, self.app.default_branch = ["main", "develop"], "main"
         self.app.branches_at = tui.time.time()
-        self.app.create_branch = lambda name: created.append(name)
-        self.press("3", "down", "enter", "/", *"milestone/m1", "enter", "enter")
+        self.app.create_branch = lambda name: self.created.append(name)
+        self.press("3", "down", "enter")
+
+    def test_the_new_branch_row_takes_a_name_with_slashes_and_asks_first(self):
+        self.new_branch_setup()
+        self.press("home", "enter")
+        self.assertEqual(self.app.compose["kind"], "branch")
+        self.press(*"milestone/m1", "enter")
         self.assertIn("create milestone/m1 on origin from main", self.app.message)
-        self.assertEqual(created, [])
+        self.assertEqual(self.created, [])
         self.press("y")
-        self.assertEqual(created, ["milestone/m1"])
+        self.assertEqual(self.created, ["milestone/m1"])
+
+    def test_n_starts_a_new_branch_too_and_esc_cancels(self):
+        self.new_branch_setup()
+        self.press("n", *"x/y", "esc")
+        self.assertIsNone(self.app.compose)
+        self.assertEqual(self.created, [])
+
+    def test_a_bad_name_is_refused_and_an_existing_one_is_just_picked(self):
+        self.new_branch_setup()
+        self.press("n", *"bad..name", "enter")
+        self.assertIn("not a name git takes", self.app.message)
+        self.press("n", *"develop", "enter")
+        self.assertEqual(self.app.control["base"], "develop")
+        self.assertEqual(self.created, [])
 
     def test_merging_cycles_through_its_three_modes(self):
         self.press("3", "down", "down")
@@ -754,15 +774,14 @@ class TestSetup(unittest.TestCase):
                 "def\trefs/heads/HGM-1/x\n123\trefs/heads/develop\n")
         self.assertEqual(parse_ls_remote(text), ("main", ["main", "develop", "HGM-1/x"]))
 
-    def test_branch_rows_offer_to_create_only_a_new_valid_name(self):
-        rows = branch_rows(["main", "develop"], "main", "release/2", None)
-        self.assertEqual(rows[0]["kind"], "create")
-        self.assertEqual([r["kind"] for r in branch_rows(["main", "develop"], "main", "dev", None)],
-                         ["create", "branch"])
-        self.assertEqual([r["kind"] for r in branch_rows(["main"], "main", "main", None)], ["branch"])
-        self.assertEqual(branch_rows(["main"], "main", "bad..name", None), [])
+    def test_branch_rows_start_with_new_and_search_only_filters(self):
+        rows = branch_rows(["main", "develop"], "main", "", None)
+        self.assertEqual([r["kind"] for r in rows], ["new", "branch", "branch"])
+        self.assertIn("from main", rows[0]["cols"][1])
+        self.assertEqual([r["id"] for r in branch_rows(["main", "develop"], "main", "dev", None)],
+                         ["+new", "develop"])
         picked = branch_rows(["main", "develop"], "main", "", "develop")
-        self.assertIn("← target", picked[1]["cols"][1])
+        self.assertIn("← target", picked[2]["cols"][1])
 
     def test_branch_names(self):
         for good in ("release/1.2", "milestone-m1", "HGM-1/x"):
