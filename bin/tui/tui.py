@@ -246,10 +246,9 @@ def valid_branch_name(name):
 
 
 def palette_matches(commands, query):
-    """The palette's commands for a query: every word must appear in the title;
-    ones that can run now come first, otherwise in the order given."""
-    hits = [c for c in commands if matches(c["title"], query)]
-    return sorted(hits, key=lambda c: c.get("why") is not None)
+    """The palette's commands for a query: every word must appear in the title
+    or the words it is also known by, in the order given."""
+    return [c for c in commands if matches("%s %s" % (c["title"], c.get("words", "")), query)]
 
 
 def extra_commits(main_root, branch, old, new):
@@ -361,7 +360,7 @@ _CSI_TILDE = {"1": "home", "7": "home", "4": "end", "8": "end", "5": "pgup",
               "6": "pgdn", "3": "delete", "2": "insert"}
 _CONTROL = {9: "tab", 10: "enter", 13: "enter", 8: "backspace", 127: "backspace",
             3: "ctrl-c", 14: "ctrl-n", 16: "ctrl-p", 6: "ctrl-f", 2: "ctrl-b",
-            4: "ctrl-d", 21: "ctrl-u"}
+            4: "ctrl-d", 21: "ctrl-u", 1: "ctrl-a", 5: "ctrl-e", 11: "ctrl-k", 23: "ctrl-w"}
 _CURSES = {"KEY_UP": "up", "KEY_DOWN": "down", "KEY_LEFT": "left", "KEY_RIGHT": "right",
            "KEY_NPAGE": "pgdn", "KEY_PPAGE": "pgup", "KEY_HOME": "home", "KEY_END": "end",
            "KEY_ENTER": "enter", "KEY_BACKSPACE": "backspace", "KEY_BTAB": "btab",
@@ -394,8 +393,10 @@ HELP = [
     "tabs        1-4 (or alt-1..4)   tab / shift-tab to cycle — the current tab's",
     "            number again takes it back to its top",
     "filter      /   then type; ⏎ keeps it, esc clears it",
-    "commands    :   the command palette — everything there is to do here, by name",
-    "            (moving a PR onto the target branch, the settings, the daemon…)",
+    "commands    :   the command palette — the commands with no key in the line below",
+    "            (changing a PR's base branch, the daemon from any tab…)",
+    "typing      ^A ^E start/end · ^B ^F ←→ a character · alt-B alt-F a word ·",
+    "            ^K ^U delete to end/start · ^W the word before · ^D delete forward",
     "",
     "Runs        m merge: get it onto main — conflicts resolved, failing checks fixed,",
     "            then merged; m again calls it off · on a blocked merge, m tries again",
@@ -410,6 +411,72 @@ HELP = [
     "",
     "q quits the UI; the daemon keeps working.                      any key closes this",
 ]
+
+
+class LineEdit(object):
+    """One line of text being typed, with the cursor somewhere in it, and the
+    keys every Unix line takes: readline's emacs bindings and the arrows. Used by
+    every text input, so typing never sets off a hotkey."""
+
+    def __init__(self, text=""):
+        self.text, self.pos = text, len(text)
+
+    def word_left(self):
+        i = self.pos
+        while i > 0 and not self.text[i - 1].isalnum():
+            i -= 1
+        while i > 0 and self.text[i - 1].isalnum():
+            i -= 1
+        return i
+
+    def word_right(self):
+        i, n = self.pos, len(self.text)
+        while i < n and not self.text[i].isalnum():
+            i += 1
+        while i < n and self.text[i].isalnum():
+            i += 1
+        return i
+
+    def key(self, key):
+        """Apply a key. False when it is not an editing key, for the caller."""
+        t, p = self.text, self.pos
+        if key in ("ctrl-a", "home"):
+            self.pos = 0
+        elif key in ("ctrl-e", "end"):
+            self.pos = len(t)
+        elif key in ("ctrl-b", "left"):
+            self.pos = max(0, p - 1)
+        elif key in ("ctrl-f", "right"):
+            self.pos = min(len(t), p + 1)
+        elif key == "alt-b":
+            self.pos = self.word_left()
+        elif key == "alt-f":
+            self.pos = self.word_right()
+        elif key == "ctrl-k":
+            self.text = t[:p]
+        elif key == "ctrl-u":
+            self.text, self.pos = t[p:], 0
+        elif key == "ctrl-w":
+            start = self.word_left()
+            self.text, self.pos = t[:start] + t[p:], start
+        elif key == "backspace":
+            if p:
+                self.text, self.pos = t[:p - 1] + t[p:], p - 1
+        elif key in ("ctrl-d", "delete"):
+            self.text = t[:p] + t[p + 1:]
+        elif len(key) == 1:
+            self.text, self.pos = t[:p] + key + t[p:], p + 1
+        else:
+            return False
+        return True
+
+    def show(self, room=None):
+        """The text with the cursor drawn in it, scrolled to keep it in view."""
+        text = self.text[:self.pos] + "▏" + self.text[self.pos:]
+        if room and len(text) > room:
+            start = max(0, min(self.pos - room + 2, len(text) - room))
+            text = text[start:start + room]
+        return text
 
 
 def decode_escape(seq):
@@ -772,7 +839,7 @@ class App(object):
         elif editor:
             self.edit_request = row["id"]
         else:
-            self.compose = {"kind": "answer", "gid": row["id"], "text": ""}
+            self.compose = {"kind": "answer", "gid": row["id"], "text": "", "line": LineEdit()}
 
     def merge(self, row):
         """Ask for a task to be got onto main: conflicts resolved, failing checks
@@ -791,87 +858,45 @@ class App(object):
                      "(y/n)" % (name, when), lambda: self.command("merge", row["id"]))
 
     def palette_commands(self, row):
-        """What the palette offers, worded for what is on screen: the selected
-        task's actions first, then the settings, then the daemon. A command that
-        cannot run now says why."""
+        """What the palette offers: only commands that are not already in plain
+        sight — none with a key shown in the line at the bottom — and only ones
+        that can run right now."""
         out = []
-        target = self.control.get("base") or self.default_branch or "the target branch"
         if TABS[self.tab] == "Runs" and row and row["kind"] == "task":
-            key = row["cols"][0]
-            has_pr = bool(row.get("pr_url")) and row.get("phase") in ("pr_open", "conflict")
-            done = row.get("phase") in ("merged", "stopped", "failed")
-            wait = row.get("wait")
-            out += [
-                {"title": "Move %s's PR onto %s" % (key, target), "run": lambda: self.retarget(row),
-                 "why": None if has_pr else "no open PR"},
-                {"title": "Merge %s" % key, "key": "m", "run": lambda: self.merge(row),
-                 "why": "already %s" % row.get("phase") if done else None},
-                {"title": "Answer %s" % key, "key": "a", "run": lambda: self.start_answer(row),
-                 "why": None if wait else "nothing waiting on you"},
-                {"title": "Answer %s in $EDITOR" % key, "key": "A",
-                 "run": lambda: self.start_answer(row, editor=True),
-                 "why": None if wait and wait.get("kind") not in ("conflict", "merge") else
-                 "no question waiting"},
-                {"title": "Stop and unqueue %s" % key, "key": "x", "run": lambda: self.act("x", row)},
-                {"title": "Retry %s" % key, "key": "r", "run": lambda: self.act("r", row),
-                 "why": None if row.get("phase") in ("failed", "stopped") else "not failed or stopped"},
-                {"title": "Open %s's PR" % key, "key": "o", "run": lambda: self.act("o", row),
-                 "why": None if row.get("links") else "nothing to open"},
-                {"title": "Show %s's log" % key, "key": "⏎",
-                 "run": lambda: setattr(self, "log_path", row.get("log")),
-                 "why": None if row.get("log") else "no log yet"},
-            ]
-        mode = self.control.get("merge_mode") if self.control.get("merge_mode") in MERGE_LABELS \
-            else "branches"
-        out += [
-            {"title": "Set the sprint…", "run": lambda: self.open_setup("sprint")},
-            {"title": "Set the target branch…", "run": lambda: self.open_setup("base")},
-            {"title": "New target branch…", "run": lambda: self.open_setup("base", new=True)},
-        ]
-        for m, label in MERGE_LABELS.items():
-            out.append({"title": "Merging: %s" % label, "run": lambda m=m: self.set_merge_mode(m),
-                        "why": "current" if m == mode else None})
-        out += [
-            {"title": "Start the daemon", "key": "s", "run": self.ensure_daemon,
-             "why": "already running" if self.alive else None},
-            {"title": "Stop the daemon and its runs", "run": lambda: self.ask(
-                "stop the daemon and its runs? (y/n)", lambda: dm.stop_daemon(self.daemon)),
-             "why": None if self.alive else "not running"},
-        ]
+            target = self.control.get("base") or self.default_branch
+            git_info = (st.State(self.main_root, row["cols"][0]).read("context.json") or {}).get("git") or {}
+            old = (git_info.get("base") or "").replace("origin/", "", 1)
+            if (row.get("pr_url") and row.get("phase") in ("pr_open", "conflict")
+                    and target and old != target):
+                out.append({"title": "Change %s's PR base branch to %s" % (row["cols"][0], target),
+                            "words": "retarget move update base branch pr from %s" % old,
+                            "run": lambda: self.retarget(row)})
+        if TABS[self.tab] != "Daemons":
+            if not self.alive:
+                out.append({"title": "Start this repo's daemon", "words": "run begin",
+                            "run": self.ensure_daemon})
+            else:
+                out.append({"title": "Stop this repo's daemon and its runs", "words": "kill end",
+                            "run": lambda: self.ask("stop the daemon and its runs? (y/n)",
+                                                    lambda: dm.stop_daemon(self.daemon))})
         return out
 
-    def open_setup(self, which, new=False):
-        self.tab = TABS.index("Setup")
-        self.setup = which
-        self.query[self.view_key()] = ""
-        if new:
-            self.compose = {"kind": "branch", "text": ""}
-
-    def set_merge_mode(self, mode):
-        self.change_control(lambda c: c.update(merge_mode=mode))
-        self.message = "merging: %s" % MERGE_LABELS[mode]
-
     def palette_key(self, key):
-        """A key while the palette is open: typing narrows it, enter runs."""
+        """A key while the palette is open: the line takes every editing key,
+        ↑↓ (or ^P ^N) choose, enter runs."""
         shown = palette_matches(self.palette["commands"], self.palette["query"])
-        action = NAV.get(key)
         if key == "esc":
             self.palette = None
         elif key == "enter":
             pick = shown[min(self.palette["cursor"], len(shown) - 1)] if shown else None
             self.palette = None
-            if pick and pick.get("why"):
-                self.message = "%s — %s" % (pick["title"], pick["why"])
-            elif pick:
+            if pick:
                 pick["run"]()
         elif key in ("up", "down", "ctrl-n", "ctrl-p"):
-            step = 1 if action == "down" else -1
+            step = 1 if key in ("down", "ctrl-n") else -1
             self.palette["cursor"] = max(0, min(len(shown) - 1, self.palette["cursor"] + step))
-        elif key == "backspace":
-            self.palette["query"] = self.palette["query"][:-1]
-            self.palette["cursor"] = 0
-        elif len(key) == 1:
-            self.palette["query"] += key
+        elif self.palette["line"].key(key):
+            self.palette["query"] = self.palette["line"].text
             self.palette["cursor"] = 0
 
     def retarget(self, row):
@@ -946,7 +971,7 @@ class App(object):
         elif name == "Boards" and key == "R":
             self.refresh_boards(max_age=-1)
         elif name == "Setup" and self.setup == "base" and key == "n":
-            self.compose = {"kind": "branch", "text": ""}
+            self.compose = {"kind": "branch", "text": "", "line": LineEdit()}
         elif name == "Setup" and self.setup == "base" and key == "R":
             self.refresh_branches(max_age=-1)
         elif name == "Setup" and self.setup == "sprint" and key == "R":
@@ -987,7 +1012,7 @@ class App(object):
             self.message = "sprint: %s" % row["name"]
         elif name == "Setup" and self.setup == "base" and key == "enter":
             if row["kind"] == "new":
-                self.compose = {"kind": "branch", "text": ""}
+                self.compose = {"kind": "branch", "text": "", "line": LineEdit()}
             else:
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
@@ -1066,12 +1091,8 @@ class App(object):
             elif key == "esc":
                 self.compose = None
                 self.message = "nothing sent"
-            elif key == "backspace":
-                self.compose["text"] = self.compose["text"][:-1]
-            elif key == "ctrl-u":
-                self.compose["text"] = ""
-            elif len(key) == 1:
-                self.compose["text"] += key
+            elif self.compose["line"].key(key):
+                self.compose["text"] = self.compose["line"].text
             return True
         if self.question and not self.log_path:
             row = next((r for r in rows if r["id"] == self.question), None)
@@ -1106,12 +1127,10 @@ class App(object):
             elif key == "esc":
                 self.typing = False
                 self.query[vk] = ""
-            elif key == "backspace":
-                self.query[vk] = self.query.get(vk, "")[:-1]
             elif key in ("up", "down"):
                 self.move(key, len(rows))
-            elif len(key) == 1:
-                self.query[vk] = self.query.get(vk, "") + key
+            elif self.line.key(key):
+                self.query[vk] = self.line.text
                 self.cursor[vk] = 0
             return True
         action = NAV.get(key)
@@ -1120,7 +1139,7 @@ class App(object):
         if key == "?":
             self.help = True
         elif key == ":":
-            self.palette = {"query": "", "cursor": 0,
+            self.palette = {"query": "", "cursor": 0, "line": LineEdit(),
                             "commands": self.palette_commands(self.selected(rows))}
         elif action == "tab":
             self.goto(int(key[-1]) - 1)
@@ -1134,6 +1153,7 @@ class App(object):
             self.back()
         elif key == "/":
             self.typing = True
+            self.line = LineEdit(self.query.get(vk, ""))
         else:
             self.act(key, self.selected(rows))
         return True
@@ -1216,7 +1236,7 @@ class App(object):
             crumb = TABS[self.tab] + (" › %s" % self.board[1]
                                       if TABS[self.tab] == "Boards" and self.board else "")
             query = self.query.get(self.view_key(), "")
-            put(2, "%s%s" % (crumb, ("   / %s%s" % (query, "▏" if self.typing else ""))
+            put(2, "%s%s" % (crumb, ("   / %s" % (self.line.show() if self.typing else query))
                              if query or self.typing else ""), "dim")
             if busy or age:
                 status = ("%s refreshing…" % spinner(time.time()) if busy and age
@@ -1246,9 +1266,7 @@ class App(object):
         if self.compose is not None:
             prompt = ("new branch from origin/%s › " % (self.default_branch or "the default branch")
                       if self.compose.get("kind") == "branch" else "answer › ")
-            text = self.compose["text"]
-            room = max(1, w - len(prompt) - 3)
-            put(h - 2, prompt + (text[-room:] if len(text) > room else text) + "▏", "warn")
+            put(h - 2, prompt + self.compose["line"].show(max(1, w - len(prompt) - 3)), "warn")
         else:
             put(h - 2, self.message, "warn")
         put(h - 1, self.help_line(), "dim")
@@ -1266,17 +1284,13 @@ class App(object):
 
         def line(y, text, attr):
             _put_at(scr, y, left, (" " + text).ljust(width)[:width], left + width + 1, attr)
-        line(3, ": %s▏" % self.palette["query"], styles["sel"])
+        line(3, ": %s" % self.palette["line"].show(width - 4), styles["sel"])
         if not shown:
-            line(4, "  nothing matches", styles["dim"])
+            line(4, "  nothing here beyond the keys below" if not self.palette["commands"]
+                 else "  nothing matches", styles["dim"])
         for i, cmd in enumerate(shown[top:top + rows]):
-            hint = "%s" % cmd["why"] if cmd.get("why") else cmd.get("key") or ""
-            room = max(8, width - len(hint) - 7)
-            title = cmd["title"] if len(cmd["title"]) <= room else cmd["title"][:room - 1] + "…"
-            text = "  %s%s" % (title, hint.rjust(width - len(title) - 4))
-            attr = styles["sel"] if top + i == cur else (styles["dim"] if cmd.get("why")
-                                                          else styles["normal"])
-            line(4 + i, text, attr)
+            title = cmd["title"] if len(cmd["title"]) <= width - 4 else cmd["title"][:width - 5] + "…"
+            line(4 + i, "  " + title, styles["sel"] if top + i == cur else styles["normal"])
         line(4 + max(1, min(len(shown), rows)), "", styles["dim"])
 
 

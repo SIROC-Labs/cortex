@@ -33,13 +33,27 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 
 ## The command palette
 
-`:` opens it. It lists everything there is to do from where you are, worded for it —
-the selected task's actions (*Move HCI-8's PR onto feature/x*, *Merge HCI-8*, *Answer
-HCI-8*…), the settings, the daemon. Type to narrow it (every word has to match), `↑↓`
-to choose, `⏎` to run, `Esc` to close. A command with a hotkey shows it, so the
-palette is also where the keys are learned; one that cannot run now is dimmed with the
-reason. Single-letter keys are kept for the small, everyday actions whose letter is
-their word; anything bigger lives in the palette.
+`:` opens it. It holds only the commands that are not already in plain sight — none
+whose key is shown in the line at the bottom of the screen — and only those that can
+run right now. On the Runs tab, with a task whose PR is not on the target branch, that
+is *Change HCI-8's PR base branch to feature/x*; from any tab but Daemons, starting or
+stopping this repo's daemon. Type to narrow it (it also matches the words you would use
+— *retarget*, *move*, *update*, *base*), `↑↓` or `^P ^N` to choose, `⏎` to run, `Esc`
+to close.
+
+## Typing
+
+Every text input — the palette, the `/` filter, an answer, a new branch name — takes
+the usual line-editing keys, and none of them sets off a hotkey while you type:
+
+| | |
+|---|---|
+| start / end of the line | `^A` `^E` · Home End |
+| a character back / forward | `^B` `^F` · `←` `→` |
+| a word back / forward | `Alt-B` `Alt-F` |
+| delete to the end / to the start | `^K` `^U` |
+| delete the word before the cursor | `^W` |
+| delete forward / back | `^D` Delete / Backspace |
 
 ## Tabs
 
@@ -64,8 +78,8 @@ its daemon.
   searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
   characters, `/` included — and creates it on origin from `origin/<default>` once you
   confirm — fetched first, so it starts at what is on GitHub, never at a local copy
-  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — *Move …'s PR onto …* in the command
-  palette moves one onto the current target, after counting any commits the move would drag in (ones its
+  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — *Change …'s PR base branch to …* in
+  the command palette moves one onto the current target, after counting any commits the move would drag in (ones its
   old base has that the target does not) and asking. From then on it merges by the
   rules for its new base. The UI's git calls
   never prompt: if SSH needs a passphrase or a new host key, the call fails and says

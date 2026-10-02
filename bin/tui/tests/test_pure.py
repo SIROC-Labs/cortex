@@ -369,9 +369,9 @@ class TestDecodeEscape(unittest.TestCase):
 
 class TestDecodeKey(unittest.TestCase):
     def test_control_keys(self):
-        self.assertEqual([decode_key(c) for c in (14, 16, 6, 2, 4, 21, 9, 10, 127)],
+        self.assertEqual([decode_key(c) for c in (14, 16, 6, 2, 4, 21, 9, 10, 127, 1, 5, 11, 23)],
                          ["ctrl-n", "ctrl-p", "ctrl-f", "ctrl-b", "ctrl-d", "ctrl-u",
-                          "tab", "enter", "backspace"])
+                          "tab", "enter", "backspace", "ctrl-a", "ctrl-e", "ctrl-k", "ctrl-w"])
 
     def test_curses_keys_and_characters(self):
         import curses
@@ -472,6 +472,8 @@ class TestAppKeys(unittest.TestCase):
     def test_typing_takes_letters_that_are_otherwise_keys(self):
         self.press("2", "/", "j", "q", "2")
         self.assertEqual(self.app.query["Boards"], "jq2")
+        self.press("ctrl-a", "x", "ctrl-e", "ctrl-b", "ctrl-d")
+        self.assertEqual(self.app.query["Boards"], "xjq")
         self.assertEqual(tui.TABS[self.app.tab], "Boards")
         self.press("esc")
         self.assertEqual(self.app.query["Boards"], "")
@@ -655,6 +657,8 @@ class TestAnswering(unittest.TestCase):
     def test_typing_an_answer_does_not_trigger_keys(self):
         self.press("1", "a", *"q2x")
         self.assertEqual(self.app.compose["text"], "q2x")
+        self.press("ctrl-a", "ctrl-k", *"use nonprod", "alt-b", "ctrl-k")
+        self.assertEqual(self.app.compose["text"], "use ")
         self.assertEqual(tui.TABS[self.app.tab], "Runs")
 
     def test_escape_or_an_empty_answer_sends_nothing(self):
@@ -703,16 +707,40 @@ class TestAnswering(unittest.TestCase):
         return [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
                                                         self.app.palette["query"])]
 
-    def test_the_palette_is_worded_for_the_selected_task_and_narrows_as_you_type(self):
+    def select(self, gid):
         rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index(gid)
+
+    def test_the_palette_has_only_what_no_key_below_does(self):
+        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
+        with dm.control_file(self.root) as c:
+            c["base"] = "feature/m1"
+        self.app.snapshot()
+        self.select("2")
         self.press(":")
-        titles = self.palette_titles()
-        self.assertIn("Merge A-2", titles)
-        self.assertIn("Set the target branch…", titles)
-        self.press(*"merg")
-        self.assertTrue(all("merg" in t.lower() for t in self.palette_titles()))
-        self.assertEqual(self.palette_titles()[0], "Merge A-2")
+        self.assertEqual(self.palette_titles(),
+                         ["Change A-2's PR base branch to feature/m1", "Start this repo's daemon"])
+
+    def test_it_is_found_by_the_words_you_would_use(self):
+        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
+        with dm.control_file(self.root) as c:
+            c["base"] = "feature/m1"
+        self.app.snapshot()
+        self.select("2")
+        for query in ("branch", "retarget", "update", "move pr"):
+            self.press(":", *query)
+            self.assertEqual(self.palette_titles()[:1], ["Change A-2's PR base branch to feature/m1"],
+                             query)
+            self.press("esc")
+
+    def test_a_pr_already_on_the_target_offers_no_move(self):
+        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/feature/m1"}})
+        with dm.control_file(self.root) as c:
+            c["base"] = "feature/m1"
+        self.app.snapshot()
+        self.select("2")
+        self.press(":")
+        self.assertNotIn("base branch", " ".join(self.palette_titles()))
 
     def test_typing_in_the_palette_does_not_trigger_hotkeys(self):
         self.press(":", *"xq2m")
@@ -722,18 +750,11 @@ class TestAnswering(unittest.TestCase):
         self.press("esc")
         self.assertIsNone(self.app.palette)
 
-    def test_a_command_that_cannot_run_says_why_instead(self):
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("1")
-        self.press(":", *"retry", "enter")
-        self.assertIn("not failed or stopped", self.app.message)
-        self.assertIsNone(self.app.palette)
-
-    def test_settings_commands_go_where_they_should(self):
-        self.press(":", *"target branch", "enter")
-        self.assertEqual((tui.TABS[self.app.tab], self.app.setup), ("Setup", "base"))
-        self.press(":", *"only when asked", "enter")
-        self.assertEqual(self.app.control["merge_mode"], "asked")
+    def test_the_palette_line_takes_editing_keys(self):
+        self.press(":", *"daemon", "ctrl-a", "ctrl-k")
+        self.assertEqual(self.app.palette["query"], "")
+        self.press(*"stat", "ctrl-b", "r", "ctrl-e", "ctrl-n", "ctrl-p")
+        self.assertEqual(self.app.palette["query"], "start")
 
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
@@ -885,6 +906,42 @@ class TestExtraCommits(unittest.TestCase):
 
     def test_a_base_level_with_the_old_one_brings_nothing(self):
         self.assertEqual(tui.extra_commits(self.work, "task", "main", "feature/same"), 0)
+
+
+class TestLineEdit(unittest.TestCase):
+    def typed(self, text, *keys):
+        line = tui.LineEdit(text)
+        for k in keys:
+            self.assertTrue(line.key(k), k)
+        return line.text, line.pos
+
+    def test_moving_and_inserting_mid_line(self):
+        self.assertEqual(self.typed("milestone", "ctrl-a", "x"), ("xmilestone", 1))
+        self.assertEqual(self.typed("ab", "ctrl-b", "-"), ("a-b", 2))
+        self.assertEqual(self.typed("ab", "left", "left", "right", "|"), ("a|b", 2))
+        self.assertEqual(self.typed("ab", "home", "end", "!"), ("ab!", 3))
+
+    def test_killing(self):
+        self.assertEqual(self.typed("feature/m1", "ctrl-a", "ctrl-f", "ctrl-k"), ("f", 1))
+        self.assertEqual(self.typed("feature/m1", "ctrl-b", "ctrl-u"), ("1", 0))
+        self.assertEqual(self.typed("use nonprod please", "ctrl-w"), ("use nonprod ", 12))
+        self.assertEqual(self.typed("ab", "ctrl-a", "ctrl-d"), ("b", 0))
+        self.assertEqual(self.typed("ab", "backspace", "backspace", "backspace"), ("", 0))
+
+    def test_words(self):
+        self.assertEqual(self.typed("feature/candidate intake", "alt-b", "alt-b")[1], 8)
+        self.assertEqual(self.typed("feature/candidate", "ctrl-a", "alt-f")[1], 7)
+
+    def test_other_keys_are_left_to_the_caller(self):
+        self.assertFalse(tui.LineEdit("x").key("enter"))
+        self.assertFalse(tui.LineEdit("x").key("up"))
+
+    def test_the_cursor_is_drawn_and_kept_in_view(self):
+        self.assertEqual(tui.LineEdit("ab").show(), "ab▏")
+        line = tui.LineEdit("abcdefghij")
+        line.key("ctrl-a")
+        self.assertTrue(line.show(5).startswith("▏"))
+        self.assertLessEqual(len(tui.LineEdit("x" * 50).show(10)), 10)
 
 
 class TestLogLine(unittest.TestCase):
