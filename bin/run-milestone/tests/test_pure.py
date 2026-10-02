@@ -339,7 +339,7 @@ class TestKillTree(unittest.TestCase):
         import time as _time
         import engine
         e = engine.Engine.__new__(engine.Engine)
-        e.records = {}
+        e.data = {"tasks": {}, "records": {}}
         proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
         e.children = {"1": proc}
         e.kill("1")
