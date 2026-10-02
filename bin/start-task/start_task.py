@@ -97,7 +97,9 @@ EXIT_FAILED = 1
 EXIT_AWAITING = 3
 OUTCOME_FILE = "outcome.json"
 # How long runs have worked on the task, summed across every run of it — the
-# task's actual time. Waiting on a human does not count.
+# task's actual time. Waiting on a human does not count, and neither does time
+# the machine spends asleep: it is measured on the monotonic clock, which stops
+# while the system sleeps (macOS and Linux both).
 TIMING_FILE = "timing.json"
 
 # Seconds this process has spent waiting on a reply, so far.
@@ -1122,9 +1124,10 @@ def escalate(state, ref, cwd, args, kind, body, extra=None):
                 return (answer.get("text") or "").strip()
             attempt += 1
             next_poll = waited + poll_interval(attempt)
+        slept = time.monotonic()
         time.sleep(ANSWER_CHECK)
         waited += ANSWER_CHECK
-        WAITED[0] += ANSWER_CHECK
+        WAITED[0] += time.monotonic() - slept
         if waited >= next_note:
             info("still waiting (%s)" % _elapsed(waited))
             next_note += 600
@@ -1772,11 +1775,11 @@ def main(argv):
         return EXIT_OK
     # A stop from outside unwinds like Ctrl-C, so the time worked is still kept.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
-    started = time.time()
+    started = time.monotonic()
     try:
         return run_task(args)
     finally:
-        record_work(args, time.time() - started - WAITED[0])
+        record_work(args, time.monotonic() - started - WAITED[0])
 
 
 def run_task(args):

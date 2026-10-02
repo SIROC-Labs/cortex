@@ -873,5 +873,42 @@ class TestFieldsCacheVersion(unittest.TestCase):
         self.assertEqual(self.asana.cached_fields_map("k", "a"), {"x": {}})
 
 
+class TestRunTimeClock(unittest.TestCase):
+    """Run time must not count the machine being asleep: a closed lid once put
+    two and a half hours of sleep into a task's Actual."""
+
+    def test_the_clock_used_stops_while_the_system_sleeps(self):
+        import time
+        info = time.get_clock_info("monotonic")
+        self.assertTrue(info.monotonic)
+        self.assertFalse(info.adjustable)
+
+    def test_a_run_records_monotonic_time_minus_its_waits(self):
+        import time
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        state = State(root, "T-1")
+        state.ensure()
+        clock = iter([1000.0, 1000.0 + 600])     # ten minutes awake
+
+        class Args(object):
+            task, repo, task_key = "T-1", root, "T-1"
+            backends = status = False
+        saved = (start_task.time.monotonic, start_task.run_task, start_task.main_repo_root,
+                 start_task.build_parser)
+        self.addCleanup(lambda: (setattr(start_task.time, "monotonic", saved[0]),
+                                 setattr(start_task, "run_task", saved[1]),
+                                 setattr(start_task, "main_repo_root", saved[2]),
+                                 setattr(start_task, "build_parser", saved[3])))
+        start_task.time.monotonic = lambda: next(clock)
+        start_task.main_repo_root = lambda cwd: root
+        start_task.run_task = lambda args: 0
+        start_task.build_parser = lambda: type("P", (), {"parse_args": lambda self, a: Args()})()
+        start_task.WAITED[0] = 120.0
+        self.addCleanup(lambda: start_task.WAITED.__setitem__(0, 0.0))
+        start_task.main([])
+        self.assertEqual(state.read("timing.json")["worked_seconds"], 480.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

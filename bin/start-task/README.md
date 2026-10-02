@@ -241,8 +241,9 @@ appearing to have honoured it.
 
 State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `timing.json`
-(the seconds every run of the task has spent working, waiting on a reply excluded —
-each run adds its own, a stopped one included), `attachments/`, `run.json` (the live run's
+(the seconds every run of the task has spent working — each run adds its own, a
+stopped one included; time waiting on a reply, and time the machine spends asleep, are
+not counted), `attachments/`, `run.json` (the live run's
 pid, so an abandoned terminal is findable), `session.json` (the agent's last session,
 for picking the conversation up by hand), `awaiting.json` while a question is
 outstanding, and `<phase>.failure.log`
