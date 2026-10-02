@@ -94,6 +94,36 @@ its daemon.
   `m` works in every mode. An automatic merge is exactly what `m` does, conflicts and
   failing checks included; `m` on one calls it off, and it stays off for that task.
 
+## What each row says
+
+The status next to a task says what is happening to that task now, not just its phase:
+
+- a command of yours the daemon has not acted on yet — *base branch change to
+  feature/m1 asked — waiting for the daemon*;
+- something the daemon is in the middle of for it — *changing HCI-8's PR base branch to
+  feature/m1…*, *finishing HCI-8 in Asana…*, *removing HCI-8's worktree…*;
+- for a running task, its current step from its log, what it is waiting on and for how
+  long — *running — Implementing · agent at work · 12m*, *running — QA · make verify · 3m*;
+- for an open PR, what it waits for — *PR open — waiting for review; m merges*;
+- and when it waits on you, what that asks of you (below).
+
+## Waiting on you
+
+A run that needs you — the agent's questions, QA still red after its repairs, a refused
+push, a stalled call, a failed step — and a PR parked on a conflict all show on the Runs
+tab first, flagged ⚑, and the header counts them. `⏎` shows the whole of it: every
+question with its reasoning, or the problem with the output that caused it.
+
+- `a` answers in one line at the bottom of the screen; `A` opens `$VISUAL` / `$EDITOR`
+  with the questions as `#` comments, like `git commit`.
+- The answer is handed straight to the waiting run, which looks for one every second,
+  and is posted to the task in Asana as your comment, so the conversation stays where
+  it was asked. A run that is not alive when you answer finds it when it starts again.
+- On a parked conflict, `a` asks for a resolve: it posts `please resolve` on the PR,
+  which the loop picks up within a minute.
+
+Answering on the task in Asana still works exactly as before.
+
 ## Merge
 
 `m` on a task means "get this onto its target branch". It can be pressed at any point — on an open
