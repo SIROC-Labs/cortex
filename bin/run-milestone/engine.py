@@ -1098,6 +1098,10 @@ class Engine(object):
         pid = proc.pid if proc else (self.records.get(gid) or {}).get("pid")
         if pid and st.live_run_pid({"pid": pid}):
             kill_tree(pid)
+        if proc is not None:
+            # Collect its exit, or it lingers as a zombie — dead, but answering
+            # "are you there?" as if it were still a run.
+            threading.Thread(target=proc.wait, daemon=True).start()
 
     def kill_all(self):
         """Stop every run this engine launched or adopted, so none outlives it

@@ -334,6 +334,23 @@ class TestKillTree(unittest.TestCase):
             os.kill(child, 9)
             self.fail("the run's child outlived it")
 
+    def test_a_stopped_child_is_reaped_not_left_a_zombie(self):
+        import subprocess
+        import time as _time
+        import engine
+        e = engine.Engine.__new__(engine.Engine)
+        e.records = {}
+        proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        e.children = {"1": proc}
+        e.kill("1")
+        for _ in range(50):
+            if proc.poll() is not None:
+                break
+            _time.sleep(0.05)
+        self.assertIsNotNone(proc.returncode)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(proc.pid, 0)
+
     def test_nothing_to_stop(self):
         self.assertFalse(kill_tree(2 ** 22 + 12345))
 
