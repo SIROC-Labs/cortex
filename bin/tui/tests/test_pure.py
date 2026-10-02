@@ -756,6 +756,40 @@ class TestAnswering(unittest.TestCase):
         self.press(*"stat", "ctrl-b", "r", "ctrl-e", "ctrl-n", "ctrl-p")
         self.assertEqual(self.app.palette["query"], "start")
 
+    def frame(self):
+        class Scr(object):
+            def __init__(self):
+                self.grid = [[" "] * 90 for _ in range(24)]
+
+            def getmaxyx(self):
+                return 24, 90
+
+            def erase(self):
+                pass
+
+            def refresh(self):
+                pass
+
+            def addnstr(self, y, x, text, n, attr=0):
+                for i, ch in enumerate(text[:n]):
+                    if 0 <= y < 24 and 0 <= x + i < 90:
+                        self.grid[y][x + i] = ch
+        scr = Scr()
+        self.app.draw(scr, {k: 0 for k in ("normal", "bold", "dim", "sel", "ok", "warn", "bad")})
+        return ["".join(r).rstrip() for r in scr.grid]
+
+    def test_the_selected_row_is_marked_not_only_coloured(self):
+        self.press("1")
+        lines = self.frame()
+        marked = [l for l in lines[3:8] if l.startswith("▸ ")]
+        self.assertEqual(len(marked), 1)
+
+    def test_the_palette_marks_its_choice_and_hides_the_list_behind_it(self):
+        self.press("1", ":")
+        lines = self.frame()
+        self.assertFalse(any(l.startswith("▸") for l in lines[3:10]))
+        self.assertEqual(sum("│ ▸ " in l for l in lines), 1)
+
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)

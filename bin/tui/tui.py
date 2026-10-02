@@ -1253,8 +1253,9 @@ class App(object):
                      "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
                     "warn" if busy else "dim")
             for i, row in enumerate(rows[top:top + body]):
-                style = "sel" if top + i == cur else row.get("style", "normal")
-                put(3 + i, fit(row["cols"], w), style)
+                picked = top + i == cur
+                style = "sel" if picked else row.get("style", "normal")
+                put(3 + i, ("▸ " if picked else "  ") + fit(row["cols"], w - 2), style)
             row = rows[cur] if rows else None
             detail = []
             if row and TABS[self.tab] == "Runs" and row["kind"] == "task":
@@ -1275,23 +1276,42 @@ class App(object):
         scr.refresh()
 
     def draw_palette(self, scr, styles, h, w):
+        """A framed box: the line being typed on top, then the commands, the chosen
+        one marked as well as highlighted — so one or two are never ambiguous."""
         shown = palette_matches(self.palette["commands"], self.palette["query"])
         width = max(30, min(w - 4, 86))
         left = max(0, (w - width) // 2)
-        rows = max(1, min(len(shown), h - 9))
+        rows = max(1, min(len(shown), h - 10))
         cur = min(self.palette["cursor"], max(0, len(shown) - 1))
         top = max(0, cur - rows + 1)
+        inner = width - 4
 
-        def line(y, text, attr):
-            _put_at(scr, y, left, (" " + text).ljust(width)[:width], left + width + 1, attr)
-        line(3, ": %s" % self.palette["line"].show(width - 4), styles["sel"])
+        def row(y, text, attr, edge="│"):
+            body = text[:inner].ljust(inner)
+            _put_at(scr, y, left, edge, left + 2, styles["dim"])
+            _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
+            _put_at(scr, y, left + width - 1, edge, left + width + 1, styles["dim"])
+
+        def rule(y, a, b):
+            _put_at(scr, y, left, a + "─" * (width - 2) + b, left + width + 1, styles["dim"])
+
+        for y in range(3, 3 + 4 + max(1, min(len(shown), rows))):
+            _put_at(scr, y, 0, " " * w, w, styles["normal"])
+        _put_at(scr, 3, left, "╭─ commands " + "─" * (width - 13) + "╮", left + width + 1,
+                styles["dim"])
+        row(4, ": " + self.palette["line"].show(inner - 2), styles["bold"])
+        rule(5, "├", "┤")
+        y = 6
         if not shown:
-            line(4, "  nothing here beyond the keys below" if not self.palette["commands"]
-                 else "  nothing matches", styles["dim"])
+            row(y, "nothing here beyond the keys below" if not self.palette["commands"]
+                else "nothing matches", styles["dim"])
+            y += 1
         for i, cmd in enumerate(shown[top:top + rows]):
-            title = cmd["title"] if len(cmd["title"]) <= width - 4 else cmd["title"][:width - 5] + "…"
-            line(4 + i, "  " + title, styles["sel"] if top + i == cur else styles["normal"])
-        line(4 + max(1, min(len(shown), rows)), "", styles["dim"])
+            picked = top + i == cur
+            row(y, ("▸ " if picked else "  ") + cmd["title"], styles["sel"] if picked
+                else styles["normal"])
+            y += 1
+        rule(y, "╰", "╯")
 
 
 def _put(scr, y, text, width, attr):
