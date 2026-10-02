@@ -28,13 +28,24 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 | out | `←` · `h` · `Esc` · `⌫` — clear the filter, then leave the board |
 | tabs | `1`–`4` (or `Alt-1`–`4`) straight to one; the current tab's number again takes it back to its top. `Tab` / `Shift-Tab` cycle |
 | filter | `/`, then type — `⏎` keeps it, `Esc` clears it |
+| commands | `:` — the command palette (below) |
 | help | `?` |
+
+## The command palette
+
+`:` opens it. It lists everything there is to do from where you are, worded for it —
+the selected task's actions (*Move HCI-8's PR onto feature/x*, *Merge HCI-8*, *Answer
+HCI-8*…), the settings, the daemon. Type to narrow it (every word has to match), `↑↓`
+to choose, `⏎` to run, `Esc` to close. A command with a hotkey shows it, so the
+palette is also where the keys are learned; one that cannot run now is dimmed with the
+reason. Single-letter keys are kept for the small, everyday actions whose letter is
+their word; anything bigger lives in the palette.
 
 ## Tabs
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `b` move its PR onto the target branch · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
+| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
 | **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
@@ -53,8 +64,8 @@ its daemon.
   searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
   characters, `/` included — and creates it on origin from `origin/<default>` once you
   confirm — fetched first, so it starts at what is on GitHub, never at a local copy
-  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — `b` on one in the Runs tab moves it
-  onto the current target, after counting any commits the move would drag in (ones its
+  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — *Move …'s PR onto …* in the command
+  palette moves one onto the current target, after counting any commits the move would drag in (ones its
   old base has that the target does not) and asking. From then on it merges by the
   rules for its new base. The UI's git calls
   never prompt: if SSH needs a passphrase or a new host key, the call fails and says

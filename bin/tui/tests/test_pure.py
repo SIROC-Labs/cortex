@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import daemon as dm  # noqa: E402
 import tui  # noqa: E402
+from tui import palette_matches  # noqa: E402,F401
 from tui import (  # noqa: E402
     NAV, App, answer_template, board_list_rows, board_rows, branch_rows, decode_escape,
     decode_key, fit, log_line, matches, parse_answer, parse_ls_remote, read_waits, run_rows,
@@ -674,7 +675,7 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
                          [("merge", "2")])
 
-    def test_b_counts_what_a_move_brings_then_asks_then_tells_the_daemon(self):
+    def test_the_palette_moves_a_pr_counting_what_it_brings_then_asking(self):
         st.State(self.root, "A-2").write("context.json", {"git": {
             "branch": "A-2/x", "base": "origin/main", "pr_url": "https://github.com/o/r/pull/7"}})
         with dm.control_file(self.root) as c:
@@ -686,7 +687,7 @@ class TestAnswering(unittest.TestCase):
         self.addCleanup(setattr, tui, "extra_commits", saved)
         rows = self.app.view()
         self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press("b")
+        self.press(":", *"move", "enter")
         for _ in range(100):
             self.app.sync()
             if self.app.confirm:
@@ -697,6 +698,42 @@ class TestAnswering(unittest.TestCase):
         self.press("y")
         self.assertEqual(self.app.control["commands"][-1],
                          {"id": 1, "op": "retarget", "gid": "2", "base": "feature/m1"})
+
+    def palette_titles(self):
+        return [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
+                                                        self.app.palette["query"])]
+
+    def test_the_palette_is_worded_for_the_selected_task_and_narrows_as_you_type(self):
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press(":")
+        titles = self.palette_titles()
+        self.assertIn("Merge A-2", titles)
+        self.assertIn("Set the target branch…", titles)
+        self.press(*"merg")
+        self.assertTrue(all("merg" in t.lower() for t in self.palette_titles()))
+        self.assertEqual(self.palette_titles()[0], "Merge A-2")
+
+    def test_typing_in_the_palette_does_not_trigger_hotkeys(self):
+        self.press(":", *"xq2m")
+        self.assertEqual(self.app.palette["query"], "xq2m")
+        self.assertEqual(tui.TABS[self.app.tab], "Runs")
+        self.assertEqual(self.app.control.get("commands") or [], [])
+        self.press("esc")
+        self.assertIsNone(self.app.palette)
+
+    def test_a_command_that_cannot_run_says_why_instead(self):
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("1")
+        self.press(":", *"retry", "enter")
+        self.assertIn("not failed or stopped", self.app.message)
+        self.assertIsNone(self.app.palette)
+
+    def test_settings_commands_go_where_they_should(self):
+        self.press(":", *"target branch", "enter")
+        self.assertEqual((tui.TABS[self.app.tab], self.app.setup), ("Setup", "base"))
+        self.press(":", *"only when asked", "enter")
+        self.assertEqual(self.app.control["merge_mode"], "asked")
 
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
