@@ -847,6 +847,29 @@ class Engine(object):
         log("%s: merge no longer asked for" % self.key_of(gid))
         self.note(gid, "Merge called off — back to watching the PR")
 
+    def retarget(self, gid, base):
+        """Move a task's open PR onto `base`, and record that as its base so the
+        merge rules judge it by where it now goes. Returns (done, why not)."""
+        record = self.record(gid)
+        url = record.get("pr_url")
+        if record.get("phase") not in ("pr_open", "conflict") or not url:
+            return False, "it has no open PR"
+        code, _, err = run(["gh", "pr", "edit", url, "--base", base], cwd=self.repo)
+        if code != 0:
+            return False, "gh pr edit refused: %s" % ((err.splitlines() or ["?"])[-1])
+        state = self.start_state(gid)
+        context = state.read("context.json") or {}
+        old = (context.get("git") or {}).get("base")
+        context.setdefault("git", {})["base"] = "origin/%s" % base
+        state.write("context.json", context)
+        record["base"] = base
+        record.pop("merge_declined", None)
+        record["next_poll"] = 0
+        log("%s: PR moved onto %s" % (self.key_of(gid), base))
+        self.note(gid, "PR moved onto %s (was %s)" % (base, old or "?"),
+                  ["from here it merges by the rules for %s" % base])
+        return True, None
+
     def drive_merge(self, gid, owner, name):
         """One step towards merging: whatever GitHub says stands in the way, do
         the thing that removes it — or say why it cannot be done."""

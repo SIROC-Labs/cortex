@@ -45,7 +45,7 @@ CODE_FILES = (
     os.path.join(os.path.dirname(HERE), "run-milestone", "engine.py"),
     os.path.join(os.path.dirname(HERE), "start-task", "start_task.py"),
 )
-COMMANDS = ("stop", "retry", "merge", "merge-cancel")
+COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget")
 
 
 # --- pure helpers (unit-tested) ---------------------------------------------
@@ -71,6 +71,7 @@ def command_feedback(sent, applied, results, alive, now, busy=()):
                     % (sent["op"], sent["key"], result.get("note") or "unknown command"), True)
         return ({"merge": "merging %s — the Runs tab shows each step" % sent["key"],
                  "merge-cancel": "no longer merging %s" % sent["key"],
+                 "retarget": "%s's PR is on its new base — merging follows its rules" % sent["key"],
                  "stop": "stopped %s" % sent["key"],
                  "retry": "%s will start again when it is ready" % sent["key"]}
                 .get(sent["op"], "done"), True)
@@ -108,12 +109,12 @@ def queue_remove(control, gids):
     control["queue"] = [q for q in control["queue"] if q["gid"] not in gids]
 
 
-def add_command(control, op, gid, applied=0):
+def add_command(control, op, gid, applied=0, **extra):
     """Queue a command for the daemon. Ids only grow, so the daemon applies each
     once; commands it has already applied are dropped as new ones are added."""
     commands = [c for c in control.get("commands") or [] if c["id"] > applied]
     next_id = max([applied] + [c["id"] for c in commands]) + 1
-    commands.append({"id": next_id, "op": op, "gid": gid})
+    commands.append(dict(extra, id=next_id, op=op, gid=gid))
     control["commands"] = commands
     return next_id
 
@@ -345,6 +346,9 @@ class QueueRun(Engine):
                 log("ignored a command this daemon does not know: %s" % command["op"])
                 results.append({"id": command["id"], "ok": False,
                                 "note": "this daemon does not know %r" % command["op"]})
+            elif command["op"] == "retarget":
+                done, why = self.retarget(gid, command.get("base"))
+                results.append({"id": command["id"], "ok": done, "note": why})
             else:
                 results.append({"id": command["id"], "ok": True})
             if command["op"] == "stop":

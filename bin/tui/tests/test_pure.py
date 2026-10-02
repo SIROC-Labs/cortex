@@ -47,6 +47,11 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(dm.add_command(c, "stop", "2", applied=2), 3)
         self.assertEqual([x["id"] for x in c["commands"]], [3])
 
+    def test_a_command_can_carry_what_it_needs(self):
+        c = dm.empty_control()
+        dm.add_command(c, "retarget", "1", base="feature/x")
+        self.assertEqual(c["commands"][0], {"id": 1, "op": "retarget", "gid": "1", "base": "feature/x"})
+
     def test_an_id_is_never_reused_after_everything_was_applied(self):
         c = dm.empty_control()
         dm.add_command(c, "stop", "1")
@@ -669,6 +674,30 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
                          [("merge", "2")])
 
+    def test_b_counts_what_a_move_brings_then_asks_then_tells_the_daemon(self):
+        st.State(self.root, "A-2").write("context.json", {"git": {
+            "branch": "A-2/x", "base": "origin/main", "pr_url": "https://github.com/o/r/pull/7"}})
+        with dm.control_file(self.root) as c:
+            c["base"] = "feature/m1"
+        self.app.snapshot()
+        seen = []
+        tui.extra_commits, saved = (lambda root, branch, old, new: seen.append((branch, old, new)) or 0,
+                                    tui.extra_commits)
+        self.addCleanup(setattr, tui, "extra_commits", saved)
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press("b")
+        for _ in range(100):
+            self.app.sync()
+            if self.app.confirm:
+                break
+            tui.time.sleep(0.01)
+        self.assertEqual(seen, [("A-2/x", "main", "feature/m1")])
+        self.assertIn("move A-2's PR from main onto feature/m1? (y/n)", self.app.message)
+        self.press("y")
+        self.assertEqual(self.app.control["commands"][-1],
+                         {"id": 1, "op": "retarget", "gid": "2", "base": "feature/m1"})
+
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)
@@ -788,6 +817,37 @@ class TestSetup(unittest.TestCase):
             self.assertTrue(valid_branch_name(good), good)
         for bad in ("", "-x", "a..b", "a b", "x.lock", "a//b", "/x", "x/"):
             self.assertFalse(valid_branch_name(bad), bad)
+
+
+class TestExtraCommits(unittest.TestCase):
+    """Moving a PR to another base can drag in commits the old base had and the
+    new one does not; that has to be counted before anyone says yes."""
+
+    def git(self, cwd, *args):
+        import subprocess
+        subprocess.run(["git"] + list(args), cwd=cwd, check=True, capture_output=True)
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        origin, work = os.path.join(self.root, "o.git"), os.path.join(self.root, "w")
+        self.git(self.root, "init", "-q", "--bare", "-b", "main", origin)
+        self.git(self.root, "clone", "-q", origin, work)
+        for args in (["commit", "--allow-empty", "-qm", "c1"], ["push", "-q", "origin", "main"],
+                     ["push", "-q", "origin", "main:feature/old"],
+                     ["push", "-q", "origin", "main:feature/same"],
+                     ["commit", "--allow-empty", "-qm", "c2 on main"], ["push", "-q", "origin", "main"],
+                     ["push", "-q", "origin", "main:feature/same"],
+                     ["checkout", "-qb", "task"], ["commit", "--allow-empty", "-qm", "c3 the task"],
+                     ["push", "-q", "origin", "task"]):
+            self.git(work, *args)
+        self.work = work
+
+    def test_a_base_behind_the_old_one_brings_its_commits(self):
+        self.assertEqual(tui.extra_commits(self.work, "task", "main", "feature/old"), 1)
+
+    def test_a_base_level_with_the_old_one_brings_nothing(self):
+        self.assertEqual(tui.extra_commits(self.work, "task", "main", "feature/same"), 0)
 
 
 class TestLogLine(unittest.TestCase):

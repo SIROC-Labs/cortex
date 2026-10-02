@@ -34,7 +34,7 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
+| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `b` move its PR onto the target branch · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
 | **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
@@ -44,13 +44,19 @@ a sprint is picked; nothing about the sprint is guessed.
 
 ## Setup
 
+Settings are per repo: they live in the repo's `.cortex/queue/`, beside its queue and
+its daemon.
+
 - **Sprint** — the board queued tasks are added to.
 - **Target branch** — the branch new runs branch off and open their PR against; the
   repo's default branch unless you pick another. The list is origin's branches (`/`
   searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
   characters, `/` included — and creates it on origin from `origin/<default>` once you
   confirm — fetched first, so it starts at what is on GitHub, never at a local copy
-  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have. The UI's git calls
+  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — `b` on one in the Runs tab moves it
+  onto the current target, after counting any commits the move would drag in (ones its
+  old base has that the target does not) and asking. From then on it merges by the
+  rules for its new base. The UI's git calls
   never prompt: if SSH needs a passphrase or a new host key, the call fails and says
   so instead of taking over the terminal.
 - **Merging** — when a shipped PR is merged without you asking; `⏎` cycles:

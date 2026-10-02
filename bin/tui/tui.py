@@ -245,6 +245,20 @@ def valid_branch_name(name):
         or ".." in name or "//" in name or "@{" in name)
 
 
+def extra_commits(main_root, branch, old, new):
+    """How many commits a PR on `branch` would gain by moving from base `old` to
+    `new`: those it carries from `old` that `new` does not have. Fetches first."""
+    def git(*args):
+        done = subprocess.run(["git"] + list(args), cwd=main_root, stdin=subprocess.DEVNULL,
+                              env=NO_PROMPT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if done.returncode != 0:
+            raise Stop(done.stderr.decode("utf-8", "replace").strip().splitlines()[-1])
+        return done.stdout.decode().strip()
+    git("fetch", "origin", old, new, branch)
+    fork = git("merge-base", "origin/%s" % branch, "origin/%s" % old)
+    return int(git("rev-list", "--count", "origin/%s..%s" % (new, fork)))
+
+
 def board_list_rows(boards, query, sprint=None):
     sprint_gid = (sprint or {}).get("gid")
     return [{"kind": "board", "id": b["gid"], "name": b["name"], "style":
@@ -376,6 +390,7 @@ HELP = [
     "",
     "Runs        m merge: get it onto main — conflicts resolved, failing checks fixed,",
     "            then merged; m again calls it off · on a blocked merge, m tries again",
+    "            b moves a task's open PR onto the target branch set in Setup",
     "            ⏎ on a ⚑ task reads what it is waiting on · a answer it in one line ·",
     "            A answer in $EDITOR · on a parked conflict, a asks for a resolve",
     "            x stop and unqueue · r retry · o open the PR or task",
@@ -470,6 +485,7 @@ class App(object):
         self.posting = {}
         self.sent = []
         self.creating = None
+        self.retargeting = None
         self.snapshot()
 
     # data
@@ -591,6 +607,16 @@ class App(object):
                                     "has it all the same" % done[1])
                 elif done[1]:
                     self.message = "could not ask for the resolve: %s" % done[1]
+        done = self.loader.take("retarget")
+        if done and self.retargeting:
+            row, old, target = self.retargeting
+            self.retargeting = None
+            extra = done[0]
+            dragged = ("" if extra == 0 else " — it would bring %d commit(s) from %s that %s does "
+                       "not have" % (extra, old, target) if extra else
+                       " — could not tell what it brings (%s)" % (done[1] or "?"))
+            self.ask("move %s's PR from %s onto %s%s? (y/n)" % (row["cols"][0], old, target, dragged),
+                     lambda: self.command("retarget", row["id"], base=target))
         done = self.loader.take("branches")
         if done:
             if done[1]:
@@ -755,9 +781,28 @@ class App(object):
             self.ask("merge %s%s — resolving conflicts and fixing failing checks as needed? "
                      "(y/n)" % (name, when), lambda: self.command("merge", row["id"]))
 
-    def command(self, op, gid):
+    def retarget(self, row):
+        """Offer to move a task's open PR onto the current target branch — after
+        counting what the move would drag in with it."""
+        target = self.control.get("base") or self.default_branch
+        state = st.State(self.main_root, row["cols"][0])
+        git_info = (state.read("context.json") or {}).get("git") or {}
+        old = (git_info.get("base") or "").replace("origin/", "", 1)
+        if row.get("phase") not in ("pr_open", "conflict") or not row.get("pr_url"):
+            self.message = "b moves an open PR — %s has none" % row["cols"][0]
+        elif not target:
+            self.message = "no target branch known yet — open Setup once to read the branches"
+        elif old == target:
+            self.message = "%s's PR already targets %s" % (row["cols"][0], target)
+        else:
+            self.message = "checking what moving %s onto %s brings with it…" % (row["cols"][0], target)
+            self.loader.start("retarget", "retarget", lambda: extra_commits(
+                self.main_root, git_info.get("branch"), old, target))
+            self.retargeting = (row, old, target)
+
+    def command(self, op, gid, **extra):
         applied = self.data.get("applied", 0)
-        cid = self.change_control(lambda c: dm.add_command(c, op, gid, applied))
+        cid = self.change_control(lambda c: dm.add_command(c, op, gid, applied, **extra))
         key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key") or gid
         self.sent.append({"id": cid, "op": op, "key": key, "at": time.time()})
         self.follow_commands()
@@ -779,6 +824,8 @@ class App(object):
                 self.start_answer(row, editor=key == "A")
             elif key == "m" and row["kind"] == "task":
                 self.merge(row)
+            elif key == "b" and row["kind"] == "task":
+                self.retarget(row)
             elif key == "x" and row["kind"] == "task":
                 self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
                     self.command("stop", row["id"]),
@@ -1008,7 +1055,7 @@ class App(object):
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
-            "Runs": "⏎/→ question or log · a answer · A in $EDITOR · m merge · x stop · r retry · o PR",
+            "Runs": "⏎/→ question or log · a answer · A $EDITOR · m merge · b move PR to target · x stop · r retry · o PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
