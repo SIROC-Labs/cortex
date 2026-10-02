@@ -365,7 +365,22 @@ class TestMergeStep(unittest.TestCase):
 
     def test_clean_merges(self):
         self.assertEqual(merge_step(self.view("CLEAN"), {}), ("merge", None))
-        self.assertEqual(merge_step(self.view("UNSTABLE"), {}), ("merge", None))
+        self.assertEqual(merge_step(self.view("CLEAN", checks=[run_check("e2e")]), {}),
+                         ("merge", None))
+
+    def test_a_branch_with_no_rules_still_waits_for_every_check(self):
+        running = [run_check("e2e", status="IN_PROGRESS", conclusion=None)]
+        self.assertEqual(merge_step(self.view("CLEAN", checks=running), {})[0], "wait")
+        self.assertEqual(merge_step(self.view("UNSTABLE", checks=running), {})[0], "wait")
+
+    def test_failing_checks_are_fixed_even_when_github_would_merge(self):
+        failed = [run_check("e2e", conclusion="FAILURE")]
+        self.assertEqual(merge_step(self.view("UNSTABLE", checks=failed), {})[0], "fix_ci")
+        self.assertEqual(merge_step(self.view("CLEAN", checks=failed), {"ci": 2})[0], "blocked")
+
+    def test_skipped_and_neutral_checks_do_not_hold_a_merge(self):
+        quiet = [run_check("terraform", conclusion="SKIPPED"), run_check("x", conclusion="NEUTRAL")]
+        self.assertEqual(merge_step(self.view("CLEAN", checks=quiet), {}), ("merge", None))
 
     def test_conflicts_are_resolved_until_the_limit(self):
         dirty = self.view("DIRTY", "CONFLICTING")

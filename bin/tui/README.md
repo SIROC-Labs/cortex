@@ -135,8 +135,8 @@ then on the PR is driven until it lands, checked every 15 seconds:
 | ready to merge | merges, with a method the repo and its rules allow (squash first) |
 | conflicts with the base | revises: merges the base in and resolves them — never a rebase or force-push |
 | behind the base | updates the branch |
-| required checks running | waits |
-| a required check failed | revises to fix it, or re-runs it when it is plainly a flake |
+| checks running | waits — every check, not only the ones the branch's rules require |
+| a check failed | revises to fix it, or re-runs it when it is plainly a flake |
 | a draft | marks it ready |
 
 Review comments that arrive after you press `m` are not acted on — you said go. When

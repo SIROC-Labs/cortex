@@ -226,12 +226,12 @@ def merge_step(view, attempts, limits=None):
         if attempts.get("resolve", 0) >= limits["resolve"]:
             return "blocked", "still conflicting after %d resolve(s)" % attempts["resolve"]
         return "resolve", None
-    if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
-        return "merge", None
     if status == "BEHIND":
         return "update", None
-    if status == "BLOCKED":
-        pending, failing = check_states(view.get("statusCheckRollup"))
+    # Every check has to be green, required or not: a branch with no rules lets
+    # GitHub call a PR mergeable while its CI is still running, or failing.
+    pending, failing = check_states(view.get("statusCheckRollup"))
+    if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS", "BLOCKED"):
         if failing:
             if attempts.get("ci", 0) >= limits["ci"]:
                 return "blocked", "checks still failing after %d fix(es): %s" % (
@@ -239,6 +239,9 @@ def merge_step(view, attempts, limits=None):
             return "fix_ci", failing
         if pending:
             return "wait", "checks running: %s" % ", ".join(pending)
+    if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
+        return "merge", None
+    if status == "BLOCKED":
         return "blocked", "GitHub will not merge it yet (a review or a rule, not a check)"
     return "wait", "GitHub is still working out whether it can merge"
 
