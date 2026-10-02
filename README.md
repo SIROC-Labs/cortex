@@ -60,7 +60,7 @@ See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default, no clone needed; pass `--dev` to use your local working copy), and installs `cortex-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`. The MCP servers declared by the plugin load automatically. Restart Codex afterwards; no `/plugins` step needed.
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default, no clone needed; pass `--dev` to use your local working copy), and installs `cortex-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`. Restart Codex afterwards; no `/plugins` step needed.
 
 See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
 
@@ -72,6 +72,18 @@ bash setup.sh --all
 
 Installs for every supported agent in one run. Each agent is installed independently. If one fails (or its CLI isn't installed) the others still proceed, and a per-agent success/failure summary is printed at the end. Add `--dev` to source from your local clone.
 
+### Browser and mobile QA tools (per project)
+
+`web-qa` and `mobile-qa` drive two MCP servers, `chrome-devtools` and `mobile-mcp`. They ship in a separate plugin, `cortex-qa-tools`, because an agent starts a plugin's MCP servers in every session where it is enabled. `setup.sh` does not install it. Enable it in each repo that runs browser or mobile QA:
+
+| Agent | How |
+|---|---|
+| Claude Code | `claude plugin install cortex-qa-tools@siroc-cortex --scope project` from the repo (or `--scope local` for just you) |
+| Codex | `codex plugin add cortex-qa-tools@siroc-cortex` (Codex plugins are global) |
+| OpenCode | Add the servers to the repo's `opencode.json`, see [.opencode/INSTALL.md](.opencode/INSTALL.md#mcp-servers-for-browser-and-mobile-qa-per-project) |
+
+Upgrading from a `cortex-workflow` that bundled these servers: QA keeps working only in repos where you enable `cortex-qa-tools`. The tools are renamed from `mcp__plugin_cortex-workflow_<server>__*` to `mcp__plugin_cortex-qa-tools_<server>__*` in Claude Code, so update any permission rules that name the old prefix.
+
 ## Updating
 
 ### Claude Code
@@ -80,6 +92,7 @@ Installs for every supported agent in one run. Each agent is installed independe
 /plugin marketplace update siroc-cortex
 /plugin update cortex-workflow@siroc-cortex
 /plugin update dev-toolkit@siroc-cortex
+/plugin update cortex-qa-tools@siroc-cortex   # where enabled
 ```
 
 ### OpenCode
@@ -98,6 +111,7 @@ Update with the Codex CLI:
 codex plugin marketplace upgrade siroc-cortex
 codex plugin add cortex-workflow@siroc-cortex
 codex plugin add dev-toolkit@siroc-cortex
+codex plugin add cortex-qa-tools@siroc-cortex   # if you use it
 ```
 
 Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run the `codex plugin add` commands instead; `marketplace upgrade` only applies to the remote Git marketplace.

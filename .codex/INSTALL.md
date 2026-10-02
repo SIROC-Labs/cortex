@@ -23,9 +23,9 @@ marketplace so you can choose plugins yourself. When installing, it runs
 `cortex-workflow` and `dev-toolkit` from the `siroc-cortex` marketplace, and the
 required `superpowers` dependency from the official `openai-curated` catalog
 (its single canonical source — Codex does not dedupe identically named plugins
-across marketplaces, so it is not shipped in `siroc-cortex`). The QA MCP servers
-declared in `plugins/cortex-workflow/.mcp.json` load automatically when the
-plugin is enabled — no `codex mcp add` step.
+across marketplaces, so it is not shipped in `siroc-cortex`). It does not add
+`cortex-qa-tools`, the plugin with the QA MCP servers; see
+[MCP servers for browser and mobile QA](#mcp-servers-for-browser-and-mobile-qa).
 
 Restart Codex afterwards to pick up the plugins and skills — no `/plugins` step
 is required.
@@ -73,15 +73,25 @@ The plugin manifest is:
 plugins/cortex-workflow/.codex-plugin/plugin.json
 ```
 
-The required MCP manifest is:
+### MCP servers for browser and mobile QA
 
-```text
-plugins/cortex-workflow/.mcp.json
+`web-qa` and `mobile-qa` drive two MCP servers, `chrome-devtools` and
+`mobile-mcp`, shipped in the separate `cortex-qa-tools` plugin
+(`plugins/cortex-qa-tools/.mcp.json`). Codex plugins are global and an enabled
+plugin starts its MCP servers in every session, so add it only if you run
+browser or mobile QA:
+
+```bash
+codex plugin add cortex-qa-tools@siroc-cortex
 ```
 
-The MCP servers declared there load automatically when the plugin is enabled.
-If one is unavailable, register it manually with `codex mcp add <name> -- <command> <args>`
-using the command and args from `.mcp.json` (the single source of truth).
+If a server is unavailable, register it manually (the same commands as that
+`.mcp.json`):
+
+```bash
+codex mcp add chrome-devtools -- sh -c 'bin=$(npx -y --package=chrome-devtools-mcp@latest -c "command -v chrome-devtools-mcp") || exit 1; exec "$bin" --experimentalScreencast --no-usage-statistics'
+codex mcp add mobile-mcp -- sh -c 'bin=$(npx -y --package=@mobilenext/mobile-mcp@latest -c "command -v mcp-server-mobile") || exit 1; exec "$bin"'
+```
 
 ## Verify
 

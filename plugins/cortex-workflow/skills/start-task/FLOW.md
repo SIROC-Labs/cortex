@@ -93,7 +93,7 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  0 · Skill Dependencies  (mandatory)       │
              │  Claude: feature-dev + superpowers         │
-             │  OpenCode/Codex: superpowers + MCPs        │
+             │  OpenCode/Codex: superpowers               │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ installed?

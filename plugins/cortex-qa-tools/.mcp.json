@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mobile-mcp": {
+      "command": "sh",
+      "args": ["-c", "bin=$(npx -y --package=@mobilenext/mobile-mcp@latest -c \"command -v mcp-server-mobile\") || exit 1; exec \"$bin\""]
+    },
+    "chrome-devtools": {
+      "command": "sh",
+      "args": ["-c", "bin=$(npx -y --package=chrome-devtools-mcp@latest -c \"command -v chrome-devtools-mcp\") || exit 1; exec \"$bin\" --experimentalScreencast --no-usage-statistics"]
+    }
+  }
+}

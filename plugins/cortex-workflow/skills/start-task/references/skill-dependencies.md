@@ -35,14 +35,28 @@ dependencies are allowed by this marketplace.
 
 ## MCP Servers
 
-The QA skills require the MCP servers declared by the plugin:
+The browser and mobile QA skills need two MCP servers:
 
-- `mobile-mcp`
-- `chrome-devtools`
+- `chrome-devtools` (web-qa, prototype screenshots, browser rungs of the test ladder)
+- `mobile-mcp` (mobile-qa)
 
-Both are declared in `plugins/cortex-workflow/.mcp.json` — the single source of
-truth shared by all runtimes. Claude Code and Codex load them automatically from
-the plugin manifest; for OpenCode the adapter registers them at load time.
+They are declared in `plugins/cortex-qa-tools/.mcp.json`, the single source of
+truth for all runtimes, and ship in the separate `cortex-qa-tools` plugin. A
+runtime starts a plugin's MCP servers in every session, so the plugin is opt-in
+per project and `cortex-workflow` does not bring it in. A project that never
+runs browser or mobile QA does not need it.
+
+Enable them in the project that needs them, then restart the agent:
+
+| Runtime | Command |
+|---|---|
+| Claude Code | `claude plugin install cortex-qa-tools@siroc-cortex --scope project` (or `--scope local`), run from the project; `--scope user` for machines that run unattended ticks |
+| OpenCode | Add the servers to the project's `opencode.json` (see `.opencode/INSTALL.md`) |
+| Codex | `codex plugin add cortex-qa-tools@siroc-cortex` (global: Codex has no per-project plugins) |
+
+Unattended runs (agent-loop ticks) start from the repos root, not from a
+project, so a project-scoped install does not reach them: on machines that run
+them, enable the servers for every session or for the repos root.
 
 The task manager needs **either** an `ASANA_PERSONAL_ACCESS_TOKEN` in the
 environment **or** an operator-connected Asana MCP server (not declared by this
@@ -85,7 +99,7 @@ At the very beginning of start-task (before fetching the task), check which rout
 |---|---|---|---|
 | `superpowers` | `/plugin install superpowers@claude-plugins-official` | `bash setup.sh --opencode` | `bash setup.sh --codex` or `codex plugin add superpowers@openai-curated` |
 | `feature-dev` | `/plugin install feature-dev@claude-plugins-official` | n/a — see below | n/a — see below |
-| Declared MCP servers | Reinstall `cortex-workflow` | `bash setup.sh --opencode` | Reinstall or reload `cortex-workflow` |
+| QA MCP servers (only when a QA step needs them, never at launch) | `claude plugin install cortex-qa-tools@siroc-cortex --scope project` | Add them to the project's `opencode.json` | `codex plugin add cortex-qa-tools@siroc-cortex` |
 
 **feature-dev under OpenCode/Codex:** DOES NOT EXIST — `feature-dev` appears only
 in the Claude Code cells of the bindings table. Non-bug routing is owned by
