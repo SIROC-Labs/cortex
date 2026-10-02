@@ -509,7 +509,7 @@ class TestAppKeys(unittest.TestCase):
         for _ in range(3):
             self.press("enter")
             modes.append(self.app.control["merge_mode"])
-        self.assertEqual(modes, ["always", "never", "off"])
+        self.assertEqual(modes, ["always", "asked", "branches"])
 
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
@@ -649,16 +649,6 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
                          [("merge", "2")])
 
-    def test_m_is_refused_when_merging_is_set_to_never(self):
-        with dm.control_file(self.root) as c:
-            c["merge_mode"] = "never"
-        self.app.snapshot()
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press("m")
-        self.assertIn("set to never", self.app.message)
-        self.assertIsNone(self.app.confirm)
-
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)
@@ -753,6 +743,11 @@ class TestSetup(unittest.TestCase):
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
+
+    def test_merging_defaults_to_the_recommended_mode(self):
+        for control in ({}, {"merge_mode": "never"}):
+            self.assertIn("unless it targets the default branch (recommended)",
+                          setup_rows(control, "main")[2]["cols"][1])
 
     def test_ls_remote_gives_the_default_first(self):
         text = ("ref: refs/heads/main\tHEAD\nabc\tHEAD\nabc\trefs/heads/main\n"

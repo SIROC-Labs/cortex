@@ -49,28 +49,15 @@ a sprint is picked; nothing about the sprint is guessed.
   repo's default branch unless you pick another. `/` filters the repo's branches, and
   typing a name that does not exist offers to create it on origin from the default
   branch (it asks first — it is a push). PRs already open keep the base they have.
-- **Merging** — `⏎` cycles:
-  - *when asked* (the default): a PR merges when you press `m` on it;
-  - *always*: every PR is driven to merge as soon as it ships, exactly as if you had
-    pressed `m` — `m` on one calls its merge off, and it stays off for that task;
-  - *never*: nothing is merged by cortex and `m` is turned off.
+- **Merging** — when a shipped PR is merged without you asking; `⏎` cycles:
+  - *automatically, unless it targets the default branch* (the default, and the
+    recommendation): a PR into `milestone/m1` lands by itself, one into `main` waits
+    for `m`;
+  - *always automatically*, the default branch included;
+  - *only when asked* — only `m` merges.
 
-## Waiting on you
-
-A run that needs you — the agent's questions, QA still red after its repairs, a refused
-push, a stalled call, a failed step — and a PR parked on a conflict all show on the Runs
-tab first, flagged ⚑, and the header counts them. `⏎` shows the whole of it: every
-question with its reasoning, or the problem with the output that caused it.
-
-- `a` answers in one line at the bottom of the screen; `A` opens `$VISUAL` / `$EDITOR`
-  with the questions as `#` comments, like `git commit`.
-- The answer is handed straight to the waiting run, which looks for one every second,
-  and is posted to the task in Asana as your comment, so the conversation stays where
-  it was asked. A run that is not alive when you answer finds it when it starts again.
-- On a parked conflict, `a` asks for a resolve: it posts `please resolve` on the PR,
-  which the loop picks up within a minute.
-
-Answering on the task in Asana still works exactly as before.
+  `m` works in every mode. An automatic merge is exactly what `m` does, conflicts and
+  failing checks included; `m` on one calls it off, and it stays off for that task.
 
 ## Merge
 

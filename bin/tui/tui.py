@@ -39,9 +39,9 @@ from daemon import st  # noqa: E402
 
 TABS = ("Runs", "Boards", "Setup", "Daemons")
 MERGE_LABELS = {
-    "off": "when asked — m on a task merges it",
-    "always": "always — every PR is merged once it ships",
-    "never": "never — merging is left to people; m is off",
+    "branches": "automatically, unless it targets the default branch (recommended)",
+    "always": "always automatically, the default branch included",
+    "asked": "only when asked — m on a task",
 }
 BRANCHES_MAX_AGE = 60
 # How old a cached copy may be before the view showing it re-reads Asana behind it.
@@ -194,7 +194,7 @@ def setup_rows(control, default_branch=None):
     """The Setup tab: what new work goes into, and whether it is merged."""
     sprint = (control.get("sprint") or {}).get("name")
     base = control.get("base")
-    mode = control.get("merge_mode") or "off"
+    mode = control.get("merge_mode") if control.get("merge_mode") in MERGE_LABELS else "branches"
     return [
         {"kind": "setting", "id": "sprint", "style": "normal" if sprint else "warn",
          "cols": ["Sprint", sprint or "none — pick one; nothing starts until you do"]},
@@ -380,7 +380,7 @@ HELP = [
     "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
     "Setup       ⏎ on Sprint picks the sprint board · on Target branch picks the branch",
     "            new runs PR into (/ then a new name offers to create it on origin) ·",
-    "            on Merging cycles always / when asked / never",
+    "            on Merging cycles: unless the default branch / always / only when asked",
     "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
     "",
     "q quits the UI; the daemon keeps working.                      any key closes this",
@@ -728,9 +728,7 @@ class App(object):
         blocked one, it is tried again from where the PR stands."""
         merge = row.get("merge")
         name = row["cols"][0]
-        if (self.control.get("merge_mode") or "off") == "never":
-            self.message = "merging is set to never — change it in Setup (tab 3)"
-        elif row.get("phase") in ("merged", "stopped", "failed"):
+        if row.get("phase") in ("merged", "stopped", "failed"):
             self.message = "nothing to merge there"
         elif merge and not merge.get("blocked"):
             self.ask("stop trying to merge %s? (y/n)" % name,
@@ -836,7 +834,8 @@ class App(object):
         elif name == "Setup" and not self.setup:
             if row["id"] == "merge":
                 order = list(MERGE_LABELS)
-                mode = self.control.get("merge_mode") or "off"
+                mode = self.control.get("merge_mode")
+                mode = mode if mode in MERGE_LABELS else "branches"
                 nxt = order[(order.index(mode) + 1) % len(order)]
                 self.change_control(lambda c: c.update(merge_mode=nxt))
                 self.message = "merging: %s" % MERGE_LABELS[nxt]
@@ -989,7 +988,7 @@ class App(object):
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
             "Setup": ("⏎ use it · / filter or type a new branch name · ←/esc back"
-                      if self.setup else "⏎ change it (on Merging: cycle always / when asked / never)"),
+                      if self.setup else "⏎ change it (on Merging: cycles through the three)"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
         }[name] + " · 1-4 tabs · ? keys · q quit"
 
@@ -1000,8 +999,8 @@ class App(object):
         health = dm.daemon_health(self.daemon, self.alive, time.time())
         sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in Setup"
         sprint += " · → %s" % (self.control.get("base") or self.default_branch or "default branch")
-        sprint += {"always": " · auto-merge", "never": " · no merging"}.get(
-            self.control.get("merge_mode") or "off", "")
+        sprint += {"always": " · auto-merge: always", "asked": " · merge: when asked"}.get(
+            self.control.get("merge_mode"), " · auto-merge: off the default branch")
         if health == "busy":
             health = "busy: %s" % "; ".join(self.daemon.get("busy") or [])
         put(0, "cortex · %s · daemon %s%s · sprint: %s" % (

@@ -462,16 +462,27 @@ class TestTaskLogNotes(unittest.TestCase):
 
 
 class TestAutoMerge(unittest.TestCase):
-    def test_always_merges_each_shipped_pr_once_unless_called_off(self):
-        self.assertTrue(auto_merge_due("always", {"phase": "pr_open"}))
-        self.assertTrue(auto_merge_due("always", {"phase": "conflict"}))
-        self.assertFalse(auto_merge_due("always", {"phase": "pr_open", "merge": {}}))
-        self.assertFalse(auto_merge_due("always", {"phase": "pr_open", "merge_declined": True}))
-        self.assertFalse(auto_merge_due("always", {"phase": "running"}))
+    SHIPPED = {"phase": "pr_open"}
 
-    def test_off_and_never_merge_nothing_by_themselves(self):
-        for mode in ("off", "never", None):
-            self.assertFalse(auto_merge_due(mode, {"phase": "pr_open"}))
+    def test_by_default_a_pr_off_the_default_branch_merges_by_itself(self):
+        self.assertTrue(auto_merge_due("branches", self.SHIPPED, "milestone/m1", "main"))
+        self.assertFalse(auto_merge_due("branches", self.SHIPPED, "main", "main"))
+
+    def test_an_unknown_base_or_default_is_never_assumed_safe(self):
+        self.assertFalse(auto_merge_due("branches", self.SHIPPED, None, "main"))
+        self.assertFalse(auto_merge_due("branches", self.SHIPPED, "milestone/m1", None))
+
+    def test_always_includes_the_default_branch(self):
+        self.assertTrue(auto_merge_due("always", self.SHIPPED, "main", "main"))
+        self.assertTrue(auto_merge_due("always", {"phase": "conflict"}, "main", "main"))
+
+    def test_only_when_asked_merges_nothing_by_itself(self):
+        self.assertFalse(auto_merge_due("asked", self.SHIPPED, "milestone/m1", "main"))
+
+    def test_once_merging_or_called_off_or_not_shipped_it_is_left_alone(self):
+        for record in ({"phase": "pr_open", "merge": {}},
+                       {"phase": "pr_open", "merge_declined": True}, {"phase": "running"}):
+            self.assertFalse(auto_merge_due("always", record, "x", "main"), record)
 
 
 if __name__ == "__main__":

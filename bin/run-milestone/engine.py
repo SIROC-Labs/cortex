@@ -51,9 +51,10 @@ MERGE_POLL = 15
 # stops and says why. Conflicts recur as siblings land; a check that stays red
 # after two fixes needs a person.
 MERGE_LIMITS = {"resolve": 3, "ci": 2}
-# Whether shipped PRs are merged: "always" (each one, as soon as it ships), "off"
-# (only when asked, per task) or "never" (merging is left to people).
-MERGE_MODES = ("off", "always", "never")
+# When a shipped PR is merged without being asked: "branches" (when it targets
+# anything but the default branch — the recommended default), "always", or
+# "asked" (only when asked). Asking, per task, works in every mode.
+MERGE_MODES = ("branches", "always", "asked")
 _CHECK_FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
                  "STARTUP_FAILURE"}
 
@@ -416,11 +417,18 @@ def run_header(label, at=None):
     return "\n━━ %s · %s ━━\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)), label)
 
 
-def auto_merge_due(mode, record):
-    """Whether a task's PR should be put on to merge without being asked: in
-    "always" mode, once it ships, unless a merge for it was called off."""
-    return (mode == "always" and record.get("phase") in ("pr_open", "conflict")
-            and record.get("merge") is None and not record.get("merge_declined"))
+def auto_merge_due(mode, record, base=None, default_branch=None):
+    """Whether a task's PR should be put on to merge without being asked: once
+    it ships, unless a merge for it was called off — always, or in "branches"
+    mode when its base is known and is not the default branch."""
+    if record.get("phase") not in ("pr_open", "conflict") or record.get("merge") is not None \
+            or record.get("merge_declined"):
+        return False
+    if mode == "always":
+        return True
+    if mode == "branches":
+        return bool(base and default_branch and base != default_branch)
+    return False
 
 
 def task_url(board, gid):
@@ -820,17 +828,14 @@ class Engine(object):
     def request_merge(self, gid, auto=False):
         """Get the task onto its base: from here the PR is driven to merge. False
         when merging is turned off."""
-        if self.data.get("merge_mode") == "never":
-            log("%s: merge not done — merging is set to never" % self.key_of(gid))
-            return False
         record = self.record(gid)
         record.pop("merge_declined", None)
         record["merge"] = {"requested_at": time.time(), "attempts": {}, "stage": "starting",
                            "blocked": None, "auto": auto}
         record["next_poll"] = 0
-        log("%s: merge %s" % (self.key_of(gid), "started (always merge)" if auto else "asked for"))
+        log("%s: merge %s" % (self.key_of(gid), "started automatically" if auto else "asked for"))
         self.note(gid, "Merge %s — conflicts and failing checks are handled on the way"
-                  % ("started, as merging is set to always" if auto else "asked for"),
+                  % ("started automatically (%s)" % auto if auto else "asked for"),
                   ["review comments from here on are not acted on"])
         if record.get("phase") == "conflict":
             self.set_phase(gid, "pr_open")
@@ -925,6 +930,27 @@ class Engine(object):
         else:
             merge["blocked"] = detail
             log("%s: merge blocked — %s" % (key, detail))
+
+    def pr_base(self, gid):
+        """The branch a task's PR targets, as its run recorded it."""
+        record = self.record(gid)
+        if not record.get("base"):
+            base = ((self.start_state(gid).read("context.json") or {}).get("git") or {}).get("base")
+            if base:
+                record["base"] = base[len("origin/"):] if base.startswith("origin/") else base
+        return record.get("base")
+
+    def default_branch(self):
+        """The repo's default branch, asked of origin once."""
+        if not self.data.get("default_branch"):
+            code, out, _ = run(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                               cwd=self.main_root)
+            if code == 0 and out.startswith("origin/"):
+                self.data["default_branch"] = out[len("origin/"):]
+            else:
+                view = self.gh_json(["repo", "view", "--json", "defaultBranchRef"])
+                self.data["default_branch"] = ((view or {}).get("defaultBranchRef") or {}).get("name")
+        return self.data.get("default_branch")
 
     def merge_method_for(self, owner, name, base):
         cache = self.data.setdefault("merge_methods", {})
@@ -1059,10 +1085,14 @@ class Engine(object):
         if self.data.get("sprint"):
             for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
                 self.launch(gid)
-        mode = self.data.get("merge_mode") or "off"
+        mode = self.data.get("merge_mode") or "asked"
         for gid, record in list(self.records.items()):
-            if gid in self.tasks and auto_merge_due(mode, record):
-                self.request_merge(gid, auto=True)
+            if gid not in self.tasks or mode == "asked":
+                continue
+            base = self.pr_base(gid)
+            if auto_merge_due(mode, record, base, self.default_branch()):
+                self.request_merge(gid, auto="merging is set to always" if mode == "always"
+                                   else "it targets %s, not the default branch" % base)
         for gid, record in list(self.records.items()):
             if gid in self.tasks and record.get("phase") in ("pr_open", "conflict"):
                 self.poll_pr(gid)

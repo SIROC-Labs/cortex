@@ -329,7 +329,8 @@ class QueueRun(Engine):
         self.control = control
         self.data["sprint"] = control.get("sprint")
         self.data["base"] = control.get("base")
-        self.data["merge_mode"] = control.get("merge_mode") or "off"
+        mode = control.get("merge_mode")
+        self.data["merge_mode"] = mode if mode in ("branches", "always", "asked") else "branches"
         new = [q["gid"] for q in control["queue"] if q["gid"] not in before]
         gone = before - {q["gid"] for q in control["queue"]}
         if new or gone:
@@ -344,9 +345,6 @@ class QueueRun(Engine):
                 log("ignored a command this daemon does not know: %s" % command["op"])
                 results.append({"id": command["id"], "ok": False,
                                 "note": "this daemon does not know %r" % command["op"]})
-            elif command["op"] == "merge" and self.data["merge_mode"] == "never":
-                results.append({"id": command["id"], "ok": False,
-                                "note": "merging is set to never (Setup tab)"})
             else:
                 results.append({"id": command["id"], "ok": True})
             if command["op"] == "stop":
