@@ -369,7 +369,8 @@ class QueueRun(Engine):
         write_json(os.path.join(self.dir, "daemon.json"), {
             "pid": os.getpid(), "main_root": self.main_root, "started": started,
             "beat": time.time(), "loop_at": self.loop_at, "forward": self.forward,
-            "code": version, "busy": sorted(set(self.busy.values())),
+            "code": version, "busy": sorted({label for label, _ in self.busy.values()}),
+            "busy_tasks": {gid: label for label, gid in self.busy.values() if gid},
         })
 
     def beat_forever(self, started, version):

@@ -556,8 +556,9 @@ PROBLEM = {"kind": "qa", "asked_at": "2026-10-01T11:00:00.000Z",
 
 class TestWaits(unittest.TestCase):
     def test_summaries(self):
-        self.assertEqual(wait_summary(QUESTION), "Which VPC — nonprod or shared? (+1 more)")
-        self.assertEqual(wait_summary(PROBLEM), "QA gate still failing at 'backend'")
+        self.assertEqual(wait_summary(QUESTION),
+                         "has questions for you: Which VPC — nonprod or shared? (+1 more)")
+        self.assertEqual(wait_summary(PROBLEM), "QA gate still failing at 'backend' — ⏎ to read, a to reply")
         self.assertIn("a to have it resolved", wait_summary({"kind": "conflict"}))
 
     def test_the_whole_wait_is_shown(self):
@@ -586,8 +587,60 @@ class TestWaits(unittest.TestCase):
                           "2": {"key": "A-2", "name": "two", "deps": []}}, "records": {}}
         rows = run_rows(control, data, [], waits={"2": QUESTION})
         self.assertEqual([r["id"] for r in rows], ["2", "1"])
-        self.assertTrue(rows[0]["cols"][2].startswith("⚑ Which VPC"))
+        self.assertTrue(rows[0]["cols"][2].startswith("⚑ has questions for you: Which VPC"))
         self.assertEqual(rows[0]["style"], "warn")
+
+
+class TestRowStatus(unittest.TestCase):
+    NOW = None
+
+    def setUp(self):
+        import time
+        lt = time.localtime()
+        self.at = lambda h, m, s=0: time.mktime(lt[:3] + (h, m, s) + lt[6:9])
+
+    def test_a_wait_with_no_headline_still_says_what_it_asks_of_you(self):
+        self.assertIn("stopped on an error — reply to retry", wait_summary({"kind": "failure"}))
+        self.assertIn("QA is still failing", wait_summary({"kind": "qa"}))
+        self.assertIn("waiting on a reply from you", wait_summary({"kind": "?"}))
+
+    def test_a_run_shows_its_step_what_it_waits_on_and_for_how_long(self):
+        log = ["━━ 2026-10-02 10:00:00 · start-task ━━", "10:00:00  Fetching task", "  HCI-1 — x",
+               "10:01:00  Implementing", "  implement: calling claude-cli"]
+        step = tui.last_step(log, self.at(10, 13))
+        self.assertEqual(step[:2], ("Implementing", "agent at work"))
+        self.assertEqual(round(step[2]), 12 * 60)
+
+    def test_a_finished_call_is_no_longer_at_work(self):
+        log = ["10:01:00  Implementing", "  implement: calling claude-cli",
+               "  implement: claude-cli · claude-opus-5 · 29 turns · 397.8s"]
+        self.assertIsNone(tui.last_step(log, self.at(10, 9))[1])
+
+    def test_qa_shows_the_gate_still_running(self):
+        log = ["10:01:00  QA", "  backend: make verify", "  backend ok",
+               "  frontend: [ -d node_modules ] || npm ci; npm run verify (in apps/frontend)"]
+        self.assertEqual(tui.last_step(log, self.at(10, 4))[1],
+                         "[ -d node_modules ] || npm ci; npm run verify")
+
+    def test_a_pending_command_comes_first_then_the_daemons_work_then_the_run(self):
+        pending = [{"id": 9, "op": "retarget", "gid": "1", "base": "feature/m1"}]
+        self.assertEqual(tui.row_activity({"phase": "pr_open"}, pending, None, None, 0),
+                         "base branch change to feature/m1 asked — waiting for the daemon")
+        self.assertEqual(tui.row_activity({"phase": "pr_open"}, [], "removing HCI-1's worktree",
+                                          None, 0), "removing HCI-1's worktree…")
+        running = tui.row_activity({"phase": "running"}, [], None,
+                                   ["10:01:00  Shipping"], self.at(10, 2))
+        self.assertEqual(running, "running — Shipping · 1m")
+        self.assertIsNone(tui.row_activity({"phase": "pr_open"}, [], None, None, 0))
+
+    def test_rows_use_it_and_an_open_pr_says_what_it_waits_for(self):
+        control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
+        data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
+                          "2": {"key": "A-2", "name": "two", "deps": []}},
+                "records": {"1": {"phase": "pr_open"}, "2": {"phase": "pr_open"}}}
+        rows = run_rows(control, data, [], activity={"2": "changing A-2's PR base branch…"})
+        self.assertEqual(rows[0]["cols"][2], "PR open — waiting for review; m merges")
+        self.assertEqual(rows[1]["cols"][2], "changing A-2's PR base branch…")
 
 
 class TestReadWaits(unittest.TestCase):

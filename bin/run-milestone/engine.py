@@ -456,8 +456,9 @@ class Engine(object):
         self.data = self.load()
         self.children = {}
         self.refresh_due = 0
-        # Slow work done off the loop, by name, with what it is — for whoever is
-        # watching to see why something is taking a while.
+        # Slow work in hand, by name: (what it is, the task it is for or None) — for
+        # whoever is watching to see why something is taking a while, and on which
+        # task.
         self.busy = {}
         self.refreshing = None
         self.fetched = None
@@ -594,7 +595,7 @@ class Engine(object):
         previous = dict(self.tasks)
 
         def work():
-            self.busy["refresh"] = "reading the tasks from Asana"
+            self.busy["refresh"] = ("reading the tasks from Asana", None)
             try:
                 self.fetched = (self.fetch_tasks(self.scope(), previous), None)
             except Exception as e:  # reported by the loop, never fatal
@@ -854,7 +855,11 @@ class Engine(object):
         url = record.get("pr_url")
         if record.get("phase") not in ("pr_open", "conflict") or not url:
             return False, "it has no open PR"
-        code, _, err = run(["gh", "pr", "edit", url, "--base", base], cwd=self.repo)
+        self.busy["loop"] = ("changing %s's PR base branch to %s" % (self.key_of(gid), base), gid)
+        try:
+            code, _, err = run(["gh", "pr", "edit", url, "--base", base], cwd=self.repo)
+        finally:
+            self.busy.pop("loop", None)
         if code != 0:
             return False, "gh pr edit refused: %s" % ((err.splitlines() or ["?"])[-1])
         state = self.start_state(gid)
@@ -876,7 +881,7 @@ class Engine(object):
         record = self.records[gid]
         merge = record["merge"]
         url = record["pr_url"]
-        self.busy["loop"] = "merging %s" % self.key_of(gid)
+        self.busy["loop"] = ("merging %s" % self.key_of(gid), gid)
         try:
             self.merge_step_for(gid, owner, name, record, merge, url)
         finally:
@@ -1014,7 +1019,7 @@ class Engine(object):
 
     def merged(self, gid):
         key = self.key_of(gid)
-        self.busy["loop"] = "finishing %s in Asana" % key
+        self.busy["loop"] = ("finishing %s in Asana" % key, gid)
         self.record_actual(gid)
         self.asana(["task", "complete", gid])
         code, _ = self.asana(["task", "set-status", gid, "Done"], check=False)
@@ -1029,7 +1034,7 @@ class Engine(object):
         if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:
             # Thousands of files in node_modules and .venv: done in a thread that
             # the process waits for on the way out, so it is never left half done.
-            threading.Thread(target=self.remove_worktree, args=(key, worktree)).start()
+            threading.Thread(target=self.remove_worktree, args=(key, worktree, gid)).start()
         self.tasks[gid]["completed"] = True
         for task in self.tasks.values():
             for dep in task.get("deps") or []:
@@ -1039,9 +1044,9 @@ class Engine(object):
         self.busy.pop("loop", None)
         self.refresh_due = 0
 
-    def remove_worktree(self, key, worktree):
+    def remove_worktree(self, key, worktree, gid=None):
         name = "worktree-%s" % key
-        self.busy[name] = "removing %s's worktree" % key
+        self.busy[name] = ("removing %s's worktree" % key, gid)
         try:
             with st.repo_lock(self.main_root):
                 code, _, err = run(["git", "worktree", "remove", worktree], cwd=self.main_root)

@@ -67,17 +67,116 @@ def matches(text, query):
     return all(word in text for word in (query or "").lower().split())
 
 
+# What each kind of wait asks of you, for when the run recorded no headline.
+WAIT_ASKS = {
+    "questions": "has questions for you",
+    "qa": "QA is still failing after its repairs — tell it how to proceed",
+    "push": "could not push — fix it or say how, then reply",
+    "pr": "something is wrong with its PR — fix it or say how, then reply",
+    "stall": "the agent stopped making progress — tell it how to go on",
+    "agent": "the agent call failed — reply to retry",
+    "failure": "the run stopped on an error — reply to retry",
+}
+
+
 def wait_summary(wait):
-    """One line for what a task is waiting on you for."""
-    if wait.get("kind") == "conflict":
+    """One line for what a task is waiting on you for — and what that asks of you."""
+    kind = wait.get("kind")
+    if kind == "conflict":
         return "PR conflicts with its base — a to have it resolved, m to merge"
-    if wait.get("kind") == "merge":
+    if kind == "merge":
         return wait["headline"] + " — m tries again"
     questions = wait.get("questions") or []
     if questions:
         more = len(questions) - 1
-        return questions[0].get("q", "") + (" (+%d more)" % more if more else "")
-    return wait.get("headline") or "waiting on a reply"
+        return "has questions for you: %s%s" % (questions[0].get("q", ""),
+                                                " (+%d more)" % more if more else "")
+    if wait.get("headline"):
+        return "%s — ⏎ to read, a to reply" % wait["headline"]
+    return WAIT_ASKS.get(kind, "waiting on a reply from you") + " · ⏎ to read"
+
+
+_STEP = re.compile(r"^(\d\d):(\d\d):(\d\d)  (.+)$")
+_CALLING = re.compile(r"^  ([\w-]+): calling ")
+_DONE_CALL = re.compile(r"^  ([\w-]+): \S+ · ")
+_GATE = re.compile(r"^  ([\w./-]+): (.+?)(?: \(in .+\))?$")
+_GATE_OK = re.compile(r"^  ([\w./-]+) ok$")
+_GATE_FAILED = re.compile(r"^  ! ([\w./-]+) failed \(exit")
+
+
+def last_step(lines, now):
+    """What a run is doing, from the end of its task's log: (step, detail,
+    seconds at it), or None. The detail is an agent call still out, or a QA gate
+    still running."""
+    lines = [_ANSI.sub("", line) for line in lines]
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if not line.strip() or line[0].isspace() or line.startswith(("━━", "====")):
+            continue
+        m = _STEP.match(line)
+        started = None
+        step = m.group(4) if m else line.strip()
+        if m:
+            local = time.localtime(now)
+            started = time.mktime(local[:3] + tuple(int(m.group(n)) for n in (1, 2, 3))
+                                  + local[6:9])
+            if started > now:
+                started -= 86400
+        detail, calls, gates = None, {}, {}
+        for line in lines[i + 1:]:
+            called, answered = _CALLING.match(line), _DONE_CALL.match(line)
+            finished = _GATE_OK.match(line) or _GATE_FAILED.match(line)
+            gate = _GATE.match(line) if step == "QA" else None
+            if called:
+                calls[called.group(1)] = True
+            elif answered:
+                calls.pop(answered.group(1), None)
+            elif finished:
+                gates.pop(finished.group(1), None)
+            elif gate:
+                gates[gate.group(1)] = gate.group(2)
+        if calls:
+            detail = "agent at work"
+        elif gates:
+            detail = list(gates.values())[-1]
+        return step, detail, None if started is None else max(0, now - started)
+    return None
+
+
+def _ago(seconds):
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm" % (seconds // 60)
+    return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+PENDING_SAYS = {
+    "merge": "merge asked",
+    "merge-cancel": "calling the merge off",
+    "retarget": "base branch change to %(base)s asked",
+    "stop": "stop asked",
+    "retry": "retry asked",
+}
+
+
+def row_activity(record, pending, busy, log_lines, now):
+    """What is happening to one task right now, in a few words, or None to fall
+    back on its phase: a command of yours the daemon has not acted on yet, then
+    something the daemon is in the middle of for it, then where its run is."""
+    if pending:
+        cmd = pending[-1]
+        return "%s — waiting for the daemon" % (PENDING_SAYS.get(cmd["op"], cmd["op"]) % cmd)
+    if busy:
+        return "%s…" % busy
+    if (record or {}).get("phase") in ("running", "revising"):
+        step = last_step(log_lines or [], now)
+        if step:
+            name, detail, seconds = step
+            what = "revising" if record["phase"] == "revising" else "running"
+            return "%s — %s%s%s" % (what, name, " · %s" % detail if detail else "",
+                                    " · %s" % _ago(seconds) if seconds is not None else "")
+    return None
 
 
 def wait_lines(wait, width):
@@ -150,7 +249,7 @@ def read_waits(main_root, control, data):
     return waits
 
 
-def run_rows(control, data, live, me_gid=None, agents=(), waits=None):
+def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None):
     """The Runs tab: every task waiting on you first, then the rest of the queue
     in its order, then every live start-task run nothing here owns, then every
     agent left working with no run at all."""
@@ -173,6 +272,11 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None):
         if not style:
             style = "dim" if task and task.get("completed") else "normal"
         wait = waits.get(gid)
+        now_doing = (activity or {}).get(gid)
+        if now_doing:
+            status = now_doing
+        elif record.get("phase") == "pr_open" and not record.get("merge"):
+            status = "PR open — waiting for review; m merges"
         if wait:
             status, style = "⚑ " + wait_summary(wait), "warn"
         rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
@@ -581,6 +685,7 @@ class App(object):
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
         self.waits = read_waits(self.main_root, self.control, self.data)
+        self.activity = self.read_activity()
         self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
 
     def fetch_boards(self):
@@ -608,6 +713,26 @@ class App(object):
             self.sections[gid], self.sections_at[gid] = self.cache.get("sections-%s" % gid)
         if is_stale(self.sections_at.get(gid), time.time(), max_age):
             self.loader.start("sections-%s" % gid, gid, lambda: self.fetch_sections(gid))
+
+    def read_activity(self):
+        """What is happening to each queued task right now: commands of yours not
+        yet acted on, the daemon's work on it, its run's current step."""
+        applied = self.data.get("applied", 0)
+        busy = (self.daemon or {}).get("busy_tasks") or {}
+        records = self.data.get("records") or {}
+        out = {}
+        for item in self.control.get("queue") or []:
+            gid = item["gid"]
+            record = records.get(gid) or {}
+            pending = [c for c in self.control.get("commands") or []
+                       if c.get("gid") == gid and c["id"] > applied]
+            lines = _tail(record["log"], 400) if record.get("phase") in ("running", "revising") \
+                and record.get("log") else None
+            doing = row_activity(record, pending, busy.get(gid) if self.alive else None,
+                                 lines, time.time())
+            if doing:
+                out[gid] = doing
+        return out
 
     def fetch_branches(self):
         code = subprocess.run(["git", "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*"],
@@ -733,7 +858,7 @@ class App(object):
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
             return run_rows(self.control, self.data, self.live, agents=self.agents,
-                            waits=self.waits)
+                            waits=self.waits, activity=self.activity)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,

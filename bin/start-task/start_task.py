@@ -1570,11 +1570,10 @@ def phase_run(args):
                 if not ref:
                     ref = asana(["ref", "parse", url], cwd=os.path.abspath(args.repo))
                 sys.stderr.write("\nstart-task: %s\n" % failure)
+                headline = "The run stopped: %s" % str(failure).splitlines()[0]
                 escalate(state, str(ref).strip(), os.path.abspath(args.repo), args,
-                         "failure",
-                         format_problem_comment("The run stopped: %s"
-                                                % str(failure).splitlines()[0],
-                                                str(failure)))
+                         "failure", format_problem_comment(headline, str(failure)),
+                         {"headline": headline, "detail": str(failure)[-1500:]})
     finally:
         if state is not None and live_run_pid(state.read("run.json")) == os.getpid():
             state.remove("run.json")
