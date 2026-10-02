@@ -51,6 +51,9 @@ MERGE_POLL = 15
 # stops and says why. Conflicts recur as siblings land; a check that stays red
 # after two fixes needs a person.
 MERGE_LIMITS = {"resolve": 3, "ci": 2}
+# Whether shipped PRs are merged: "always" (each one, as soon as it ships), "off"
+# (only when asked, per task) or "never" (merging is left to people).
+MERGE_MODES = ("off", "always", "never")
 _CHECK_FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
                  "STARTUP_FAILURE"}
 
@@ -413,6 +416,13 @@ def run_header(label, at=None):
     return "\n━━ %s · %s ━━\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)), label)
 
 
+def auto_merge_due(mode, record):
+    """Whether a task's PR should be put on to merge without being asked: in
+    "always" mode, once it ships, unless a merge for it was called off."""
+    return (mode == "always" and record.get("phase") in ("pr_open", "conflict")
+            and record.get("merge") is None and not record.get("merge_declined"))
+
+
 def task_url(board, gid):
     return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
 
@@ -682,8 +692,10 @@ class Engine(object):
         except Stop as e:
             self.set_phase(gid, "failed", reason=str(e))
             return
-        self.spawn(gid, [task_url(self.tasks[gid].get("board_gid"), gid)], "running",
-                   "start-task: from the ticket to a ready PR")
+        base = self.data.get("base")
+        self.spawn(gid, [task_url(self.tasks[gid].get("board_gid"), gid)]
+                   + (["--base", base] if base else []), "running",
+                   "start-task: from the ticket to a ready PR%s" % (" on %s" % base if base else ""))
 
     def launch_revise(self, gid, items, text, why):
         os.makedirs(self.path("feedback"), exist_ok=True)
@@ -805,20 +817,28 @@ class Engine(object):
             record["next_poll"] = time.time() + st.poll_interval(
                 max(1, record["poll_attempt"]), start=PR_POLL_START, cap=PR_POLL_CAP)
 
-    def request_merge(self, gid):
-        """Get the task onto its base: from here the PR is driven to merge."""
+    def request_merge(self, gid, auto=False):
+        """Get the task onto its base: from here the PR is driven to merge. False
+        when merging is turned off."""
+        if self.data.get("merge_mode") == "never":
+            log("%s: merge not done — merging is set to never" % self.key_of(gid))
+            return False
         record = self.record(gid)
+        record.pop("merge_declined", None)
         record["merge"] = {"requested_at": time.time(), "attempts": {}, "stage": "starting",
-                           "blocked": None}
+                           "blocked": None, "auto": auto}
         record["next_poll"] = 0
-        log("%s: merge asked for" % self.key_of(gid))
-        self.note(gid, "Merge asked for — conflicts and failing checks are handled on the way",
+        log("%s: merge %s" % (self.key_of(gid), "started (always merge)" if auto else "asked for"))
+        self.note(gid, "Merge %s — conflicts and failing checks are handled on the way"
+                  % ("started, as merging is set to always" if auto else "asked for"),
                   ["review comments from here on are not acted on"])
         if record.get("phase") == "conflict":
             self.set_phase(gid, "pr_open")
+        return True
 
     def cancel_merge(self, gid):
         self.record(gid).pop("merge", None)
+        self.record(gid)["merge_declined"] = True
         log("%s: merge no longer asked for" % self.key_of(gid))
         self.note(gid, "Merge called off — back to watching the PR")
 
@@ -912,7 +932,9 @@ class Engine(object):
         if slug not in cache:
             repo = self.gh_json(["repo", "view", "%s/%s" % (owner, name), "--json",
                                  "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"])
-            rules = self.gh_json(["api", "repos/%s/%s/rules/branches/%s" % (owner, name, base)])
+            from urllib.parse import quote
+            rules = self.gh_json(["api", "repos/%s/%s/rules/branches/%s"
+                                  % (owner, name, quote(base, safe=""))])
             methods = []
             for rule in rules or []:
                 methods += ((rule.get("parameters") or {}).get("allowed_merge_methods") or [])
@@ -1037,6 +1059,10 @@ class Engine(object):
         if self.data.get("sprint"):
             for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
                 self.launch(gid)
+        mode = self.data.get("merge_mode") or "off"
+        for gid, record in list(self.records.items()):
+            if gid in self.tasks and auto_merge_due(mode, record):
+                self.request_merge(gid, auto=True)
         for gid, record in list(self.records.items()):
             if gid in self.tasks and record.get("phase") in ("pr_open", "conflict"):
                 self.poll_pr(gid)

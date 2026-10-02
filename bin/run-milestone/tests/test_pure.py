@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine import (  # noqa: E402
     actual_hours,
+    auto_merge_due,
     blockers,
     check_states,
     merge_method,
@@ -458,6 +459,19 @@ class TestTaskLogNotes(unittest.TestCase):
         line = run_header("revise: resolving conflicts with main, to merge", at=0)
         self.assertTrue(line.strip().startswith("━━ "))
         self.assertIn("revise: resolving conflicts with main, to merge", line)
+
+
+class TestAutoMerge(unittest.TestCase):
+    def test_always_merges_each_shipped_pr_once_unless_called_off(self):
+        self.assertTrue(auto_merge_due("always", {"phase": "pr_open"}))
+        self.assertTrue(auto_merge_due("always", {"phase": "conflict"}))
+        self.assertFalse(auto_merge_due("always", {"phase": "pr_open", "merge": {}}))
+        self.assertFalse(auto_merge_due("always", {"phase": "pr_open", "merge_declined": True}))
+        self.assertFalse(auto_merge_due("always", {"phase": "running"}))
+
+    def test_off_and_never_merge_nothing_by_themselves(self):
+        for mode in ("off", "never", None):
+            self.assertFalse(auto_merge_due(mode, {"phase": "pr_open"}))
 
 
 if __name__ == "__main__":

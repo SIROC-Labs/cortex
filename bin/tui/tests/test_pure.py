@@ -18,8 +18,9 @@ import cache  # noqa: E402
 import daemon as dm  # noqa: E402
 import tui  # noqa: E402
 from tui import (  # noqa: E402
-    NAV, App, answer_template, board_list_rows, board_rows, decode_escape, decode_key, fit,
-    log_line, matches, parse_answer, read_waits, run_rows, wait_lines, wait_summary,
+    NAV, App, answer_template, board_list_rows, board_rows, branch_rows, decode_escape,
+    decode_key, fit, log_line, matches, parse_answer, parse_ls_remote, read_waits, run_rows,
+    setup_rows, valid_branch_name, wait_lines, wait_summary,
 )
 from daemon import st  # noqa: E402
 
@@ -413,7 +414,7 @@ class TestAppKeys(unittest.TestCase):
 
     def test_a_number_goes_straight_to_its_tab(self):
         self.press("3")
-        self.assertEqual(tui.TABS[self.app.tab], "Sprint")
+        self.assertEqual(tui.TABS[self.app.tab], "Setup")
         self.press("alt-1")
         self.assertEqual(tui.TABS[self.app.tab], "Runs")
 
@@ -471,10 +472,44 @@ class TestAppKeys(unittest.TestCase):
         self.assertFalse(self.app.typing)
 
     def test_right_does_not_pick_the_sprint_enter_does(self):
-        self.press("3", "down", "right")
+        self.press("3", "enter")
+        self.assertEqual(self.app.setup, "sprint")
+        self.press("down", "right")
         self.assertIsNone(self.app.control.get("sprint"))
         self.press("enter")
         self.assertEqual(self.app.control["sprint"]["gid"], "2")
+        self.assertIsNone(self.app.setup)
+
+    def test_target_branch_is_picked_from_the_list(self):
+        self.app.branches, self.app.default_branch = ["main", "release/1.2"], "main"
+        self.app.branches_at = tui.time.time()
+        self.press("3", "down", "enter")
+        self.assertEqual(self.app.setup, "base")
+        self.press("down", "enter")
+        self.assertEqual(self.app.control["base"], "release/1.2")
+        self.press("enter")
+        self.assertEqual(self.app.selected(self.app.view())["id"], "release/1.2")  # opens on it
+        self.press("up", "enter")
+        self.assertIsNone(self.app.control["base"])  # the default is stored as "no override"
+
+    def test_a_new_branch_name_offers_to_create_it_and_asks_first(self):
+        created = []
+        self.app.branches, self.app.default_branch = ["main"], "main"
+        self.app.branches_at = tui.time.time()
+        self.app.create_branch = lambda name: created.append(name)
+        self.press("3", "down", "enter", "/", *"milestone/m1", "enter", "enter")
+        self.assertIn("create milestone/m1 on origin from main", self.app.message)
+        self.assertEqual(created, [])
+        self.press("y")
+        self.assertEqual(created, ["milestone/m1"])
+
+    def test_merging_cycles_through_its_three_modes(self):
+        self.press("3", "down", "down")
+        modes = []
+        for _ in range(3):
+            self.press("enter")
+            modes.append(self.app.control["merge_mode"])
+        self.assertEqual(modes, ["always", "never", "off"])
 
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
@@ -614,6 +649,16 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
                          [("merge", "2")])
 
+    def test_m_is_refused_when_merging_is_set_to_never(self):
+        with dm.control_file(self.root) as c:
+            c["merge_mode"] = "never"
+        self.app.snapshot()
+        rows = self.app.view()
+        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
+        self.press("m")
+        self.assertIn("set to never", self.app.message)
+        self.assertIsNone(self.app.confirm)
+
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)
@@ -698,6 +743,37 @@ class TestUnknownCommands(unittest.TestCase):
         run.apply_control()
         self.assertEqual(run.data["applied"], 2)
         self.assertEqual([(r["id"], r["ok"]) for r in run.data["results"]], [(1, False), (2, True)])
+
+
+class TestSetup(unittest.TestCase):
+    def test_rows_say_what_is_set(self):
+        rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "base": None, "merge_mode": "always"},
+                          "main")
+        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Target branch", "Merging"])
+        self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
+        self.assertIn("always", rows[2]["cols"][1])
+        self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
+
+    def test_ls_remote_gives_the_default_first(self):
+        text = ("ref: refs/heads/main\tHEAD\nabc\tHEAD\nabc\trefs/heads/main\n"
+                "def\trefs/heads/HGM-1/x\n123\trefs/heads/develop\n")
+        self.assertEqual(parse_ls_remote(text), ("main", ["main", "develop", "HGM-1/x"]))
+
+    def test_branch_rows_offer_to_create_only_a_new_valid_name(self):
+        rows = branch_rows(["main", "develop"], "main", "release/2", None)
+        self.assertEqual(rows[0]["kind"], "create")
+        self.assertEqual([r["kind"] for r in branch_rows(["main", "develop"], "main", "dev", None)],
+                         ["create", "branch"])
+        self.assertEqual([r["kind"] for r in branch_rows(["main"], "main", "main", None)], ["branch"])
+        self.assertEqual(branch_rows(["main"], "main", "bad..name", None), [])
+        picked = branch_rows(["main", "develop"], "main", "", "develop")
+        self.assertIn("← target", picked[1]["cols"][1])
+
+    def test_branch_names(self):
+        for good in ("release/1.2", "milestone-m1", "HGM-1/x"):
+            self.assertTrue(valid_branch_name(good), good)
+        for bad in ("", "-x", "a..b", "a b", "x.lock", "a//b", "/x", "x/"):
+            self.assertFalse(valid_branch_name(bad), bad)
 
 
 class TestLogLine(unittest.TestCase):

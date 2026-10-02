@@ -37,7 +37,13 @@ from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
 from engine import ASANA, Stop, describe, task_url  # noqa: E402
 from daemon import st  # noqa: E402
 
-TABS = ("Runs", "Boards", "Sprint", "Daemons")
+TABS = ("Runs", "Boards", "Setup", "Daemons")
+MERGE_LABELS = {
+    "off": "when asked — m on a task merges it",
+    "always": "always — every PR is merged once it ships",
+    "never": "never — merging is left to people; m is off",
+}
+BRANCHES_MAX_AGE = 60
 # How old a cached copy may be before the view showing it re-reads Asana behind it.
 BOARDS_MAX_AGE = 300
 BOARD_OPEN_MAX_AGE = 30
@@ -184,6 +190,59 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None):
     return rows
 
 
+def setup_rows(control, default_branch=None):
+    """The Setup tab: what new work goes into, and whether it is merged."""
+    sprint = (control.get("sprint") or {}).get("name")
+    base = control.get("base")
+    mode = control.get("merge_mode") or "off"
+    return [
+        {"kind": "setting", "id": "sprint", "style": "normal" if sprint else "warn",
+         "cols": ["Sprint", sprint or "none — pick one; nothing starts until you do"]},
+        {"kind": "setting", "id": "base", "style": "normal",
+         "cols": ["Target branch", base or "the default branch%s"
+                  % (" (%s)" % default_branch if default_branch else "")]},
+        {"kind": "setting", "id": "merge", "style": "normal",
+         "cols": ["Merging", MERGE_LABELS[mode]]},
+    ]
+
+
+def parse_ls_remote(text):
+    """(default branch, [branches]) from `git ls-remote --symref origin HEAD
+    'refs/heads/*'`."""
+    default, branches = None, []
+    for line in (text or "").splitlines():
+        if line.startswith("ref: refs/heads/") and line.endswith("\tHEAD"):
+            default = line[len("ref: refs/heads/"):-len("\tHEAD")]
+        elif "\trefs/heads/" in line:
+            branches.append(line.split("\trefs/heads/", 1)[1])
+    return default, sorted(branches, key=lambda b: (b != default, b.lower()))
+
+
+def branch_rows(branches, default, query, current):
+    """Branches to pick the target from, filtered — and, when the filter names a
+    branch that does not exist, a row to create it from the default branch."""
+    rows = []
+    name = (query or "").strip()
+    if name and name not in (branches or []) and valid_branch_name(name):
+        rows.append({"kind": "create", "id": name, "style": "warn",
+                     "cols": ["+ create %s" % name, "from %s, on origin" % (default or "the default")]})
+    for b in branches or []:
+        if not matches(b, query):
+            continue
+        picked = b == current or (current is None and b == default)
+        rows.append({"kind": "branch", "id": b, "style": "bold" if picked else "normal",
+                     "cols": [b, ("default" if b == default else "")
+                              + (" ← target" if picked else "")]})
+    return rows
+
+
+def valid_branch_name(name):
+    """Whether git would take this as a branch name."""
+    return bool(re.fullmatch(r"[A-Za-z0-9._/-]+", name or "")) and not (
+        name.startswith(("/", "-", ".")) or name.endswith(("/", ".", ".lock"))
+        or ".." in name or "//" in name or "@{" in name)
+
+
 def board_list_rows(boards, query, sprint=None):
     sprint_gid = (sprint or {}).get("gid")
     return [{"kind": "board", "id": b["gid"], "name": b["name"], "style":
@@ -319,7 +378,9 @@ HELP = [
     "            A answer in $EDITOR · on a parked conflict, a asks for a resolve",
     "            x stop and unqueue · r retry · o open the PR or task",
     "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
-    "Sprint      ⏎ use the board as the sprint",
+    "Setup       ⏎ on Sprint picks the sprint board · on Target branch picks the branch",
+    "            new runs PR into (/ then a new name offers to create it on origin) ·",
+    "            on Merging cycles always / when asked / never",
     "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
     "",
     "q quits the UI; the daemon keeps working.                      any key closes this",
@@ -389,6 +450,12 @@ class App(object):
         self.boards, self.boards_at = self.cache.get("boards")
         self.sections = {}
         self.sections_at = {}
+        self.setup = None
+        self.branches, self.default_branch, self.branches_at = None, None, None
+        cached, at = self.cache.get("branches-%s" % os.path.basename(main_root))
+        if cached:
+            self.default_branch, self.branches = cached
+            self.branches_at = at
         self.message = ""
         self.confirm = None
         self.log_path = None
@@ -400,6 +467,7 @@ class App(object):
         self.edit_request = None
         self.posting = {}
         self.sent = []
+        self.creating = None
         self.snapshot()
 
     # data
@@ -447,6 +515,38 @@ class App(object):
         if is_stale(self.sections_at.get(gid), time.time(), max_age):
             self.loader.start("sections-%s" % gid, gid, lambda: self.fetch_sections(gid))
 
+    def fetch_branches(self):
+        code = subprocess.run(["git", "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*"],
+                              cwd=self.main_root, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if code.returncode != 0:
+            raise Stop(code.stderr.decode("utf-8", "replace").strip() or "git ls-remote failed")
+        default, branches = parse_ls_remote(code.stdout.decode("utf-8", "replace"))
+        self.cache.put("branches-%s" % os.path.basename(self.main_root), [default, branches])
+        return default, branches
+
+    def refresh_branches(self, max_age=BRANCHES_MAX_AGE):
+        if is_stale(self.branches_at, time.time(), max_age):
+            self.loader.start("branches", "branches", self.fetch_branches)
+
+    def create_branch(self, name):
+        """Create the target branch on origin from the default branch, then use it."""
+        default = self.default_branch or "main"
+
+        def work():
+            for cmd in (["git", "fetch", "origin", default],
+                        ["git", "push", "origin", "refs/remotes/origin/%s:refs/heads/%s"
+                         % (default, name)]):
+                done = subprocess.run(cmd, cwd=self.main_root, stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if done.returncode != 0:
+                    raise Stop(done.stderr.decode("utf-8", "replace").strip().splitlines()[-1])
+            return self.fetch_branches()
+
+        self.loader.start("create-branch", name, work)
+        self.creating = name
+        self.message = "creating %s from %s…" % (name, default)
+
     def sync(self):
         """Take finished loads, and start the ones the screen now needs."""
         now = time.time()
@@ -474,11 +574,26 @@ class App(object):
                                     "has it all the same" % done[1])
                 elif done[1]:
                     self.message = "could not ask for the resolve: %s" % done[1]
-        if TABS[self.tab] in ("Boards", "Sprint"):
-            if self.board and TABS[self.tab] == "Boards":
-                self.refresh_board(self.board[0], BOARD_SHOWN_MAX_AGE)
+        done = self.loader.take("branches")
+        if done:
+            if done[1]:
+                self.message = "could not list the branches: %s" % done[1]
             else:
-                self.refresh_boards()
+                (self.default_branch, self.branches), self.branches_at = done[0], now
+        done = self.loader.take("create-branch")
+        if done:
+            name, self.creating = self.creating, None
+            if done[1]:
+                self.message = "could not create %s: %s" % (name, done[1])
+            else:
+                (self.default_branch, self.branches), self.branches_at = done[0], now
+                self.set_base(name)
+        if TABS[self.tab] == "Boards" and self.board:
+            self.refresh_board(self.board[0], BOARD_SHOWN_MAX_AGE)
+        elif TABS[self.tab] == "Boards" or self.setup == "sprint":
+            self.refresh_boards()
+        elif TABS[self.tab] == "Setup":
+            self.refresh_branches()
 
     def loading(self):
         """(busy, age) of what is on screen: whether a load is running for it, and
@@ -486,8 +601,11 @@ class App(object):
         if TABS[self.tab] == "Boards" and self.board:
             gid = self.board[0]
             return self.loader.busy("sections-%s" % gid), self.sections_at.get(gid)
-        if TABS[self.tab] in ("Boards", "Sprint"):
+        if TABS[self.tab] == "Boards" or self.setup == "sprint":
             return self.loader.busy("boards"), self.boards_at
+        if self.setup == "base":
+            return (self.loader.busy("branches") or self.loader.busy("create-branch"),
+                    self.branches_at)
         return False, None
 
     def view(self):
@@ -501,12 +619,27 @@ class App(object):
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
                               self.data.get("records") or {}, query, self.data.get("tasks"))
-        if name in ("Boards", "Sprint"):
+        if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
+        if name == "Setup" and self.setup == "base":
+            return branch_rows(self.branches, self.default_branch, query, self.control.get("base"))
+        if name == "Setup":
+            return setup_rows(self.control, self.default_branch)
         return daemon_rows(dm.registered(), time.time())
 
     def view_key(self):
-        return "board:%s" % self.board[0] if TABS[self.tab] == "Boards" and self.board else TABS[self.tab]
+        if TABS[self.tab] == "Boards" and self.board:
+            return "board:%s" % self.board[0]
+        if TABS[self.tab] == "Setup" and self.setup:
+            return "Setup:%s" % self.setup
+        return TABS[self.tab]
+
+    def set_base(self, name):
+        base = None if name == self.default_branch else name
+        self.change_control(lambda c: c.update(base=base))
+        self.setup = None
+        self.message = ("target branch: %s — new runs branch off it and open their PR "
+                        "against it; open PRs keep theirs" % (name if base else "the default (%s)" % name))
 
     def selected(self, rows):
         if not rows:
@@ -538,7 +671,7 @@ class App(object):
             self.ensure_daemon()
             started = " · " + self.message
         self.message = ("queued %d task(s)" % len(added) if added else "already queued") + (
-            "" if self.control.get("sprint") else " — pick a sprint (tab 3) before they start"
+            "" if self.control.get("sprint") else " — pick a sprint (Setup, tab 3) before they start"
         ) + started
 
     def answer(self, gid, text):
@@ -595,7 +728,9 @@ class App(object):
         blocked one, it is tried again from where the PR stands."""
         merge = row.get("merge")
         name = row["cols"][0]
-        if row.get("phase") in ("merged", "stopped", "failed"):
+        if (self.control.get("merge_mode") or "off") == "never":
+            self.message = "merging is set to never — change it in Setup (tab 3)"
+        elif row.get("phase") in ("merged", "stopped", "failed"):
             self.message = "nothing to merge there"
         elif merge and not merge.get("blocked"):
             self.ask("stop trying to merge %s? (y/n)" % name,
@@ -686,10 +821,33 @@ class App(object):
                 self.log_path, self.log_scroll = row["log"], 0
             else:
                 self.message = "no log yet — the run has not started"
-        elif name == "Sprint" and key == "enter":
+        elif name == "Setup" and self.setup == "sprint" and key == "enter":
             sprint = {"gid": row["id"], "name": row["name"]}
             self.change_control(lambda c: c.update(sprint=sprint))
+            self.setup = None
             self.message = "sprint: %s" % row["name"]
+        elif name == "Setup" and self.setup == "base" and key == "enter":
+            if row["kind"] == "create":
+                self.ask("create %s on origin from %s? (y/n)"
+                         % (row["id"], self.default_branch or "the default branch"),
+                         lambda: self.create_branch(row["id"]))
+            else:
+                self.set_base(row["id"])
+        elif name == "Setup" and not self.setup:
+            if row["id"] == "merge":
+                order = list(MERGE_LABELS)
+                mode = self.control.get("merge_mode") or "off"
+                nxt = order[(order.index(mode) + 1) % len(order)]
+                self.change_control(lambda c: c.update(merge_mode=nxt))
+                self.message = "merging: %s" % MERGE_LABELS[nxt]
+            else:
+                self.setup = row["id"]
+                self.query[self.view_key()] = ""
+                rows = self.view()
+                current = (self.control.get("base") or self.default_branch) if self.setup == "base" \
+                    else (self.control.get("sprint") or {}).get("gid")
+                ids = [r["id"] for r in rows]
+                self.cursor[self.view_key()] = ids.index(current) if current in ids else 0
 
     def back(self):
         """Out one level: a filter first, then the board you are in."""
@@ -699,10 +857,13 @@ class App(object):
             self.cursor[vk] = 0
         elif TABS[self.tab] == "Boards" and self.board:
             self.board = None
+        elif TABS[self.tab] == "Setup" and self.setup:
+            self.setup = None
 
     def goto(self, tab):
         if tab == self.tab:
             self.board = None if TABS[tab] == "Boards" else self.board
+            self.setup = None if TABS[tab] == "Setup" else self.setup
             self.query[self.view_key()] = ""
         self.tab = tab
 
@@ -827,7 +988,8 @@ class App(object):
             "Runs": "⏎/→ question or log · a answer · A in $EDITOR · m merge · x stop · r retry · o PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
-            "Sprint": "⏎ use as sprint · / filter",
+            "Setup": ("⏎ use it · / filter or type a new branch name · ←/esc back"
+                      if self.setup else "⏎ change it (on Merging: cycle always / when asked / never)"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
         }[name] + " · 1-4 tabs · ? keys · q quit"
 
@@ -836,7 +998,10 @@ class App(object):
         h, w = scr.getmaxyx()
         put = lambda y, text, style="normal": _put(scr, y, text, w, styles[style])  # noqa: E731
         health = dm.daemon_health(self.daemon, self.alive, time.time())
-        sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in tab 3"
+        sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in Setup"
+        sprint += " · → %s" % (self.control.get("base") or self.default_branch or "default branch")
+        sprint += {"always": " · auto-merge", "never": " · no merging"}.get(
+            self.control.get("merge_mode") or "off", "")
         if health == "busy":
             health = "busy: %s" % "; ".join(self.daemon.get("busy") or [])
         put(0, "cortex · %s · daemon %s%s · sprint: %s" % (
