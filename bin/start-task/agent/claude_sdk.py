@@ -141,7 +141,8 @@ class ClaudeSDKBackend(AgentBackend):
                     result.stop_reason = "max_turns"
                 elif message.is_error or message.subtype == "failure":
                     result.ok = False
-                    result.error = "agent run failed (%s)" % (
+                    said = (getattr(message, "result", None) or "").strip()
+                    result.error = said or "agent run failed (%s)" % (
                         reason or "no reason given")
                 # Any other early stop produced partial work; say so rather than
                 # presenting it as a finished result.

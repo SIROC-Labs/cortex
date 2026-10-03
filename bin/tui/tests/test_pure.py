@@ -633,6 +633,13 @@ class TestRowStatus(unittest.TestCase):
         self.assertEqual(running, "running — Shipping · 1m")
         self.assertIsNone(tui.row_activity({"phase": "pr_open"}, [], None, None, 0))
 
+    def test_a_run_sitting_out_a_limit_says_so_and_when_it_resumes(self):
+        import time
+        until = self.at(21, 11)
+        status = tui.row_activity({"phase": "revising"}, [], None, ["18:08:00  Applying the feedback"],
+                                  self.at(18, 9), {"reason": "You've hit your session limit", "until": until})
+        self.assertEqual(status, "paused — You've hit your session limit · resumes by itself at 21:11")
+
     def test_rows_use_it_and_an_open_pr_says_what_it_waits_for(self):
         control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
         data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},

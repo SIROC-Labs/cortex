@@ -28,6 +28,7 @@
 
 import argparse
 import contextlib
+import datetime
 import fcntl
 import json
 import os
@@ -921,6 +922,54 @@ def phases_to_run(phases, done):
     return [p for p in phases if p not in done]
 
 
+# Failures that are about the provider's capacity, not the task: wait them out.
+_LIMIT = re.compile(r"session limit|usage limit|rate.?limit|overloaded|too many requests|"
+                    r"\b429\b|\b529\b|quota", re.IGNORECASE)
+_RESETS = re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)?\s*(?:\(([^)]+)\))?",
+                     re.IGNORECASE)
+LIMIT_RETRY = 900
+
+
+def limit_pause(text, now):
+    """When an agent call failed on a usage or rate limit: (what it said, seconds
+    to wait) — until the reset it names, a minute after, or LIMIT_RETRY when it
+    names none. None for any other failure."""
+    if not text or not _LIMIT.search(text):
+        return None
+    what = text.strip().splitlines()[0][:200]
+    m = _RESETS.search(text)
+    if not m:
+        return what, LIMIT_RETRY
+    hour, minute, half = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").lower()
+    if half == "pm" and hour != 12:
+        hour += 12
+    elif half == "am" and hour == 12:
+        hour = 0
+    zone = None
+    if m.group(4):
+        try:
+            from zoneinfo import ZoneInfo
+            zone = ZoneInfo(m.group(4).strip())
+        except Exception:
+            zone = None
+    current = datetime.datetime.fromtimestamp(now, zone) if zone else datetime.datetime.fromtimestamp(now)
+    try:
+        reset = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    except ValueError:
+        return what, LIMIT_RETRY
+    if reset <= current:
+        reset += datetime.timedelta(days=1)
+    return what, (reset - current).total_seconds() + 60
+
+
+def doing(label):
+    """What an agent call was for, the way a person says it."""
+    if label.startswith("qa-repair-"):
+        return "repairing a failing QA gate (attempt %s)" % label.rsplit("-", 1)[1]
+    return {"implement": "implementing the task",
+            "revise": "applying the review feedback"}.get(label, label)
+
+
 def failure_detail(result, tail=2000):
     """Why a backend call failed, in one string. A non-zero exit with an empty
     stderr says nothing on its own — the reason is in whatever the provider
@@ -992,6 +1041,27 @@ def should_continue(result, fingerprint, previous):
     return True, None
 
 
+def wait_out_limit(state, label, what, seconds):
+    """Sit out a usage or rate limit, then let the call be made again. Not the
+    task's problem and nothing for a person to answer, so nothing is posted; the
+    pause is recorded for whoever is watching, and not counted as run time."""
+    until = time.time() + seconds
+    step("Paused — %s" % what)
+    info("resumes at %s (in %s) — nothing to do; the run carries on by itself"
+         % (time.strftime("%H:%M", time.localtime(until)), _elapsed(int(seconds))))
+    if state is not None:
+        state.write("paused.json", {"reason": what, "until": until, "label": label})
+    try:
+        while time.time() < until:
+            slept = time.monotonic()
+            time.sleep(min(30, max(1, until - time.time())))
+            WAITED[0] += time.monotonic() - slept
+    finally:
+        if state is not None:
+            state.remove("paused.json")
+    info("resuming %s" % doing(label))
+
+
 def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
                resume=None):
     """One unit of work for a model, through the seam. A call stopped by the turn
@@ -1043,14 +1113,19 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
                      "fresh one" % (label, failure_detail(result)))
                 resume, next_prompt, first_resume = None, prompt, None
                 continue
-            saved = ""
+            reason = failure_detail(result)
             if state is not None and result.text:
-                saved = "\nraw output: %s" % state.write_text(
-                    "%s.failure.log" % label, result.text)
+                warn("raw output kept at %s" % state.write_text(
+                    "%s.failure.log" % label, result.text))
+            pause = limit_pause(reason, time.time())
+            if pause:
+                wait_out_limit(state, label, *pause)
+                continue
+            headline = "The agent call failed while %s: %s" % (
+                doing(label), reason.splitlines()[0][:200])
             if state is None or ref is None:
-                die("%s failed: %s%s" % (label, failure_detail(result), saved))
-            raise_problem(state, ref, cwd, args, "agent", "%s failed" % label,
-                          failure_detail(result) + saved)
+                die("%s\n%s" % (headline, reason))
+            raise_problem(state, ref, cwd, args, "agent", headline, reason)
             continue
 
         fingerprint = worktree_fingerprint(cwd)

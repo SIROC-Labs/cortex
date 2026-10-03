@@ -941,5 +941,98 @@ class TestBaseRef(unittest.TestCase):
         self.assertEqual(git("branch", "--show-current", cwd=wt), "T-1/task")
 
 
+class TestAgentFailures(unittest.TestCase):
+    """An agent failure has to say what actually happened — and a usage limit is
+    not a failure of the task at all."""
+
+    def test_the_providers_own_words_are_the_error_not_its_subtype(self):
+        from agent.claude_cli import parse_envelope
+        _, t = parse_envelope(json.dumps({"subtype": "success", "is_error": True,
+                                          "result": "You've hit your session limit · resets 9:10pm"}))
+        self.assertEqual(t["error"], "You've hit your session limit · resets 9:10pm")
+        _, t = parse_envelope(json.dumps({"subtype": "success", "is_error": True}))
+        self.assertNotEqual(t["error"], "success")
+
+    def test_a_named_reset_time_is_waited_for(self):
+        import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime(2026, 10, 2, 18, 8, tzinfo=ZoneInfo("Africa/Johannesburg")).timestamp()
+        what, seconds = start_task.limit_pause(
+            "You've hit your session limit · resets 9:10pm (Africa/Johannesburg)", now)
+        self.assertEqual(seconds, (3 * 60 + 2) * 60 + 60)
+        self.assertIn("session limit", what)
+
+    def test_a_reset_already_past_today_is_tomorrows(self):
+        import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime(2026, 10, 2, 22, 0, tzinfo=ZoneInfo("UTC")).timestamp()
+        _, seconds = start_task.limit_pause("usage limit · resets 9pm (UTC)", now)
+        self.assertEqual(seconds, 23 * 3600 + 60)
+
+    def test_limits_without_a_time_retry_later_and_real_failures_are_not_limits(self):
+        self.assertEqual(start_task.limit_pause("API Error: 529 Overloaded", 0)[1],
+                         start_task.LIMIT_RETRY)
+        self.assertIsNotNone(start_task.limit_pause("429 Too Many Requests", 0))
+        self.assertIsNone(start_task.limit_pause("fatal: not a git repository", 0))
+        self.assertIsNone(start_task.limit_pause("", 0))
+
+    def run_call(self, results):
+        from agent import AgentResult
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        state = State(root, "T-1")
+        state.ensure()
+        queue = list(results)
+
+        class Backend(object):
+            name = "fake"
+
+            def available(self):
+                return True, ""
+
+            def run(self, request):
+                return queue.pop(0)
+
+            def resume_command(self, token, cwd):
+                return None
+
+        class Args(object):
+            autonomy, backend, model, max_turns, no_project_context, agent_cmd = (
+                "full", "fake", None, 10, False, None)
+            wait_on_failure = True
+        posted = []
+        saved = (start_task.get_backend, start_task.limit_pause, start_task.raise_problem,
+                 start_task.worktree_fingerprint)
+        self.addCleanup(lambda: (setattr(start_task, "get_backend", saved[0]),
+                                 setattr(start_task, "limit_pause", saved[1]),
+                                 setattr(start_task, "raise_problem", saved[2]),
+                                 setattr(start_task, "worktree_fingerprint", saved[3])))
+        real_pause = saved[1]
+        start_task.get_backend = lambda name: Backend()
+        start_task.limit_pause = lambda text, now: (lambda p: (p[0], 0.01) if p else None)(
+            real_pause(text, now))
+        start_task.raise_problem = lambda *a: posted.append(a[5]) or "retry"
+        start_task.worktree_fingerprint = lambda cwd: "x"
+        out = start_task.call_agent("do it", root, Args(), "revise", state=state, ref="1")
+        return out, posted, state
+
+    def test_a_limit_pauses_and_retries_without_posting(self):
+        from agent import AgentResult
+        out, posted, state = self.run_call([
+            AgentResult(ok=False, error="You've hit your session limit · resets 9:10pm"),
+            AgentResult(ok=True, text="done")])
+        self.assertEqual(out.text, "done")
+        self.assertEqual(posted, [])
+        self.assertIsNone(state.read("paused.json"))
+
+    def test_a_real_failure_says_what_it_was_doing_and_why(self):
+        from agent import AgentResult
+        out, posted, _ = self.run_call([
+            AgentResult(ok=False, error="claude: command exited 2: bad flag --frob"),
+            AgentResult(ok=True, text="done")])
+        self.assertEqual(posted, ["The agent call failed while applying the review feedback: "
+                                  "claude: command exited 2: bad flag --frob"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

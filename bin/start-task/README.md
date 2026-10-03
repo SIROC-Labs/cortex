@@ -129,6 +129,16 @@ failed step, the run starts again from the top (finished phases are skipped). A
 question is never treated as done, and nothing ships past one. A single `--phase` run
 stops with the error as before, since you are at the terminal.
 
+### When the agent hits a usage limit
+
+A session, usage or rate limit, or an overloaded API, is not something wrong with the
+task, so it is not posted and nobody is asked. The run pauses until the reset the
+message names ("resets 9:10pm (Africa/Johannesburg)"), or for 15 minutes when it names
+none, then makes the call again by itself. The pause is not counted as run time, and
+`paused.json` in the task's state says why and until when — the TUI's row shows it.
+Any other failed agent call is posted in the provider's own words, with what the call
+was for.
+
 ### When the PR gets a review
 
 ```bash

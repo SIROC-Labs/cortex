@@ -160,15 +160,20 @@ PENDING_SAYS = {
 }
 
 
-def row_activity(record, pending, busy, log_lines, now):
+def row_activity(record, pending, busy, log_lines, now, paused=None):
     """What is happening to one task right now, in a few words, or None to fall
     back on its phase: a command of yours the daemon has not acted on yet, then
-    something the daemon is in the middle of for it, then where its run is."""
+    something the daemon is in the middle of for it, then a run sitting out a
+    usage limit, then where its run is."""
     if pending:
         cmd = pending[-1]
         return "%s — waiting for the daemon" % (PENDING_SAYS.get(cmd["op"], cmd["op"]) % cmd)
     if busy:
         return "%s…" % busy
+    if paused and (record or {}).get("phase") in ("running", "revising"):
+        return "paused — %s · resumes by itself at %s" % (
+            paused.get("reason") or "usage limit",
+            time.strftime("%H:%M", time.localtime(paused.get("until") or now)))
     if (record or {}).get("phase") in ("running", "revising"):
         step = last_step(log_lines or [], now)
         if step:
@@ -728,8 +733,10 @@ class App(object):
                        if c.get("gid") == gid and c["id"] > applied]
             lines = _tail(record["log"], 400) if record.get("phase") in ("running", "revising") \
                 and record.get("log") else None
+            key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key")
+            paused = st.State(self.main_root, key).read("paused.json") if key and lines else None
             doing = row_activity(record, pending, busy.get(gid) if self.alive else None,
-                                 lines, time.time())
+                                 lines, time.time(), paused)
             if doing:
                 out[gid] = doing
         return out

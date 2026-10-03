@@ -43,10 +43,19 @@ STOP_REASONS = {
 
 
 def _envelope_error(envelope):
+    """Why an envelope that says is_error failed, in the provider's own words.
+    The message is usually in `result` — "You've hit your session limit · resets
+    9:10pm" — while `subtype` can read "success" even then, so it comes last."""
     errors = envelope.get("errors")
     if isinstance(errors, list) and errors:
         return "; ".join(str(e) for e in errors)
-    return envelope.get("subtype") or "the provider reported an error"
+    result = envelope.get("result")
+    if isinstance(result, str) and result.strip():
+        return result.strip()
+    subtype = envelope.get("subtype")
+    if subtype and subtype != "success":
+        return subtype
+    return "the provider reported an error and said nothing more"
 
 
 def parse_envelope(raw):
