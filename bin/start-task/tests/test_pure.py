@@ -976,7 +976,7 @@ class TestAgentFailures(unittest.TestCase):
         self.assertIsNone(start_task.limit_pause("fatal: not a git repository", 0))
         self.assertIsNone(start_task.limit_pause("", 0))
 
-    def run_call(self, results):
+    def run_call(self, results, seen=None):
         from agent import AgentResult
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root, True)
@@ -991,6 +991,8 @@ class TestAgentFailures(unittest.TestCase):
                 return True, ""
 
             def run(self, request):
+                if seen is not None:
+                    seen.append((request.resume, request.prompt))
                 return queue.pop(0)
 
             def resume_command(self, token, cwd):
@@ -1024,6 +1026,25 @@ class TestAgentFailures(unittest.TestCase):
         self.assertEqual(out.text, "done")
         self.assertEqual(posted, [])
         self.assertIsNone(state.read("paused.json"))
+
+    def test_sleep_and_dropped_connections_count_as_interruptions(self):
+        for text in ("API Error: Your computer went to sleep mid-response.",
+                     "Connection error.", "read ECONNRESET", "Connection lost while your computer was asleep"):
+            self.assertTrue(start_task.interrupted(text), text)
+        self.assertFalse(start_task.interrupted("fatal: not a git repository"))
+
+    def test_an_interrupted_call_goes_on_in_its_session_without_posting(self):
+        from agent import AgentResult
+        start_task.INTERRUPTED_RETRY, saved = 0, start_task.INTERRUPTED_RETRY
+        self.addCleanup(setattr, start_task, "INTERRUPTED_RETRY", saved)
+        seen = []
+        out, posted, _ = self.run_call([
+            AgentResult(ok=False, resume_token="s1",
+                        error="API Error: Your computer went to sleep mid-response."),
+            AgentResult(ok=True, text="done")], seen)
+        self.assertEqual(out.text, "done")
+        self.assertEqual(posted, [])
+        self.assertEqual(seen[1], ("s1", start_task.CONTINUE_PROMPT))
 
     def test_a_real_failure_says_what_it_was_doing_and_why(self):
         from agent import AgentResult

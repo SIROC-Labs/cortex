@@ -928,6 +928,17 @@ _LIMIT = re.compile(r"session limit|usage limit|rate.?limit|overloaded|too many 
 _RESETS = re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)?\s*(?:\(([^)]+)\))?",
                      re.IGNORECASE)
 LIMIT_RETRY = 900
+# Calls cut off from outside — the machine slept, the connection dropped — are
+# made again shortly, continuing the same session when there is one.
+_INTERRUPTED = re.compile(r"went to sleep|computer was asleep|connection (?:error|lost|reset)|"
+                          r"econnreset|socket hang up|network error|stream (?:was )?(?:closed|"
+                          r"suspended|interrupted)", re.IGNORECASE)
+INTERRUPTED_RETRY = 30
+
+
+def interrupted(text):
+    """Whether an agent call was cut off from outside rather than failing."""
+    return bool(text and _INTERRUPTED.search(text))
 
 
 def limit_pause(text, now):
@@ -1120,6 +1131,16 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
             pause = limit_pause(reason, time.time())
             if pause:
                 wait_out_limit(state, label, *pause)
+                continue
+            if interrupted(reason):
+                warn("%s was cut off (%s) — going on in %ds%s"
+                     % (label, reason.splitlines()[0][:120], INTERRUPTED_RETRY,
+                        ", in the same session" if result.resume_token else ""))
+                slept = time.monotonic()
+                time.sleep(INTERRUPTED_RETRY)
+                WAITED[0] += time.monotonic() - slept
+                if result.resume_token:
+                    resume, next_prompt = result.resume_token, CONTINUE_PROMPT
                 continue
             headline = "The agent call failed while %s: %s" % (
                 doing(label), reason.splitlines()[0][:200])
