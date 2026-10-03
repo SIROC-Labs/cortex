@@ -33,7 +33,7 @@ AUTONOMY_MAP = {
     "full": "bypassPermissions",
 }
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 
 

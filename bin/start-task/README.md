@@ -168,7 +168,7 @@ keeps its memory and picks up mid-thought:
 
 ```
   implement: calling claude-cli
-  implement: claude-cli · claude-opus-5 · 300 turns · 861.2s
+  implement: claude-cli · claude-sonnet-5-5 · 300 turns · 861.2s
   implement: hit the turn limit, resuming the session
   implement: calling claude-cli (continuation 2)
 ```

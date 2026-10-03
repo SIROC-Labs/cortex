@@ -31,7 +31,7 @@ AUTONOMY_MAP = {
     "full": "bypassPermissions",
 }
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 
 # The envelope's `subtype`, in the seam's vocabulary. Anything not listed is left
