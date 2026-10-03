@@ -44,6 +44,9 @@ MERGE_LABELS = {
     "asked": "only when asked — m on a task",
 }
 BRANCHES_MAX_AGE = 60
+# How often the UI re-reads the daemon's files, and scans for stray agents.
+STATE_EVERY = 1.0
+AGENTS_EVERY = 3.0
 # git run from the UI must never ask for anything: a prompt would take over the
 # terminal the UI is drawing on, and look like a hang. It fails instead, saying why.
 NO_PROMPT = dict(os.environ, GIT_TERMINAL_PROMPT="0",
@@ -684,14 +687,27 @@ class App(object):
                                             proc.stderr.decode("utf-8", "replace").strip()))
         return json.loads(proc.stdout.decode("utf-8", "replace") or "null")
 
-    def snapshot(self):
+    def snapshot(self, agents=True):
+        """Re-read what the daemon and the runs left on disk. `agents` also scans
+        the machine's processes for stray agents — the slow part, so the loop
+        does it less often."""
         self.control = dm.read_control(self.main_root)
         self.data = dm.read_json(os.path.join(dm.queue_dir(self.main_root), "state.json")) or {}
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.activity = self.read_activity()
-        self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
+        now = time.time()
+        self.snapped_at = now
+        if agents or not hasattr(self, "agents"):
+            self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
+            self.agents_at = now
+
+    def refresh_state(self, now):
+        """Keep what is shown current on a clock, never on a keypress: a held-down
+        key must not wait on disk reads and a process scan each time."""
+        if now - getattr(self, "snapped_at", 0) >= STATE_EVERY:
+            self.snapshot(agents=now - getattr(self, "agents_at", 0) >= AGENTS_EVERY)
 
     def fetch_boards(self):
         me, _ = self.cache.get("me")
@@ -1484,7 +1500,7 @@ def run_ui(main_root, forward):
                           bad=curses.color_pair(3) | curses.A_BOLD)
         app = App(main_root, forward)
         while True:
-            app.snapshot()
+            app.refresh_state(time.time())
             app.sync()
             app.draw(scr, styles)
             idle = 100 if app.loader.busy() else 1000
@@ -1492,9 +1508,21 @@ def run_ui(main_root, forward):
             key = read_key(scr, idle)
             if key is None:
                 continue
+            # Everything already typed is handled before the next draw, so keys
+            # never queue up behind the screen.
+            keys = [key]
+            scr.timeout(0)
+            while len(keys) < 256:
+                more = read_key(scr, 0)
+                if more is None:
+                    break
+                keys.append(more)
             try:
-                if not app.key(key, app.view() if not app.log_path else []):
-                    return
+                for key in keys:
+                    if not app.key(key, app.view() if not app.log_path else []):
+                        return
+                    if app.edit_request:
+                        break
             except Stop as e:
                 app.message = str(e)
             if app.edit_request:
