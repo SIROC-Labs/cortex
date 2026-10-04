@@ -850,6 +850,33 @@ class TestAnswering(unittest.TestCase):
         self.assertFalse(any(l.startswith("▸") for l in lines[3:10]))
         self.assertEqual(sum("│ ▸ " in l for l in lines), 1)
 
+    def finished_setup(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"] = {"phase": "merged", "actual_hours": 0.5}
+        dm.write_json(path, data)
+        self.app.snapshot()
+
+    def test_x_on_a_finished_task_only_removes_it(self):
+        self.finished_setup()
+        self.select("2")
+        self.press("x")
+        self.assertIsNone(self.app.confirm)
+        self.assertEqual([q["gid"] for q in self.app.control["queue"]], ["1"])
+        self.assertEqual(self.app.control.get("commands") or [], [])
+
+    def test_x_on_a_live_task_still_stops_it_after_asking(self):
+        self.select("1")
+        self.press("x")
+        self.assertIn("stop and unqueue", self.app.message)
+
+    def test_the_palette_clears_every_finished_task_at_once(self):
+        self.finished_setup()
+        self.press(":", *"clear", "enter")
+        self.assertEqual([q["gid"] for q in self.app.control["queue"]], ["1"])
+        self.assertEqual(self.app.control.get("commands") or [], [])
+        self.assertIn("removed A-2 from the list", self.app.message)
+
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)

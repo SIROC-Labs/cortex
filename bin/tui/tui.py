@@ -56,6 +56,10 @@ BOARDS_MAX_AGE = 300
 BOARD_OPEN_MAX_AGE = 30
 BOARD_SHOWN_MAX_AGE = 60
 
+# A task in one of these has nothing left running for it: removing it from the
+# list leaves it — and its record — exactly as it is.
+FINISHED = ("merged", "stopped", "failed")
+
 PHASE_STYLE = {
     "running": "ok", "revising": "ok", "pr_open": "ok", "merged": "dim",
     "awaiting": "warn", "conflict": "warn", "failed": "bad", "stopped": "dim",
@@ -290,6 +294,8 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
         rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
                      "style": style, "log": record.get("log"), "wait": wait,
                      "pr_url": record.get("pr_url"), "phase": record.get("phase"),
+                     "finished": record.get("phase") in FINISHED
+                                 or bool(task and task.get("completed")),
                      "merge": record.get("merge"),
                      "links": [u for u in (record.get("pr_url"),
                                            task_url(item.get("board"), gid)) if u]})
@@ -1005,6 +1011,14 @@ class App(object):
             self.ask("merge %s%s — resolving conflicts and fixing failing checks as needed? "
                      "(y/n)" % (name, when), lambda: self.command("merge", row["id"]))
 
+    def clear(self, rows):
+        """Take finished tasks off the list. Nothing is stopped and nothing about
+        them changes; queue one again and its record is still there."""
+        gids = [r["id"] for r in rows]
+        self.change_control(lambda c: dm.queue_remove(c, gids))
+        self.message = ("removed %s from the list" % rows[0]["cols"][0] if len(rows) == 1
+                        else "removed %d finished tasks from the list" % len(rows))
+
     def palette_commands(self, row):
         """What the palette offers: only commands that are not already in plain
         sight — none with a key shown in the line at the bottom — and only ones
@@ -1019,6 +1033,14 @@ class App(object):
                 out.append({"title": "Change %s's PR base branch to %s" % (row["cols"][0], target),
                             "words": "retarget move update base branch pr from %s" % old,
                             "run": lambda: self.retarget(row)})
+        if TABS[self.tab] == "Runs":
+            finished = [r for r in run_rows(self.control, self.data, [], waits=self.waits)
+                        if r["kind"] == "task" and r.get("finished")]
+            if finished:
+                out.append({"title": "Clear %d finished task%s from the list"
+                                     % (len(finished), "" if len(finished) == 1 else "s"),
+                            "words": "remove merged done acknowledge tidy clean",
+                            "run": lambda: self.clear(finished)})
         if TABS[self.tab] != "Daemons":
             if not self.alive:
                 out.append({"title": "Start this repo's daemon", "words": "run begin",
@@ -1090,6 +1112,8 @@ class App(object):
                 self.start_answer(row, editor=key == "A")
             elif key == "m" and row["kind"] == "task":
                 self.merge(row)
+            elif key == "x" and row["kind"] == "task" and row.get("finished"):
+                self.clear([row])
             elif key == "x" and row["kind"] == "task":
                 self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
                     self.command("stop", row["id"]),
@@ -1322,7 +1346,7 @@ class App(object):
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
-            "Runs": "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop · r retry · o PR",
+            "Runs": "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR",
             "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"

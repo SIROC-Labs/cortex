@@ -36,7 +36,8 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 `:` opens it. It holds only the commands that are not already in plain sight — none
 whose key is shown in the line at the bottom of the screen — and only those that can
 run right now. On the Runs tab, with a task whose PR is not on the target branch, that
-is *Change HCI-8's PR base branch to feature/x*; from any tab but Daemons, starting or
+is *Change HCI-8's PR base branch to feature/x* and, once some are done, *Clear N
+finished tasks from the list*; from any tab but Daemons, starting or
 stopping this repo's daemon. Type to narrow it (it also matches the words you would use
 — *retarget*, *move*, *update*, *base*), `↑↓` or `^P ^N` to choose, `⏎` to run, `Esc`
 to close.
@@ -59,7 +60,7 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `x` stop and unqueue · `r` retry a failed or stopped task · `o` open the PR (or task) |
+| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) |
 | **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
