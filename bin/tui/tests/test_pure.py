@@ -442,6 +442,16 @@ class TestAppKeys(unittest.TestCase):
         self.press("ctrl-f")
         self.assertEqual(self.app.cursor["Boards"], 2)
 
+    def test_o_opens_the_task_or_the_board_in_asana(self):
+        opened = []
+        saved = tui.webbrowser.open
+        tui.webbrowser.open = opened.append
+        self.addCleanup(setattr, tui.webbrowser, "open", saved)
+        self.press("2", "down", "o")
+        self.assertEqual(opened[-1], "https://app.asana.com/0/2/list")
+        self.press("enter", "down", "o")
+        self.assertEqual(opened[-1], "https://app.asana.com/0/2/t1")
+
     def test_into_a_board_and_back_out_keeps_the_place(self):
         self.press("2", "down", "right")
         self.assertEqual(self.app.board, ("2", "Beta"))
@@ -634,6 +644,13 @@ class TestRowStatus(unittest.TestCase):
                                    ["10:01:00  Shipping"], self.at(10, 2))
         self.assertEqual(running, "running — Shipping · 1m")
         self.assertIsNone(tui.row_activity({"phase": "pr_open"}, [], None, None, 0))
+
+    def test_a_revising_row_says_what_it_is_revising(self):
+        status = tui.row_activity({"phase": "revising", "revise_why": "fixing failing checks (e2e), to merge"},
+                                  [], None, ["10:01:00  Applying the feedback",
+                                             "  revise: calling claude-cli"], self.at(10, 4))
+        self.assertEqual(status, "revising: fixing failing checks (e2e) — Applying the feedback · "
+                                 "agent at work · 3m")
 
     def test_a_run_sitting_out_a_limit_says_so_and_when_it_resumes(self):
         import time

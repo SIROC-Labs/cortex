@@ -61,7 +61,7 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 | Tab | What it shows | Keys |
 |---|---|---|
 | **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) |
-| **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `R` reload |
+| **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `o` open the task (or board) in Asana · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
 
@@ -105,6 +105,10 @@ The status next to a task says what is happening to that task now, not just its 
   feature/m1…*, *finishing HCI-8 in Asana…*, *removing HCI-8's worktree…*;
 - for a running task, its current step from its log, what it is waiting on and for how
   long — *running — Implementing · agent at work · 12m*, *running — QA · make verify · 3m*;
+- for a revise, what it is revising — *revising: fixing failing checks (e2e) — Applying
+  the feedback · agent at work · 3m*; its log opens the section with the issues: each
+  review comment, or each failed check with the lines of its CI log that say what
+  failed (the agent is given those lines too);
 - for an open PR, what it waits for — *PR open — waiting for review; m merges*;
 - tokens: a running task shows what it has used so far, a merged one its total and run
   time — *merged — 00:28 of run time · 1.24M tokens · ≈$3.40* (cost at API list price,

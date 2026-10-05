@@ -523,6 +523,35 @@ class TestMergeHolds(unittest.TestCase):
         self.assertTrue(any(cmd[:3] == ["gh", "pr", "merge"] for cmd in self.merged_calls))
 
 
+class TestFailureExcerpt(unittest.TestCase):
+    LOG = "\n".join([
+        "\ufeff2026-10-05T14:36:37.5889041Z Current runner version: '2.337.0'",
+        "2026-10-05T14:40:00.0000000Z ##[group]Run npm run test:coverage",
+        "2026-10-05T14:40:01.0000000Z - vitest-blob-1 (ID: 1, Size: 12, Expected Digest: sha256:abc)",
+        "2026-10-05T14:40:02.0000000Z   \x1b[32m✓\x1b[39m says a write failed even when the server explained nothing",
+        "2026-10-05T14:40:03.0000000Z ERROR: Coverage for functions (99.89%) does not meet threshold (100%)",
+        "2026-10-05T14:40:04.0000000Z ##[error]Process completed with exit code 1.",
+        "2026-10-05T14:40:05.0000000Z Post job cleanup.",
+    ])
+
+    def test_the_lines_that_say_what_failed_without_noise_or_timestamps(self):
+        from engine import failure_excerpt
+        self.assertEqual(failure_excerpt(self.LOG), [
+            "ERROR: Coverage for functions (99.89%) does not meet threshold (100%)",
+            "error: Process completed with exit code 1."])
+
+    def test_with_nothing_telling_the_last_lines_are_used(self):
+        from engine import failure_excerpt
+        self.assertEqual(failure_excerpt("2026-10-05T14:40:00Z step one\n2026-10-05T14:40:01Z step two",
+                                         max_lines=1), ["step two"])
+
+    def test_the_agent_gets_the_excerpt_in_its_brief(self):
+        from engine import render_ci_fix
+        brief = render_ci_fix([("test", "https://x/job/1")], {"test": ["ERROR: Coverage too low"]})
+        self.assertIn("- test — https://x/job/1", brief)
+        self.assertIn("  ERROR: Coverage too low", brief)
+
+
 class TestMergeMethod(unittest.TestCase):
     def test_squash_first_within_what_the_rules_allow(self):
         everything = {"squashMergeAllowed": True, "mergeCommitAllowed": True,

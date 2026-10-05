@@ -291,9 +291,45 @@ def render_merge_resolve(base):
             "rather than undo it.\n" % base)
 
 
-def render_ci_fix(failing):
+_LOG_STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z\s?")
+_ESCAPES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# What a failed job's log says went wrong, strongest signals first: an error
+# annotation, a line that starts with ERROR or FAIL, a named exception, a failed
+# test mark, a non-zero exit. Weaker words count only when nothing strong does.
+_STRONG = re.compile(r"##\[error\]|^\s*(?:ERROR|FAIL(?:ED)?|FAILURE)\b|\b\w*(?:Error|Exception):|"
+                     r"^\s*(?:✗|✘|×)|AssertionError|Traceback|exit code [1-9]")
+_WEAK = re.compile(r"\berror\b|\bfail(?:ed|ure|s)?\b|expected|received|timed? ?out", re.IGNORECASE)
+_NOISE = re.compile(r"^(##\[(?:group|endgroup)\]|Post job cleanup|Cleaning up orphan|\s*[✓√]|"
+                    r".*Expected Digest)", re.IGNORECASE)
+
+
+def failure_excerpt(log_text, max_lines=10):
+    """The lines of a CI job's log that say what failed: errors, failed tests,
+    assertions — the last `max_lines` of them, timestamps off. Falls back on the
+    log's last lines when none stand out."""
+    lines = []
+    for raw in (log_text or "").splitlines():
+        line = _ESCAPES.sub("", _LOG_STAMP.sub("", raw)).rstrip()
+        if line.strip() and not _NOISE.match(line.strip()):
+            lines.append(line.replace("##[error]", "error: "))
+    strong = [l for l in lines if _STRONG.search(l)]
+    weak = [l for l in lines if _WEAK.search(l)]
+    picked = strong or weak or lines
+    out = []
+    for line in picked[-max_lines * 3:]:
+        if line not in out:
+            out.append(line[:200])
+    return out[-max_lines:]
+
+
+def render_ci_fix(failing, excerpts=None):
+    excerpts = excerpts or {}
     lines = ["Merge was asked for, and required checks failed on the PR:", ""]
-    lines += ["- %s%s" % (name, " — %s" % url if url else "") for name, url in failing]
+    for name, url in failing:
+        lines.append("- %s%s" % (name, " — %s" % url if url else ""))
+        if excerpts.get(name):
+            lines += ["", "  What its log says:", "", "  ```"]
+            lines += ["  " + l for l in excerpts[name]] + ["  ```", ""]
     lines += ["", "Find out why with `gh pr checks` and `gh run view <run-id> --log-failed`, "
               "and fix the cause. If a failure is plainly flaky and unrelated to this "
               "change, re-run it with `gh run rerun <run-id> --failed` instead of "
@@ -744,15 +780,32 @@ class Engine(object):
                    + (["--base", base] if base else []), "running",
                    "start-task: from the ticket to a ready PR%s" % (" on %s" % base if base else ""))
 
-    def launch_revise(self, gid, items, text, why):
+    def launch_revise(self, gid, items, text, why, issues=()):
+        """Start a revise. `issues` — what is wrong, a line each — go in the task's
+        log ahead of the run, and `why` stays on the record for the TUI's row."""
         os.makedirs(self.path("feedback"), exist_ok=True)
         path = self.path("feedback", "%s-%d.md" % (self.key_of(gid), time.time()))
         with open(path, "w") as f:
             f.write(text)
         log("%s: revising — %s" % (self.key_of(gid), why))
+        self.note(gid, "Revising — %s" % why, list(issues) or ["(see the feedback below)"])
         self.spawn(gid, [self.key_of(gid), "--phase", "revise",
                          "--feedback-file", path], "revising", "revise: %s" % why,
-                   inflight=[fid for fid, _, _ in items])
+                   inflight=[fid for fid, _, _ in items], revise_why=why)
+
+    def ci_excerpts(self, failing):
+        """For each failed check, the telling lines of its job's log, read from
+        GitHub: {name: [lines]}. A log that cannot be read is simply left out."""
+        out = {}
+        for name, url in failing:
+            m = re.search(r"github\.com/([^/]+)/([^/]+)/actions/runs/\d+/job/(\d+)", url or "")
+            if not m:
+                continue
+            code, text, _ = run(["gh", "api", "--allow-escape-sequences",
+                                 "repos/%s/%s/actions/jobs/%s/logs" % m.groups()], cwd=self.repo)
+            if code == 0 and text:
+                out[name] = failure_excerpt(text)
+        return out
 
     # watching
 
@@ -849,13 +902,16 @@ class Engine(object):
             items = self.feedback(owner, name, number, record.get("handled"))
             if items and record["phase"] == "pr_open":
                 self.launch_revise(gid, items, render_feedback(items),
-                                   "addressing %d review comment(s): %s"
-                                   % (len(items), "; ".join(h for _, h, _ in items)))
+                                   "addressing %d review comment(s)" % len(items),
+                                   ["%s: %s" % (h, (b.strip().splitlines() or [""])[0][:140])
+                                    for _, h, b in items])
                 return
             ask = resolve_request(items or [])
             if ask and record["phase"] == "conflict":
                 self.launch_revise(gid, [ask], render_resolve(ask),
-                                   "resolving conflicts with the base, as asked")
+                                   "resolving conflicts with the base, as asked",
+                                   ["the PR conflicts with its base; merging the base in, "
+                                    "keeping both sides' intent"])
                 return
         record["poll_attempt"] = 0 if changed else record.get("poll_attempt", 0) + 1
         if record["phase"] == "conflict":
@@ -989,21 +1045,31 @@ class Engine(object):
                 merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
                 self.stage(gid, merge, "resolving conflicts")
                 self.launch_revise(gid, [], render_merge_resolve(base),
-                                   "resolving conflicts with %s, to merge" % base)
+                                   "resolving conflicts with %s, to merge" % base,
+                                   ["the branch is behind %s and cannot be updated cleanly; "
+                                    "merging %s in" % (base, base)])
         elif action == "resolve":
             merge["attempts"]["resolve"] = merge["attempts"].get("resolve", 0) + 1
             self.stage(gid, merge, "resolving conflicts (%d)" % merge["attempts"]["resolve"])
             log("%s: conflicts with %s — resolving to merge" % (key, base))
             self.launch_revise(gid, [], render_merge_resolve(base),
-                               "resolving conflicts with %s, to merge" % base)
+                               "resolving conflicts with %s, to merge" % base,
+                               ["the PR conflicts with %s — likely a sibling merged first; "
+                                "merging %s in, keeping both sides' intent" % (base, base)])
         elif action == "fix_ci":
             merge["attempts"]["ci"] = merge["attempts"].get("ci", 0) + 1
             self.stage(gid, merge, "fixing failing checks (%d)" % merge["attempts"]["ci"])
             log("%s: checks failing (%s) — fixing to merge"
                 % (key, ", ".join(n for n, _ in detail)))
-            self.launch_revise(gid, [], render_ci_fix(detail),
+            excerpts = self.ci_excerpts(detail)
+            issues = []
+            for check, _ in detail:
+                issues.append("%s failed%s" % (check, ":" if excerpts.get(check) else
+                                               " (its log could not be read)"))
+                issues += ["  %s" % line for line in excerpts.get(check, [])]
+            self.launch_revise(gid, [], render_ci_fix(detail, excerpts),
                                "fixing failing checks (%s), to merge"
-                               % ", ".join(n for n, _ in detail))
+                               % ", ".join(n for n, _ in detail), issues)
         elif action == "wait":
             self.stage(gid, merge, detail)
         else:

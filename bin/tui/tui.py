@@ -186,7 +186,9 @@ def row_activity(record, pending, busy, log_lines, now, paused=None, usage=None)
         step = last_step(log_lines or [], now)
         if step:
             name, detail, seconds = step
-            what = "revising" if record["phase"] == "revising" else "running"
+            what = ("revising: %s" % record["revise_why"].replace(", to merge", "")
+                    if record["phase"] == "revising" and record.get("revise_why")
+                    else "revising" if record["phase"] == "revising" else "running")
             return "%s — %s%s%s%s" % (what, name, " · %s" % detail if detail else "",
                                       " · %s" % _ago(seconds) if seconds is not None else "",
                                       " · %s so far" % usage_summary(usage) if usage else "")
@@ -533,6 +535,7 @@ HELP = [
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task · on a section, queue all of it"),
+        ("o", "open the task (or the board) in Asana"),
         ("R", "reload from Asana"),
     ]),
     ("Setup", [
@@ -1175,6 +1178,13 @@ class App(object):
                 self.message = "retry asked — a failed or stopped task starts again when ready"
             elif key == "o" and row.get("links"):
                 webbrowser.open(row["links"][0])
+        elif name == "Boards" and key == "o" and row:
+            if row["kind"] == "task":
+                webbrowser.open(task_url(row["board"], row["id"]))
+            elif row["kind"] == "board":
+                webbrowser.open("https://app.asana.com/0/%s/list" % row["id"])
+            elif self.board:
+                webbrowser.open("https://app.asana.com/0/%s/list" % self.board[0])
         elif name == "Boards" and self.board:
             if key == "R":
                 self.refresh_board(self.board[0], max_age=-1)
@@ -1406,8 +1416,8 @@ class App(object):
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
             "Runs": "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR",
-            "Boards": ("space queue (on a section: all) · ←/esc back · / filter · R reload"
-                       if self.board else "⏎/→ open · / filter · R reload"),
+            "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
+                       if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
                       else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it (on Merging: cycles through the three)"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
