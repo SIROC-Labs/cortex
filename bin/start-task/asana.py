@@ -156,8 +156,8 @@ TASK_ID_POLL_ATTEMPTS = 8
 TASK_ID_POLL_INTERVAL = 0.5
 # Bump when build_fields_map's entry shape changes so stale caches re-discover.
 # v2 adds name/format/precision (needed for Estimate unit handling).
-# v3 adds the Actual field.
-FIELDS_SCHEMA_VERSION = 3
+# v3 adds the Actual field; v4 the Tokens field.
+FIELDS_SCHEMA_VERSION = 4
 # Board classification patterns (regex strings). A project is a SPRINT if its name
 # matches any sprint pattern; a BACKLOG board if it matches any backlog pattern AND no
 # sprint pattern. Defaults cover the known siroc conventions; a workspace with a
@@ -677,6 +677,7 @@ def _capture_stdout(fn, args):
 # Category. Assignee is native (not a custom field) and is injected separately.
 CANONICAL_FIELD_PATTERNS = [
     ("Actual", ["actual"]),
+    ("Tokens", ["tokens"]),
     ("Platform", ["platform"]),
     ("Priority", ["priority", "urgency", "severity"]),
     ("Sizing", ["story points", "t-shirt", "sizing", "size", "points"]),

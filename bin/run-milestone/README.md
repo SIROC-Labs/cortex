@@ -44,8 +44,9 @@ Each pass:
    - a merge completes the task in Asana, moves it to Done and removes its worktree;
      whatever that readies starts on the next pass. The task's run time — what its
      `start-task` runs spent working, revisions included, but never time spent waiting
-     on a reply or a review — goes in its `Actual` field, in hours, unless someone
-     already filled it in;
+     on a reply or a review — goes in its `Actual` field, in hours, and the tokens its
+     agent calls used (input, output and cache, all told) in its `Tokens` field —
+     either left alone when someone already filled it in;
    - a conflict with the base parks the task: it is posted once to the PR and the task,
      and nothing more happens to it until a PR comment says `please resolve` (checked
      every minute). That goes

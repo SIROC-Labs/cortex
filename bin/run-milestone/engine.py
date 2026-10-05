@@ -1074,21 +1074,33 @@ class Engine(object):
 
     def record_actual(self, gid):
         """Put the task's run time — what its start-task runs spent working, not
-        waiting — in its Actual field, unless someone already filled it in."""
+        waiting — in its Actual field, and the tokens its agent calls used in its
+        Tokens field; either is left alone when someone already filled it in."""
         key = self.key_of(gid)
         worked = (self.start_state(gid).read(st.TIMING_FILE) or {}).get("worked_seconds")
+        usage = self.start_state(gid).read(st.USAGE_FILE)
         hours = actual_hours(worked)
+        tokens = sum(int((usage or {}).get(k) or 0) for k in st.USAGE_KEYS) or None
         if hours is None:
             log("%s: no run time recorded — Actual left alone" % key)
+        if tokens is None:
+            log("%s: no token usage recorded — Tokens left alone" % key)
+        if hours is None and tokens is None:
             return
         _, task = self.asana(["task", "get", gid], check=False)
-        if has_value(((task or {}).get("fields") or {}).get("Actual")):
-            log("%s: Actual already set (%s) — left alone" % (key, task["fields"]["Actual"]))
-            return
-        code, _ = self.asana(["task", "set-field", gid, "Actual", str(hours)], check=False)
-        log("%s: Actual → %.2fh" % (key, hours) if code == 0
-            else "%s: could not set Actual" % key)
-        self.record(gid)["actual_hours"] = hours
+        fields = (task or {}).get("fields") or {}
+        for name, value, shown in (("Actual", hours, "%.2fh" % (hours or 0)),
+                                   ("Tokens", tokens, "%d" % (tokens or 0))):
+            if value is None:
+                continue
+            if has_value(fields.get(name)):
+                log("%s: %s already set (%s) — left alone" % (key, name, fields[name]))
+                continue
+            code, _ = self.asana(["task", "set-field", gid, name, str(value)], check=False)
+            log("%s: %s → %s" % (key, name, shown) if code == 0
+                else "%s: could not set %s" % (key, name))
+        if hours is not None:
+            self.record(gid)["actual_hours"] = hours
 
     def stop_finished_elsewhere(self):
         """A task completed or canceled in Asana by hand is left alone from here."""
