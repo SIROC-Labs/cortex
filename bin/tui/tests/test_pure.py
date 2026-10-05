@@ -640,6 +640,11 @@ class TestRowStatus(unittest.TestCase):
                                   self.at(18, 9), {"reason": "You've hit your session limit", "until": until})
         self.assertEqual(status, "paused — You've hit your session limit · resumes by itself at 21:11")
 
+    def test_a_running_row_shows_the_tokens_so_far(self):
+        status = tui.row_activity({"phase": "running"}, [], None, ["10:01:00  QA"], self.at(10, 2),
+                                  usage={"input": 0, "output": 400, "cache_read": 12000, "cache_write": 0})
+        self.assertEqual(status, "running — QA · 1m · 12.4k tokens so far")
+
     def test_rows_use_it_and_an_open_pr_says_what_it_waits_for(self):
         control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
         data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},

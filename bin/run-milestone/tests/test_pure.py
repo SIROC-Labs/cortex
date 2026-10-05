@@ -311,6 +311,14 @@ class TestActualTime(unittest.TestCase):
         self.assertEqual(describe("1", g, {"1": {"phase": "merged", "actual_hours": 3.25}}, ME),
                          "merged — 03:15 of run time")
 
+    def test_merged_shows_tokens_too(self):
+        g = {"1": t("a", completed=True)}
+        rec = {"phase": "merged", "actual_hours": 0.5,
+               "usage": {"input": 1000, "output": 200000, "cache_read": 1000000, "cache_write": 39000,
+                         "cost_usd": 3.4}}
+        self.assertEqual(describe("1", g, {"1": rec}, ME),
+                         "merged — 00:30 of run time · 1.24M tokens · ≈$3.40")
+
     def test_hhmm(self):
         from engine import hhmm
         self.assertEqual(hhmm(0.46), "00:28")

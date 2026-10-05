@@ -106,6 +106,9 @@ The status next to a task says what is happening to that task now, not just its 
 - for a running task, its current step from its log, what it is waiting on and for how
   long — *running — Implementing · agent at work · 12m*, *running — QA · make verify · 3m*;
 - for an open PR, what it waits for — *PR open — waiting for review; m merges*;
+- tokens: a running task shows what it has used so far, a merged one its total and run
+  time — *merged — 00:28 of run time · 1.24M tokens · ≈$3.40* (cost at API list price,
+  so on a subscription it is what the same work would cost on the API);
 - and when it waits on you, what that asks of you (below).
 
 ## Waiting on you

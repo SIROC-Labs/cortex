@@ -45,6 +45,7 @@ from agent import (  # noqa: E402
     DEFAULT_BACKEND, AgentRequest, available_backends, backend_names,
     extract_last_json_block, get_backend, tools_for,
 )
+from agent.base import USAGE_KEYS, usage_summary  # noqa: E402,F401
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASANA = os.path.join(HERE, "asana.py")
@@ -105,6 +106,9 @@ TIMING_FILE = "timing.json"
 
 # Seconds this process has spent waiting on a reply, so far.
 WAITED = [0.0]
+
+# What every agent call for the task has used, summed across all its runs.
+USAGE_FILE = "usage.json"
 
 
 # --- output -----------------------------------------------------------------
@@ -1118,6 +1122,7 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
                  % (len(result.denied_tools),
                     ", ".join(sorted(set(result.denied_tools)))))
         info("%s: %s" % (label, result.summary()))
+        record_usage(state, label, result.usage)
         if not result.ok:
             if first_resume and hop == 1:
                 warn("%s: could not resume the earlier session (%s) — starting a "
@@ -1826,6 +1831,28 @@ PHASE_HANDLERS = {
     "ship": phase_ship,
     "revise": phase_revise,
 }
+
+
+def add_usage(total, usage, label):
+    """A task's usage total with one more call in it. Pure."""
+    total = dict(total or {})
+    for key in USAGE_KEYS:
+        total[key] = int(total.get(key) or 0) + int(usage.get(key) or 0)
+    total["cost_usd"] = round(float(total.get("cost_usd") or 0) + float(usage.get("cost_usd") or 0), 6)
+    total["calls"] = int(total.get("calls") or 0) + 1
+    by = dict(total.get("by_call") or {})
+    kind = "qa-repair" if label.startswith("qa-repair") else label
+    by[kind] = int(by.get(kind) or 0) + sum(int(usage.get(k) or 0) for k in USAGE_KEYS)
+    total["by_call"] = by
+    return total
+
+
+def record_usage(state, label, usage):
+    """Add a call's tokens to the task's total as soon as the call is back, so
+    a run stopped part-way still counts what it used."""
+    if state is None or not usage:
+        return
+    state.write(USAGE_FILE, add_usage(state.read(USAGE_FILE), usage, label))
 
 
 def task_state(args):

@@ -329,7 +329,10 @@ def describe(gid, tasks, records, me_gid):
     task = tasks[gid]
     if phase == "merged":
         hours = record.get("actual_hours")
-        return "merged — %s of run time" % hhmm(hours) if hours is not None else "merged"
+        text = "merged — %s of run time" % hhmm(hours) if hours is not None else "merged"
+        if record.get("usage"):
+            text += " · %s" % st.usage_summary(record["usage"])
+        return text
     if task.get("completed"):
         return "completed"
     if phase == "running":
@@ -1035,9 +1038,14 @@ class Engine(object):
         if code != 0:
             log("%s: could not move to Done" % key)
         hours = self.record(gid).get("actual_hours")
+        usage = self.start_state(gid).read(st.USAGE_FILE)
+        if usage:
+            self.record(gid)["usage"] = usage
         self.note(gid, "Merged — finishing up", [
             "Asana: completed%s" % ("" if code else ", moved to Done"),
             "Actual: %.2fh of run time" % hours if hours is not None else "Actual: left alone",
+            "tokens: %s over %d agent call(s)" % (st.usage_summary(usage), usage.get("calls", 0))
+            if usage else "tokens: none reported",
             "worktree: being removed"])
         worktree = (self.start_state(gid).read("context.json") or {}).get("git", {}).get("worktree")
         if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:

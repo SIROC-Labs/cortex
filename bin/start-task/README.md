@@ -250,7 +250,9 @@ appearing to have honoured it.
 | `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
 State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
-`result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `timing.json`
+`result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `usage.json` (the tokens every agent call for the task has gone through — input,
+output, cache read and write — and their cost at API list price, added as each call
+comes back), `timing.json`
 (the seconds every run of the task has spent working — each run adds its own, a
 stopped one included; time waiting on a reply, and time the machine spends asleep, are
 not counted), `attachments/`, `run.json` (the live run's

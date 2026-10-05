@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import time
 
-from .base import AgentBackend, AgentResult, extract_last_json_block
+from .base import AgentBackend, AgentResult, extract_last_json_block, usage_from
 
 TOOL_MAP = {
     "read_file": "Read",
@@ -91,6 +91,7 @@ def parse_envelope(raw):
         # The handle `--resume` takes. Present on a finished run too, which is
         # what makes a follow-up call possible at all.
         "resume_token": envelope.get("session_id"),
+        "usage": usage_from(envelope.get("usage"), envelope.get("total_cost_usd")),
     }
     if envelope.get("is_error") and stop_reason != "max_turns":
         telemetry["ok"] = False

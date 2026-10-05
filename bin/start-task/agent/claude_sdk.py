@@ -11,7 +11,7 @@ import asyncio
 import shlex
 import time
 
-from .base import AgentBackend, AgentResult, extract_last_json_block
+from .base import AgentBackend, AgentResult, extract_last_json_block, usage_from
 
 # Neutral tool name -> Claude Code tool name. Names the SDK has no equivalent for
 # are reported as unsupported rather than silently dropped.
@@ -133,6 +133,8 @@ class ClaudeSDKBackend(AgentBackend):
 
                 # The handle a later call resumes from, when there is one.
                 result.resume_token = getattr(message, "session_id", None)
+                result.usage = usage_from(getattr(message, "usage", None),
+                                          getattr(message, "total_cost_usd", None))
 
                 reason = message.terminal_reason
                 if reason == "max_turns" or message.subtype == "error_max_turns":

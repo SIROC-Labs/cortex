@@ -64,6 +64,9 @@ class AgentResult:
     duration_s: Optional[float] = None
     # Fields of the request this backend could not honour.
     unsupported: List[str] = field(default_factory=list)
+    # Tokens and cost the provider reported for the call, as {input, output,
+    # cache_read, cache_write, cost_usd}; None when it reports none.
+    usage: Optional[Dict[str, Any]] = None
     # Tools the provider's harness refused mid-run. In an unattended run these
     # separate "did the work" from "quietly did less"; a backend that cannot
     # report them leaves the list empty, which is not proof none occurred.
@@ -79,6 +82,8 @@ class AgentResult:
             bits.append("%d turn%s" % (self.turns, "" if self.turns == 1 else "s"))
         if self.duration_s is not None:
             bits.append("%.1fs" % self.duration_s)
+        if self.usage:
+            bits.append(usage_summary(self.usage))
         return " · ".join(bits)
 
 
@@ -105,6 +110,41 @@ class AgentBackend(ABC):
 
 
 # --- shared helpers ---------------------------------------------------------
+
+USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
+
+
+def usage_from(tokens, cost=None):
+    """The neutral usage record from a provider's token counts (the Anthropic
+    names: input_tokens, output_tokens, cache_read_input_tokens,
+    cache_creation_input_tokens). None when there is nothing in it."""
+    if not isinstance(tokens, dict):
+        return None
+    names = {"input": "input_tokens", "output": "output_tokens",
+             "cache_read": "cache_read_input_tokens", "cache_write": "cache_creation_input_tokens"}
+    out = {k: int(tokens.get(v) or 0) for k, v in names.items()}
+    if cost is not None:
+        out["cost_usd"] = float(cost)
+    return out if any(out.values()) else None
+
+
+def tokens_text(n):
+    """A token count the way a person reads it: 940, 12.4k, 1.24M."""
+    if n < 1000:
+        return "%d" % n
+    if n < 1000000:
+        return "%.1fk" % (n / 1000.0)
+    return "%.2fM" % (n / 1000000.0)
+
+
+def usage_summary(usage):
+    """One phrase for a usage record: all the tokens a call or a task went
+    through, and what they would cost at list price."""
+    total = sum(int(usage.get(k) or 0) for k in USAGE_KEYS)
+    text = "%s tokens" % tokens_text(total)
+    if usage.get("cost_usd"):
+        text += " · ≈$%.2f" % usage["cost_usd"]
+    return text
 #
 # Result parsing is identical whatever produced the text, so it lives here rather
 # than being re-implemented per backend.

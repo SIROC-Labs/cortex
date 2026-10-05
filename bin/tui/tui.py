@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 import daemon as dm  # noqa: E402
 from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
 from engine import ASANA, Stop, describe, task_url  # noqa: E402
+from start_task import usage_summary  # noqa: E402
 from daemon import st  # noqa: E402
 
 TABS = ("Runs", "Boards", "Setup", "Daemons")
@@ -167,7 +168,7 @@ PENDING_SAYS = {
 }
 
 
-def row_activity(record, pending, busy, log_lines, now, paused=None):
+def row_activity(record, pending, busy, log_lines, now, paused=None, usage=None):
     """What is happening to one task right now, in a few words, or None to fall
     back on its phase: a command of yours the daemon has not acted on yet, then
     something the daemon is in the middle of for it, then a run sitting out a
@@ -186,8 +187,9 @@ def row_activity(record, pending, busy, log_lines, now, paused=None):
         if step:
             name, detail, seconds = step
             what = "revising" if record["phase"] == "revising" else "running"
-            return "%s — %s%s%s" % (what, name, " · %s" % detail if detail else "",
-                                    " · %s" % _ago(seconds) if seconds is not None else "")
+            return "%s — %s%s%s%s" % (what, name, " · %s" % detail if detail else "",
+                                      " · %s" % _ago(seconds) if seconds is not None else "",
+                                      " · %s so far" % usage_summary(usage) if usage else "")
     return None
 
 
@@ -756,9 +758,11 @@ class App(object):
             lines = _tail(record["log"], 400) if record.get("phase") in ("running", "revising") \
                 and record.get("log") else None
             key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key")
-            paused = st.State(self.main_root, key).read("paused.json") if key and lines else None
+            task_state = st.State(self.main_root, key) if key and lines else None
+            paused = task_state.read("paused.json") if task_state else None
+            usage = task_state.read(st.USAGE_FILE) if task_state else None
             doing = row_activity(record, pending, busy.get(gid) if self.alive else None,
-                                 lines, time.time(), paused)
+                                 lines, time.time(), paused, usage)
             if doing:
                 out[gid] = doing
         return out

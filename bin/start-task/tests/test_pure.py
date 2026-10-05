@@ -941,6 +941,47 @@ class TestBaseRef(unittest.TestCase):
         self.assertEqual(git("branch", "--show-current", cwd=wt), "T-1/task")
 
 
+class TestTokenUsage(unittest.TestCase):
+    ENVELOPE = {"subtype": "success", "result": "ok", "total_cost_usd": 0.0816502,
+                "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10811,
+                          "cache_creation_input_tokens": 19861}}
+
+    def test_the_envelope_reports_tokens_and_cost(self):
+        from agent.claude_cli import parse_envelope
+        _, t = parse_envelope(json.dumps(self.ENVELOPE))
+        self.assertEqual(t["usage"], {"input": 2, "output": 4, "cache_read": 10811,
+                                      "cache_write": 19861, "cost_usd": 0.0816502})
+
+    def test_no_usage_is_none_not_zero(self):
+        from agent.claude_cli import parse_envelope
+        _, t = parse_envelope(json.dumps({"subtype": "success", "result": "ok"}))
+        self.assertIsNone(t["usage"])
+
+    def test_readable_totals(self):
+        from agent.base import tokens_text, usage_summary
+        self.assertEqual([tokens_text(n) for n in (940, 12400, 1240000)], ["940", "12.4k", "1.24M"])
+        self.assertEqual(usage_summary({"input": 2, "output": 4, "cache_read": 10811,
+                                        "cache_write": 19861, "cost_usd": 0.0816502}),
+                         "30.7k tokens · ≈$0.08")
+
+    def test_calls_add_up_across_runs_and_by_kind(self):
+        call = {"input": 10, "output": 5, "cache_read": 100, "cache_write": 0, "cost_usd": 0.5}
+        total = start_task.add_usage(None, call, "implement")
+        total = start_task.add_usage(total, call, "qa-repair-1")
+        total = start_task.add_usage(total, call, "qa-repair-2")
+        self.assertEqual((total["output"], total["calls"], total["cost_usd"]), (15, 3, 1.5))
+        self.assertEqual(total["by_call"], {"implement": 115, "qa-repair": 230})
+
+    def test_each_call_is_recorded_as_it_comes_back(self):
+        from agent import AgentResult
+        usage = {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "cost_usd": 0.01}
+        failures = TestAgentFailures("run")
+        failures.addCleanup = self.addCleanup
+        out, _, state = TestAgentFailures.run_call(failures, [AgentResult(ok=True, text="done", usage=usage)])
+        self.assertEqual(state.read("usage.json")["calls"], 1)
+        self.assertEqual(state.read("usage.json")["cache_write"], 4)
+
+
 class TestAgentFailures(unittest.TestCase):
     """An agent failure has to say what actually happened — and a usage limit is
     not a failure of the task at all."""
