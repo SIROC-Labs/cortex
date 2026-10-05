@@ -972,14 +972,37 @@ class TestTokenUsage(unittest.TestCase):
         self.assertEqual((total["output"], total["calls"], total["cost_usd"]), (15, 3, 1.5))
         self.assertEqual(total["by_call"], {"implement": 115, "qa-repair": 230})
 
+    def test_each_call_is_kept_on_its_own_with_its_model_and_time(self):
+        call = {"input": 10, "output": 5, "cache_read": 100, "cache_write": 2, "cost_usd": 0.5}
+        total = start_task.add_usage(None, call, "qa-repair-2", "claude-sonnet-5-5", "2026-10-05T09:00:00Z")
+        self.assertEqual(total["calls_log"], [{
+            "input": 10, "output": 5, "cache_read": 100, "cache_write": 2, "at": "2026-10-05T09:00:00Z",
+            "kind": "qa-repair", "label": "qa-repair-2", "model": "claude-sonnet-5-5", "cost_usd": 0.5}])
+
+    def test_the_csv_has_a_row_per_call_and_reads_back(self):
+        import csv
+        import io
+        calls = [{"input": 10, "output": 5, "cache_read": 100, "cache_write": 2, "at": "T1",
+                  "kind": "implement", "label": "implement", "model": "claude-opus-5", "cost_usd": 0.5},
+                 {"input": 1, "output": 1, "cache_read": 0, "cache_write": 0, "at": "T2",
+                  "kind": "revise", "label": "revise", "model": "claude-sonnet-5-5", "cost_usd": 0.01}]
+        rows = list(csv.DictReader(io.StringIO(start_task.usage_csv("HCI-8", "123", calls))))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["total_tokens"], "117")
+        self.assertEqual((rows[1]["model"], rows[1]["kind"], rows[1]["cost_usd"]),
+                         ("claude-sonnet-5-5", "revise", "0.010000"))
+        self.assertEqual(list(rows[0]), list(start_task.USAGE_CSV_COLUMNS))
+
     def test_each_call_is_recorded_as_it_comes_back(self):
         from agent import AgentResult
         usage = {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "cost_usd": 0.01}
         failures = TestAgentFailures("run")
         failures.addCleanup = self.addCleanup
-        out, _, state = TestAgentFailures.run_call(failures, [AgentResult(ok=True, text="done", usage=usage)])
+        out, _, state = TestAgentFailures.run_call(failures, [AgentResult(ok=True, text="done", usage=usage,
+                                                                          model="claude-sonnet-5-5")])
         self.assertEqual(state.read("usage.json")["calls"], 1)
         self.assertEqual(state.read("usage.json")["cache_write"], 4)
+        self.assertEqual(state.read("usage.json")["calls_log"][0]["model"], "claude-sonnet-5-5")
 
 
 class TestAgentFailures(unittest.TestCase):

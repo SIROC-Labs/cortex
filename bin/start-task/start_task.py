@@ -28,7 +28,9 @@
 
 import argparse
 import contextlib
+import csv
 import datetime
+import io
 import fcntl
 import json
 import os
@@ -1122,7 +1124,7 @@ def call_agent(prompt, cwd, args, label, autonomy=None, state=None, ref=None,
                  % (len(result.denied_tools),
                     ", ".join(sorted(set(result.denied_tools)))))
         info("%s: %s" % (label, result.summary()))
-        record_usage(state, label, result.usage)
+        record_usage(state, label, result)
         if not result.ok:
             if first_resume and hop == 1:
                 warn("%s: could not resume the earlier session (%s) — starting a "
@@ -1833,9 +1835,15 @@ PHASE_HANDLERS = {
 }
 
 
-def add_usage(total, usage, label):
-    """A task's usage total with one more call in it. Pure."""
+def add_usage(total, usage, label, model=None, at=None):
+    """A task's usage total with one more call in it, and that call on its own
+    in `calls_log` — when, what for, which model, every count — for analysis
+    later. Pure."""
     total = dict(total or {})
+    total["calls_log"] = list(total.get("calls_log") or []) + [dict(
+        {k: int(usage.get(k) or 0) for k in USAGE_KEYS},
+        at=at, kind="qa-repair" if label.startswith("qa-repair") else label, label=label,
+        model=model, cost_usd=float(usage.get("cost_usd") or 0))]
     for key in USAGE_KEYS:
         total[key] = int(total.get(key) or 0) + int(usage.get(key) or 0)
     total["cost_usd"] = round(float(total.get("cost_usd") or 0) + float(usage.get("cost_usd") or 0), 6)
@@ -1847,12 +1855,33 @@ def add_usage(total, usage, label):
     return total
 
 
-def record_usage(state, label, usage):
+def record_usage(state, label, result):
     """Add a call's tokens to the task's total as soon as the call is back, so
     a run stopped part-way still counts what it used."""
-    if state is None or not usage:
+    if state is None or not result.usage:
         return
-    state.write(USAGE_FILE, add_usage(state.read(USAGE_FILE), usage, label))
+    at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state.write(USAGE_FILE, add_usage(state.read(USAGE_FILE), result.usage, label,
+                                      result.model, at))
+
+
+USAGE_CSV_COLUMNS = ("task", "gid", "at", "kind", "label", "model", "input_tokens",
+                     "output_tokens", "cache_read_tokens", "cache_write_tokens",
+                     "total_tokens", "cost_usd")
+
+
+def usage_csv(task, gid, calls):
+    """A task's agent calls as CSV, one row each — the form a spreadsheet, or a
+    tool gathering every task's attachment, reads without help. Pure."""
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(USAGE_CSV_COLUMNS)
+    for call in calls or []:
+        counts = [int(call.get(k) or 0) for k in USAGE_KEYS]
+        writer.writerow([task, gid, call.get("at") or "", call.get("kind") or "",
+                         call.get("label") or "", call.get("model") or ""] + counts
+                        + [sum(counts), "%.6f" % float(call.get("cost_usd") or 0)])
+    return out.getvalue()
 
 
 def task_state(args):

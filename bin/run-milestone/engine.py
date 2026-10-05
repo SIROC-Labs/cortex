@@ -1039,12 +1039,15 @@ class Engine(object):
             log("%s: could not move to Done" % key)
         hours = self.record(gid).get("actual_hours")
         usage = self.start_state(gid).read(st.USAGE_FILE)
+        attached = self.attach_usage(gid, usage)
         if usage:
-            self.record(gid)["usage"] = usage
+            self.record(gid)["usage"] = {k: v for k, v in usage.items() if k != "calls_log"}
         self.note(gid, "Merged — finishing up", [
             "Asana: completed%s" % ("" if code else ", moved to Done"),
             "Actual: %.2fh of run time" % hours if hours is not None else "Actual: left alone",
-            "tokens: %s over %d agent call(s)" % (st.usage_summary(usage), usage.get("calls", 0))
+            "tokens: %s over %d agent call(s)%s" % (
+                st.usage_summary(usage), usage.get("calls", 0),
+                ", each one in the attached %s" % attached if attached else "")
             if usage else "tokens: none reported",
             "worktree: being removed"])
         worktree = (self.start_state(gid).read("context.json") or {}).get("git", {}).get("worktree")
@@ -1060,6 +1063,25 @@ class Engine(object):
         self.set_phase(gid, "merged")
         self.busy.pop("loop", None)
         self.refresh_due = 0
+
+    def attach_usage(self, gid, usage):
+        """Attach the task's agent calls to it in Asana as a CSV, one row a call.
+        Returns the file's name, or None when there was nothing to attach or the
+        upload failed."""
+        calls = (usage or {}).get("calls_log")
+        if not calls:
+            return None
+        key = self.key_of(gid)
+        name = "token-usage-%s.csv" % key
+        state = self.start_state(gid)
+        state.ensure()
+        path = state.write_text(name, st.usage_csv(key, gid, calls))
+        code, _ = self.asana(["task", "attach", gid, path], check=False)
+        if code != 0:
+            log("%s: could not attach %s (kept at %s)" % (key, name, path))
+            return None
+        log("%s: attached %s (%d call(s))" % (key, name, len(calls)))
+        return name
 
     def remove_worktree(self, key, worktree, gid=None):
         name = "worktree-%s" % key
