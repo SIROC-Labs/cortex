@@ -504,33 +504,77 @@ for _n in range(1, len(TABS) + 1):
     NAV[str(_n)] = NAV["alt-%d" % _n] = "tab"
 MOVES = ("down", "up", "pgdn", "pgup", "halfdown", "halfup", "home", "end")
 
+# The help page: sections of (keys, what they do). Kept short — one key or key
+# group a line — so it reads as a table.
 HELP = [
-    "move        ↑ ↓   j k   ^N ^P",
-    "page        PgDn PgUp   ^F ^B      half page   ^D ^U",
-    "top / end   Home End   g G",
-    "in          ⏎   →   l           (open a board, a run's log, pick a sprint)",
-    "out         ←   h   esc   ⌫      (clear the filter, then leave the board)",
-    "tabs        1-4 (or alt-1..4)   tab / shift-tab to cycle — the current tab's",
-    "            number again takes it back to its top",
-    "filter      /   then type; ⏎ keeps it, esc clears it",
-    "commands    :   the command palette — the commands with no key in the line below",
-    "            (changing a PR's base branch, the daemon from any tab…)",
-    "typing      ^A ^E start/end · ^B ^F ←→ a character · alt-B alt-F a word ·",
-    "            ^K ^U delete to end/start · ^W the word before · ^D delete forward",
-    "",
-    "Runs        m merge: get it onto main — conflicts resolved, failing checks fixed,",
-    "            then merged; m again calls it off · on a blocked merge, m tries again",
-    "            ⏎ on a ⚑ task reads what it is waiting on · a answer it in one line ·",
-    "            A answer in $EDITOR · on a parked conflict, a asks for a resolve",
-    "            x stop and unqueue · r retry · o open the PR or task",
-    "Boards      space queue or unqueue a task; on a section, queue all of it · R reload",
-    "Setup       ⏎ on Sprint picks the sprint board · on Target branch picks the branch",
-    "            new runs PR into — + New branch… (or n) creates one on origin ·",
-    "            on Merging cycles: unless the default branch / always / only when asked",
-    "Daemons     s start this repo's daemon · x stop one · d clear a crashed one",
-    "",
-    "q quits the UI; the daemon keeps working.                      any key closes this",
+    ("Moving around", [
+        ("↑ ↓   j k   ^N ^P", "move"),
+        ("PgDn PgUp   ^F ^B", "a page"),
+        ("^D ^U", "half a page"),
+        ("Home End   g G", "top / end"),
+        ("⏎   →   l", "in: open a board, a task's question or log, a setting"),
+        ("←   h   esc   ⌫", "out: clear the filter first, then leave the board"),
+        ("1–4   alt-1–4", "go to a tab; its number again takes it back to its top"),
+        ("tab   shift-tab", "cycle the tabs"),
+        ("/", "filter the list (⏎ keeps it, esc clears it)"),
+        (":", "commands that have no key of their own"),
+        ("?", "this page"),
+        ("q", "quit — the daemon keeps working"),
+    ]),
+    ("Runs", [
+        ("⏎", "on a ⚑ task, read what it is waiting on; otherwise its log"),
+        ("a", "answer a ⚑ task in one line"),
+        ("A", "answer it in $EDITOR"),
+        ("m", "merge: conflicts resolved and failing checks fixed on the way · "
+              "m again calls it off · on a blocked merge, tries again"),
+        ("x", "stop and unqueue · on a finished task, just remove it from the list"),
+        ("r", "retry a failed or stopped task"),
+        ("o", "open its PR (or the task)"),
+    ]),
+    ("Boards", [
+        ("space", "queue or unqueue a task · on a section, queue all of it"),
+        ("R", "reload from Asana"),
+    ]),
+    ("Setup", [
+        ("⏎", "pick the sprint or the target branch · cycle Merging"),
+        ("n", "new target branch (in the branch list), created on origin"),
+    ]),
+    ("Daemons", [
+        ("s", "start this repo's daemon"),
+        ("x", "stop one, with its runs"),
+        ("d", "clear a crashed one's entry"),
+    ]),
+    ("Typing — filter, answers, branch names, commands", [
+        ("^A ^E", "start / end of the line"),
+        ("^B ^F   ← →", "back / forward a character"),
+        ("alt-B alt-F", "back / forward a word"),
+        ("^K ^U", "delete to the end / to the start"),
+        ("^W", "delete the word before"),
+        ("^D   ⌫", "delete forward / back"),
+    ]),
 ]
+HELP_KEYS_WIDTH = 20
+
+
+def help_lines(width, tab):
+    """The help page as [(keys, text, style)]: moving around, the tab you are on,
+    the other tabs, typing. Long descriptions wrap under themselves."""
+    sections = dict(HELP)
+    order = ["Moving around", tab] + [n for n, _ in HELP if n not in ("Moving around", tab)]
+    room = max(20, width - HELP_KEYS_WIDTH - 6)
+    out = []
+    for name in order:
+        if name not in sections:
+            continue
+        if out:
+            out.append(("", "", "normal"))
+        out.append(("", name + ("   · this tab" if name == tab else ""), "bold"))
+        for keys, text in sections[name]:
+            pieces = textwrap.wrap(text, room) or [""]
+            out.append((keys, pieces[0], "normal"))
+            out += [("", piece, "normal") for piece in pieces[1:]]
+    return out
+
 
 
 class LineEdit(object):
@@ -673,6 +717,7 @@ class App(object):
         self.log_path = None
         self.log_scroll = 0
         self.help = False
+        self.help_scroll = 0
         self.page = 10
         self.question = None
         self.compose = None
@@ -1249,7 +1294,14 @@ class App(object):
                 self.snapshot()
             return True
         if self.help:
-            self.help = False
+            action = NAV.get(key)
+            if action in MOVES:
+                step = {"down": 1, "up": -1, "pgdn": self.page, "pgup": -self.page,
+                        "halfdown": self.page // 2, "halfup": -(self.page // 2),
+                        "home": -10 ** 6, "end": 10 ** 6}[action]
+                self.help_scroll = max(0, self.help_scroll + step)
+            else:
+                self.help = False
             return True
         if self.palette is not None:
             self.palette_key(key)
@@ -1314,6 +1366,7 @@ class App(object):
             return False
         if key == "?":
             self.help = True
+            self.help_scroll = 0
         elif key == ":":
             self.palette = {"query": "", "cursor": 0, "line": LineEdit(),
                             "commands": self.palette_commands(self.selected(rows))}
@@ -1340,6 +1393,8 @@ class App(object):
         name = TABS[self.tab]
         if self.palette is not None:
             return "type to narrow · ↑↓ choose · ⏎ run · esc close"
+        if self.help:
+            return "↑↓ ^F ^B scroll · any other key closes"
         if self.log_path:
             return "↑↓ ^F ^B scroll · g/G top/end · ←/esc/q back"
         if self.typing:
@@ -1390,8 +1445,16 @@ class App(object):
         rows_now = self.view() if TABS[self.tab] == "Runs" else []
         asked = next((r for r in rows_now if r["id"] == self.question and r.get("wait")), None)
         if self.help:
-            for i, line in enumerate(HELP[:h - 4]):
-                put(3 + i, line)
+            lines = help_lines(w, TABS[self.tab])
+            body = max(1, h - 5)
+            self.help_scroll = min(self.help_scroll, max(0, len(lines) - body))
+            for i, (keys, text, style) in enumerate(lines[self.help_scroll:self.help_scroll + body]):
+                y = 3 + i
+                if style == "bold":
+                    _put_at(scr, y, 2, text, w, styles["bold"])
+                    continue
+                _put_at(scr, y, 4, keys, w, styles["ok"])
+                _put_at(scr, y, 4 + HELP_KEYS_WIDTH, text, w, styles["normal"])
         elif asked and not self.log_path:
             wait = asked["wait"]
             put(2, "Runs › %s %s — waiting on you" % (asked["cols"][0], asked["cols"][1]), "dim")

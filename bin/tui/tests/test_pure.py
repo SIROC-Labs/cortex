@@ -542,8 +542,10 @@ class TestAppKeys(unittest.TestCase):
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
         self.assertTrue(self.app.help)
-        self.press("j")
-        self.assertFalse(self.app.help)
+        self.press("j", "down", "ctrl-f")
+        self.assertTrue(self.app.help)          # the arrows scroll it
+        self.press("x")
+        self.assertFalse(self.app.help)         # anything else closes it
         self.assertFalse(self.app.key("q", []))
 
 
@@ -1068,6 +1070,21 @@ class TestLineEdit(unittest.TestCase):
         line.key("ctrl-a")
         self.assertTrue(line.show(5).startswith("▏"))
         self.assertLessEqual(len(tui.LineEdit("x" * 50).show(10)), 10)
+
+
+class TestHelpPage(unittest.TestCase):
+    def test_the_tab_you_are_on_comes_right_after_moving_around(self):
+        headings = [t for k, t, style in tui.help_lines(100, "Setup") if style == "bold"]
+        self.assertEqual(headings[:2], ["Moving around", "Setup   · this tab"])
+        self.assertTrue(headings[-1].startswith("Typing"))
+
+    def test_keys_and_text_are_separate_columns_and_long_text_wraps_under_itself(self):
+        lines = tui.help_lines(60, "Runs")
+        merge = [i for i, (k, t, s) in enumerate(lines) if k == "m"][0]
+        self.assertTrue(lines[merge][1].startswith("merge:"))
+        self.assertEqual(lines[merge + 1][0], "")          # the wrap has no key of its own
+        self.assertTrue(all(len(t) <= 60 - tui.HELP_KEYS_WIDTH - 6
+                            for _, t, style in lines if style != "bold"))
 
 
 class TestLogLine(unittest.TestCase):
