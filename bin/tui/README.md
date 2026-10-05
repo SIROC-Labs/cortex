@@ -139,13 +139,15 @@ then on the PR is driven until it lands, checked every 15 seconds:
 | ready to merge | merges, with a method the repo and its rules allow (squash first) |
 | conflicts with the base | revises: merges the base in and resolves them — never a rebase or force-push |
 | behind the base | updates the branch |
-| checks running | waits — every check, not only the ones the branch's rules require |
+| checks running, or required ones not started yet | waits — every check, not only the ones the branch's rules require |
+| holding it with no reason given (as right after a push) | waits up to 10 minutes before calling it blocked |
 | a check failed | revises to fix it, or re-runs it when it is plainly a flake |
 | a draft | marks it ready |
 
 Review comments that arrive after you press `m` are not acted on — you said go. When
 siblings are merged together, each one that lands may leave the next conflicting; that
-one resolves and goes on. It stops and waits on you (⚑, with the reason) after three
+one resolves and goes on. A block is looked at again every two minutes and clears by itself once GitHub will
+merge. It stops and waits on you (⚑, with the reason) after three
 rounds of conflicts or two failed fixes of a check, or when something other than a check
 blocks it (a required review, say); `m` tries again from wherever the PR stands. `m` on
 a merge in progress calls it off.

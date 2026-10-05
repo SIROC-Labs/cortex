@@ -435,7 +435,15 @@ class TestMergeStep(unittest.TestCase):
 
     def test_blocked_with_green_checks_needs_a_person(self):
         self.assertEqual(merge_step(self.view("BLOCKED", checks=[run_check("v")]), {})[0],
-                         "blocked")
+                         "held")
+
+    def test_a_required_check_that_has_not_reported_yet_is_waited_for(self):
+        just_pushed = self.view("BLOCKED", checks=[run_check("changes")])
+        action, why = merge_step(just_pushed, {}, required=["e2e", "verify"])
+        self.assertEqual(action, "wait")
+        self.assertEqual(why, "waiting for checks to start: e2e, verify")
+        all_in = self.view("CLEAN", checks=[run_check("e2e"), run_check("verify")])
+        self.assertEqual(merge_step(all_in, {}, required=["e2e", "verify"]), ("merge", None))
 
     def test_drafts_behind_and_unknown(self):
         self.assertEqual(merge_step(self.view("CLEAN", draft=True), {})[0], "ready")
@@ -446,6 +454,58 @@ class TestMergeStep(unittest.TestCase):
         text = render_ci_fix([("verify", "https://ci/verify")])
         self.assertIn("verify — https://ci/verify", text)
         self.assertIn("--log-failed", text)
+
+
+class TestMergeHolds(unittest.TestCase):
+    """GitHub holds a PR it was just pushed to before CI registers its checks,
+    and says nothing about why. That must be waited out, and a block must clear
+    by itself once GitHub will merge."""
+
+    def setUp(self):
+        import tempfile
+        import shutil
+        import engine
+        self.engine = engine
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        e = engine.Engine.__new__(engine.Engine)
+        e.dir, e.busy, e.children = root, {}, {}
+        e.data = {"tasks": {"1": {"key": "T-1"}}, "records": {}}
+        e.rules_cache = {"o/r@feature/x": {"method": "squash", "required": []}}
+        self.views, self.merged_calls = [], []
+        e.gh_json = lambda args: self.views.pop(0)
+        self.saved_run = engine.run
+        engine.run = lambda cmd, cwd=None: (self.merged_calls.append(cmd) or (0, "", ""))
+        self.addCleanup(setattr, engine, "run", self.saved_run)
+        e.repo = root
+        self.e = e
+        self.record = e.records.setdefault("1", {"phase": "pr_open", "pr_url": "u",
+                                                 "merge": {"attempts": {}, "blocked": None}})
+
+    def step(self, status, now):
+        self.views.append({"state": "OPEN", "mergeStateStatus": status, "mergeable": "MERGEABLE",
+                           "baseRefName": "feature/x", "statusCheckRollup": [run_check("e2e")]})
+        saved = self.engine.time.time
+        self.engine.time.time = lambda: now
+        try:
+            self.e.merge_step_once("1", "o", "r", self.record, self.record["merge"], "u")
+        finally:
+            self.engine.time.time = saved
+        return self.record["merge"]
+
+    def test_a_hold_is_waited_on_then_called_a_block_then_clears_by_itself(self):
+        merge = self.step("BLOCKED", 1000)
+        self.assertIsNone(merge["blocked"])
+        self.assertIn("holding it", merge["stage"])
+        merge = self.step("BLOCKED", 1000 + self.engine.HOLD_GRACE - 1)
+        self.assertIsNone(merge["blocked"])
+        merge = self.step("BLOCKED", 1000 + self.engine.HOLD_GRACE + 1)
+        self.assertIn("will not merge it yet", merge["blocked"])
+        self.assertEqual(self.record["next_poll"], 1000 + self.engine.HOLD_GRACE + 1
+                         + self.engine.BLOCKED_POLL)
+        merge = self.step("CLEAN", 2000)
+        self.assertIsNone(merge["blocked"])
+        self.assertTrue(any(cmd[:3] == ["gh", "pr", "merge"] for cmd in self.merged_calls))
 
 
 class TestMergeMethod(unittest.TestCase):

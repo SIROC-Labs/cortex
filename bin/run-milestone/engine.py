@@ -51,6 +51,11 @@ MERGE_POLL = 15
 # stops and says why. Conflicts recur as siblings land; a check that stays red
 # after two fixes needs a person.
 MERGE_LIMITS = {"resolve": 3, "ci": 2}
+# GitHub holds a PR it has just been pushed to before CI has even registered its
+# checks, without saying why. A hold is waited on this long before it counts as
+# a block; and a block is looked at again this often, so it clears by itself.
+HOLD_GRACE = 600
+BLOCKED_POLL = 120
 # When a shipped PR is merged without being asked: "branches" (when it targets
 # anything but the default branch — the recommended default), "always", or
 # "asked" (only when asked). Asking, per task, works in every mode.
@@ -210,12 +215,15 @@ def check_states(rollup):
     return sorted(set(pending)), sorted(set(failing))
 
 
-def merge_step(view, attempts, limits=None):
+def merge_step(view, attempts, limits=None, required=()):
     """The next thing to do for a PR that is to be merged: (action, detail).
 
     merge · ready (it is a draft) · update (behind its base) · resolve (conflicts)
-    · fix_ci (a check failed; detail is the failures) · wait (checks running, or
-    GitHub still working it out) · blocked (detail says why a person is needed).
+    · fix_ci (a check failed; detail is the failures) · wait (checks running or
+    not yet started, or GitHub still working it out) · held (GitHub will not merge
+    and gives no reason — usually checks about to start) · blocked (detail says
+    why a person is needed). `required` are the check names the base's rules
+    require; one that has not reported yet is waited for.
     """
     limits = limits or MERGE_LIMITS
     attempts = attempts or {}
@@ -239,10 +247,14 @@ def merge_step(view, attempts, limits=None):
             return "fix_ci", failing
         if pending:
             return "wait", "checks running: %s" % ", ".join(pending)
+        reported = {c.get("name") or c.get("context") for c in view.get("statusCheckRollup") or []}
+        missing = [name for name in required if name not in reported]
+        if missing:
+            return "wait", "waiting for checks to start: %s" % ", ".join(missing)
     if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
         return "merge", None
     if status == "BLOCKED":
-        return "blocked", "GitHub will not merge it yet (a review or a rule, not a check)"
+        return "held", "GitHub will not merge it yet (a review or a rule, not a check)"
     return "wait", "GitHub is still working out whether it can merge"
 
 
@@ -799,7 +811,7 @@ class Engine(object):
             self.set_phase(gid, "failed", reason="no PR URL recorded")
             return
         owner, name, number = parts
-        if record.get("merge") and not record["merge"].get("blocked"):
+        if record.get("merge"):
             self.drive_merge(gid, owner, name)
             return
         view = self.gh_json(["pr", "view", record["pr_url"], "--json",
@@ -925,9 +937,22 @@ class Engine(object):
         if view.get("state") == "CLOSED":
             self.set_phase(gid, "stopped", reason="PR closed without merging")
             return
-        action, detail = merge_step(view, merge["attempts"])
         base = view.get("baseRefName") or "main"
+        rules = self.branch_rules(owner, name, base)
+        action, detail = merge_step(view, merge["attempts"], required=rules["required"])
         key = self.key_of(gid)
+        if action == "held":
+            held_since = merge.setdefault("held_since", time.time())
+            if time.time() - held_since < HOLD_GRACE:
+                action, detail = "wait", "GitHub is holding it — usually checks about to start"
+            else:
+                action = "blocked"
+        else:
+            merge.pop("held_since", None)
+        if action != "blocked" and merge.get("blocked"):
+            log("%s: merge no longer blocked — carrying on" % key)
+            self.note(gid, "Merge no longer blocked — carrying on")
+            merge["blocked"] = None
         if action == "merge":
             method = self.merge_method_for(owner, name, base)
             if not method:
@@ -968,8 +993,10 @@ class Engine(object):
         elif action == "wait":
             self.stage(gid, merge, detail)
         else:
+            if merge.get("blocked") != detail:
+                log("%s: merge blocked — %s" % (key, detail))
             merge["blocked"] = detail
-            log("%s: merge blocked — %s" % (key, detail))
+            record["next_poll"] = time.time() + BLOCKED_POLL
 
     def pr_base(self, gid):
         """The branch a task's PR targets, as its run recorded it."""
@@ -992,8 +1019,10 @@ class Engine(object):
                 self.data["default_branch"] = ((view or {}).get("defaultBranchRef") or {}).get("name")
         return self.data.get("default_branch")
 
-    def merge_method_for(self, owner, name, base):
-        cache = self.data.setdefault("merge_methods", {})
+    def branch_rules(self, owner, name, base):
+        """What the base branch's rules say, asked of GitHub once per run: the
+        merge method to use and the checks it requires."""
+        cache = self.rules_cache = getattr(self, "rules_cache", {})
         slug = "%s/%s@%s" % (owner, name, base)
         if slug not in cache:
             repo = self.gh_json(["repo", "view", "%s/%s" % (owner, name), "--json",
@@ -1001,11 +1030,18 @@ class Engine(object):
             from urllib.parse import quote
             rules = self.gh_json(["api", "repos/%s/%s/rules/branches/%s"
                                   % (owner, name, quote(base, safe=""))])
-            methods = []
+            methods, required = [], []
             for rule in rules or []:
-                methods += ((rule.get("parameters") or {}).get("allowed_merge_methods") or [])
-            cache[slug] = merge_method(repo or {}, methods)
+                params = rule.get("parameters") or {}
+                methods += params.get("allowed_merge_methods") or []
+                required += [c.get("context") for c in params.get("required_status_checks") or []
+                             if c.get("context")]
+            cache[slug] = {"method": merge_method(repo or {}, methods),
+                           "required": sorted(set(required))}
         return cache[slug]
+
+    def merge_method_for(self, owner, name, base):
+        return self.branch_rules(owner, name, base)["method"]
 
     def feedback(self, owner, name, number, handled):
         base = "repos/%s/%s" % (owner, name)
