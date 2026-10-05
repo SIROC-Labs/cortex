@@ -383,6 +383,21 @@ class TestCheckStates(unittest.TestCase):
         self.assertEqual(pending, ["e2e"])
         self.assertEqual(failing, [("test", "https://ci/test")])
 
+    def test_a_cancelled_run_superseded_by_a_newer_one_does_not_count(self):
+        rollup = [dict(run_check("e2e", conclusion="CANCELLED"), startedAt="2026-10-05T17:49:53Z"),
+                  dict(run_check("e2e", conclusion="SUCCESS"), startedAt="2026-10-05T17:52:53Z")]
+        self.assertEqual(check_states(rollup), ([], []))
+        running = [rollup[0], dict(run_check("e2e", status="IN_PROGRESS", conclusion=None),
+                                   startedAt="2026-10-05T17:52:53Z")]
+        self.assertEqual(check_states(running), (["e2e"], []))
+
+    def test_a_newer_failure_still_counts_and_a_lone_cancel_is_not_green(self):
+        rollup = [dict(run_check("e2e", conclusion="SUCCESS"), startedAt="2026-10-05T17:00:00Z"),
+                  dict(run_check("e2e", conclusion="FAILURE"), startedAt="2026-10-05T18:00:00Z")]
+        self.assertEqual([n for n, _ in check_states(rollup)[1]], ["e2e"])
+        self.assertEqual([n for n, _ in check_states([run_check("e2e", conclusion="CANCELLED")])[1]],
+                         ["e2e"])
+
     def test_commit_statuses(self):
         pending, failing = check_states([
             {"__typename": "StatusContext", "context": "deploy", "state": "PENDING"},

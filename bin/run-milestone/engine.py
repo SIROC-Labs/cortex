@@ -195,11 +195,25 @@ def render_resolve(item):
             "keeping both sides' intent.\n\n### %s\n\n%s\n" % (item[1], item[2]))
 
 
+def latest_checks(rollup):
+    """Each check once: its latest run. A re-run CI lists a check once per run —
+    a cancelled run superseded by a newer one on the same commit is history,
+    not the check's state."""
+    latest = {}
+    for i, check in enumerate(rollup or []):
+        name = check.get("name") or check.get("context") or "?"
+        when = (check.get("startedAt") or check.get("createdAt") or "", i)
+        if name not in latest or when >= latest[name][0]:
+            latest[name] = (when, check)
+    return [check for _, check in latest.values()]
+
+
 def check_states(rollup):
     """(pending names, failing [(name, url)]) from a PR's statusCheckRollup, which
-    mixes check runs (status + conclusion) and commit statuses (state)."""
+    mixes check runs (status + conclusion) and commit statuses (state). Only each
+    check's latest run counts."""
     pending, failing = [], []
-    for check in rollup or []:
+    for check in latest_checks(rollup):
         name = check.get("name") or check.get("context") or "?"
         url = check.get("detailsUrl") or check.get("targetUrl")
         if check.get("__typename") == "StatusContext" or "state" in check and "status" not in check:
