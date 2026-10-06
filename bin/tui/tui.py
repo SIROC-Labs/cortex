@@ -93,7 +93,7 @@ def wait_summary(wait):
     if kind == "conflict":
         return "PR conflicts with its base — a to have it resolved, m to merge"
     if kind == "merge":
-        return wait["headline"] + " — m tries again"
+        return wait["headline"] + " — a to say what to do, m to just try again"
     questions = wait.get("questions") or []
     if questions:
         more = len(questions) - 1
@@ -215,8 +215,10 @@ def wait_lines(wait, width):
     if wait.get("kind") == "merge":
         para(wait.get("headline") or "", "bold")
         out.append(("", "normal"))
-        para("The merge stopped short of main. Fix what stands in the way on GitHub, "
-             "then press m to try again — it picks up from wherever the PR is.", "normal")
+        para("The merge stopped short. Press a (or A for $EDITOR) to tell the task's "
+             "agent what to do about it — or comment on the PR, which counts the same; "
+             "the merge then starts over. Or fix it yourself and press m to try again "
+             "from wherever the PR is.", "normal")
         return out
     for n, q in enumerate(wait.get("questions") or [], 1):
         para("%d. %s" % (n, q.get("q", "")), "bold")
@@ -1018,11 +1020,19 @@ class App(object):
             "" if self.control.get("sprint") else " — pick a sprint (Setup, tab 3) before they start"
         ) + started
 
+    def instruct(self, gid, text):
+        """Tell a task with a blocked merge what to do: the daemon hands it to the
+        task's agent, then the merge starts over."""
+        self.command("instruct", gid, text=text)
+        self.question = None
+
     def answer(self, gid, text):
         """Hand an answer to the task's waiting run. It goes in the run's state,
         which the run looks at every second, and onto the task in Asana as your
         comment, so the conversation stays where the question was asked."""
         wait = self.waits.get(gid) or {}
+        if wait.get("kind") == "merge":
+            return self.instruct(gid, text)
         if not wait.get("asked_at") or not wait.get("key"):
             self.message = "nothing is waiting on an answer there any more"
             return
@@ -1053,8 +1063,10 @@ class App(object):
         wait = (row or {}).get("wait")
         if not wait:
             self.message = "nothing is waiting on you there"
+        elif wait.get("kind") == "merge" and editor:
+            self.edit_request = row["id"]
         elif wait.get("kind") == "merge":
-            self.message = "fix what blocks it, then m tries the merge again"
+            self.compose = {"kind": "answer", "gid": row["id"], "text": "", "line": LineEdit()}
         elif wait.get("kind") == "conflict":
             if not row.get("pr_url"):
                 self.message = "no PR recorded for that task"

@@ -45,7 +45,7 @@ CODE_FILES = (
     os.path.join(os.path.dirname(HERE), "run-milestone", "engine.py"),
     os.path.join(os.path.dirname(HERE), "start-task", "start_task.py"),
 )
-COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget", "undo")
+COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget", "undo", "instruct")
 
 
 # --- pure helpers (unit-tested) ---------------------------------------------
@@ -73,6 +73,7 @@ def command_feedback(sent, applied, results, alive, now, busy=()):
                  "merge-cancel": "no longer merging %s" % sent["key"],
                  "retarget": "%s's PR is on its new base — merging follows its rules" % sent["key"],
                  "undo": "%s is undone — see its log for what was done" % sent["key"],
+                 "instruct": "%s is working on your instructions" % sent["key"],
                  "stop": "stopped %s" % sent["key"],
                  "retry": "%s will start again when it is ready" % sent["key"]}
                 .get(sent["op"], "done"), True)
@@ -352,6 +353,9 @@ class QueueRun(Engine):
                                 "note": "this daemon does not know %r" % command["op"]})
             elif command["op"] == "retarget":
                 done, why = self.retarget(gid, command.get("base"))
+                results.append({"id": command["id"], "ok": done, "note": why})
+            elif command["op"] == "instruct":
+                done, why = self.instruct(gid, command.get("text") or "")
                 results.append({"id": command["id"], "ok": done, "note": why})
             elif command["op"] == "undo":
                 done, why = self.undo(gid)

@@ -947,7 +947,19 @@ class TestAnswering(unittest.TestCase):
         dm.write_json(path, data)
         self.app.snapshot()
         self.assertEqual(self.app.waits["2"]["kind"], "merge")
-        self.assertIn("m tries again", wait_summary(self.app.waits["2"]))
+        self.assertIn("a to say what to do, m to just try again", wait_summary(self.app.waits["2"]))
+
+    def test_a_on_a_blocked_merge_sends_your_instructions(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"]["merge"] = {"blocked": "checks still failing after 2 fix(es): verify"}
+        dm.write_json(path, data)
+        self.app.snapshot()
+        self.select("2")
+        self.press("a", *"bump source-map-js with npm audit fix", "enter")
+        self.assertEqual(self.app.control["commands"][-1],
+                         {"id": 1, "op": "instruct", "gid": "2",
+                          "text": "bump source-map-js with npm audit fix"})
 
     def test_a_on_a_parked_conflict_asks_then_requests_a_resolve(self):
         asked = []

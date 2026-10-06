@@ -646,6 +646,48 @@ class TestUndo(unittest.TestCase):
         self.assertFalse(any("revert-T-9" in l for l in self.git("worktree", "list").splitlines()))
 
 
+class TestInstructions(unittest.TestCase):
+    """A blocked merge takes instructions — from the TUI, or a PR comment — and
+    starts over once the agent has acted on them."""
+
+    def setUp(self):
+        import engine
+        e = engine.Engine.__new__(engine.Engine)
+        e.data = {"tasks": {"9": {"key": "T-9"}}, "records": {}}
+        e.busy, e.children = {}, {}
+        self.revises = []
+        e.launch_revise = lambda gid, items, text, why, issues=(): self.revises.append(
+            (gid, [i[0] for i in items], text, why, list(issues)))
+        self.e = e
+        self.merge = {"attempts": {"ci": 2}, "blocked": "checks still failing after 2 fix(es): verify",
+                      "held_since": 5}
+        e.records["9"] = {"phase": "pr_open", "pr_url": "https://github.com/o/r/pull/9",
+                          "merge": self.merge}
+
+    def test_instructions_go_to_the_agent_with_the_block_and_the_merge_starts_over(self):
+        done, _ = self.e.instruct("9", "bump source-map-js with npm audit fix")
+        self.assertTrue(done)
+        gid, items, text, why, issues = self.revises[0]
+        self.assertIn("bump source-map-js", text)
+        self.assertIn("its merge was blocked: checks still failing", text)
+        self.assertEqual(why, "following your instructions, to merge")
+        self.assertEqual(issues[0], "you said: bump source-map-js with npm audit fix")
+        self.assertEqual((self.merge["attempts"], self.merge["blocked"]), ({}, None))
+        self.assertNotIn("held_since", self.merge)
+
+    def test_a_pr_comment_on_a_blocked_merge_counts_as_instructions(self):
+        self.e.feedback = lambda owner, name, number, handled: [
+            ("comment:5", "Comment by @justin", "run npm audit fix in apps/frontend")]
+        self.e.drive_merge("9", "o", "r")
+        gid, items, text, why, _ = self.revises[0]
+        self.assertEqual(items, ["comment:5"])
+        self.assertIn("run npm audit fix", text)
+
+    def test_no_open_pr_no_instructions(self):
+        self.e.records["9"]["phase"] = "merged"
+        self.assertEqual(self.e.instruct("9", "x"), (False, "it has no open PR to work on"))
+
+
 class TestMergeMethod(unittest.TestCase):
     def test_squash_first_within_what_the_rules_allow(self):
         everything = {"squashMergeAllowed": True, "mergeCommitAllowed": True,

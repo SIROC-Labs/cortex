@@ -164,7 +164,11 @@ then on the PR is driven until it lands, checked every 15 seconds:
 | a check failed | revises to fix it, or re-runs it when it is plainly a flake |
 | a draft | marks it ready |
 
-Review comments that arrive after you press `m` are not acted on — you said go. When
+Review comments that arrive after you press `m` are not acted on — you said go — until
+the merge is blocked: then `a` (or `A` for `$EDITOR`) on the task tells its agent what to
+do about it, and a comment on the PR counts the same. Your words go to the agent with the
+reason the merge was blocked; when it is done, the merge starts over with fresh
+attempts. When
 siblings are merged together, each one that lands may leave the next conflicting; that
 one resolves and goes on. A block is looked at again every two minutes and clears by itself once GitHub will
 merge. It stops and waits on you (⚑, with the reason) after three

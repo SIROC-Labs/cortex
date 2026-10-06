@@ -338,6 +338,16 @@ def render_ci_fix(failing, excerpts=None):
     return "\n".join(lines) + "\n"
 
 
+def render_instructions(text, blocked=None):
+    """A person's instructions for a PR, as a revise brief — with why its merge
+    was blocked, when it was, so the instructions land in context."""
+    lines = ["The operator gave these instructions for this PR:", "", text.strip(), ""]
+    if blocked:
+        lines += ["They come because its merge was blocked: %s. When you are done, the "
+                  "merge carries on by itself." % blocked, ""]
+    return "\n".join(lines)
+
+
 def outcome_phase(code, outcome):
     """What a finished start-task process means for the loop: (phase, reason)."""
     outcome = outcome or {}
@@ -1119,12 +1129,37 @@ class Engine(object):
         self.note(gid, "Undone — %s" % what, ["Asana: reopened if it was done, taken off the "
                                                "sprint, unassigned"])
 
+    def instruct(self, gid, text, items=()):
+        """Have the task's agent act on a person's instructions — typed in the
+        TUI, or PR comments left while its merge was blocked. A blocked merge
+        starts over afterwards with fresh attempts. Returns (done, why not)."""
+        record = self.record(gid)
+        if record.get("phase") not in ("pr_open", "conflict") or not record.get("pr_url"):
+            return False, "it has no open PR to work on"
+        merge = record.get("merge")
+        blocked = (merge or {}).get("blocked")
+        if merge is not None:
+            merge.update(attempts={}, blocked=None)
+            merge.pop("held_since", None)
+        first = (text.strip().splitlines() or [""])[0][:140]
+        issues = ["you said: %s" % first] + (["the merge was blocked: %s" % blocked] if blocked else [])
+        self.launch_revise(gid, list(items), render_instructions(text, blocked),
+                           "following your instructions" + (", to merge" if merge else ""), issues)
+        return True, None
+
     def drive_merge(self, gid, owner, name):
         """One step towards merging: whatever GitHub says stands in the way, do
-        the thing that removes it — or say why it cannot be done."""
+        the thing that removes it — or say why it cannot be done. A blocked
+        merge also listens for PR comments: they are taken as instructions."""
         record = self.records[gid]
         merge = record["merge"]
         url = record["pr_url"]
+        if merge.get("blocked") and parse_pr_url(url):
+            _, _, number = parse_pr_url(url)
+            items = self.feedback(owner, name, number, record.get("handled"))
+            if items:
+                self.instruct(gid, render_feedback(items), items)
+                return
         self.busy["loop"] = ("merging %s" % self.key_of(gid), gid)
         try:
             self.merge_step_for(gid, owner, name, record, merge, url)
