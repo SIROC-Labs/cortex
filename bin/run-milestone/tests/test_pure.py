@@ -552,6 +552,90 @@ class TestFailureExcerpt(unittest.TestCase):
         self.assertIn("  ERROR: Coverage too low", brief)
 
 
+class TestUndo(unittest.TestCase):
+    """Undo against real git: an unmerged task's branch and worktree go, and a
+    merged task gets a revert that really takes its change back out."""
+
+    def git(self, *args, cwd=None):
+        import subprocess
+        return subprocess.run(["git"] + list(args), cwd=cwd or self.work, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def setUp(self):
+        import tempfile
+        import shutil
+        import engine
+        self.engine = engine
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        origin = os.path.join(self.root, "o.git")
+        self.work = os.path.join(self.root, "w")
+        self.git("init", "-q", "--bare", "-b", "main", origin, cwd=self.root)
+        self.git("clone", "-q", origin, self.work, cwd=self.root)
+        with open(os.path.join(self.work, "a.txt"), "w") as f:
+            f.write("base\n")
+        self.git("add", "a.txt")
+        self.git("commit", "-qm", "base")
+        self.git("push", "-q", "origin", "main")
+        e = engine.Engine.__new__(engine.Engine)
+        e.main_root = e.repo = self.work
+        e.dir, e.busy, e.children = os.path.join(self.root, "q"), {}, {}
+        e.data = {"tasks": {"9": {"key": "T-9", "completed": False, "assignee_gid": "42",
+                                  "boards": ["Sprint"]}},
+                  "records": {}, "sprint": {"gid": "300", "name": "Sprint"}, "me": {"gid": "42"}}
+        self.asana_calls, self.gh_calls = [], []
+        e.asana = lambda args, check=True: (self.asana_calls.append(args) or (0, None))
+        self.saved_run = engine.run
+        real = engine.run
+
+        def fake_run(cmd, cwd=None):
+            if cmd[0] == "gh":
+                self.gh_calls.append(cmd)
+                return 0, "https://github.com/o/r/pull/99", ""
+            return real(cmd, cwd=cwd)
+        engine.run = fake_run
+        self.addCleanup(setattr, engine, "run", self.saved_run)
+        self.e = e
+
+    def test_unmerged_work_is_cleared_away_and_the_task_reset(self):
+        import start_task as st
+        wt = st.worktree_path(self.work, "T-9", "x")
+        self.git("worktree", "add", wt, "-b", "T-9/x", "origin/main")
+        st.State(self.work, "T-9").write("context.json", {"git": {
+            "branch": "T-9/x", "worktree": wt, "pr_url": "https://github.com/o/r/pull/5"}})
+        self.e.records["9"] = {"phase": "pr_open", "pr_url": "https://github.com/o/r/pull/5"}
+        done, _ = self.e.undo("9")
+        self.assertTrue(done)
+        self.assertFalse(os.path.isdir(wt))
+        self.assertEqual(self.git("branch", "--list", "T-9/x"), "")
+        self.assertFalse(os.path.isdir(st.State(self.work, "T-9").dir))
+        self.assertEqual(self.gh_calls[0][:4], ["gh", "pr", "close", "https://github.com/o/r/pull/5"])
+        self.assertIn(["task", "remove-from-board", "9", "300"], self.asana_calls)
+        self.assertIn(["task", "unassign", "9"], self.asana_calls)
+        self.assertEqual(self.e.records["9"]["phase"], "undone")
+
+    def test_a_merged_task_gets_a_revert_that_takes_its_change_out(self):
+        with open(os.path.join(self.work, "a.txt"), "w") as f:
+            f.write("base\ntask change\n")
+        self.git("commit", "-qam", "T-9 :: the task (#7)")
+        self.git("push", "-q", "origin", "main")
+        sha = self.git("rev-parse", "HEAD")
+        self.e.records["9"] = {"phase": "merged", "pr_url": "https://github.com/o/r/pull/7"}
+        self.e.data["tasks"]["9"]["completed"] = True
+        self.e.gh_json = lambda args: {"mergeCommit": {"oid": sha}, "baseRefName": "main",
+                                       "number": 7, "title": "T-9 :: the task"}
+        done, _ = self.e.undo("9")
+        self.assertTrue(done)
+        branch = [b for b in self.git("ls-remote", "--heads", "origin").split() if "revert/T-9" in b][0]
+        self.git("fetch", "-q", "origin")
+        content = self.git("show", "origin/%s:a.txt" % branch.replace("refs/heads/", ""))
+        self.assertEqual(content, "base")
+        self.assertTrue(any(c[:3] == ["gh", "pr", "create"] for c in self.gh_calls))
+        self.assertIn(["task", "reopen", "9"], self.asana_calls)
+        self.assertEqual(self.e.records["9"]["revert_pr"], "https://github.com/o/r/pull/99")
+        self.assertFalse(any("revert-T-9" in l for l in self.git("worktree", "list").splitlines()))
+
+
 class TestMergeMethod(unittest.TestCase):
     def test_squash_first_within_what_the_rules_allow(self):
         everything = {"squashMergeAllowed": True, "mergeCommitAllowed": True,

@@ -42,6 +42,22 @@ stopping this repo's daemon. Type to narrow it (it also matches the words you wo
 — *retarget*, *move*, *update*, *base*), `↑↓` or `^P ^N` to choose, `⏎` to run, `Esc`
 to close.
 
+### Undo
+
+*Undo HCI-12* in the palette takes a task's work back out — after saying exactly what it
+will do, and which tasks that wait on it have already started, and asking:
+
+- **not merged:** its run is stopped, its PR closed with a note and its branch deleted
+  (on GitHub and here), its worktree and saved state removed;
+- **merged:** a PR is opened reverting its merge from the branch it went into. It is
+  never merged by cortex, whatever Merging is set to — merge it yourself when you are
+  sure. If the merge does not revert cleanly (later work builds on it), nothing is
+  changed and it says so.
+
+Either way the task is reopened if it was done, taken off the sprint, unassigned, and
+told on Asana what happened; it leaves the queue, and its log is kept. Queue it again
+and it starts fresh.
+
 ## Typing
 
 Every text input — the palette, the `/` filter, an answer, a new branch name — takes

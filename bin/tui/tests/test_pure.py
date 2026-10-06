@@ -803,7 +803,8 @@ class TestAnswering(unittest.TestCase):
         self.select("2")
         self.press(":")
         self.assertEqual(self.palette_titles(),
-                         ["Change A-2's PR base branch to feature/m1", "Start this repo's daemon"])
+                         ["Change A-2's PR base branch to feature/m1", "Undo A-2",
+                          "Start this repo's daemon"])
 
     def test_it_is_found_by_the_words_you_would_use(self):
         st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
@@ -900,6 +901,33 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual([q["gid"] for q in self.app.control["queue"]], ["1"])
         self.assertEqual(self.app.control.get("commands") or [], [])
         self.assertIn("removed A-2 from the list", self.app.message)
+
+    def test_undo_says_what_it_will_do_and_asks_first(self):
+        st.State(self.root, "A-2").write("context.json", {"git": {
+            "branch": "A-2/x", "base": "origin/main", "worktree": "/wt"}})
+        self.app.snapshot()
+        self.select("2")
+        self.press(":", *"undo", "enter")
+        self.assertIn("undo A-2: close its PR and delete the branch, remove its worktree and "
+                      "saved state, take it off the sprint and unassign it? (y/n)", self.app.message)
+        self.assertEqual(self.app.control.get("commands") or [], [])
+        self.press("y")
+        self.assertEqual(self.app.control["commands"][-1]["op"], "undo")
+
+    def test_undoing_a_merged_task_offers_a_revert_and_warns_of_started_dependents(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"] = {"phase": "merged", "pr_url": "https://github.com/o/r/pull/7"}
+        data["tasks"]["1"]["deps"] = [{"ref": "2", "completed": True}]
+        data["records"]["1"]["phase"] = "running"
+        dm.write_json(path, data)
+        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/feature/m1"}})
+        self.app.snapshot()
+        self.select("2")
+        self.press(":", *"revert", "enter")
+        self.assertIn("open a PR reverting it from feature/m1 (it waits for you to merge it)",
+                      self.app.message)
+        self.assertIn("A-1, which waits on it, already started", self.app.message)
 
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")

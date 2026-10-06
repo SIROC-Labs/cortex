@@ -59,7 +59,7 @@ BOARD_SHOWN_MAX_AGE = 60
 
 # A task in one of these has nothing left running for it: removing it from the
 # list leaves it — and its record — exactly as it is.
-FINISHED = ("merged", "stopped", "failed")
+FINISHED = ("merged", "stopped", "failed", "undone")
 
 PHASE_STYLE = {
     "running": "ok", "revising": "ok", "pr_open": "ok", "merged": "dim",
@@ -365,6 +365,25 @@ def valid_branch_name(name):
     return bool(re.fullmatch(r"[A-Za-z0-9._/-]+", name or "")) and not (
         name.startswith(("/", "-", ".")) or name.endswith(("/", ".", ".lock"))
         or ".." in name or "//" in name or "@{" in name)
+
+
+def undo_plan(row, git_info):
+    """What undoing a task will do, in a sentence, for the confirm prompt."""
+    if row.get("phase") == "merged":
+        base = (git_info.get("base") or "").replace("origin/", "", 1) or "its base"
+        return ("open a PR reverting it from %s (it waits for you to merge it), reopen it in "
+                "Asana, take it off the sprint and unassign it" % base)
+    steps = []
+    if row.get("phase") in ("running", "awaiting", "revising"):
+        steps.append("stop its run")
+    if row.get("pr_url"):
+        steps.append("close its PR and delete the branch")
+    elif git_info.get("branch"):
+        steps.append("delete its branch")
+    if git_info.get("worktree"):
+        steps.append("remove its worktree and saved state")
+    steps.append("take it off the sprint and unassign it")
+    return ", ".join(steps)
 
 
 def palette_matches(commands, query):
@@ -1093,6 +1112,11 @@ class App(object):
                                      % (len(finished), "" if len(finished) == 1 else "s"),
                             "words": "remove merged done acknowledge tidy clean",
                             "run": lambda: self.clear(finished)})
+        if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
+                and row.get("phase") not in (None, "undone")):
+            out.append({"title": "Undo %s" % row["cols"][0],
+                        "words": "revert discard throw away back out cancel reset",
+                        "run": lambda: self.undo(row)})
         if TABS[self.tab] != "Daemons":
             if not self.alive:
                 out.append({"title": "Start this repo's daemon", "words": "run begin",
@@ -1120,6 +1144,20 @@ class App(object):
         elif self.palette["line"].key(key):
             self.palette["query"] = self.palette["line"].text
             self.palette["cursor"] = 0
+
+    def undo(self, row):
+        """Ask before undoing a task — saying exactly what will be done, and
+        which tasks that wait on it have already started."""
+        key = row["cols"][0]
+        git_info = (st.State(self.main_root, key).read("context.json") or {}).get("git") or {}
+        tasks, records = self.data.get("tasks") or {}, self.data.get("records") or {}
+        started = [t.get("key") for g, t in tasks.items()
+                   if any(d.get("ref") == row["id"] for d in t.get("deps") or [])
+                   and (records.get(g) or {}).get("phase") not in (None, "stopped", "undone")]
+        warning = (" — %s, which wait%s on it, already started" % (
+            ", ".join(started), "" if len(started) > 1 else "s") if started else "")
+        self.ask("undo %s: %s%s? (y/n)" % (key, undo_plan(row, git_info), warning),
+                 lambda: self.command("undo", row["id"]))
 
     def retarget(self, row):
         """Offer to move a task's open PR onto the current target branch — after

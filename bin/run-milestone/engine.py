@@ -13,6 +13,7 @@
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -39,7 +40,7 @@ CONFLICT_POLL = 60
 # resolve request, and holds up nothing but its own dependents.
 LIVE = ("running", "awaiting", "revising", "pr_open", "conflict")
 # A record in one of these is never launched again by the loop.
-SETTLED = LIVE + ("merged", "failed", "stopped")
+SETTLED = LIVE + ("merged", "failed", "stopped", "undone")
 
 # What a PR comment has to say for a parked conflict to be resolved.
 RESOLVE_TRIGGER = "please resolve"
@@ -417,6 +418,8 @@ def describe(gid, tasks, records, me_gid):
         return "failed: %s" % ((record.get("reason") or "").splitlines() or ["?"])[0]
     if phase == "stopped":
         return "stopped: %s" % record.get("reason")
+    if phase == "undone":
+        return "undone — %s" % record.get("reason")
     blocked = blockers(gid, tasks, records, me_gid)
     return "; ".join(blocked) if blocked else "ready"
 
@@ -968,6 +971,141 @@ class Engine(object):
         self.note(gid, "PR moved onto %s (was %s)" % (base, old or "?"),
                   ["from here it merges by the rules for %s" % base])
         return True, None
+
+    def undo_plan(self, gid):
+        """What undoing a task would do, a line a step, before anything is done —
+        for the person to read and confirm."""
+        record = self.records.get(gid) or {}
+        key = self.key_of(gid)
+        git_info = (self.start_state(gid).read("context.json") or {}).get("git") or {}
+        if record.get("phase") == "merged":
+            base = (git_info.get("base") or "").replace("origin/", "", 1) or "its base"
+            return ["open a PR reverting %s's merge into %s — it waits for you to merge it" % (key, base),
+                    "reopen the task in Asana, take it off the sprint and unassign it"]
+        steps = []
+        if record.get("phase") in ("running", "awaiting", "revising"):
+            steps.append("stop its run")
+        if record.get("pr_url"):
+            steps.append("close its PR and delete the branch, on GitHub and here")
+        elif git_info.get("branch"):
+            steps.append("delete its branch %s" % git_info["branch"])
+        if git_info.get("worktree"):
+            steps.append("remove its worktree and saved state")
+        steps.append("take it off the sprint and unassign it in Asana")
+        return steps
+
+    def started_dependents(self, gid):
+        """Tasks that wait on this one and have already started or merged."""
+        return [t.get("key") for g, t in self.tasks.items()
+                if any(d.get("ref") == gid for d in t.get("deps") or [])
+                and (self.records.get(g) or {}).get("phase") not in (None, "stopped", "undone")]
+
+    def undo(self, gid):
+        """Take a task's work back out: a revert PR when it merged, otherwise its
+        run, PR, branch, worktree and state go. Either way it comes off the
+        sprint, is unassigned, and leaves the queue. Returns (done, why not)."""
+        key = self.key_of(gid)
+        record = self.record(gid)
+        self.busy["loop"] = ("undoing %s" % key, gid)
+        try:
+            if record.get("phase") == "merged":
+                done, detail = self.undo_merged(gid)
+            else:
+                done, detail = self.undo_unmerged(gid)
+        finally:
+            self.busy.pop("loop", None)
+        if not done:
+            log("%s: could not undo — %s" % (key, detail))
+            self.note(gid, "Undo failed — %s" % detail)
+            return False, detail
+        self.reset_in_asana(gid, detail)
+        record.pop("merge", None)
+        self.set_phase(gid, "undone", reason=detail, pid=None)
+        log("%s: undone — %s" % (key, detail))
+        return True, None
+
+    def undo_unmerged(self, gid):
+        self.kill(gid)
+        state = self.start_state(gid)
+        git_info = (state.read("context.json") or {}).get("git") or {}
+        worktree, branch = git_info.get("worktree"), git_info.get("branch")
+        pr = self.records.get(gid, {}).get("pr_url") or git_info.get("pr_url")
+        done = []
+        with st.repo_lock(self.main_root):
+            if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:
+                run(["git", "worktree", "remove", "--force", worktree], cwd=self.main_root)
+                done.append("worktree removed")
+            if branch:
+                run(["git", "branch", "-D", branch], cwd=self.main_root)
+        if pr:
+            code, _, err = run(["gh", "pr", "close", pr, "--delete-branch", "--comment",
+                                st.mark("Undone from the cortex TUI — this work is discarded.")],
+                               cwd=self.main_root)
+            done.append("PR closed, branch deleted" if code == 0 else "PR not closed: %s" % err)
+        elif branch:
+            run(["git", "push", "origin", "--delete", branch], cwd=self.main_root)
+            done.append("branch deleted")
+        if os.path.isdir(state.dir):
+            shutil.rmtree(state.dir, ignore_errors=True)
+        return True, "; ".join(done) or "nothing had been started"
+
+    def undo_merged(self, gid):
+        record = self.records[gid]
+        key = self.key_of(gid)
+        view = self.gh_json(["pr", "view", record.get("pr_url") or "", "--json",
+                             "mergeCommit,baseRefName,number,title"]) or {}
+        sha = (view.get("mergeCommit") or {}).get("oid")
+        base = view.get("baseRefName")
+        if not sha or not base:
+            return False, "could not read the merge from GitHub"
+        branch = "revert/%s-%d" % (key, int(time.time()))
+        path = st.worktree_path(self.main_root, "revert-%s" % key)
+        try:
+            with st.repo_lock(self.main_root):
+                run(["git", "fetch", "origin", base], cwd=self.main_root)
+                code, _, err = run(["git", "worktree", "add", path, "-b", branch,
+                                    "origin/%s" % base], cwd=self.main_root)
+            if code != 0:
+                return False, "could not set up the revert: %s" % err
+            code, _, err = run(["git", "revert", "--no-edit", sha], cwd=path)
+            if code != 0:
+                run(["git", "revert", "--abort"], cwd=path)
+                return False, ("its merge does not revert cleanly — later work builds on it; "
+                               "revert it by hand")
+            code, _, err = run(["git", "push", "-u", "origin", branch], cwd=path)
+            if code != 0:
+                return False, "could not push the revert: %s" % err
+            code, out, err = run(["gh", "pr", "create", "--base", base, "--head", branch,
+                                  "--title", "Revert \u201c%s\u201d" % view.get("title", key),
+                                  "--body", st.mark("Reverts #%s — %s undone from the cortex TUI. "
+                                                    "Not merged automatically: merge it when you "
+                                                    "are sure." % (view.get("number"), key))],
+                                 cwd=path)
+            if code != 0:
+                return False, "pushed %s, but could not open the PR: %s" % (branch, err)
+            record["revert_pr"] = out.strip().splitlines()[-1]
+            return True, "revert PR %s opened — it waits for you" % record["revert_pr"]
+        finally:
+            with st.repo_lock(self.main_root):
+                run(["git", "worktree", "remove", "--force", path], cwd=self.main_root)
+
+    def reset_in_asana(self, gid, what):
+        """Put the task back to not started: reopened, off the sprint, unassigned —
+        and say so on the task."""
+        key = self.key_of(gid)
+        task = self.tasks.get(gid) or {}
+        sprint = self.data.get("sprint") or {}
+        if task.get("completed") or (self.records.get(gid) or {}).get("phase") == "merged":
+            self.asana(["task", "reopen", gid], check=False)
+            task["completed"] = False
+        if sprint.get("gid") and sprint.get("name") in (task.get("boards") or [sprint.get("name")]):
+            self.asana(["task", "remove-from-board", gid, sprint["gid"]], check=False)
+        if task.get("assignee_gid") == (self.data.get("me") or {}).get("gid"):
+            self.asana(["task", "unassign", gid], check=False)
+        self.asana(["comment", "add", gid, st.mark("Undone from the cortex TUI: %s. The task is "
+                                                    "back to not started." % what)], check=False)
+        self.note(gid, "Undone — %s" % what, ["Asana: reopened if it was done, taken off the "
+                                               "sprint, unassigned"])
 
     def drive_merge(self, gid, owner, name):
         """One step towards merging: whatever GitHub says stands in the way, do

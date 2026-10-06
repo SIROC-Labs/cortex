@@ -56,6 +56,9 @@
 #   tm.py task add-to-board  <task-ref> <board-ref>
 #   tm.py task set-status    <task-ref> <status-name>
 #   tm.py task complete      <task-ref>
+#   tm.py task reopen        <task-ref>
+#   tm.py task unassign      <task-ref>
+#   tm.py task remove-from-board <task-ref> <board-ref>
 #
 # add-dependency/set-parent/add-to-board are single POSTs (addDependencies /
 # setParent / addProject), all via urllib. set-status is TWO-AXIS per
@@ -1663,6 +1666,36 @@ def task_complete(args):
     sys.exit(0)
 
 
+# Undo what starting a task did: take it off a board (removeProject), clear its
+# assignee, or mark it not completed. Each is one request; each prints the task.
+def task_remove_from_board(args):
+    if len(args) < 2:
+        die(1, "usage: %s task remove-from-board <task-ref> <board-ref>" % PROG)
+    token = resolve_token(cache_util.project_key())
+    api_json("%s/tasks/%s/removeProject" % (API_BASE, args[0]), token, "POST",
+             {"data": {"project": args[1]}})
+    sys.stdout.write(json.dumps({"task": args[0], "removed_from": args[1]}) + "\n")
+    sys.exit(0)
+
+
+def task_unassign(args):
+    if not args:
+        die(1, "usage: %s task unassign <task-ref>" % PROG)
+    token = resolve_token(cache_util.project_key())
+    print_task_projection(api_json("%s/tasks/%s" % (API_BASE, args[0]), token, "PUT",
+                                   {"data": {"assignee": None}}))
+    sys.exit(0)
+
+
+def task_reopen(args):
+    if not args:
+        die(1, "usage: %s task reopen <task-ref>" % PROG)
+    token = resolve_token(cache_util.project_key())
+    print_task_projection(api_json("%s/tasks/%s" % (API_BASE, args[0]), token, "PUT",
+                                   {"data": {"completed": False}}))
+    sys.exit(0)
+
+
 # Set (replace) a task's description/notes. <task-ref> is a task GID; the body is
 # authored as Markdown (positional arg or --body-file), converted to Asana HTML the
 # same way comments are (md_to_html → render_body), and PUT to the task's html_notes
@@ -2189,6 +2222,9 @@ TASK_VERBS = {
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
     "complete": task_complete,
+    "reopen": task_reopen,
+    "unassign": task_unassign,
+    "remove-from-board": task_remove_from_board,
 }
 
 COMMENT_VERBS = {

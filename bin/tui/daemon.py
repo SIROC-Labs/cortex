@@ -45,7 +45,7 @@ CODE_FILES = (
     os.path.join(os.path.dirname(HERE), "run-milestone", "engine.py"),
     os.path.join(os.path.dirname(HERE), "start-task", "start_task.py"),
 )
-COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget")
+COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget", "undo")
 
 
 # --- pure helpers (unit-tested) ---------------------------------------------
@@ -72,6 +72,7 @@ def command_feedback(sent, applied, results, alive, now, busy=()):
         return ({"merge": "merging %s — the Runs tab shows each step" % sent["key"],
                  "merge-cancel": "no longer merging %s" % sent["key"],
                  "retarget": "%s's PR is on its new base — merging follows its rules" % sent["key"],
+                 "undo": "%s is undone — see its log for what was done" % sent["key"],
                  "stop": "stopped %s" % sent["key"],
                  "retry": "%s will start again when it is ready" % sent["key"]}
                 .get(sent["op"], "done"), True)
@@ -338,6 +339,9 @@ class QueueRun(Engine):
             self.refresh(only=set(new))
             if new:
                 self.reconcile_all()
+            for gid in new:
+                if (self.records.get(gid) or {}).get("phase") == "undone":
+                    self.set_phase(gid, None, reason=None)
         applied = self.data.get("applied", 0)
         results = self.data.setdefault("results", [])
         for command in pending_commands(control, applied):
@@ -349,6 +353,12 @@ class QueueRun(Engine):
             elif command["op"] == "retarget":
                 done, why = self.retarget(gid, command.get("base"))
                 results.append({"id": command["id"], "ok": done, "note": why})
+            elif command["op"] == "undo":
+                done, why = self.undo(gid)
+                results.append({"id": command["id"], "ok": done, "note": why})
+                if done:
+                    with control_file(self.main_root) as control:
+                        queue_remove(control, [gid])
             else:
                 results.append({"id": command["id"], "ok": True})
             if command["op"] == "stop":
@@ -359,7 +369,7 @@ class QueueRun(Engine):
                 self.cancel_merge(gid)
             elif command["op"] == "retry":
                 record = self.records.get(gid) or {}
-                if record.get("phase") in ("failed", "stopped"):
+                if record.get("phase") in ("failed", "stopped", "undone"):
                     self.set_phase(gid, None, reason=None)
             applied = command["id"]
         self.data["applied"] = applied
