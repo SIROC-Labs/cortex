@@ -597,6 +597,16 @@ class TestUndo(unittest.TestCase):
         self.addCleanup(setattr, engine, "run", self.saved_run)
         self.e = e
 
+    def test_a_fresh_start_forgets_the_last_attempts_pr_and_merge(self):
+        self.e.records["9"] = {"phase": "stopped", "log": "/l", "pr_url": "u", "branch": "b",
+                               "merge": {"attempts": {"ci": 2}, "blocked": "checks still failing"},
+                               "revise_why": "fixing failing checks (verify)", "inflight": ["x"]}
+        self.e.fresh_start("9")
+        self.assertEqual(self.e.records["9"]["log"], "/l")
+        for gone in ("merge", "pr_url", "branch", "revise_why", "inflight"):
+            self.assertNotIn(gone, self.e.records["9"])
+        self.assertIsNone(self.e.records["9"]["phase"])
+
     def test_unmerged_work_is_cleared_away_and_the_task_reset(self):
         import start_task as st
         wt = st.worktree_path(self.work, "T-9", "x")

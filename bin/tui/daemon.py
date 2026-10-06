@@ -341,7 +341,7 @@ class QueueRun(Engine):
                 self.reconcile_all()
             for gid in new:
                 if (self.records.get(gid) or {}).get("phase") == "undone":
-                    self.set_phase(gid, None, reason=None)
+                    self.fresh_start(gid)
         applied = self.data.get("applied", 0)
         results = self.data.setdefault("results", [])
         for command in pending_commands(control, applied):
@@ -370,7 +370,7 @@ class QueueRun(Engine):
             elif command["op"] == "retry":
                 record = self.records.get(gid) or {}
                 if record.get("phase") in ("failed", "stopped", "undone"):
-                    self.set_phase(gid, None, reason=None)
+                    self.fresh_start(gid)
             applied = command["id"]
         self.data["applied"] = applied
         self.data["results"] = results[-20:]

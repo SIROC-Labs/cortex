@@ -972,6 +972,18 @@ class Engine(object):
                   ["from here it merges by the rules for %s" % base])
         return True, None
 
+    def fresh_start(self, gid):
+        """Clear what a task's last attempt left on its record — its PR, its merge
+        and how far that got, what it was revising — so the next run starts
+        clean instead of inheriting, say, a merge blocked after two fixes. The
+        log stays."""
+        record = self.record(gid)
+        for field in ("merge", "pr_url", "branch", "base", "revise_why", "inflight", "handled",
+                      "poll_attempt", "next_poll", "conflict_notified", "merge_declined",
+                      "revert_pr", "pid"):
+            record.pop(field, None)
+        self.set_phase(gid, None, reason=None)
+
     def undo_plan(self, gid):
         """What undoing a task would do, a line a step, before anything is done —
         for the person to read and confirm."""
