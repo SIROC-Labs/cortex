@@ -94,6 +94,8 @@ def wait_summary(wait):
         return "PR conflicts with its base — a to have it resolved, m to merge"
     if kind == "merge":
         return wait["headline"] + " — a to say what to do, m to just try again"
+    if kind == "checkpoint":
+        return "checkpoint reached — c continues the queue"
     questions = wait.get("questions") or []
     if questions:
         more = len(questions) - 1
@@ -212,6 +214,13 @@ def wait_lines(wait, width):
              "a rebase or force-push. Or press m to resolve and merge it in one go.",
              "normal")
         return out
+    if wait.get("kind") == "checkpoint":
+        para(wait.get("headline") or "", "bold")
+        out.append(("", "normal"))
+        para("This task is a checkpoint and has merged. Everything queued after it is held "
+             "back until you continue — nothing past it has started. Check what you need to, "
+             "then press c.", "normal")
+        return out
     if wait.get("kind") == "merge":
         para(wait.get("headline") or "", "bold")
         out.append(("", "normal"))
@@ -248,10 +257,24 @@ def parse_answer(text):
     return "\n".join(kept).strip() or None
 
 
+def gate_state(control, data):
+    """(the checkpoint holding the queue or None, held-back gids, whether it has
+    merged and now only waits for you to continue)."""
+    item, held = dm.checkpoint_gate(control.get("queue") or [], data.get("tasks") or {},
+                                    data.get("records") or {}, data.get("continued") or [])
+    if not item:
+        return None, held, False
+    gid = item["gid"]
+    reached = ((data.get("records") or {}).get(gid) or {}).get("phase") == "merged" \
+        or ((data.get("tasks") or {}).get(gid) or {}).get("completed")
+    return item, held, bool(reached)
+
+
 def read_waits(main_root, control, data):
     """What each queued task is waiting on you for: an outstanding question or
     problem from its run (its `awaiting.json`), or a parked conflict."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
+    gate, _, reached = gate_state(control, data)
     waits = {}
     for item in control.get("queue") or []:
         gid = item["gid"]
@@ -259,6 +282,9 @@ def read_waits(main_root, control, data):
         awaiting = st.State(main_root, key).read("awaiting.json") if key else None
         if awaiting and awaiting.get("asked_at"):
             waits[gid] = dict(awaiting, key=key)
+        elif reached and gate["gid"] == gid:
+            waits[gid] = {"kind": "checkpoint", "key": key,
+                          "headline": "Checkpoint reached — what is queued after it waits for you"}
         elif ((records.get(gid) or {}).get("merge") or {}).get("blocked"):
             waits[gid] = {"kind": "merge", "key": key,
                           "headline": "Merge blocked: %s" % records[gid]["merge"]["blocked"]}
@@ -274,6 +300,8 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
     me_gid = me_gid or (data.get("me") or {}).get("gid")
     waits = waits or {}
+    gate, held, _ = gate_state(control, data)
+    gate_key = gate and ((tasks.get(gate["gid"]) or {}).get("key") or gate.get("name"))
     rows = []
     for item in control.get("queue") or []:
         gid = item["gid"]
@@ -286,6 +314,12 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
             status = describe(gid, tasks, records, me_gid)
             if status == "ready" and not control.get("sprint"):
                 status = "ready — starts once a sprint is picked"
+            if gid in held and not record.get("phase"):
+                status = "held back until checkpoint %s" % gate_key
+            if item.get("needed_by") and not record.get("phase"):
+                status += " · queued for %s" % item["needed_by"]
+        if item.get("checkpoint"):
+            name = "◆ " + (name or "")
         style = PHASE_STYLE.get(record.get("phase"))
         if not style:
             style = "dim" if task and task.get("completed") else "normal"
@@ -553,6 +587,7 @@ HELP = [
         ("x", "stop and unqueue · on a finished task, just remove it from the list"),
         ("r", "retry a failed or stopped task"),
         ("o", "open its PR (or the task)"),
+        ("c", "continue past a checkpoint — the queue starts tasks again"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task · on a section, queue all of it"),
@@ -1063,6 +1098,8 @@ class App(object):
         wait = (row or {}).get("wait")
         if not wait:
             self.message = "nothing is waiting on you there"
+        elif wait.get("kind") == "checkpoint":
+            self.message = "c continues the queue"
         elif wait.get("kind") == "merge" and editor:
             self.edit_request = row["id"]
         elif wait.get("kind") == "merge":
@@ -1125,6 +1162,14 @@ class App(object):
                             "words": "remove merged done acknowledge tidy clean",
                             "run": lambda: self.clear(finished)})
         if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
+                and not row.get("finished")):
+            on = any(q["gid"] == row["id"] and q.get("checkpoint")
+                     for q in self.control.get("queue") or [])
+            out.append({"title": ("%s is no longer a checkpoint" if on else
+                                  "Make %s a checkpoint") % row["cols"][0],
+                        "words": "checkpoint pause stop after milestone gate",
+                        "run": lambda: self.toggle_checkpoint(row, not on)})
+        if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
                 and row.get("phase") not in (None, "undone")):
             out.append({"title": "Undo %s" % row["cols"][0],
                         "words": "revert discard throw away back out cancel reset",
@@ -1156,6 +1201,12 @@ class App(object):
         elif self.palette["line"].key(key):
             self.palette["query"] = self.palette["line"].text
             self.palette["cursor"] = 0
+
+    def toggle_checkpoint(self, row, on):
+        self.change_control(lambda c: dm.set_checkpoint(c, row["id"], on))
+        self.message = ("%s is a checkpoint: what is queued after it waits until it has "
+                        "merged and you continue" % row["cols"][0] if on
+                        else "%s is no longer a checkpoint" % row["cols"][0])
 
     def undo(self, row):
         """Ask before undoing a task — saying exactly what will be done, and
@@ -1427,6 +1478,11 @@ class App(object):
         if key == "?":
             self.help = True
             self.help_scroll = 0
+        elif key == "c" and gate_state(self.control, self.data)[2]:
+            gate = gate_state(self.control, self.data)[0]
+            name = ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name")
+            self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)" % name,
+                     lambda: self.command("continue", gate["gid"]))
         elif key == ":":
             self.palette = {"query": "", "cursor": 0, "line": LineEdit(),
                             "commands": self.palette_commands(self.selected(rows))}
@@ -1465,7 +1521,8 @@ class App(object):
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
-            "Runs": "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR",
+            "Runs": ("c continue past the checkpoint · " if gate_state(self.control, self.data)[2] else "")
+                    + "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR",
             "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
@@ -1492,6 +1549,11 @@ class App(object):
         if self.alive and self.daemon.get("code") != dm.code_version():
             note = ("  daemon runs older code — x then s on the Daemons tab restarts it "
                     if not self.daemon.get("code") else "  daemon updates once its runs finish ")
+            _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
+        gate, held, reached = gate_state(self.control, self.data)
+        if gate and reached:
+            note = "  ⏸ checkpoint %s reached — c continues " % (
+                ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name"))
             _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
         if self.waits:
             flag = "  ⚑ %d waiting on you " % len(self.waits)

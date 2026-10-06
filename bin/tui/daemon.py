@@ -45,7 +45,8 @@ CODE_FILES = (
     os.path.join(os.path.dirname(HERE), "run-milestone", "engine.py"),
     os.path.join(os.path.dirname(HERE), "start-task", "start_task.py"),
 )
-COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget", "undo", "instruct")
+COMMANDS = ("stop", "retry", "merge", "merge-cancel", "retarget", "undo", "instruct",
+            "continue")
 
 
 # --- pure helpers (unit-tested) ---------------------------------------------
@@ -74,6 +75,7 @@ def command_feedback(sent, applied, results, alive, now, busy=()):
                  "retarget": "%s's PR is on its new base — merging follows its rules" % sent["key"],
                  "undo": "%s is undone — see its log for what was done" % sent["key"],
                  "instruct": "%s is working on your instructions" % sent["key"],
+                 "continue": "continuing — what was held back can start",
                  "stop": "stopped %s" % sent["key"],
                  "retry": "%s will start again when it is ready" % sent["key"]}
                 .get(sent["op"], "done"), True)
@@ -93,14 +95,18 @@ def empty_control():
 
 def queue_add(control, items):
     """Append tasks to the queue, skipping any already in it. `items` are
-    {gid, board, name}. Returns the gids actually added."""
+    {gid, board, name} and may say which queued task needs them (needed_by).
+    Returns the gids actually added."""
     have = {q["gid"] for q in control["queue"]}
     added = []
     for item in items:
         if item["gid"] in have:
             continue
-        control["queue"].append({"gid": item["gid"], "board": item.get("board"),
-                                 "name": item.get("name"), "added": time.time()})
+        entry = {"gid": item["gid"], "board": item.get("board"),
+                 "name": item.get("name"), "added": time.time()}
+        if item.get("needed_by"):
+            entry["needed_by"] = item["needed_by"]
+        control["queue"].append(entry)
         have.add(item["gid"])
         added.append(item["gid"])
     return added
@@ -119,6 +125,83 @@ def add_command(control, op, gid, applied=0, **extra):
     commands.append(dict(extra, id=next_id, op=op, gid=gid))
     control["commands"] = commands
     return next_id
+
+
+def missing_dependencies(tasks, queued):
+    """Dependencies of queued tasks that are not done and not queued themselves:
+    [{gid, name, needed_by}] — what has to be pulled in for the queue to be able
+    to finish."""
+    out, seen = [], set(queued)
+    for task_gid in queued:
+        task = tasks.get(task_gid) or {}
+        for dep in task.get("deps") or []:
+            ref = dep.get("ref")
+            if ref and not dep.get("completed") and ref not in seen:
+                seen.add(ref)
+                out.append({"gid": ref, "name": dep.get("name"), "board": None,
+                            "needed_by": task.get("key"), "for": task_gid})
+    return out
+
+
+def checkpoint_gate(queue, tasks, records, continued):
+    """Where the queue's first unpassed checkpoint is, and what it holds back:
+    (checkpoint item or None, {held-back gids}).
+
+    A checkpoint is passed once it has merged and someone said continue. Until
+    then, everything queued after it is held back — except what the tasks
+    before it (itself included) need, down their whole dependency tree, since
+    the checkpoint could never finish without those.
+    """
+    order = [q["gid"] for q in queue]
+    done = ("merged",)
+    for i, item in enumerate(queue):
+        if not item.get("checkpoint"):
+            continue
+        gid = item["gid"]
+        merged = ((records.get(gid) or {}).get("phase") in done
+                  or (tasks.get(gid) or {}).get("completed"))
+        if merged and gid in continued:
+            continue
+        allowed = set(order[:i + 1])
+        stack = list(allowed)
+        while stack:
+            for dep in (tasks.get(stack.pop()) or {}).get("deps") or []:
+                ref = dep.get("ref")
+                if ref in order and ref not in allowed:
+                    allowed.add(ref)
+                    stack.append(ref)
+        return item, {g for g in order if g not in allowed}
+    return None, set()
+
+
+def queue_insert_before(control, items, before_gid):
+    """Add tasks just ahead of `before_gid` — a task's dependencies belong before
+    it, on the same side of any checkpoint. Returns the gids actually added."""
+    have = {q["gid"] for q in control["queue"]}
+    index = next((i for i, q in enumerate(control["queue"]) if q["gid"] == before_gid),
+                 len(control["queue"]))
+    added = []
+    for item in items:
+        if item["gid"] in have:
+            continue
+        entry = {"gid": item["gid"], "board": item.get("board"), "name": item.get("name"),
+                 "added": time.time(), "needed_by": item.get("needed_by")}
+        control["queue"].insert(index, entry)
+        index += 1
+        have.add(item["gid"])
+        added.append(item["gid"])
+    return added
+
+
+def set_checkpoint(control, gid, on):
+    """Flag (or unflag) a queued task as a checkpoint: what is queued after it
+    waits until it has merged and someone says continue."""
+    for item in control["queue"]:
+        if item["gid"] == gid:
+            if on:
+                item["checkpoint"] = True
+            else:
+                item.pop("checkpoint", None)
 
 
 def pending_commands(control, applied):
@@ -343,6 +426,8 @@ class QueueRun(Engine):
             for gid in new:
                 if (self.records.get(gid) or {}).get("phase") == "undone":
                     self.fresh_start(gid)
+            if new:
+                self.pull_in_dependencies()
         applied = self.data.get("applied", 0)
         results = self.data.setdefault("results", [])
         for command in pending_commands(control, applied):
@@ -354,6 +439,13 @@ class QueueRun(Engine):
             elif command["op"] == "retarget":
                 done, why = self.retarget(gid, command.get("base"))
                 results.append({"id": command["id"], "ok": done, "note": why})
+            elif command["op"] == "continue":
+                continued = self.data.setdefault("continued", [])
+                if gid not in continued:
+                    continued.append(gid)
+                results.append({"id": command["id"], "ok": True})
+                log("continuing past checkpoint %s" % self.key_of(gid))
+                self.note(gid, "Continued past the checkpoint — what was held back can start")
             elif command["op"] == "instruct":
                 done, why = self.instruct(gid, command.get("text") or "")
                 results.append({"id": command["id"], "ok": done, "note": why})
@@ -378,6 +470,32 @@ class QueueRun(Engine):
             applied = command["id"]
         self.data["applied"] = applied
         self.data["results"] = results[-20:]
+
+    def is_checkpoint(self, gid):
+        return any(q["gid"] == gid and q.get("checkpoint") for q in self.control["queue"])
+
+    def held_back(self):
+        return checkpoint_gate(self.control["queue"], self.tasks, self.records,
+                               self.data.get("continued") or [])[1]
+
+    def pull_in_dependencies(self):
+        """Queue every unfinished dependency of what is queued, down the whole
+        tree, so a task queued on its own can still be finished."""
+        for _ in range(25):
+            missing = missing_dependencies(self.tasks, [q["gid"] for q in self.control["queue"]])
+            if not missing:
+                return
+            with control_file(self.main_root) as control:
+                added = []
+                for item in missing:
+                    added += queue_insert_before(control, [item], item["for"])
+            self.control = read_control(self.main_root)
+            for item in missing:
+                if item["gid"] in added:
+                    log("queued %s — %s needs it" % (item.get("name") or item["gid"],
+                                                      item["needed_by"]))
+            self.refresh(only=set(added))
+            self.reconcile_all()
 
     def heartbeat(self, started, version):
         write_json(os.path.join(self.dir, "daemon.json"), {

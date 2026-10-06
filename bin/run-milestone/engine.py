@@ -982,6 +982,16 @@ class Engine(object):
                   ["from here it merges by the rules for %s" % base])
         return True, None
 
+    def is_checkpoint(self, gid):
+        """Whether this task is a checkpoint in the queue. The queue's host knows;
+        on its own the engine has no checkpoints."""
+        return False
+
+    def held_back(self):
+        """Tasks that may not start yet because a checkpoint before them has not
+        been passed. None, unless the host has checkpoints."""
+        return set()
+
     def fresh_start(self, gid):
         """Clear what a task's last attempt left on its record — its PR, its merge
         and how far that got, what it was revising — so the next run starts
@@ -1362,6 +1372,10 @@ class Engine(object):
                 if dep.get("ref") == gid:
                     dep["completed"] = True
         self.set_phase(gid, "merged")
+        if self.is_checkpoint(gid):
+            log("%s was a checkpoint — what comes after it waits for you to continue" % key)
+            self.note(gid, "Checkpoint reached — what is queued after it waits for you",
+                      ["c in the TUI continues"])
         self.busy.pop("loop", None)
         self.refresh_due = 0
 
@@ -1467,8 +1481,10 @@ class Engine(object):
         if time.time() >= self.refresh_due and self.refreshing is None:
             self.start_refresh()
         if self.data.get("sprint"):
+            held = self.held_back()
             for gid in ready_tasks(self.tasks, self.records, self.data["me"]["gid"]):
-                self.launch(gid)
+                if gid not in held:
+                    self.launch(gid)
         mode = self.data.get("merge_mode") or "asked"
         for gid, record in list(self.records.items()):
             if gid not in self.tasks or mode == "asked":
