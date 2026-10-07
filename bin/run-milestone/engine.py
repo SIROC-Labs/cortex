@@ -734,8 +734,16 @@ class Engine(object):
             }
         return tasks
 
-    def reconcile_all(self):
+    def reconcile_all(self, only=None):
+        """Bring records in line with what start-task left behind — after a
+        restart, or for tasks just queued. A run this loop launched and is still
+        going is never touched: it may not have written its run.json yet."""
         for gid in self.tasks:
+            if only is not None and gid not in only:
+                continue
+            proc = self.children.get(gid)
+            if proc is not None and proc.poll() is None:
+                continue
             record = self.records.get(gid)
             state = self.start_state(gid)
             live = st.live_run_pid(state.read("run.json"))

@@ -1165,6 +1165,28 @@ class TestPullInDependencies(unittest.TestCase):
         self.assertEqual([q.get("needed_by") for q in queue], [None, "T-5", "T-9", None])
 
 
+class TestQueueingDoesNotRelaunch(unittest.TestCase):
+    def test_a_run_just_launched_is_not_started_again_when_more_is_queued(self):
+        import subprocess
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        subprocess.run(["git", "init", "-q", root], check=True)
+        run = dm.QueueRun(root, [])
+        run.refresh = lambda only=None: run.data["tasks"].update(
+            {g: {"key": "A-" + g, "deps": []} for g in (only or [])})
+        with dm.control_file(root) as c:
+            dm.queue_add(c, [{"gid": "1"}])
+        run.apply_control()
+        proc = subprocess.Popen(["sleep", "5"])
+        self.addCleanup(proc.kill)
+        run.children["1"] = proc
+        run.records["1"] = {"phase": "running", "pid": proc.pid, "since": 1}
+        with dm.control_file(root) as c:
+            dm.queue_add(c, [{"gid": "2"}])
+        run.apply_control()
+        self.assertEqual(run.records["1"], {"phase": "running", "pid": proc.pid, "since": 1})
+
+
 class TestRunRowsCheckpoint(unittest.TestCase):
     def test_held_back_tasks_say_which_checkpoint_holds_them(self):
         control = {"queue": [{"gid": "1", "checkpoint": True}, {"gid": "2"},

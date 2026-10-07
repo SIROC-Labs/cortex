@@ -422,7 +422,7 @@ class QueueRun(Engine):
         if new or gone:
             self.refresh(only=set(new))
             if new:
-                self.reconcile_all()
+                self.reconcile_all(only=set(new))
             for gid in new:
                 if (self.records.get(gid) or {}).get("phase") == "undone":
                     self.fresh_start(gid)
@@ -495,7 +495,7 @@ class QueueRun(Engine):
                     log("queued %s — %s needs it" % (item.get("name") or item["gid"],
                                                       item["needed_by"]))
             self.refresh(only=set(added))
-            self.reconcile_all()
+            self.reconcile_all(only=set(added))
 
     def heartbeat(self, started, version):
         write_json(os.path.join(self.dir, "daemon.json"), {
