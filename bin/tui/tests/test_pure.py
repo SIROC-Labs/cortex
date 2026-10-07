@@ -396,6 +396,22 @@ class TestStaleWhileRevalidate(unittest.TestCase):
         self.assertEqual(rows[1]["cols"][1], "done")
 
 
+class TestScrollTop(unittest.TestCase):
+    def test_moving_up_from_the_bottom_does_not_scroll(self):
+        top = tui.scroll_top(0, 12, 10, 30)
+        self.assertEqual(top, 3)
+        self.assertEqual(tui.scroll_top(top, 11, 10, 30), 3)
+        self.assertEqual(tui.scroll_top(top, 3, 10, 30), 3)
+
+    def test_it_scrolls_only_when_the_cursor_leaves_the_window(self):
+        self.assertEqual(tui.scroll_top(3, 2, 10, 30), 2)
+        self.assertEqual(tui.scroll_top(3, 13, 10, 30), 4)
+
+    def test_a_shrunk_list_never_leaves_blank_rows_below(self):
+        self.assertEqual(tui.scroll_top(20, 5, 10, 8), 0)
+        self.assertEqual(tui.scroll_top(20, 25, 10, 26), 16)
+
+
 class TestDecodeEscape(unittest.TestCase):
     """Arrows must work whether the terminal sends CSI (`ESC [ B`) or SS3
     (`ESC O B`) — curses only decodes the one its terminfo names."""

@@ -270,6 +270,15 @@ def gate_state(control, data):
     return item, held, bool(reached)
 
 
+def scroll_top(top, cur, body, count):
+    """The first row shown: it stays put while the cursor is in view and moves
+    only as far as needed to bring it back."""
+    top = min(top, cur)
+    if cur >= top + body:
+        top = cur - body + 1
+    return max(0, min(top, count - body))
+
+
 def read_waits(main_root, control, data):
     """What each queued task is waiting on you for: an outstanding question or
     problem from its run (its `awaiting.json`), or a parked conflict."""
@@ -775,6 +784,7 @@ class App(object):
         self.confirm = None
         self.log_path = None
         self.log_scroll = 0
+        self.tops = {}
         self.help = False
         self.help_scroll = 0
         self.page = 10
@@ -1607,7 +1617,8 @@ class App(object):
                         styles["warn"] if busy else styles["dim"])
             body = h - 8
             cur = min(self.cursor.get(self.view_key(), 0), max(0, len(rows) - 1))
-            top = max(0, cur - body + 1)
+            top = scroll_top(self.tops.get(self.view_key(), 0), cur, body, len(rows))
+            self.tops[self.view_key()] = top
             if not rows:
                 put(3, "%s loading from Asana…" % spinner(time.time()) if busy else
                     {"Runs": "nothing queued — browse a board (tab 2) and press space on a task",
@@ -1644,7 +1655,8 @@ class App(object):
         left = max(0, (w - width) // 2)
         rows = max(1, min(len(shown), h - 10))
         cur = min(self.palette["cursor"], max(0, len(shown) - 1))
-        top = max(0, cur - rows + 1)
+        top = scroll_top(self.palette.get("top", 0), cur, rows, len(shown))
+        self.palette["top"] = top
         inner = width - 4
 
         def row(y, text, attr, edge="│"):
