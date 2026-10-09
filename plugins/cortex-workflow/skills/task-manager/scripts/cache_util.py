@@ -47,17 +47,30 @@ def _git_output(args):
     return proc.stdout.decode("utf-8", "replace").strip()
 
 
-def project_key():
-    """Derive a stable cache key for the current repo.
+PROFILE_ENV = "CORTEX_PROJECT"
 
-    git remote origin URL -> non-alnum replaced with '-', repeats collapsed,
-    lowercased. Falls back to the repo top-level basename, else the cwd basename.
+
+def _normalise(s):
+    s = re.sub(r"[^a-zA-Z0-9]", "-", s)
+    s = re.sub(r"-{2,}", "-", s)
+    return s.lower()
+
+
+def project_key():
+    """Derive a stable cache key for the current context.
+
+    $CORTEX_PROJECT, when set, names a profile and wins: every repository visited
+    under that profile shares one cache (one provider account per profile).
+    Otherwise the git remote origin URL -> non-alnum replaced with '-', repeats
+    collapsed, lowercased. Falls back to the repo top-level basename, else the cwd
+    basename.
     """
+    profile = os.environ.get(PROFILE_ENV, "")
+    if profile:
+        return _normalise(profile)
     remote = _git_output(["remote", "get-url", "origin"])
     if remote:
-        s = re.sub(r"[^a-zA-Z0-9]", "-", remote)
-        s = re.sub(r"-{2,}", "-", s)
-        return s.lower()
+        return _normalise(remote)
     toplevel = _git_output(["rev-parse", "--show-toplevel"])
     base = toplevel if toplevel else os.getcwd()
     return os.path.basename(base)

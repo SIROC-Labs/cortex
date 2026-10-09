@@ -19,12 +19,12 @@ cortex-workflow/
     │   └── references/    ← any-input enumeration, four verifications, the milestone recipe, common mistakes
     ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
     │   └── references/    ← decide-or-stop, vague-word gate, rationalizations
-    ├── agent-loop-setup/  ← Guided setup: agent board (find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json), pre-flight, first cards, how to run the loops (bundled)
+    ├── agent-loop-setup/  ← Guided setup: one profile per board and account (find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<name>.json), pre-flight, first cards, how to run the loops (bundled)
     │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
     │   └── tests/
     ├── agent-loop-tick/   ← One unattended build run: claim an own/unassigned card, gate, start-task unattended, route the card (bundled)
     │   └── references/    ← claiming (ownership, ordering, gate, rework), routing, running (both ticks per runtime)
-    ├── agent-loop-review-tick/ ← One unattended review run: review an in-review card's PR, fix small findings, hand back large ones, squash-merge into the milestone branch (bundled)
+    ├── agent-loop-review-tick/ ← One unattended review run: review an in-review card's PR, fix small findings, hand back large ones, squash-merge into the milestone branch or approve a default-branch PR for the operator (bundled)
     │   └── references/    ← reviewing (pass briefs, validator, suppression scan), fixing, merging, routing
     ├── backend-qa/        ← Backend (API/service) QA investigation & verification (bundled)
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
@@ -126,7 +126,7 @@ refine-tasks               (Refinement-status tasks → Unassigned with implemen
   ├── task-manager       (resolve task set, fetch descriptions, upload attachment, set fields, set status)
   └── (codebase read)    (no other skill dependency — runs in the repo)
 
-agent-loop-setup           (attended, four stages: board → pre-flight → first cards → loops; presents how to run the loops, never starts them)
+agent-loop-setup           (attended, four stages: board → pre-flight → first cards → loops; names the profile and its repositories, presents how to run the loops, never starts them)
   ├── task-manager       (list_boards, get_board, ensure_board, ensure_columns, list_fields, get_current_user)
   └── agent-loop-author  (stage 3, when the operator authors the first cards now)
 
@@ -139,8 +139,8 @@ agent-loop-tick            (unattended build run: one own or unassigned card per
 agent-loop-review-tick     (unattended review run: one own or unassigned in-review card per run)
   ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, in_review), get_comments, add_comment, set_field, move_task)
   ├── (reviewer agents)  (completeness, security, simplify passes in parallel; one validator; one per-fix validator)
-  ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup)
-  └── → ready (merged) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into main
+  ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup; default-branch PRs are approved, not merged)
+  └── → ready (merged) | approved (default-branch PR, stays in in_review until the operator merges) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into the default branch
 
 agent-loop-author          (attended: input → one milestone, milestone branches, cards)
   ├── agent-loop-readiness (author mode gate, loop until READY)
@@ -219,6 +219,7 @@ To add a provider, see `skills/task-manager/references/provider-guide.md`. For t
 - **Field/status/board vocabulary is neutral.** Use the names in `references/workflow/{fields,lifecycle,boards}.md`; never provider terms (Asana "section", Jira "statusCategory") in an orchestrator.
 - **Extending the contract:** add an operation by editing `skills/task-manager/SKILL.md` (it's an open/semantic contract); then every provider must map it or degrade per the provider-guide's partial-support rule. Rare provider-specific needs use the documented escape hatch — don't push provider mechanics up into orchestrators.
 - **Agent-board moves use `move_task`, never `set_status`** — columns are addressed by role from the agent-loop cache; `set_status`'s field-first rule would land on Product Status values.
+- **`CORTEX_PROJECT=<name>` selects an agent-loop profile and keys both caches by it** — `agent_loop.py key` resolves the profile (an explicit name, else the variable, else the one profile listing the repository the run started in, else the only profile; otherwise exit 4 and the tick asks) and `cache_util.project_key()` returns the variable instead of the git-remote key, so a run under a profile uses that profile's provider account, workspace and fields in every repository it visits. Runners export it; attended sessions never set it globally.
 - **`references/workflow/*` encodes siroc's workflow profile** (status pipeline, field set) — neutral in form but org-shaped; a different org adapts these, not the orchestrators.
 
 ## Naming Conventions for Interface Tokens
@@ -286,4 +287,4 @@ One of:
 
 ## Testing
 
-`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness, and the agent-loop cache, rotation, ordering and dependency gate). Run it before every commit that touches a script.
+`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness, and the agent-loop cache, profile resolution, rotation, ordering and dependency gate). Run it before every commit that touches a script.

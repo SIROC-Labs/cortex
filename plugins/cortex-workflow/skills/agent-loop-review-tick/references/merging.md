@@ -10,7 +10,7 @@ mergeStateStatus,autoMergeRequest,statusCheckRollup,reviewDecision
 gh pr list --head <head> --state open --json number,autoMergeRequest
 ```
 
-The base is whatever the PR declares. `<base>` equal to `main` or the repository's default branch (`gh repo view --json defaultBranchRef`) is retargeted to the milestone branch the card's milestone names for this repository (`gh pr edit <n> --base <branch>`); with none, the card has no way forward (`references/routing.md`). An armed `autoMergeRequest` on any open PR on this head is disarmed first (`gh pr merge <n> --disable-auto`): a green push would otherwise merge before the review finished.
+The base is whatever the PR declares and is never changed here. `<base>` equal to `main` or the repository's default branch (`gh repo view --json defaultBranchRef`) puts the run in **approve mode**: everything below runs the same, and "Approve and leave" replaces "Merge and clean up". An armed `autoMergeRequest` on any open PR on this head is disarmed first (`gh pr merge <n> --disable-auto`): a green push would otherwise merge before the review finished, and in approve mode would merge into the default branch unattended. Record the disarm in the review report and the card comment.
 
 ## Rebase
 
@@ -71,9 +71,22 @@ gh pr checks <n>
 
 Without a `timeout` binary, poll `gh pr checks <n>` at intervals instead of blocking. A repository with no checks is reported as "no checks configured", not left blank. Red after the push is a finding: one more pass through fixing, then hand back.
 
+## Approve and leave
+
+Approve mode only, and only after every gate is green, CI is green on the pushed head, and no finding remains: the same bar as a merge.
+
+```bash
+gh pr ready <n>
+git -C <wt> rev-parse HEAD                                       # the Head SHA for the card comment
+git -C <repo> branch -D backup/pr<n>-prerebase 2>/dev/null || true
+git -C <repo> tag -d pr<n>-oldbase 2>/dev/null || true
+```
+
+The worktree and the head branch stay: the operator merges, and a rework after their review reuses both. Nothing here touches `<base>` or the PR's base setting. A rebase anchor is deleted only once the push has been verified against `headRefOid`.
+
 ## Merge and clean up
 
-Only after every gate is green, CI is green on the pushed head, and no finding remains.
+Non-default base only, and only after every gate is green, CI is green on the pushed head, and no finding remains.
 
 ```bash
 gh pr ready <n>

@@ -31,7 +31,7 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | `create-pr` reviewers | the project `CLAUDE.md` `## PR Defaults`, else none |
 | `create-pr` a non-draft PR already exists | update it |
 | `ship-it` task status move and ship comment | skipped; the invoker routes the card and writes its comment |
-| Merge or enable auto-merge | never; the review run in this plugin is the one merger, of a card's PR into its non-`main` milestone branch |
+| Merge or enable auto-merge | never; the review run in this plugin is the one merger, of a card's PR into a non-default branch; a PR targeting the default branch is approved by it and merged by the operator |
 | Commit and push | yes, on the card's branch only; never to the base branch |
 
 **Verdict vocabulary.** A stop is one of `clarification` (the card lacks an answer; carries numbered questions each with a proposed default and where it comes from) or `failed` (the run cannot proceed; carries the failing command, its last output and what a human must decide or fix). The invoker owns the wording it posts.

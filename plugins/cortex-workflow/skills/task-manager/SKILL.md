@@ -14,7 +14,7 @@ The single seam between workflow skills and whatever task manager a project uses
 
 ## Resolution (do this once per session)
 
-Run the seam's resolver — never inspect the cache by hand, and never "guess vs ask". Resolution is **detection-only**: the resolver layers cached marker → task-URL detection → ask (there is no committed selector file).
+Run the seam's resolver — never inspect the cache by hand, and never "guess vs ask". Resolution is **detection-only**: the resolver layers cached marker → task-URL detection → ask (there is no committed selector file). The per-repo cache it reads is keyed by the git remote of the current directory, or by `CORTEX_PROJECT` when that variable is set: a run under a named profile (an agent-loop run) keeps one cache, and one provider account, across every repository it visits.
 
 ```bash
 ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/resolve_provider.py [--url <task-url-or-ref>]
@@ -53,7 +53,7 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `list_milestones(board)` — the board's milestones, each `{ref, name, expanded}` (`expanded` = has ≥1 member task). For the backlog-board landscape (which milestones exist, which are already broken into tasks).
 - `milestone_tasks(milestone)` — the member tasks of a milestone.
 - `ensure_milestone(board, name)` — idempotently create the milestone if missing; return its ref. Reuses an existing one; never overwrites its description (set that with `set_description`).
-- `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`), or `"agent-queue"` — the agent board and its role → column map from the machine-local agent-loop cache (`${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py read <provider>`; exit 4 means the setup skill has not run). The provider does no work for this intent.
+- `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`), or `"agent-queue"` — the agent board and its role → column map from the machine-local agent-loop cache of the selected profile (`AL=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py; $AL read "$($AL key)"`; exit 4 means the setup skill has not run, or several profiles exist and none can be inferred, so the invoking skill asks which). The provider does no work for this intent.
 - `list_boards()` — every non-archived board in the workspace as `[{ref, name, completed}]`.
 - `get_board(board)` — `{ref, name, columns: [{ref, name}]}` with columns in native order.
 - `ensure_board(name, column_names)` — reuse the board with exactly that name, else create it with those columns; returns `{ref, created}`.

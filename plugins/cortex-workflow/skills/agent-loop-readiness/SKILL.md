@@ -47,7 +47,7 @@ Run all of them. Record a verdict per check — a check you did not evaluate is 
 
 | # | Check | Satisfied by | Failed by |
 |---|---|---|---|
-| 1 | **Repo** | A repository named on the card, resolvable to `<repos root>/<dir>` (the repos root from the agent-loop cache, `agent_loop.py read <provider>` → `repos_root`) or to an `org/repo` whose `origin` remote matches a directory under it | Nothing named; a bare word matching several or no directory; a repo inferable only from the subject matter |
+| 1 | **Repo** | A repository named on the card, resolvable to `<repos root>/<dir>` (the repos root from the agent-loop cache, `agent_loop.py read "$(agent_loop.py key)"` → `repos_root`) or to an `org/repo` whose `origin` remote matches a directory under it; when the profile lists its repositories (`repos`), `<dir>` is one of them | Nothing named; a bare word matching several or no directory; a repo inferable only from the subject matter; a repository outside the profile's list |
 | 2 | **Base branch** | A branch that exists on `origin`, or no branch named at all (→ `main`) | A branch named that `git ls-remote --heads` does not find |
 | 3 | **Definition of done** | An outcome you could write a test or a QA step against, today, before reading any code | "Improve", "make better", "clean up", "optimise", "handle properly" |
 | 4 | **Single reading** | Two engineers reading it write the same code | Two readings that produce materially different code; the card itself posing an open question |

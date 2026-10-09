@@ -2,13 +2,18 @@
 #
 # agent_loop.py — cache lifecycle and pure decisions for the agent-loop skills.
 #
-# One cache per provider at ~/.cortex/agent-loop/<provider>.json maps the six
-# column ROLES of the agent board to concrete column refs, records the board, its
-# rotation pattern, the column names (used to re-resolve refs after a rotation)
-# and the repos root. This script never opens a network connection: the skills
-# fetch through the task-manager seam and hand the results in on --from-json.
+# One cache per profile at ~/.cortex/agent-loop/<name>.json maps the six column
+# ROLES of the agent board to concrete column refs, records the provider, the board,
+# its rotation pattern, the column names (used to re-resolve refs after a rotation)
+# the repos root and the repositories under it that belong to the project. A profile
+# is one agent board with its own provider account; `key` names the profile for this
+# run: the argument, else $CORTEX_PROJECT, else the one profile whose repository the
+# current directory is in, else the only profile present; anything else is exit 4 so
+# the caller asks instead of guessing. This script never opens a network connection:
+# the skills fetch through the task-manager seam and hand the results in on --from-json.
 #
-#   agent_loop.py key <provider>
+#   agent_loop.py key [<name>]
+#   agent_loop.py list
 #   agent_loop.py read <key>
 #   agent_loop.py write <key> --from-json <path|->
 #   agent_loop.py rotate <key> --from-json <path|->      # list_boards() result
@@ -18,7 +23,8 @@
 #   agent_loop.py last-run <key> write <outcome> [--kind build|review] [--task <ref>] [--detail <text>]
 #
 # Exit codes: 0 ok · 2 no match (rotate found no board for the pattern) · 4 cache
-# missing or invalid (run agent-loop-setup) · 1 argument/parse error.
+# missing or invalid, or no single profile to pick (run agent-loop-setup, or name the
+# profile) · 1 argument/parse error.
 
 import datetime
 import json
@@ -135,6 +141,9 @@ def validate_cache(obj):
             problems.append("rotation.pattern is missing")
     if not obj.get("repos_root"):
         problems.append("repos_root is missing")
+    repos = obj.get("repos")
+    if repos is not None and (not isinstance(repos, list) or any(not isinstance(r, str) or not r for r in repos)):
+        problems.append("repos must be a list of directory names under repos_root")
     return problems
 
 
@@ -148,10 +157,86 @@ def read_cache(key):
     return obj
 
 
+NAME_RE = r"[a-z0-9_-]+"
+PROFILE_ENV = "CORTEX_PROJECT"
+
+
+# Profiles present on this machine: every <name>.json in the cache dir that is not a
+# last-run record.
+def list_profiles():
+    try:
+        names = os.listdir(CACHE_DIR)
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        if not n.endswith(".json") or ".last-run." in n or n.endswith(".last-run.json"):
+            continue
+        base = n[: -len(".json")]
+        if re.fullmatch(NAME_RE, base):
+            out.append(base)
+    return sorted(out)
+
+
+# Profiles whose listed repositories contain `cwd`: the current directory is the
+# repository root or inside it. A profile with no repos list is never inferred.
+def profiles_for_directory(cwd, profiles):
+    cwd = os.path.realpath(cwd)
+    out = []
+    for name in profiles:
+        cache = _read_json(cache_path(name))
+        if not isinstance(cache, dict):
+            continue
+        root = cache.get("repos_root")
+        repos = cache.get("repos")
+        if not root or not isinstance(repos, list):
+            continue
+        for r in repos:
+            if not isinstance(r, str):
+                continue
+            repo = os.path.realpath(os.path.join(root, r))
+            if cwd == repo or cwd.startswith(repo + os.sep):
+                out.append(name)
+                break
+    return out
+
+
 def cmd_key(args):
-    if not args or not re.fullmatch(r"[a-z0-9_-]+", args[0]):
-        die(1, "usage: %s key <provider>" % PROG)
-    sys.stdout.write(args[0] + "\n")
+    if args:
+        if not re.fullmatch(NAME_RE, args[0]):
+            die(1, "usage: %s key [<name>]  (lowercase letters, digits, '-' and '_')" % PROG)
+        err("source=argument")
+        sys.stdout.write(args[0] + "\n")
+        return
+    env = os.environ.get(PROFILE_ENV, "")
+    if env:
+        if not re.fullmatch(NAME_RE, env):
+            die(1, "%s: %s=%r is not a profile name (lowercase letters, digits, '-' and '_')" % (PROG, PROFILE_ENV, env))
+        err("source=environment")
+        sys.stdout.write(env + "\n")
+        return
+    profiles = list_profiles()
+    if not profiles:
+        die(4, "%s: no agent loop configured — run agent-loop-setup" % PROG)
+    here = profiles_for_directory(os.getcwd(), profiles)
+    if len(here) == 1:
+        err("source=directory")
+        sys.stdout.write(here[0] + "\n")
+        return
+    if len(here) > 1:
+        die(4, "%s: this directory belongs to several profiles (%s) — ask which one, or pass the name" % (
+            PROG, ", ".join(here)))
+    if len(profiles) == 1:
+        err("source=only-profile")
+        sys.stdout.write(profiles[0] + "\n")
+        return
+    die(4, "%s: several agent loops configured (%s) and this directory is in none of their repositories — ask which one, or pass the name" % (
+        PROG, ", ".join(profiles)))
+
+
+def cmd_list(args):
+    for name in list_profiles():
+        sys.stdout.write(name + "\n")
 
 
 def cmd_read(args):
@@ -329,6 +414,7 @@ def cmd_last_run(args):
 
 COMMANDS = {
     "key": cmd_key,
+    "list": cmd_list,
     "read": cmd_read,
     "write": cmd_write,
     "rotate": cmd_rotate,
