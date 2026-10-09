@@ -126,7 +126,7 @@ refine-tasks               (Refinement-status tasks → Unassigned with implemen
   ├── task-manager       (resolve task set, fetch descriptions, upload attachment, set fields, set status)
   └── (codebase read)    (no other skill dependency — runs in the repo)
 
-agent-loop-setup           (attended, four stages: board → pre-flight → first cards → loops; presents how to run the loops, never starts them)
+agent-loop-setup           (attended, four stages: board → pre-flight → first cards → loops; names the profile and its repositories, presents how to run the loops, never starts them)
   ├── task-manager       (list_boards, get_board, ensure_board, ensure_columns, list_fields, get_current_user)
   └── agent-loop-author  (stage 3, when the operator authors the first cards now)
 
@@ -287,4 +287,4 @@ One of:
 
 ## Testing
 
-`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness, and the agent-loop cache, rotation, ordering and dependency gate). Run it before every commit that touches a script.
+`make test` at the repo root runs every `tests/` directory under `plugins/` with `unittest`. Tests cover the scripts' pure functions (board classification, field mapping, task projection, status decision, rendering, readiness, and the agent-loop cache, profile resolution, rotation, ordering and dependency gate). Run it before every commit that touches a script.
