@@ -4,7 +4,7 @@ The siroc workflow organizes tasks on three kinds of board, independent of the t
 
 - **Sprint board** — the current iteration's work. Exactly one is *active* at a time.
 - **Backlog board** — longer-lived collections of not-yet-scheduled work.
-- **Agent board** — a board holding work unattended agents may pick up. One agent board, its provider account and its repos root form a **profile**; a machine may hold several profiles (two products on two boards, in two accounts), and every run selects one. Several people share a board; a run takes only cards that are unassigned or assigned to its user. Its columns are addressed by **role**, never by name.
+- **Agent board** — a board holding work unattended agents may pick up. One agent board, its provider account, its repos root and the repositories under it form a **profile**; a machine may hold several profiles (two products on two boards, in two accounts), and every run selects one. Several people share a board; a run takes only cards that are unassigned or assigned to its user. Its columns are addressed by **role**, never by name.
 
 **Active-sprint policy:** the active sprint is the current, not-yet-finished iteration. When more than one candidate qualifies, the latest-ending one wins.
 

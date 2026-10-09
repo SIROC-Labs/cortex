@@ -15,17 +15,17 @@ description: >
 
 # Agent loop setup
 
-Take the operator from nothing to a running loop in four stages: **board → pre-flight → first cards → loops**. The board is the **agent board** (`plugins/cortex-workflow/references/workflow/boards.md` → "The agent board"). One loop is a **profile**: a name, the provider account it runs under, its agent board and its repos root. The cache is `~/.cortex/agent-loop/<name>.json`, written through `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py`. A machine holds any number of profiles; every run selects one. Every task-manager call goes through the `task-manager` interface.
+Take the operator from nothing to a running loop in four stages: **board → pre-flight → first cards → loops**. The board is the **agent board** (`plugins/cortex-workflow/references/workflow/boards.md` → "The agent board"). One loop is a **profile**: a name, the provider account it runs under, its agent board, its repos root and the repositories under that root that belong to the project. The cache is `~/.cortex/agent-loop/<name>.json`, written through `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py`. A machine holds any number of profiles; every run selects one. Every task-manager call goes through the `task-manager` interface.
 
 Announce each stage by name as it starts. The operator may skip any stage after the first.
 
 ## The profile and its environment
 
-`CORTEX_PROJECT=<name>` selects a profile. The task-manager seam keys its own machine-local cache by the same variable, so the provider's workspace, credentials and fields for this profile live apart from every other profile's and from any repository's. **From the moment the name is known, every script call this skill makes runs with `CORTEX_PROJECT=<name>` in its environment** (prefix the command; the shell keeps no export between calls), and so does every seam operation. Never let a call fall back to the git-derived key: it would read another account's configuration.
+A run finds its profile by itself when it can: from the name it was given, from `CORTEX_PROJECT`, from the repository it was started in (one listed in exactly one profile), or because only one profile exists. Anything else is asked, never guessed. `CORTEX_PROJECT=<name>` is the hand-off: the task-manager seam keys its own machine-local cache by the same variable, so the provider's workspace, credentials and fields for this profile live apart from every other profile's and from any repository's. **From the moment the name is known, every script call this skill makes runs with `CORTEX_PROJECT=<name>` in its environment** (prefix the command; the shell keeps no export between calls), and so does every seam operation. Never let a call fall back to the git-derived key: it would read another account's configuration.
 
 ## Entry
 
-1. **Name.** Take it from the arguments; else from `CORTEX_PROJECT`; else `agent_loop.py key` with no argument prints the only profile present, or exits 4 naming several or none. Ask whether to reconfigure an existing profile or create a new one. A name is lowercase letters, digits, `-` and `_`; propose a short one for the project (`bridify`, `humanus`).
+1. **Name.** `agent_loop.py key [<name>]` with the name from the arguments when one was given. Exit 0 → that profile; ask whether to reconfigure it or create a new one. Exit 4 → it says why (none configured, several and the current directory in none of their repositories, or a directory shared by several); ask which existing profile to reconfigure, or for the name of a new one. A name is lowercase letters, digits, `-` and `_`; propose a short one for the project (`bridify`, `humanus`).
 2. **Provider.** Resolve it through the seam (`resolve_provider.py`; ask when it exits 4 and persist with `--set`), then `get_current_user()`. A provider that reports no configuration for this profile runs its own bootstrap now, attended: it may ask which workspace and which credential this profile uses. Confirm that the user and workspace it prints are the account this loop should run as.
 3. `agent_loop.py read <name>`: exit 4 → stage 1. A cache that reads → run the stage 2 board check; OK → print the board and ask whether to reconfigure it (stage 1 with the cached values as defaults) or continue from stage 3.
 
@@ -37,7 +37,8 @@ Announce each stage by name as it starts. The operator may skip any stage after 
    - Ask whether the board is a series (a sprint number in its name). Yes → propose a rotation pattern by replacing each run of digits in the name with `(\d+)` and anchoring it (`^…$`, regex-escaped); show it and confirm. No → `rotation: null`.
 2. **Roles.** Map the six roles to the board's columns. Names equal to the defaults map automatically. Otherwise list the columns and ask for each unmapped role. Every role maps to a distinct column; refuse otherwise.
 3. **Repos root.** Default: the parent of the current repository's top level (`dirname "$(git rev-parse --show-toplevel)"`). Confirm or take the path the operator gives; it must exist.
-4. **Write.** Build the cache object (`provider`, `workspace` from the current user's workspace, `board {ref,name}`, `columns`, `column_names`, `rotation`, `repos_root`) and `agent_loop.py write <name> --from-json -`. Print the profile name, the mapping table, the rotation rule and the cache path.
+4. **Repositories.** List the git repositories directly under the root (directories with a `.git`) and ask which belong to this project; the current repository is pre-selected. This list is how a run started inside one of them knows its profile, and the only repositories a card of this profile may name. A repository may belong to several profiles, but a run started in it then has to be told which.
+5. **Write.** Build the cache object (`provider`, `workspace` from the current user's workspace, `board {ref,name}`, `columns`, `column_names`, `rotation`, `repos_root`, `repos`) and `agent_loop.py write <name> --from-json -`. Print the profile name, the repositories, the mapping table, the rotation rule and the cache path.
 
 ## Stage 2 — Pre-flight
 
@@ -55,13 +56,13 @@ Ask whether to author cards now. Yes → ask for the input (a URL, a file path, 
 
 ## Stage 4 — Loops
 
-Present the ways to run the loop from `skills/agent-loop-tick/references/running.md` that are possible here: the current runtime's column of its ways table, and the agterm session only on macOS with `agtermctl` on `PATH`. For each, its step-by-step instructions and templates in full, with this machine's values filled in (`<name>`, `<repos_root>`, the runtime binary's directory, `<home>`) and the current runtime's variant of every command. Open with "By hand" as the first run to watch, and close with that file's "What every way must keep".
+Present the ways to run the loop from `skills/agent-loop-tick/references/running.md` that are possible here: the current runtime's column of its ways table, and the agterm session only on macOS with `agtermctl` on `PATH`. For each, its step-by-step instructions and templates in full, with this machine's values filled in (`<name>`, `<repos_root>`, `<plugin root>`, the runtime binary's directory, `<home>`) and the current runtime's variant of every command. Open with "By hand" as the first run to watch, and close with that file's "What every way must keep".
 
 Say plainly that the operator sets up and starts the loops themselves, each in a session of its own and never in this one, and that each profile runs its own pair of loops. This skill runs no tick, starts no loop, writes no file from a template and installs no scheduler entry. End with the cache path and one line naming what remains undone: stages skipped and pre-flight lines still failing.
 
 ## `check` mode
 
-With `check` in the arguments, nothing is asked: the name as in Entry step 1 (exit 4 → report its message), `agent_loop.py read <name>` (exit 4 → report "run agent-loop-setup <name>"), then `get_board(board)` and confirm every cached column ref still exists under its cached name. Print `agent board OK — <name>: <board>` or the mismatches, and exit. For a runner's pre-flight.
+With `check` in the arguments, nothing is asked: `agent_loop.py key [<name>]` (exit 4 → report its message and stop), `agent_loop.py read <name>` (exit 4 → report "run agent-loop-setup <name>"), then `get_board(board)` and confirm every cached column ref still exists under its cached name. Print `agent board OK — <name>: <board>` or the mismatches, and exit. For a runner's pre-flight.
 
 ## Rules
 

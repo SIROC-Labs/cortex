@@ -4,7 +4,7 @@ The plugin ships no scheduler. The loop is two kinds of tick, each one invocatio
 
 ## What every way must keep
 
-- **One profile per session.** A profile is one agent board under one provider account (`~/.cortex/agent-loop/<name>.json`). `CORTEX_PROJECT=<name>` in the environment of the runtime process selects it: both ticks read it, and so does the task-manager seam, so every call in the run uses that profile's account, board and repos root. The runner exports it; a hand-started session exports it before starting the runtime. Never export it in a shell profile: an attended session in a repository would then read the loop's cache instead of the repository's. A machine with two profiles runs two pairs of loops.
+- **One profile per session.** A profile is one agent board under one provider account, with the repositories that belong to it (`~/.cortex/agent-loop/<name>.json`). A tick finds its profile from the repository it is started in, or because it is the only one; the runner script names it instead, through `CORTEX_PROJECT`, which both ticks and the task-manager seam read. When neither applies, the tick asks; a run with nobody to answer stops. Never export the variable in a shell profile: an attended session in a repository would then read the loop's cache instead of the repository's. A machine with two profiles runs two pairs of loops.
 - **One session per kind.** The build tick and the review tick run in sessions of their own, side by side: each takes cards from a different column and works in its own worktree.
 - **One tick of each kind at a time per profile on this machine.** Two ticks of one kind would both read the same column before either claims. Other people's ticks on the same board are safe; each takes only its own or unassigned cards. `~/.cortex/agent-loop/<name>.last-run.json` (build) and `<name>.review.last-run.json` (review) with `outcome: "running"` and a recent `started` mean a run of that kind is in flight.
 - **Fresh context per tick.** Inheriting the previous card's context is how one task silently adopts another's assumptions. The ways marked *shared* below break this; use them to watch or to drain a board once, not as the standing loop.
@@ -14,7 +14,7 @@ The plugin ships no scheduler. The loop is two kinds of tick, each one invocatio
 
 ## One tick, per runtime
 
-Every command runs with `CORTEX_PROJECT=<name>` set (`CORTEX_PROJECT=<name> claude -p …`, or exported first).
+Started inside one of the profile's repositories, or with one profile configured, the tick needs nothing else. From anywhere else, pass the name: `/agent-loop-tick <name>`, or `CORTEX_PROJECT=<name>` in front of the command.
 
 | Runtime | Build tick | Review tick |
 |---|---|---|
@@ -36,46 +36,55 @@ Codex (the CLI) invokes a skill as `$<skill-name>`. `--approve-for-me` keeps the
 
 ### By hand
 
-1. Open two terminals in `<repos_root>` and `export CORTEX_PROJECT=<name>` in each.
+1. Open two terminals inside one of the profile's repositories (`<repos_root>/<repo>`).
 2. Run the build tick from the table above in one and the review tick in the other.
 3. Read the last line of each: `tick complete — …` and `review tick complete — …`.
 
 ### `/loop` — Claude Code, shared context
 
-1. Start two dedicated sessions in `<repos_root>`: `CORTEX_PROJECT=<name> claude --permission-mode auto` in each.
+1. Start two dedicated sessions inside one of the profile's repositories: `claude --permission-mode auto` in each.
 2. In the build session type `/loop 1h /agent-loop-tick`; in the review session, `/loop 1h /agent-loop-review-tick`.
 3. Leave both sessions open; each loop ends with its session, when you cancel it, or after 7 days.
 
 ### `/goal` — Claude Code or Codex, shared context
 
-1. Start two dedicated sessions in `<repos_root>` (`CORTEX_PROJECT=<name> claude --permission-mode auto`, or `CORTEX_PROJECT=<name> codex --approve-for-me`, in each).
+1. Start two dedicated sessions inside one of the profile's repositories (`claude --permission-mode auto`, or `codex --approve-for-me`, in each).
 2. In the build session: `/goal Repeat /agent-loop-tick. Done when it ends with "queue empty" or "queue blocked".` In the review session: `/goal Repeat /agent-loop-review-tick. Done when it ends with "nothing to review".` Codex: the same text with `$agent-loop-tick` and `$agent-loop-review-tick`.
 3. `/goal` shows a session's state; `/goal clear` stops it (Codex also has `/goal pause` and `/goal resume`).
 
 ### System scheduler — cron or launchd
 
-One runner script takes the profile and the kind as its arguments and holds that pair's lock; the scheduler calls it hourly once per kind and profile, so the kinds run side by side. Both cron and launchd start jobs with a near-empty `PATH` and never read `~/.zshrc`, so the runner sets both itself. The repos root comes from the profile's cache, so one script serves every profile.
+One runner script takes the kind, and optionally a profile, as its arguments; with no profile it runs every profile in turn, each in a fresh runtime process. It holds one lock per profile and kind; the scheduler calls it hourly once per kind, so the kinds run side by side. Both cron and launchd start jobs with a near-empty `PATH` and never read `~/.zshrc`, so the runner sets both itself. The repos root comes from the profile's cache, so adding a project means running setup and nothing else.
 
-1. Save as `~/.cortex/agent-loop/run-tick.sh` and `chmod +x` it. Fill the `PATH` entry holding the runtime binary and one token line per credential a profile's provider uses (delete them on the Asana MCP transport).
+1. Save as `~/.cortex/agent-loop/run-tick.sh` and `chmod +x` it. Fill the `PATH` entry holding the runtime binary, the plugin root, and one token line per credential a profile's provider uses (delete them on the Asana MCP transport).
 
    ```bash
    #!/bin/bash
-   # One tick of the given profile and kind. A second runner of the same pair exits while the first is alive.
+   # One tick of the given kind, for one profile or for every profile in turn.
+   # A second runner of the same profile and kind exits while the first is alive.
    set -uo pipefail
    export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
    export ASANA_PERSONAL_ACCESS_TOKEN="<token>"
    export ASANA_TOKEN_<NAME>="<token of another profile's account>"
-   NAME="${1:-}"
-   case "${2:-}" in
+   KIND="${1:-}"
+   case "$KIND" in
    build) PROMPT='/agent-loop-tick' ;;          # Codex: '$agent-loop-tick'
    review) PROMPT='/agent-loop-review-tick' ;;  # Codex: '$agent-loop-review-tick'
-   *) echo "usage: $0 <profile> build|review" >&2; exit 2 ;;
+   *) echo "usage: $0 build|review [<profile>]" >&2; exit 2 ;;
    esac
-   export CORTEX_PROJECT="$NAME"
    DIR="$HOME/.cortex/agent-loop"
+   AL="<plugin root>/skills/agent-loop-setup/scripts/agent_loop.py"
+   if [ -n "${2:-}" ]; then PROFILES="$2"; else PROFILES=$(python3 "$AL" list); fi
+   [ -n "$PROFILES" ] || { echo "no agent loop configured — run agent-loop-setup" >&2; exit 1; }
+   if [ -z "${2:-}" ] && [ "$(echo "$PROFILES" | wc -l)" -gt 1 ]; then
+       for p in $PROFILES; do "$0" "$KIND" "$p"; done   # one fresh process per profile
+       exit 0
+   fi
+   NAME="$PROFILES"
+   export CORTEX_PROJECT="$NAME"
    CACHE="$DIR/$NAME.json"
-   LOG="$DIR/run-tick.$NAME.$2.log"
-   LOCK="$DIR/run-tick.$NAME.$2.lock"
+   LOG="$DIR/run-tick.$NAME.$KIND.log"
+   LOCK="$DIR/run-tick.$NAME.$KIND.lock"
    log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"; }
    REPOS_ROOT=$(jq -r '.repos_root // empty' "$CACHE" 2>/dev/null)
    [ -n "$REPOS_ROOT" ] || { log "FATAL: no profile at $CACHE — run agent-loop-setup $NAME"; exit 1; }
@@ -99,10 +108,10 @@ One runner script takes the profile and the kind as its arguments and holds that
    log "end: $NAME $PROMPT (exit $?)"
    ```
 
-2. Run `run-tick.sh <name> build` and `run-tick.sh <name> review` once by hand and read `~/.cortex/agent-loop/run-tick.<name>.build.log` and `run-tick.<name>.review.log`.
-3. Schedule it once per kind and profile, one of:
-   - **cron** (Linux; on macOS cron needs Full Disk Access, so prefer launchd): `crontab -e`, add `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh <name> build` and `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh <name> review`.
-   - **launchd** (macOS): save the plist twice per profile, as `~/Library/LaunchAgents/<label>.<name>.build.plist` with `<kind>` = `build` and as `<label>.<name>.review.plist` with `<kind>` = `review`. `<label>` is a reverse-DNS name such as `com.<you>.agent-loop`, and `<home>` your home directory spelled out (launchd expands no variables):
+2. Run `run-tick.sh build` and `run-tick.sh review` once by hand and read `~/.cortex/agent-loop/run-tick.<name>.build.log` and `run-tick.<name>.review.log` for each profile.
+3. Schedule it once per kind, one of:
+   - **cron** (Linux; on macOS cron needs Full Disk Access, so prefer launchd): `crontab -e`, add `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh build` and `0 * * * * $HOME/.cortex/agent-loop/run-tick.sh review`. Add `<name>` at the end to schedule one profile on its own.
+   - **launchd** (macOS): save the plist twice, as `~/Library/LaunchAgents/<label>.build.plist` with `<kind>` = `build` and as `<label>.review.plist` with `<kind>` = `review`. `<label>` is a reverse-DNS name such as `com.<you>.agent-loop`, and `<home>` your home directory spelled out (launchd expands no variables). To schedule one profile on its own, add a `<string><name></string>` after the kind and use `<label>.<name>.<kind>`:
 
      ```xml
      <?xml version="1.0" encoding="UTF-8"?>
@@ -110,12 +119,11 @@ One runner script takes the profile and the kind as its arguments and holds that
      <plist version="1.0">
      <dict>
          <key>Label</key>
-         <string><label>.<name>.<kind></string>
+         <string><label>.<kind></string>
          <key>ProgramArguments</key>
          <array>
              <string>/bin/bash</string>
              <string><home>/.cortex/agent-loop/run-tick.sh</string>
-             <string><name></string>
              <string><kind></string>
          </array>
          <key>StartCalendarInterval</key>
@@ -126,16 +134,16 @@ One runner script takes the profile and the kind as its arguments and holds that
          <key>RunAtLoad</key>
          <false/>
          <key>StandardOutPath</key>
-         <string><home>/.cortex/agent-loop/launchd.<name>.<kind>.out.log</string>
+         <string><home>/.cortex/agent-loop/launchd.<kind>.out.log</string>
          <key>StandardErrorPath</key>
-         <string><home>/.cortex/agent-loop/launchd.<name>.<kind>.err.log</string>
+         <string><home>/.cortex/agent-loop/launchd.<kind>.err.log</string>
          <key>ProcessType</key>
          <string>Background</string>
      </dict>
      </plist>
      ```
 
-     Per kind and profile: enable `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.<name>.<kind>.plist`, run now `launchctl kickstart gui/$(id -u)/<label>.<name>.<kind>`, disable `launchctl bootout gui/$(id -u)/<label>.<name>.<kind>`.
+     Per kind: enable `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.<kind>.plist`, run now `launchctl kickstart gui/$(id -u)/<label>.<kind>`, disable `launchctl bootout gui/$(id -u)/<label>.<kind>`.
 
 ### agterm sessions — macOS
 
@@ -227,7 +235,7 @@ launchd types each tick into a long-lived interactive session of its profile and
    ```
 
 2. Run `~/.cortex/agent-loop/agterm-tick.sh <name> build` and `agterm-tick.sh <name> review` by hand; the `<name> build` and `<name> review` sessions appear in agterm's `Agent Loop` workspace with their ticks running.
-3. Save the two launchd plists per profile from "System scheduler" with `agterm-tick.sh` in place of `run-tick.sh` and `agterm.<name>.<kind>` in place of `launchd.<name>.<kind>` in the log names.
+3. Save two launchd plists per profile from "System scheduler", in the one-profile form, with `agterm-tick.sh` in place of `run-tick.sh`, the profile before the kind (this script takes `<profile> build|review`), and `agterm.<name>.<kind>` in place of `launchd.<kind>` in the log names.
 4. Enable, run and disable each with the same `launchctl` commands. Watch a session with `agtermctl session select --target <id>`, or read it with `agtermctl session text --all --target <id>`; `<id>` is the first column of `agtermctl tree --json` for the `<name> build` or `<name> review` session.
 
 ## Cost

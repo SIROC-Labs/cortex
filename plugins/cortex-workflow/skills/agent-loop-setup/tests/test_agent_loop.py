@@ -94,7 +94,66 @@ class KeyReadWriteTest(AgentLoopCase):
         self.assertEqual(code, 4)
         self.assertIn("asana", err)
         self.assertIn("humanus", err)
-        self.assertIn("CORTEX_PROJECT", err)
+        self.assertIn("ask", err)
+
+    def two_profiles_with_repos(self):
+        root = os.path.join(self.home, "repos")
+        for d in ("bridify-api", "humanus-frontend", "shared-tool"):
+            os.makedirs(os.path.join(root, d, "src"))
+        a = dict(CACHE, repos_root=root, repos=["bridify-api", "shared-tool"])
+        b = dict(CACHE, repos_root=root, repos=["humanus-frontend", "shared-tool"])
+        for name, cache in (("bridify", a), ("humanus", b)):
+            code, _, err = self.run_cmd(["write", name, "--from-json", "-"], stdin=json.dumps(cache))
+            self.assertEqual(code, 0, err)
+        return root
+
+    def run_in(self, cwd, args, **extra):
+        env = dict(os.environ, HOME=self.home)
+        env.pop("CORTEX_PROJECT", None)
+        env.update(extra)
+        proc = subprocess.run([sys.executable, SCRIPT] + args, capture_output=True, text=True, env=env, cwd=cwd)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_key_inferred_from_a_listed_repo(self):
+        root = self.two_profiles_with_repos()
+        code, out, err = self.run_in(os.path.join(root, "humanus-frontend", "src"), ["key"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), "humanus")
+
+    def test_key_inferred_from_a_listed_repo_reports_source(self):
+        root = self.two_profiles_with_repos()
+        _, _, err = self.run_in(os.path.join(root, "bridify-api"), ["key"])
+        self.assertIn("source=directory", err)
+
+    def test_key_repo_in_two_profiles_exits_4(self):
+        root = self.two_profiles_with_repos()
+        code, _, err = self.run_in(os.path.join(root, "shared-tool"), ["key"])
+        self.assertEqual(code, 4)
+        self.assertIn("bridify", err)
+        self.assertIn("humanus", err)
+
+    def test_key_unlisted_directory_exits_4(self):
+        root = self.two_profiles_with_repos()
+        code, _, _ = self.run_in(root, ["key"])
+        self.assertEqual(code, 4)
+
+    def test_key_environment_beats_directory(self):
+        root = self.two_profiles_with_repos()
+        code, out, _ = self.run_in(os.path.join(root, "humanus-frontend"), ["key"], CORTEX_PROJECT="bridify")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "bridify")
+
+    def test_list_prints_profiles(self):
+        self.two_profiles_with_repos()
+        self.run_cmd(["last-run", "bridify", "start"])
+        code, out, _ = self.run_cmd_env(["list"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.split(), ["bridify", "humanus"])
+
+    def test_write_rejects_non_list_repos(self):
+        code, _, err = self.run_cmd(["write", "x", "--from-json", "-"], stdin=json.dumps(dict(CACHE, repos="api")))
+        self.assertEqual(code, 1)
+        self.assertIn("repos", err)
 
     def test_read_missing_exits_4(self):
         code, _, err = self.run_cmd(["read", "asana"])
