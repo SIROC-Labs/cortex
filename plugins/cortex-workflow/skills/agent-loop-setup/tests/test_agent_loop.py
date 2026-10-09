@@ -46,10 +46,55 @@ class AgentLoopCase(unittest.TestCase):
 
 
 class KeyReadWriteTest(AgentLoopCase):
-    def test_key_is_provider(self):
-        code, out, _ = self.run_cmd(["key", "asana"])
+    def run_cmd_env(self, args, **extra):
+        env = dict(os.environ, HOME=self.home)
+        env.pop("CORTEX_PROJECT", None)
+        env.update(extra)
+        proc = subprocess.run([sys.executable, SCRIPT] + args, capture_output=True, text=True, env=env,
+                              cwd=self.home)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_key_explicit_name(self):
+        code, out, _ = self.run_cmd_env(["key", "bridify"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "bridify")
+
+    def test_key_rejects_bad_name(self):
+        code, _, _ = self.run_cmd_env(["key", "Bad Name"])
+        self.assertEqual(code, 1)
+
+    def test_key_from_environment(self):
+        code, out, _ = self.run_cmd_env(["key"], CORTEX_PROJECT="humanus")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "humanus")
+
+    def test_key_explicit_beats_environment(self):
+        code, out, _ = self.run_cmd_env(["key", "bridify"], CORTEX_PROJECT="humanus")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "bridify")
+
+    def test_key_single_cache_is_the_default(self):
+        self.seed()
+        self.run_cmd(["last-run", "asana", "start"])
+        self.run_cmd(["last-run", "asana", "start", "--kind", "review"])
+        code, out, _ = self.run_cmd_env(["key"])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "asana")
+
+    def test_key_no_cache_exits_4(self):
+        code, _, err = self.run_cmd_env(["key"])
+        self.assertEqual(code, 4)
+        self.assertIn("agent-loop-setup", err)
+
+    def test_key_several_caches_exits_4_naming_them(self):
+        self.seed()
+        code, _, err = self.run_cmd(["write", "humanus", "--from-json", "-"], stdin=json.dumps(CACHE))
+        self.assertEqual(code, 0, err)
+        code, _, err = self.run_cmd_env(["key"])
+        self.assertEqual(code, 4)
+        self.assertIn("asana", err)
+        self.assertIn("humanus", err)
+        self.assertIn("CORTEX_PROJECT", err)
 
     def test_read_missing_exits_4(self):
         code, _, err = self.run_cmd(["read", "asana"])

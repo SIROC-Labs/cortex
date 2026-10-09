@@ -66,9 +66,11 @@ milestone branch hangs off, and what a later extension adds cards to. See `refer
   an unmerged branch the work builds on. Cut `milestone/<slug>` from `origin/<parent>` and push it, so
   the readiness check finds it on `origin`. One `<slug>` across every repository. An existing
   `milestone/<slug>` is reused.
-- **Base branch.** Every card's base is `milestone/<slug>`; no card ever targets `main`. The review
-  run merges each card's PR into that branch; merging the milestone branch into its parent stays the
-  operator's, and the anchor's description says so.
+- **Base branch.** Every card's base is `milestone/<slug>` unless the operator asks for the default
+  branch. The review run merges each card's PR into a milestone branch; merging the milestone branch
+  into its parent stays the operator's, and the anchor's description says so. A PR against the
+  default branch is approved by the review run and merged by the operator, so a card based there
+  gates its dependents until that merge.
 
 Set blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads
 dependencies and lets a blocker through once it is completed or sits in the board's ready or done column
@@ -82,7 +84,7 @@ Each card carries all of:
 | Part | Content |
 |---|---|
 | Repo | The repo, resolvable — never inferable from the subject matter |
-| Base branch | `milestone/<slug>`, always |
+| Base branch | `milestone/<slug>`, or the default branch when the operator chose it |
 | Problem | The defect with `file:line` evidence, and the quote from the input that motivates it |
 | Goal | One sentence of the end state |
 | Approach | One paragraph: the idea and its direction, the layer it lives in, what it deliberately does not do. No file-level steps, no code |
@@ -160,5 +162,5 @@ See `references/authoring.md` → "Common mistakes".
 - Your coverage check started from the card list.
 - Every "decision taken" survived review — you are not surfacing the real calls.
 - You are about to create a card you have not run `agent-loop-readiness` over.
-- A card's base branch is `main`, or two cards in one repository depend on each other.
+- A card's base branch is `main` without the operator asking for it, or two cards in one repository depend on each other.
 - Your card carries file-level steps — that is the run's plan, not the card's.

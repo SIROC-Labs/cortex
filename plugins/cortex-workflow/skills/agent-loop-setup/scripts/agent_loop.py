@@ -2,13 +2,15 @@
 #
 # agent_loop.py — cache lifecycle and pure decisions for the agent-loop skills.
 #
-# One cache per provider at ~/.cortex/agent-loop/<provider>.json maps the six
-# column ROLES of the agent board to concrete column refs, records the board, its
-# rotation pattern, the column names (used to re-resolve refs after a rotation)
-# and the repos root. This script never opens a network connection: the skills
+# One cache per profile at ~/.cortex/agent-loop/<name>.json maps the six column
+# ROLES of the agent board to concrete column refs, records the provider, the board,
+# its rotation pattern, the column names (used to re-resolve refs after a rotation)
+# and the repos root. A profile is one agent board with its own provider account;
+# `key` names the profile for this run: the argument, else $CORTEX_PROJECT, else the
+# only profile present. This script never opens a network connection: the skills
 # fetch through the task-manager seam and hand the results in on --from-json.
 #
-#   agent_loop.py key <provider>
+#   agent_loop.py key [<name>]
 #   agent_loop.py read <key>
 #   agent_loop.py write <key> --from-json <path|->
 #   agent_loop.py rotate <key> --from-json <path|->      # list_boards() result
@@ -18,7 +20,8 @@
 #   agent_loop.py last-run <key> write <outcome> [--kind build|review] [--task <ref>] [--detail <text>]
 #
 # Exit codes: 0 ok · 2 no match (rotate found no board for the pattern) · 4 cache
-# missing or invalid (run agent-loop-setup) · 1 argument/parse error.
+# missing or invalid, or no single profile to pick (run agent-loop-setup, or name the
+# profile) · 1 argument/parse error.
 
 import datetime
 import json
@@ -148,10 +151,47 @@ def read_cache(key):
     return obj
 
 
+NAME_RE = r"[a-z0-9_-]+"
+PROFILE_ENV = "CORTEX_PROJECT"
+
+
+# Profiles present on this machine: every <name>.json in the cache dir that is not a
+# last-run record.
+def list_profiles():
+    try:
+        names = os.listdir(CACHE_DIR)
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        if not n.endswith(".json") or ".last-run." in n or n.endswith(".last-run.json"):
+            continue
+        base = n[: -len(".json")]
+        if re.fullmatch(NAME_RE, base):
+            out.append(base)
+    return sorted(out)
+
+
 def cmd_key(args):
-    if not args or not re.fullmatch(r"[a-z0-9_-]+", args[0]):
-        die(1, "usage: %s key <provider>" % PROG)
-    sys.stdout.write(args[0] + "\n")
+    if args:
+        if not re.fullmatch(NAME_RE, args[0]):
+            die(1, "usage: %s key [<name>]  (lowercase letters, digits, '-' and '_')" % PROG)
+        sys.stdout.write(args[0] + "\n")
+        return
+    env = os.environ.get(PROFILE_ENV, "")
+    if env:
+        if not re.fullmatch(NAME_RE, env):
+            die(1, "%s: %s=%r is not a profile name (lowercase letters, digits, '-' and '_')" % (PROG, PROFILE_ENV, env))
+        sys.stdout.write(env + "\n")
+        return
+    profiles = list_profiles()
+    if len(profiles) == 1:
+        sys.stdout.write(profiles[0] + "\n")
+        return
+    if not profiles:
+        die(4, "%s: no agent loop configured — run agent-loop-setup" % PROG)
+    die(4, "%s: several agent loops configured (%s) — set %s=<name> or pass the name" % (
+        PROG, ", ".join(profiles), PROFILE_ENV))
 
 
 def cmd_read(args):

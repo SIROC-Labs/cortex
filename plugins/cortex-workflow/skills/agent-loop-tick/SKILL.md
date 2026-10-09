@@ -12,7 +12,7 @@ description: >
 
 # Agent loop tick
 
-Take **one** card off the agent board, execute it, route it. `AL=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py`. Every task-manager call goes through the `task-manager` interface.
+Take **one** card off the agent board, execute it, route it. `AL=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py`. Every task-manager call goes through the `task-manager` interface. The run belongs to one **profile** (`references/running.md` → "What every way must keep"): the name given in the arguments, else `CORTEX_PROJECT`, else the only profile configured. Every script call and seam operation in this run carries `CORTEX_PROJECT=<key>` in its environment.
 
 ## The prime directive
 
@@ -22,7 +22,7 @@ Take **one** card off the agent board, execute it, route it. `AL=${PLUGIN_ROOT:-
 
 Each step is idempotent so an interrupted run can be adopted by the next one.
 
-1. **Load.** `$AL key <provider>` → `$AL read <key>`. Exit 4 → print `agent loop not configured — run agent-loop-setup`, go to step 10 with outcome `unconfigured`. `get_current_user()` → `<me>`; the board is shared, and only cards that are unassigned or assigned to `<me>` are this run's (`references/claiming.md` → Ownership).
+1. **Load.** `$AL key [<name>]` → `<key>`; exit 4 (no profile, or several and none named) → print its message, outcome `unconfigured`. `$AL read <key>`. Exit 4 → print `agent loop not configured — run agent-loop-setup <key>`, go to step 10 with outcome `unconfigured`. `get_current_user()` → `<me>`; the board is shared, and only cards that are unassigned or assigned to `<me>` are this run's (`references/claiming.md` → Ownership).
 2. **Rotate.** With a rotation pattern: `list_boards()` → `$AL rotate <key> --from-json -`. `rotate: true` → `get_board(new)`, re-map every role by its cached `column_names` (a missing name → print `board <name> lacks column <name> — run agent-loop-setup`, outcome `unconfigured`), `$AL write`, print `rolled to <name>`. Then `list_tasks(previous, queue)`; print `left behind — <name> (<ref>) on <previous>` per incomplete card. Never claim from the previous board.
 3. **Orphan.** `list_tasks(board, in_progress)` → `$AL order --user <me>`. A card assigned to someone else is their live run: print `skipped — <name> (<ref>) assigned to <user>` and leave it. A remaining card is this user's crashed run: adopt the first, `add_comment` `🤖 [AGENT] previous run was interrupted — resuming`, read its mode (`references/claiming.md` → Modes), skip to step 7.
 4. **Queue.** `list_tasks(board, queue)` incomplete → `$AL order --user <me>` (cards assigned to others drop out; print one `skipped` line each) → walk in order, `get_dependencies` → `$AL gate` per card (`references/claiming.md`). First pass wins. All gated → print `queue blocked — <n> waiting on dependencies` naming each; outcome `blocked-on-deps`. Nothing claimable → list strays (cards on the board in no role column) as `stray — <name> (<ref>) in <column>`; outcome `queue empty`.
