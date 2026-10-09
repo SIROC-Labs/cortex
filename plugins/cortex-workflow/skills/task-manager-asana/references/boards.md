@@ -106,8 +106,8 @@ Before any operation that needs the sprint board, check if `active_sprint.due_on
 
 If no cache file exists for the current project key:
 
-1. Resolve workspace GID (see Workspace GID Bootstrapping)
-2. Resolve token env var (see Token Env Var)
+1. Resolve token env var (see Token Env Var) and write it
+2. Resolve workspace GID with that token (see Workspace GID Bootstrapping)
 3. Query all workspace projects
 4. Classify each project — sprint boards and backlog boards
 5. Find the active sprint
@@ -141,9 +141,13 @@ Route via the recipes in `references/rest.md` (Fetch Current User).
 
 The `asana_token_env` field stores the name of the environment variable holding the Asana token for this project. It exists only on the REST transport.
 
-On first REST use:
-- If `$ASANA_PERSONAL_ACCESS_TOKEN` is set → cache `"ASANA_PERSONAL_ACCESS_TOKEN"` as the env var name
-- If not set → ask the user which env var holds the token, cache the answer
+On first REST use, before any API call for this key:
+- List the token variables present: the names (never the values) matching `ASANA_PERSONAL_ACCESS_TOKEN` or `ASANA_TOKEN_<NAME>` in the environment.
+- Under a profile (`CORTEX_PROJECT` is set) with **more than one** present → ask the operator which one this profile's account uses, and cache the answer. Never default: the default token is another project's account, and a bootstrap under it would cache that account's workspace for this profile without a word.
+- Otherwise, if `$ASANA_PERSONAL_ACCESS_TOKEN` is set → cache `"ASANA_PERSONAL_ACCESS_TOKEN"` as the env var name
+- If none is set → ask the user which env var holds the token, cache the answer
+
+Write the choice first (`board write <key> '{"asana_token_env": "<NAME>"}'`), so the workspace lookup that follows runs with it.
 
 Subsequent REST operations read the token from the cached env var name (`rest.md` → Token Resolution). A cache written by `board ingest` on the MCP transport carries no `asana_token_env`; if the operator later sets a token, `tm.py auth status` falls back to the default name.
 

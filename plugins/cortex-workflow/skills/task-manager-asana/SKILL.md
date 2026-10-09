@@ -23,7 +23,7 @@ Implements the neutral operations defined in `../task-manager/SKILL.md` against 
 Two transports realize the same operations. Decide once, at the first Asana operation of the session, and do not revisit unless the operator asks to.
 
 1. Run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager-asana/scripts/tm.py auth status`.
-2. **Exit 0** → **REST transport.** Resolve the token exactly as in `references/rest.md` (Token Resolution): the printed env var, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk. The operation table below applies as written.
+2. **Exit 0** → **REST transport.** Resolve the token exactly as in `references/rest.md` (Token Resolution): the printed env var, with conversational `ASANA_TOKEN_<NAME>` overrides. Session-only; nothing written to disk. One exception: on the first use of a key with no cache (`board read <key>` exits 2), choose the env var per `references/boards.md` → Token Env Var **before** the first API call; under a profile with several token variables present that is a question, not a default. The operation table below applies as written.
 3. **Exit 4** → check whether the tools of an Asana MCP server are callable in this session (`references/mcp.md` → Detection). Callable → **MCP transport**: realize every operation per the table in `references/mcp.md`; the `tm.py` verbs you call are the offline ones it names, never the REST verbs.
 4. Neither → stop and tell the operator both paths: set `ASANA_PERSONAL_ACCESS_TOKEN` (https://app.asana.com/0/my-apps), or connect an Asana MCP server. Do not guess and do not call the API unauthenticated.
 
