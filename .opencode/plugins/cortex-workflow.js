@@ -121,6 +121,8 @@ export const CortexWorkflowPlugin = async () => {
       // Whitelist paths the plugin needs to read/write outside the project directory
       config.permission.external_directory["~/.cortex/cortex-workflow/*"] = "allow"
       // ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
+      config.permission.external_directory["~/.cortex/agent-loop/*"] = "allow"
+      // ^ agent-loop profile caches and last-run records (written by agent_loop.py)
       config.permission.external_directory["~/.config/opencode/opencode.json"] = "allow"
       // ^ dependency check reads opencode.json to verify superpowers is installed
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
