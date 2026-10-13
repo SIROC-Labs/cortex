@@ -59,6 +59,29 @@ Either way the task is reopened if it was done, taken off the sprint, unassigned
 told on Asana what happened; it leaves the queue, and its log is kept. Queue it again
 and it starts fresh.
 
+## Features
+
+Work on several features at once from one TUI: each queued task belongs to the feature
+— target branch — it was queued into, and keeps it. Switching **Queue into** (Setup)
+only changes where what you queue next goes; nothing already queued moves. *Change
+HCI-8's PR base branch to …* in the palette moves a task (and its PR) to the feature
+you are queueing into.
+
+Once more than one feature has work, the Runs tab groups it under a line per feature
+saying how it stands:
+
+```
+feature/candidate-intake-M1   2 running · 1 waiting on you · 3 queued · 9 merged
+  ⚑ HCI-58  …
+    HCI-61  …
+feature/mailbox               1 running · 2 queued                    ← queueing here
+    HCI-70  …
+```
+
+Each feature's queue is its own: checkpoints gate only their feature, and merging goes
+by each PR's own target. Dependencies may cross features — a pulled-in dependency joins
+the feature of the task that needs it, and what a task needs is never held back.
+
 ## Dependencies
 
 Queueing a task queues every unfinished task it depends on, down the whole tree — each
@@ -69,11 +92,12 @@ dependency and the task that needs it waits until it is done some other way.
 ## Checkpoints
 
 *Make HCI-8 a checkpoint* in the palette flags a queued task (◆ before its name). A
-checkpoint is a gate in the queue: nothing queued after it starts until it has merged
+checkpoint is a gate in its feature's queue: nothing queued after it starts until it has merged
 and you have pressed `c` — however long it takes. With checkpoints on HCI-8 and HCI-10,
 HCI-9 waits for HCI-8, and HCI-11 for HCI-10. Tasks held back say *held back until
 checkpoint HCI-8*; once HCI-8 merges it is flagged ⚑, the header says the checkpoint is
-reached, and `c` lets the queue past it, up to the next one.
+reached, and `c` lets the queue past it, up to the next one. With checkpoints reached
+in more than one feature, select the one to continue and press `c`.
 
 What runs before the gate is not held: anything already going carries on, and a task
 after the checkpoint that something before it depends on is let through, since the
@@ -111,9 +135,10 @@ Settings are per repo: they live in the repo's `.cortex/queue/`, beside its queu
 its daemon.
 
 - **Sprint** — the board queued tasks are added to.
-- **Target branch** — the branch new runs branch off and open their PR against; the
-  repo's default branch unless you pick another. The list is origin's branches (`/`
-  searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
+- **Queue into** — the feature (target branch) what you queue goes into: it branches
+  off it and opens its PR against it. The repo's default branch unless you pick
+  another. The list starts with the features that have work queued, each saying how
+  it stands, then the rest of origin's branches (`/` searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
   characters, `/` included — and creates it on origin from `origin/<default>` once you
   confirm — fetched first, so it starts at what is on GitHub, never at a local copy
   that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — *Change …'s PR base branch to …* in

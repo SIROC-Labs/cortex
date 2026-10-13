@@ -258,16 +258,33 @@ def parse_answer(text):
 
 
 def gate_state(control, data):
-    """(the checkpoint holding the queue or None, held-back gids, whether it has
-    merged and now only waits for you to continue)."""
-    item, held = dm.checkpoint_gate(control.get("queue") or [], data.get("tasks") or {},
-                                    data.get("records") or {}, data.get("continued") or [])
-    if not item:
-        return None, held, False
-    gid = item["gid"]
-    reached = ((data.get("records") or {}).get(gid) or {}).get("phase") == "merged" \
-        or ((data.get("tasks") or {}).get(gid) or {}).get("completed")
-    return item, held, bool(reached)
+    """({feature: the checkpoint holding it}, held-back gids, [the checkpoints
+    that have merged and now only wait for you to continue])."""
+    tasks, records = data.get("tasks") or {}, data.get("records") or {}
+    gates, held = dm.checkpoint_gates(control.get("queue") or [], tasks, records,
+                                      data.get("continued") or [], control.get("base"))
+    reached = [item for item in gates.values()
+               if (records.get(item["gid"]) or {}).get("phase") == "merged"
+               or (tasks.get(item["gid"]) or {}).get("completed")]
+    return gates, held, reached
+
+
+def feature_label(feature, default_branch=None):
+    return feature or default_branch or "the default branch"
+
+
+def feature_summary(rows):
+    """How a feature stands, in a line: what runs, waits on you, is queued, landed."""
+    counts = {}
+    for r in rows:
+        phase = r.get("phase")
+        what = ("waiting on you" if r.get("wait") else "merged" if r.get("finished")
+                else "running" if phase in ("running", "revising", "awaiting")
+                else "PR open" if phase in ("pr_open", "conflict")
+                else "failed" if phase in ("failed", "stopped") else "queued")
+        counts[what] = counts.get(what, 0) + 1
+    order = ("running", "waiting on you", "PR open", "failed", "queued", "merged")
+    return " · ".join("%d %s" % (counts[w], w) for w in order if counts.get(w))
 
 
 def scroll_top(top, cur, body, count):
@@ -283,7 +300,8 @@ def read_waits(main_root, control, data):
     """What each queued task is waiting on you for: an outstanding question or
     problem from its run (its `awaiting.json`), or a parked conflict."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
-    gate, _, reached = gate_state(control, data)
+    _, _, reached = gate_state(control, data)
+    reached = {item["gid"] for item in reached}
     waits = {}
     for item in control.get("queue") or []:
         gid = item["gid"]
@@ -291,7 +309,7 @@ def read_waits(main_root, control, data):
         awaiting = st.State(main_root, key).read("awaiting.json") if key else None
         if awaiting and awaiting.get("asked_at"):
             waits[gid] = dict(awaiting, key=key)
-        elif reached and gate["gid"] == gid:
+        elif gid in reached:
             waits[gid] = {"kind": "checkpoint", "key": key,
                           "headline": "Checkpoint reached — what is queued after it waits for you"}
         elif ((records.get(gid) or {}).get("merge") or {}).get("blocked"):
@@ -302,18 +320,21 @@ def read_waits(main_root, control, data):
     return waits
 
 
-def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None):
+def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None,
+             default_branch=None):
     """The Runs tab: every task waiting on you first, then the rest of the queue
-    in its order, then every live start-task run nothing here owns, then every
-    agent left working with no run at all."""
+    in its order — grouped by feature, under a line saying how each stands,
+    once there is more than one — then every live start-task run nothing here
+    owns, then every agent left working with no run at all."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
     me_gid = me_gid or (data.get("me") or {}).get("gid")
     waits = waits or {}
-    gate, held, _ = gate_state(control, data)
-    gate_key = gate and ((tasks.get(gate["gid"]) or {}).get("key") or gate.get("name"))
+    gates, held, _ = gate_state(control, data)
+    default_branch = default_branch or data.get("default_branch")
     rows = []
     for item in control.get("queue") or []:
         gid = item["gid"]
+        feature = dm.feature_of(item, control.get("base"))
         task = tasks.get(gid)
         record = records.get(gid) or {}
         if task is None:
@@ -324,7 +345,10 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
             if status == "ready" and not control.get("sprint"):
                 status = "ready — starts once a sprint is picked"
             if gid in held and not record.get("phase"):
-                status = "held back until checkpoint %s" % gate_key
+                gate = gates.get(feature) or {}
+                status = "held back until checkpoint %s" % (
+                    (tasks.get(gate.get("gid")) or {}).get("key") or gate.get("name")
+                    or "in another feature")
             if item.get("needed_by") and not record.get("phase"):
                 status += " · queued for %s" % item["needed_by"]
         if item.get("checkpoint"):
@@ -341,6 +365,7 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
         if wait:
             status, style = "⚑ " + wait_summary(wait), "warn"
         rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
+                     "feature": feature,
                      "style": style, "log": record.get("log"), "wait": wait,
                      "pr_url": record.get("pr_url"), "phase": record.get("phase"),
                      "finished": record.get("phase") in FINISHED
@@ -349,6 +374,23 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
                      "links": [u for u in (record.get("pr_url"),
                                            task_url(item.get("board"), gid)) if u]})
     rows.sort(key=lambda r: not r.get("wait"))
+    features = []
+    for item in control.get("queue") or []:
+        feature = dm.feature_of(item, control.get("base"))
+        if feature not in features:
+            features.append(feature)
+    if len(features) > 1:
+        grouped = []
+        for feature in features:
+            members = [r for r in rows if r["feature"] == feature]
+            here = feature == control.get("base")
+            grouped.append({"kind": "feature", "id": "feature:%s" % (feature or ""),
+                            "style": "bold", "links": [], "feature": feature,
+                            "cols": [feature_label(feature, default_branch),
+                                     feature_summary(members),
+                                     "← queueing here" if here else ""]})
+            grouped += members
+        rows = grouped
     managed = [r.get("pid") for r in records.values() if r.get("pid")]
     for tid, pid in dm.unmanaged(live, managed):
         rows.append({"kind": "orphan", "id": pid, "style": "warn", "links": [],
@@ -370,7 +412,7 @@ def setup_rows(control, default_branch=None):
         {"kind": "setting", "id": "sprint", "style": "normal" if sprint else "warn",
          "cols": ["Sprint", sprint or "none — pick one; nothing starts until you do"]},
         {"kind": "setting", "id": "base", "style": "normal",
-         "cols": ["Target branch", base or "the default branch%s"
+         "cols": ["Queue into", base or "the default branch%s"
                   % (" (%s)" % default_branch if default_branch else "")]},
         {"kind": "setting", "id": "merge", "style": "normal",
          "cols": ["Merging", MERGE_LABELS[mode]]},
@@ -389,19 +431,23 @@ def parse_ls_remote(text):
     return default, sorted(branches, key=lambda b: (b != default, b.lower()))
 
 
-def branch_rows(branches, default, query, current):
-    """Branches to pick the target from, filtered, after a row for starting a new
-    one from the default branch."""
+def branch_rows(branches, default, query, current, features=None):
+    """Branches to queue into, filtered, after a row for starting a new one from
+    the default branch: first the features with work in them, saying how each
+    stands (`features`: {branch: summary}, in queue order), then the rest."""
+    features = features or {}
     rows = [{"kind": "new", "id": "+new", "style": "warn",
              "cols": ["+ New branch…", "from origin/%s, as it is on GitHub now"
                       % (default or "the default branch")]}]
-    for b in branches or []:
+    names = list(features) + [b for b in branches or [] if b not in features]
+    for b in names:
         if not matches(b, query):
             continue
         picked = b == current or (current is None and b == default)
         rows.append({"kind": "branch", "id": b, "style": "bold" if picked else "normal",
-                     "cols": [b, ("default" if b == default else "")
-                              + (" ← target" if picked else "")]})
+                     "cols": [b, " · ".join(x for x in (
+                         "default" if b == default else "", features.get(b, ""),
+                         "← queueing here" if picked else "") if x)]})
     return rows
 
 
@@ -596,7 +642,7 @@ HELP = [
         ("x", "stop and unqueue · on a finished task, just remove it from the list"),
         ("r", "retry a failed or stopped task"),
         ("o", "open its PR (or the task)"),
-        ("c", "continue past a checkpoint — the queue starts tasks again"),
+        ("c", "continue past a reached checkpoint — its feature starts tasks again"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task · on a section, queue all of it"),
@@ -604,8 +650,8 @@ HELP = [
         ("R", "reload from Asana"),
     ]),
     ("Setup", [
-        ("⏎", "pick the sprint or the target branch · cycle Merging"),
-        ("n", "new target branch (in the branch list), created on origin"),
+        ("⏎", "pick the sprint or the feature to queue into · cycle Merging"),
+        ("n", "new feature branch (in the branch list), created on origin"),
     ]),
     ("Daemons", [
         ("s", "start this repo's daemon"),
@@ -1005,7 +1051,8 @@ class App(object):
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
             return run_rows(self.control, self.data, self.live, agents=self.agents,
-                            waits=self.waits, activity=self.activity)
+                            waits=self.waits, activity=self.activity,
+                            default_branch=self.default_branch)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
@@ -1013,7 +1060,8 @@ class App(object):
         if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
         if name == "Setup" and self.setup == "base":
-            return branch_rows(self.branches, self.default_branch, query, self.control.get("base"))
+            return branch_rows(self.branches, self.default_branch, query, self.control.get("base"),
+                               self.feature_summaries())
         if name == "Setup":
             return setup_rows(self.control, self.default_branch)
         return daemon_rows(dm.registered(), time.time())
@@ -1027,10 +1075,19 @@ class App(object):
 
     def set_base(self, name):
         base = None if name == self.default_branch else name
-        self.change_control(lambda c: c.update(base=base))
+        self.change_control(lambda c: (dm.stamp_features(c), c.update(base=base)))
         self.setup = None
-        self.message = ("target branch: %s — new runs branch off it and open their PR "
-                        "against it; open PRs keep theirs" % (name if base else "the default (%s)" % name))
+        self.message = ("queueing into %s — what you queue now branches off it and targets it; "
+                        "what is already queued keeps its feature" % (name if base else "the default (%s)" % name))
+
+    def feature_summaries(self):
+        """{branch: how it stands} for every feature with work queued."""
+        groups = {}
+        for row in run_rows(self.control, self.data, [], waits=self.waits):
+            if row["kind"] == "task":
+                name = feature_label(row["feature"], self.default_branch)
+                groups.setdefault(name, []).append(row)
+        return {name: feature_summary(rows) for name, rows in groups.items()}
 
     def selected(self, rows):
         if not rows:
@@ -1056,6 +1113,7 @@ class App(object):
         if not items:
             self.message = "already complete — nothing to queue"
             return
+        items = [dict(i, base=self.control.get("base")) for i in items]
         added = self.change_control(lambda c: dm.queue_add(c, items))
         started = ""
         if added and not self.alive:
@@ -1341,7 +1399,9 @@ class App(object):
             self.board = (row["id"], row["name"])
             self.refresh_board(row["id"], BOARD_OPEN_MAX_AGE)
         elif name == "Runs":
-            if row.get("wait"):
+            if row["kind"] == "feature":
+                self.message = "%s — %s" % (row["cols"][0], row["cols"][1])
+            elif row.get("wait"):
                 self.question = row["id"]
             elif row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
@@ -1489,10 +1549,17 @@ class App(object):
             self.help = True
             self.help_scroll = 0
         elif key == "c" and gate_state(self.control, self.data)[2]:
-            gate = gate_state(self.control, self.data)[0]
-            name = ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name")
-            self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)" % name,
-                     lambda: self.command("continue", gate["gid"]))
+            reached = gate_state(self.control, self.data)[2]
+            row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
+            gate = next((g for g in reached if row and g["gid"] == row["id"]), None)
+            if gate is None and len(reached) == 1:
+                gate = reached[0]
+            if gate is None:
+                self.message = "%d checkpoints are reached — select one (Runs, ⚑) and press c" % len(reached)
+            else:
+                name = ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name")
+                self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)" % name,
+                         lambda: self.command("continue", gate["gid"]))
         elif key == ":":
             self.palette = {"query": "", "cursor": 0, "line": LineEdit(),
                             "commands": self.palette_commands(self.selected(rows))}
@@ -1546,7 +1613,7 @@ class App(object):
         put = lambda y, text, style="normal": _put(scr, y, text, w, styles[style])  # noqa: E731
         health = dm.daemon_health(self.daemon, self.alive, time.time())
         sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in Setup"
-        sprint += " · → %s" % (self.control.get("base") or self.default_branch or "default branch")
+        sprint += " · queueing into %s" % feature_label(self.control.get("base"), self.default_branch)
         sprint += {"always": " · auto-merge: always", "asked": " · merge: when asked"}.get(
             self.control.get("merge_mode"), " · auto-merge: off the default branch")
         if health == "busy":
@@ -1560,10 +1627,12 @@ class App(object):
             note = ("  daemon runs older code — x then s on the Daemons tab restarts it "
                     if not self.daemon.get("code") else "  daemon updates once its runs finish ")
             _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
-        gate, held, reached = gate_state(self.control, self.data)
-        if gate and reached:
-            note = "  ⏸ checkpoint %s reached — c continues " % (
-                ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name"))
+        reached = gate_state(self.control, self.data)[2]
+        if reached:
+            note = ("  ⏸ checkpoint %s reached — c continues " % (
+                ((self.data.get("tasks") or {}).get(reached[0]["gid"]) or {}).get("key")
+                or reached[0].get("name")) if len(reached) == 1
+                else "  ⏸ %d checkpoints reached — c on one continues it " % len(reached))
             _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
         if self.waits:
             flag = "  ⚑ %d waiting on you " % len(self.waits)

@@ -106,6 +106,8 @@ def queue_add(control, items):
                  "name": item.get("name"), "added": time.time()}
         if item.get("needed_by"):
             entry["needed_by"] = item["needed_by"]
+        if "base" in item:
+            entry["base"] = item["base"]
         control["queue"].append(entry)
         have.add(item["gid"])
         added.append(item["gid"])
@@ -143,35 +145,57 @@ def missing_dependencies(tasks, queued):
     return out
 
 
-def checkpoint_gate(queue, tasks, records, continued):
-    """Where the queue's first unpassed checkpoint is, and what it holds back:
-    (checkpoint item or None, {held-back gids}).
+def feature_of(item, base=None):
+    """The feature — target branch — a queued task belongs to: the one it was
+    queued into, or for a task queued before features, the current target.
+    None is the repo's default branch."""
+    return item["base"] if "base" in item else base
 
-    A checkpoint is passed once it has merged and someone said continue. Until
-    then, everything queued after it is held back — except what the tasks
-    before it (itself included) need, down their whole dependency tree, since
-    the checkpoint could never finish without those.
+
+def checkpoint_gates(queue, tasks, records, continued, base=None):
+    """Each feature's first unpassed checkpoint, and what they hold back:
+    ({feature: checkpoint item}, {held-back gids}).
+
+    Every feature is gated on its own: a checkpoint holds back only what is
+    queued after it in its own feature. It is passed once it has merged and
+    someone said continue. What a task that may run needs is never held, down
+    its whole dependency tree and across features, since it could never finish
+    without it.
     """
     order = [q["gid"] for q in queue]
-    done = ("merged",)
-    for i, item in enumerate(queue):
-        if not item.get("checkpoint"):
-            continue
-        gid = item["gid"]
-        merged = ((records.get(gid) or {}).get("phase") in done
-                  or (tasks.get(gid) or {}).get("completed"))
-        if merged and gid in continued:
-            continue
-        allowed = set(order[:i + 1])
-        stack = list(allowed)
-        while stack:
-            for dep in (tasks.get(stack.pop()) or {}).get("deps") or []:
-                ref = dep.get("ref")
-                if ref in order and ref not in allowed:
-                    allowed.add(ref)
-                    stack.append(ref)
-        return item, {g for g in order if g not in allowed}
-    return None, set()
+    groups = {}
+    for item in queue:
+        groups.setdefault(feature_of(item, base), []).append(item)
+    gates, allowed = {}, set()
+    for feature, items in groups.items():
+        for i, item in enumerate(items):
+            gid = item["gid"]
+            if not item.get("checkpoint"):
+                continue
+            merged = ((records.get(gid) or {}).get("phase") == "merged"
+                      or (tasks.get(gid) or {}).get("completed"))
+            if merged and gid in continued:
+                continue
+            gates[feature] = item
+            allowed |= {q["gid"] for q in items[:i + 1]}
+            break
+        else:
+            allowed |= {q["gid"] for q in items}
+    stack = list(allowed)
+    while stack:
+        for dep in (tasks.get(stack.pop()) or {}).get("deps") or []:
+            ref = dep.get("ref")
+            if ref in order and ref not in allowed:
+                allowed.add(ref)
+                stack.append(ref)
+    return gates, {g for g in order if g not in allowed}
+
+
+def stamp_features(control):
+    """Pin every task queued before features to the current target, so changing
+    the target never moves work already queued."""
+    for item in control["queue"]:
+        item.setdefault("base", control.get("base"))
 
 
 def queue_insert_before(control, items, before_gid):
@@ -180,12 +204,15 @@ def queue_insert_before(control, items, before_gid):
     have = {q["gid"] for q in control["queue"]}
     index = next((i for i, q in enumerate(control["queue"]) if q["gid"] == before_gid),
                  len(control["queue"]))
+    feature = control["queue"][index] if index < len(control["queue"]) else {}
     added = []
     for item in items:
         if item["gid"] in have:
             continue
         entry = {"gid": item["gid"], "board": item.get("board"), "name": item.get("name"),
                  "added": time.time(), "needed_by": item.get("needed_by")}
+        if "base" in feature:
+            entry["base"] = feature["base"]
         control["queue"].insert(index, entry)
         index += 1
         have.add(item["gid"])
@@ -438,6 +465,13 @@ class QueueRun(Engine):
                                 "note": "this daemon does not know %r" % command["op"]})
             elif command["op"] == "retarget":
                 done, why = self.retarget(gid, command.get("base"))
+                if done:
+                    with control_file(self.main_root) as control:
+                        for item in control["queue"]:
+                            if item["gid"] == gid:
+                                item["base"] = (None if command.get("base") == self.default_branch()
+                                                else command.get("base"))
+                    self.control = read_control(self.main_root)
                 results.append({"id": command["id"], "ok": done, "note": why})
             elif command["op"] == "continue":
                 continued = self.data.setdefault("continued", [])
@@ -475,8 +509,12 @@ class QueueRun(Engine):
         return any(q["gid"] == gid and q.get("checkpoint") for q in self.control["queue"])
 
     def held_back(self):
-        return checkpoint_gate(self.control["queue"], self.tasks, self.records,
-                               self.data.get("continued") or [])[1]
+        return checkpoint_gates(self.control["queue"], self.tasks, self.records,
+                                self.data.get("continued") or [], self.control.get("base"))[1]
+
+    def launch_base(self, gid):
+        item = next((q for q in self.control["queue"] if q["gid"] == gid), {})
+        return feature_of(item, self.control.get("base"))
 
     def pull_in_dependencies(self):
         """Queue every unfinished dependency of what is queued, down the whole

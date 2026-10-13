@@ -856,7 +856,7 @@ class Engine(object):
         except Stop as e:
             self.set_phase(gid, "failed", reason=str(e))
             return
-        base = self.data.get("base")
+        base = self.launch_base(gid)
         self.spawn(gid, [task_url(self.tasks[gid].get("board_gid"), gid)]
                    + (["--base", base] if base else []), "running",
                    "start-task: from the ticket to a ready PR%s" % (" on %s" % base if base else ""))
@@ -1049,6 +1049,11 @@ class Engine(object):
         self.note(gid, "PR moved onto %s (was %s)" % (base, old or "?"),
                   ["from here it merges by the rules for %s" % base])
         return True, None
+
+    def launch_base(self, gid):
+        """The branch a task's run branches off and targets; None for the
+        repo's default."""
+        return self.data.get("base")
 
     def is_checkpoint(self, gid):
         """Whether this task is a checkpoint in the queue. The queue's host knows;

@@ -65,8 +65,8 @@ class TestCheckpointGate(unittest.TestCase):
              {"gid": "10", "checkpoint": True}, {"gid": "11"}]
 
     def gate(self, records=None, continued=(), tasks=None):
-        item, held = dm.checkpoint_gate(self.QUEUE, tasks or {}, records or {}, list(continued))
-        return item and item["gid"], held
+        gates, held = dm.checkpoint_gates(self.QUEUE, tasks or {}, records or {}, list(continued))
+        return (gates.get(None) or {}).get("gid"), held
 
     def test_nothing_after_a_checkpoint_starts_while_it_is_still_running(self):
         self.assertEqual(self.gate({"8": {"phase": "running"}}), ("8", {"9", "10", "11"}))
@@ -85,7 +85,27 @@ class TestCheckpointGate(unittest.TestCase):
         self.assertEqual(self.gate(tasks=tasks), ("8", {"10"}))
 
     def test_no_checkpoint_holds_nothing(self):
-        self.assertEqual(dm.checkpoint_gate([{"gid": "1"}], {}, {}, []), (None, set()))
+        self.assertEqual(dm.checkpoint_gates([{"gid": "1"}], {}, {}, []), ({}, set()))
+
+    def test_a_checkpoint_holds_back_only_its_own_feature(self):
+        queue = [{"gid": "1", "base": "f/a", "checkpoint": True}, {"gid": "2", "base": "f/b"},
+                 {"gid": "3", "base": "f/a"}, {"gid": "4", "base": "f/b", "checkpoint": True},
+                 {"gid": "5", "base": "f/b"}]
+        gates, held = dm.checkpoint_gates(queue, {}, {}, [])
+        self.assertEqual({f: g["gid"] for f, g in gates.items()}, {"f/a": "1", "f/b": "4"})
+        self.assertEqual(held, {"3", "5"})
+
+    def test_what_another_feature_needs_is_let_through(self):
+        queue = [{"gid": "1", "base": "f/a", "checkpoint": True}, {"gid": "2", "base": "f/a"},
+                 {"gid": "3", "base": "f/b"}]
+        self.assertEqual(dm.checkpoint_gates(queue, {"3": {"deps": [{"ref": "2"}]}}, {}, [])[1],
+                         set())
+
+    def test_tasks_queued_before_features_follow_the_current_target(self):
+        queue = [{"gid": "1", "checkpoint": True}, {"gid": "2", "base": None}, {"gid": "3"}]
+        gates, held = dm.checkpoint_gates(queue, {}, {}, [], base="f/a")
+        self.assertEqual(set(gates), {"f/a"})
+        self.assertEqual(held, {"3"})
 
     def test_flagging(self):
         c = dm.empty_control()
@@ -94,6 +114,42 @@ class TestCheckpointGate(unittest.TestCase):
         self.assertTrue(c["queue"][0]["checkpoint"])
         dm.set_checkpoint(c, "1", False)
         self.assertNotIn("checkpoint", c["queue"][0])
+
+
+class TestFeatures(unittest.TestCase):
+    def test_changing_the_target_keeps_what_is_queued_where_it_was(self):
+        c = dm.empty_control()
+        c["base"] = "f/a"
+        dm.queue_add(c, [{"gid": "1"}, {"gid": "2", "base": "f/b"}])
+        dm.stamp_features(c)
+        c["base"] = "f/c"
+        self.assertEqual([dm.feature_of(q, c["base"]) for q in c["queue"]], ["f/a", "f/b"])
+
+    def test_a_dependency_joins_the_feature_of_the_task_that_needs_it(self):
+        c = dm.empty_control()
+        dm.queue_add(c, [{"gid": "1", "base": "f/a"}, {"gid": "9", "base": "f/b"}])
+        dm.queue_insert_before(c, [{"gid": "5"}], "9")
+        self.assertEqual([(q["gid"], q.get("base")) for q in c["queue"]],
+                         [("1", "f/a"), ("5", "f/b"), ("9", "f/b")])
+
+    def test_runs_are_grouped_by_feature_once_there_are_two(self):
+        control = {"base": "f/b", "queue": [{"gid": "1", "base": None}, {"gid": "2", "base": "f/b"},
+                                            {"gid": "3", "base": None}]}
+        data = {"me": {"gid": "42"},
+                "tasks": {g: {"key": "A-" + g, "name": "n" + g, "completed": False,
+                              "status": "Unassigned", "deps": []} for g in "123"},
+                "records": {"1": {"phase": "running"}, "3": {"phase": "merged"}}}
+        rows = run_rows(control, data, [], default_branch="main")
+        self.assertEqual([(r["kind"], r["cols"][0]) for r in rows],
+                         [("feature", "main"), ("task", "A-1"), ("task", "A-3"),
+                          ("feature", "f/b"), ("task", "A-2")])
+        self.assertEqual(rows[0]["cols"][1:], ["1 running · 1 merged", ""])
+        self.assertEqual(rows[3]["cols"][1:], ["1 queued", "← queueing here"])
+
+    def test_one_feature_needs_no_heading(self):
+        control = {"queue": [{"gid": "1"}, {"gid": "2", "base": None}]}
+        rows = run_rows(control, {"tasks": {}, "records": {}}, [])
+        self.assertEqual([r["kind"] for r in rows], ["task", "task"])
 
 
 class TestCommands(unittest.TestCase):
@@ -1205,7 +1261,7 @@ class TestSetup(unittest.TestCase):
     def test_rows_say_what_is_set(self):
         rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "base": None, "merge_mode": "always"},
                           "main")
-        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Target branch", "Merging"])
+        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Queue into", "Merging"])
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
@@ -1227,7 +1283,43 @@ class TestSetup(unittest.TestCase):
         self.assertEqual([r["id"] for r in branch_rows(["main", "develop"], "main", "dev", None)],
                          ["+new", "develop"])
         picked = branch_rows(["main", "develop"], "main", "", "develop")
-        self.assertIn("← target", picked[2]["cols"][1])
+        self.assertIn("← queueing here", picked[2]["cols"][1])
+
+    def test_features_with_work_come_first_and_say_how_they_stand(self):
+        rows = branch_rows(["main", "develop", "f/x"], "main", "", "f/x",
+                           {"f/x": "2 running", "main": "1 merged"})
+        self.assertEqual([r["id"] for r in rows], ["+new", "f/x", "main", "develop"])
+        self.assertEqual(rows[1]["cols"][1], "2 running · ← queueing here")
+        self.assertEqual(rows[2]["cols"][1], "default · 1 merged")
+
+    def test_queueing_goes_into_the_active_feature_and_switching_moves_nothing(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        isolate_cache(self)
+        with dm.control_file(root) as c:
+            dm.queue_add(c, [{"gid": "1", "board": "9", "name": "one"}])
+        app = App(root, [])
+        app.ensure_daemon = lambda: None
+        app.default_branch = "main"
+        app.set_base("feature/b")
+        app.queue([{"gid": "2", "board": "9", "name": "two"}])
+        app.set_base("main")
+        app.queue([{"gid": "3", "board": "9", "name": "three"}])
+        queue = dm.read_control(root)["queue"]
+        self.assertEqual([(q["gid"], q["base"]) for q in queue],
+                         [("1", None), ("2", "feature/b"), ("3", None)])
+
+    def test_the_daemon_launches_each_task_onto_its_own_feature(self):
+        import subprocess
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        subprocess.run(["git", "init", "-q", root], check=True)
+        with dm.control_file(root) as c:
+            c["base"] = "feature/b"
+            dm.queue_add(c, [{"gid": "1"}, {"gid": "2", "base": None}, {"gid": "3", "base": "feature/a"}])
+        run = dm.QueueRun(root, [])
+        run.control = dm.read_control(root)
+        self.assertEqual([run.launch_base(g) for g in "123"], ["feature/b", None, "feature/a"])
 
     def test_branch_names(self):
         for good in ("release/1.2", "milestone-m1", "HGM-1/x"):
