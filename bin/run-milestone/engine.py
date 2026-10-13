@@ -1469,6 +1469,11 @@ class Engine(object):
         pid = proc.pid if proc else (self.records.get(gid) or {}).get("pid")
         if pid and st.live_run_pid({"pid": pid}):
             kill_tree(pid)
+        # The run holding the task's lock, should it be one this loop lost
+        # track of — stopping a task means no run of it is left going.
+        holder = st.live_run_pid(self.start_state(gid).read("run.json")) if gid in self.tasks else None
+        if holder and holder != pid:
+            kill_tree(holder)
         if proc is not None:
             # Collect its exit, or it lingers as a zombie — dead, but answering
             # "are you there?" as if it were still a run.

@@ -366,6 +366,28 @@ class TestKillTree(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(proc.pid, 0)
 
+    def test_stopping_a_task_stops_the_run_holding_its_lock_too(self):
+        import subprocess
+        import shutil
+        import tempfile
+        import time as _time
+        import engine
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        e = engine.Engine.__new__(engine.Engine)
+        e.main_root = root
+        e.data = {"tasks": {"1": {"key": "A-1"}}, "records": {"1": {"phase": "failed"}}}
+        e.children = {}
+        lost = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        self.addCleanup(lost.kill)
+        engine.st.State(root, "A-1").write("run.json", {"pid": lost.pid})
+        e.kill("1")
+        for _ in range(50):
+            if lost.poll() is not None:
+                break
+            _time.sleep(0.05)
+        self.assertIsNotNone(lost.returncode)
+
     def test_nothing_to_stop(self):
         self.assertFalse(kill_tree(2 ** 22 + 12345))
 
