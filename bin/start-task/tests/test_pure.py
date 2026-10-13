@@ -1119,5 +1119,32 @@ class TestAgentFailures(unittest.TestCase):
                                   "claude: command exited 2: bad flag --frob"])
 
 
+
+class TestGithubRefused(unittest.TestCase):
+    def test_bad_credentials_is_refused(self):
+        self.assertTrue(start_task.github_refused(
+            "HTTP 401: Bad credentials (https://api.github.com/graphql)\n"
+            "Try authenticating with:  gh auth login -h github.com"))
+
+    def test_other_failures_are_not(self):
+        self.assertFalse(start_task.github_refused(
+            "a pull request for branch \"x\" into branch \"main\" already exists"))
+        self.assertFalse(start_task.github_refused(None))
+
+    def test_creating_a_pr_says_what_gh_said(self):
+        calls = []
+
+        def fake_run(argv, cwd=None, check=True):
+            calls.append(argv)
+            return 1, "", "HTTP 401: Bad credentials"
+        real, start_task.run = start_task.run, fake_run
+        try:
+            self.assertEqual(start_task.create_draft_pr("T-1", "n", "u", "origin/main", "T-1/n", "/r"),
+                             (None, "HTTP 401: Bad credentials"))
+        finally:
+            start_task.run = real
+        self.assertIn("--base", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--base") + 1], "main")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

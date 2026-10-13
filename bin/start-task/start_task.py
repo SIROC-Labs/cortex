@@ -592,7 +592,18 @@ def phase_prologue(args):
 
     step("Branch and PR")
     with repo_lock(main_root):
-        branch, base, worktree, pr_url = set_up_branch(args, repo, main_root, tid, task)
+        branch, base, worktree, pr_url, pr_error = set_up_branch(args, repo, main_root, tid, task)
+    while pr_error:
+        # Nothing has been built yet; stop here rather than after the work, when
+        # it has nowhere to go.
+        raise_problem(state, ref, repo, args, "pr", GITHUB_REFUSED, pr_error)
+        pr_url = lookup_pr(branch, worktree)
+        if not pr_url:
+            pr_url, pr_error = create_draft_pr(tid, task.get("name"), args.task, base,
+                                               branch, worktree)
+            pr_error = pr_error if github_refused(pr_error) else None
+        if pr_url:
+            info("draft PR: %s" % pr_url)
 
     step("Updating Asana")
     code, _, errout = run([sys.executable, ASANA, "task", "set-status", ref,
@@ -696,19 +707,41 @@ def set_up_branch(args, repo, main_root, tid, task):
             git(["commit", "--allow-empty", "-m",
                  "%s :: %s (start)" % (tid, slugify(task.get("name")))], cwd=worktree)
             git(["push", "-u", "origin", branch], cwd=worktree)
-        body = "## Task\n%s\n" % args.task
-        code, out, errout = run(
-            ["gh", "pr", "create", "--draft", "--base", base.replace("origin/", ""),
-             "--head", branch, "--title", "%s :: %s" % (tid, task.get("name")),
-             "--body", body], cwd=worktree, check=False)
-        if code == 0:
-            pr_url = out.strip().splitlines()[-1] if out.strip() else None
+        pr_url, pr_error = create_draft_pr(tid, task.get("name"), args.task, base, branch, worktree)
+        if pr_url:
             info("draft PR: %s" % pr_url)
         else:
-            warn("could not create draft PR: %s" % (errout or out))
+            warn("could not create draft PR: %s" % pr_error)
+            if github_refused(pr_error):
+                return branch, base, worktree, None, pr_error
     else:
         info("existing PR: %s" % pr_url)
-    return branch, base, worktree, pr_url
+    return branch, base, worktree, pr_url, None
+
+
+def create_draft_pr(tid, name, task_url, base, branch, cwd):
+    """Open the task's draft PR. (url, None), or (None, what gh said)."""
+    code, out, errout = run(
+        ["gh", "pr", "create", "--draft", "--base", base.replace("origin/", ""),
+         "--head", branch, "--title", "%s :: %s" % (tid, name),
+         "--body", "## Task\n%s\n" % task_url], cwd=cwd, check=False)
+    if code == 0 and out.strip():
+        return out.strip().splitlines()[-1], None
+    return None, (errout or out or "gh pr create failed").strip()
+
+
+def github_refused(error):
+    """Whether gh failed because GitHub would not accept its credentials —
+    nothing that needs GitHub can work until that is fixed."""
+    text = (error or "").lower()
+    return any(s in text for s in ("http 401", "bad credentials", "gh auth login",
+                                   "authentication required", "not logged in"))
+
+
+GITHUB_REFUSED = ("GitHub refused the credentials, so no PR can be opened — check `gh auth "
+                  "status` and the GH_TOKEN / GITHUB_TOKEN the run was started with (an "
+                  "expired token in the environment wins over `gh auth login`). Reply once "
+                  "it is fixed and the run carries on.")
 
 
 # --- implement --------------------------------------------------------------
@@ -1525,9 +1558,20 @@ def phase_ship(args, state=None):
     pr_url = context["git"].get("pr_url")
     while not pr_url:
         pr_url = lookup_pr(branch, worktree)
-        if not pr_url:
+        if pr_url:
+            break
+        # The draft PR the prologue opens can be missing — it failed, or the
+        # PR was closed since. Open one now rather than stop for it.
+        pr_url, error = create_draft_pr(context["task"]["id"], context["task"]["name"],
+                                        context["task"]["url"], context["git"]["base"],
+                                        branch, worktree)
+        if pr_url:
+            info("opened PR: %s" % pr_url)
+        else:
             raise_problem(state, ref, worktree, args, "pr",
-                          "there is no open PR for %s" % branch)
+                          GITHUB_REFUSED if github_refused(error)
+                          else "there is no open PR for %s, and opening one failed" % branch,
+                          error)
     if pr_url != context["git"].get("pr_url"):
         context["git"]["pr_url"] = pr_url
         state.write("context.json", context)
