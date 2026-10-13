@@ -524,6 +524,66 @@ def task_url(board, gid):
 
 # --- side effects -----------------------------------------------------------
 
+# --- tokens -----------------------------------------------------------------
+#
+# A loop can run for days; a token replaced in the shell's config meanwhile
+# would never reach it. So the tokens are read again from a fresh interactive
+# shell every minute, and what it says goes for the loop's own calls and every
+# run it starts.
+
+TOKEN_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "ASANA_PERSONAL_ACCESS_TOKEN")
+TOKENS_EVERY = 60
+ENV_MARK = "__cortex_env__"
+
+
+def parse_shell_env(out, names):
+    """{name: value, or None when the shell does not set it} from what
+    `printf MARK; env -0` printed, or None when the marker is missing — the
+    shell could not be read, which says nothing about the tokens."""
+    if ENV_MARK not in out:
+        return None
+    found = {}
+    for entry in out.split(ENV_MARK, 1)[1].lstrip("\n").split("\0"):
+        name, sep, value = entry.partition("=")
+        if sep and name in names:
+            found[name] = value
+    return {name: found.get(name) for name in names}
+
+
+def shell_tokens(names=TOKEN_VARS, timeout=20):
+    shell = os.environ.get("SHELL") or "/bin/zsh"
+    try:
+        proc = subprocess.run([shell, "-ic", "printf '\\n%s\\n' " + ENV_MARK + "; env -0"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_shell_env(proc.stdout.decode("utf-8", "replace"), names)
+
+
+def apply_tokens(values, environ):
+    """Make `environ` say what the shell says. Returns the names that changed."""
+    changed = []
+    for name, value in (values or {}).items():
+        if value is None and name in environ:
+            del environ[name]
+            changed.append(name)
+        elif value is not None and environ.get(name) != value:
+            environ[name] = value
+            changed.append(name)
+    return changed
+
+
+def keep_tokens_fresh():
+    """Forever, in a thread: pick up tokens changed in the shell's config."""
+    while True:
+        changed = apply_tokens(shell_tokens(), os.environ)
+        if changed:
+            log("picked up %s from the shell" % ", ".join(
+                ("a new %s" % n) if n in os.environ else ("%s unset" % n) for n in changed))
+        time.sleep(TOKENS_EVERY)
+
+
 def run(cmd, cwd=None):
     proc = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)

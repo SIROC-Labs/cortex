@@ -238,6 +238,12 @@ will update once its runs finish. Every command the TUI sends (merge, stop, retr
 followed until the daemon acts on it, and the TUI says if it was not understood or not
 picked up.
 
+Tokens are re-read from your shell every minute — `GH_TOKEN`, `GITHUB_TOKEN` and
+`ASANA_PERSONAL_ACCESS_TOKEN`, as a fresh interactive shell sets them from `~/.zshrc` —
+and used for the daemon's own calls and every run it starts after. Replace an expired
+token there and the daemon picks it up within a minute; no restart. A variable no
+longer set there is unset for the daemon too.
+
 ## Files
 
 `<repo>/.cortex/queue/`:

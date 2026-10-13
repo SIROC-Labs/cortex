@@ -28,7 +28,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import Engine, Stop, kill_tree, log, st  # noqa: E402
+from engine import Engine, Stop, keep_tokens_fresh, kill_tree, log, st  # noqa: E402
 
 QUEUE_DIRNAME = "queue"
 REGISTRY = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "daemons")
@@ -544,6 +544,7 @@ class QueueRun(Engine):
         try:
             threading.Thread(target=self.beat_forever, args=(started, version),
                              daemon=True).start()
+            threading.Thread(target=keep_tokens_fresh, daemon=True).start()
             self.resolve_me()
             self.apply_control()
             self.refresh()

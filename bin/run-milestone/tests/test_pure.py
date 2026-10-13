@@ -794,5 +794,28 @@ class TestAutoMerge(unittest.TestCase):
             self.assertFalse(auto_merge_due("always", record, "x", "main"), record)
 
 
+
+class TestShellTokens(unittest.TestCase):
+    def test_reads_what_follows_the_marker_and_ignores_shell_noise(self):
+        import engine
+        out = "welcome!\nengine junk=1\n" + engine.ENV_MARK + "\nGH_TOKEN=new\0PATH=/bin\0X=a=b\0"
+        self.assertEqual(engine.parse_shell_env(out, ("GH_TOKEN", "GITHUB_TOKEN", "X")),
+                         {"GH_TOKEN": "new", "GITHUB_TOKEN": None, "X": "a=b"})
+
+    def test_an_unreadable_shell_says_nothing(self):
+        import engine
+        self.assertIsNone(engine.parse_shell_env("zsh: something broke", ("GH_TOKEN",)))
+        env = {"GH_TOKEN": "old"}
+        self.assertEqual(engine.apply_tokens(None, env), [])
+        self.assertEqual(env, {"GH_TOKEN": "old"})
+
+    def test_the_environment_follows_the_shell(self):
+        import engine
+        env = {"GH_TOKEN": "old", "GITHUB_TOKEN": "gone", "OTHER": "kept"}
+        changed = engine.apply_tokens({"GH_TOKEN": "new", "GITHUB_TOKEN": None,
+                                       "ASANA_PERSONAL_ACCESS_TOKEN": None}, env)
+        self.assertEqual(sorted(changed), ["GH_TOKEN", "GITHUB_TOKEN"])
+        self.assertEqual(env, {"GH_TOKEN": "new", "OTHER": "kept"})
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

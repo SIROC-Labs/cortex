@@ -25,10 +25,11 @@
 import argparse
 import os
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine import TICK, Engine, Stop, log, parse_project_ref, st  # noqa: E402
+from engine import TICK, Engine, Stop, keep_tokens_fresh, log, parse_project_ref, st  # noqa: E402
 
 MILESTONES_DIRNAME = "milestones"
 
@@ -101,6 +102,7 @@ class BoardRun(Engine):
         return members
 
     def run_loop(self):
+        threading.Thread(target=keep_tokens_fresh, daemon=True).start()
         self.resolve()
         self.refresh()
         self.reconcile_all()
