@@ -1734,7 +1734,7 @@ class App(object):
                      "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
                     "warn" if busy else "dim")
             for i, row in enumerate(rows[top:top + body]):
-                picked = top + i == cur
+                picked = top + i == cur and not self.palette
                 style = "sel" if picked else row.get("style", "normal")
                 put(3 + i, ("▸ " if picked else "  ") + fit(row["cols"], w - 2), style)
             row = rows[cur] if rows else None
@@ -1775,13 +1775,19 @@ class App(object):
             _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
             _put_at(scr, y, left + width - 1, edge, left + width + 1, tint)
 
-        def rule(y, a, b):
-            _put_at(scr, y, left, a + "─" * (width - 2) + b, left + width + 1, tint)
+        def rule(y, a, b, label=""):
+            # The run of ─ goes through curses' own line character: the ncurses
+            # macOS ships drops a long run of a multibyte one, leaving a hole the
+            # screen behind shows through.
+            _put_at(scr, y, left, a + label, left + width + 1, tint)
+            try:
+                scr.hline(y, left + 1 + len(label), getattr(curses, "ACS_HLINE", ord("-")) | tint,
+                          max(0, width - 2 - len(label)))
+            except curses.error:
+                pass
+            _put_at(scr, y, left + width - 1, b, left + width + 1, tint)
 
-        for y in range(3, 3 + 4 + max(1, min(len(shown), rows))):
-            _put_at(scr, y, 0, " " * w, w, styles["normal"])
-        _put_at(scr, 3, left, "╭─ commands " + "─" * (width - 13) + "╮", left + width + 1,
-                tint)
+        rule(3, "╭", "╮", "─ commands ")
         row(4, ": " + self.palette["line"].show(inner - 2), tint | curses.A_BOLD)
         rule(5, "├", "┤")
         y = 6
