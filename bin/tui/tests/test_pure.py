@@ -1016,9 +1016,6 @@ class TestAnswering(unittest.TestCase):
             def refresh(self):
                 pass
 
-            def chgat(self, y, x, attr):
-                pass
-
             def addnstr(self, y, x, text, n, attr=0):
                 for i, ch in enumerate(text[:n]):
                     if 0 <= y < 24 and 0 <= x + i < 90:

@@ -1767,36 +1767,32 @@ class App(object):
         top = scroll_top(self.palette.get("top", 0), cur, rows, len(shown))
         self.palette["top"] = top
         inner = width - 4
+        tint = styles.get("palette", styles["normal"])
 
         def row(y, text, attr, edge="│"):
             body = text[:inner].ljust(inner)
-            _put_at(scr, y, left, edge, left + 2, styles["dim"])
+            _put_at(scr, y, left, edge, left + 2, tint)
             _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
-            _put_at(scr, y, left + width - 1, edge, left + width + 1, styles["dim"])
+            _put_at(scr, y, left + width - 1, edge, left + width + 1, tint)
 
         def rule(y, a, b):
-            _put_at(scr, y, left, a + "─" * (width - 2) + b, left + width + 1, styles["dim"])
+            _put_at(scr, y, left, a + "─" * (width - 2) + b, left + width + 1, tint)
 
-        for y in range(h):
-            try:
-                scr.chgat(y, 0, styles.get("faded", curses.A_DIM))
-            except curses.error:
-                pass
         for y in range(3, 3 + 4 + max(1, min(len(shown), rows))):
             _put_at(scr, y, 0, " " * w, w, styles["normal"])
         _put_at(scr, 3, left, "╭─ commands " + "─" * (width - 13) + "╮", left + width + 1,
-                styles["dim"])
-        row(4, ": " + self.palette["line"].show(inner - 2), styles["bold"])
+                tint)
+        row(4, ": " + self.palette["line"].show(inner - 2), tint | curses.A_BOLD)
         rule(5, "├", "┤")
         y = 6
         if not shown:
             row(y, "nothing here beyond the keys below" if not self.palette["commands"]
-                else "nothing matches", styles["dim"])
+                else "nothing matches", tint)
             y += 1
         for i, cmd in enumerate(shown[top:top + rows]):
             picked = top + i == cur
             row(y, ("▸ " if picked else "  ") + cmd["title"], styles["sel"] if picked
-                else styles["normal"])
+                else tint)
             y += 1
         rule(y, "╰", "╯")
 
@@ -1837,15 +1833,8 @@ def run_ui(main_root, forward):
                 curses.init_pair(n, color, -1)
             styles.update(ok=curses.color_pair(1), warn=curses.color_pair(2),
                           bad=curses.color_pair(3) | curses.A_BOLD)
-            # What the palette fades the screen behind it to: a grey close to
-            # the terminal's background, so only the palette reads.
-            if curses.COLORS >= 256:
-                light = (os.environ.get("COLORFGBG") or "").split(";")[-1] in ("7", "15")
-                curses.init_pair(4, 252 if light else 238, -1)
-                styles["faded"] = curses.color_pair(4)
-            elif curses.COLORS >= 16:
-                curses.init_pair(4, 8, -1)
-                styles["faded"] = curses.color_pair(4) | curses.A_DIM
+            curses.init_pair(4, curses.COLOR_CYAN, -1)
+            styles["palette"] = curses.color_pair(4)
         app = App(main_root, forward)
         while True:
             app.refresh_state(time.time())
