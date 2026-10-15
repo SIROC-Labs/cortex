@@ -55,7 +55,8 @@ project that runs browser or mobile QA. Copy only the one you need.
 }
 ```
 
-The source of truth is `plugins/cortex-qa-tools/.mcp.json`; each entry there is
+The source of truth is `plugins/cortex-qa-web/.mcp.json` and
+`plugins/cortex-qa-mobile/.mcp.json`; each entry there is
 `command` followed by `args`.
 
 ## Updating

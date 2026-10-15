@@ -24,7 +24,7 @@ marketplace so you can choose plugins yourself. When installing, it runs
 required `superpowers` dependency from the official `openai-curated` catalog
 (its single canonical source — Codex does not dedupe identically named plugins
 across marketplaces, so it is not shipped in `siroc-cortex`). It does not add
-`cortex-qa-tools`, the plugin with the QA MCP servers; see
+`cortex-qa-web` or `cortex-qa-mobile`, the plugins with the QA MCP servers; see
 [MCP servers for browser and mobile QA](#mcp-servers-for-browser-and-mobile-qa).
 
 Restart Codex afterwards to pick up the plugins and skills — no `/plugins` step
@@ -76,17 +76,18 @@ plugins/cortex-workflow/.codex-plugin/plugin.json
 ### MCP servers for browser and mobile QA
 
 `web-qa` and `mobile-qa` drive two MCP servers, `chrome-devtools` and
-`mobile-mcp`, shipped in the separate `cortex-qa-tools` plugin
-(`plugins/cortex-qa-tools/.mcp.json`). Codex plugins are global and an enabled
-plugin starts its MCP servers in every session, so add it only if you run
-browser or mobile QA:
+`mobile-mcp`, shipped in the separate `cortex-qa-web` and `cortex-qa-mobile`
+plugins (`plugins/cortex-qa-web/.mcp.json`, `plugins/cortex-qa-mobile/.mcp.json`).
+Codex plugins are global and an enabled plugin starts its MCP server in every
+session, so add only the one you use:
 
 ```bash
-codex plugin add cortex-qa-tools@siroc-cortex
+codex plugin add cortex-qa-web@siroc-cortex      # browser QA
+codex plugin add cortex-qa-mobile@siroc-cortex   # mobile QA
 ```
 
-If a server is unavailable, register it manually (the same commands as that
-`.mcp.json`):
+If a server is unavailable, register it manually (the same commands as those
+`.mcp.json` files):
 
 ```bash
 codex mcp add chrome-devtools -- sh -c 'bin=$(npx -y --package=chrome-devtools-mcp@latest -c "command -v chrome-devtools-mcp") || exit 1; exec "$bin" --experimentalScreencast --no-usage-statistics'

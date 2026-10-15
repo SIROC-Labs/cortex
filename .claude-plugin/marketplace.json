@@ -35,9 +35,15 @@
       "version": "0.3.1"
     },
     {
-      "name": "cortex-qa-tools",
-      "source": "./plugins/cortex-qa-tools",
-      "description": "Browser and mobile MCP servers (chrome-devtools, mobile-mcp) for cortex-workflow QA. Enable per project.",
+      "name": "cortex-qa-web",
+      "source": "./plugins/cortex-qa-web",
+      "description": "Chrome DevTools MCP server for cortex-workflow web QA (web-qa). Enable per project.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "cortex-qa-mobile",
+      "source": "./plugins/cortex-qa-mobile",
+      "description": "mobile-mcp server for cortex-workflow mobile QA (mobile-qa). Enable per project.",
       "version": "0.1.0"
     }
   ]

@@ -1,0 +1,35 @@
+{
+  "name": "cortex-qa-mobile",
+  "version": "0.1.0",
+  "description": "mobile-mcp server for cortex-workflow mobile QA (mobile-qa). Enable per project.",
+  "author": {
+    "name": "SIROC Team",
+    "url": "https://github.com/SIROC-Labs"
+  },
+  "homepage": "https://github.com/SIROC-Labs/cortex",
+  "repository": "https://github.com/SIROC-Labs/cortex",
+  "license": "Proprietary",
+  "keywords": [
+    "qa",
+    "mcp",
+    "mobile",
+    "ios",
+    "android"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Cortex QA Mobile",
+    "shortDescription": "mobile-mcp server for cortex-workflow mobile QA.",
+    "longDescription": "mobile-mcp, the iOS and Android testing tool that the cortex-workflow mobile-qa skill drives. Install only where you run mobile QA: every session with this plugin starts the server.",
+    "developerName": "SIROC Team",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/SIROC-Labs/cortex",
+    "defaultPrompt": [
+      "QA this branch on the simulator."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

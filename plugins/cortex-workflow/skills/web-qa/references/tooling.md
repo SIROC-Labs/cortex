@@ -7,7 +7,7 @@ Call `list_pages` to verify Chrome DevTools MCP is connected and functional. Thi
 **Expected success:** Returns a list of open browser pages/tabs.
 
 **Failure means:**
-- The project has not enabled the QA MCP servers (they are opt-in per project)
+- The project has not enabled the browser QA server, `cortex-qa-web` (opt-in per project)
 - Chrome DevTools MCP is not configured or not started
 - Node.js is not installed (required for npx)
 - Chrome is not installed
@@ -18,7 +18,7 @@ Call `list_pages` to verify Chrome DevTools MCP is connected and functional. Thi
 
 ### When Chrome DevTools MCP is unavailable
 
-If no Chrome DevTools tools (`list_pages`, `navigate_page`, …) exist in this session at all, the project has not enabled the QA MCP servers. Tell the operator to enable them for this project (per-runtime commands: `../../start-task/references/skill-dependencies.md` → MCP Servers), restart the agent session, and re-run. Stop there.
+If no Chrome DevTools tools (`list_pages`, `navigate_page`, …) exist in this session at all, the project has not enabled the browser QA server (`cortex-qa-web`). Tell the operator to enable it for this project (per-runtime commands: `../../start-task/references/skill-dependencies.md` → MCP Servers), restart the agent session, and re-run. Stop there.
 
 If the tools exist but fail, run this first:
 
