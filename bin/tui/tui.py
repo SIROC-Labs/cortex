@@ -658,6 +658,27 @@ HELP = [
         ("x", "stop one, with its runs"),
         ("d", "clear a crashed one's entry"),
     ]),
+    ("Commands — : opens them, on the Runs tab for the selected task", [
+        ("checkpoint", "Make HCI-8 a checkpoint (◆) · again: no longer a checkpoint"),
+        ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
+        ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
+        ("clear", "Clear the finished tasks from the list"),
+        ("daemon", "start or stop this repo's daemon"),
+    ]),
+    ("Checkpoints", [
+        ("what", "a gate in its feature's queue: nothing queued after it starts until it "
+                 "has merged and you press c — however long it takes"),
+        ("e.g.", "◆ HCI-8 and ◆ HCI-10: HCI-9 waits for HCI-8, HCI-11 for HCI-10; tasks "
+                 "before HCI-8, and what they depend on, are never held"),
+        ("set", ": on a queued task, then Make … a checkpoint"),
+        ("c", "once it has merged (⚑, header ⏸) — let the queue past it, to the next one"),
+    ]),
+    ("Features and dependencies", [
+        ("feature", "the branch work targets: Setup → Queue into picks where what you queue "
+                    "goes; queued tasks keep theirs; Runs groups by feature"),
+        ("deps", "queueing a task queues every unfinished task it depends on, ahead of it "
+                 "(· queued for HCI-9); a task starts once its dependencies are done"),
+    ]),
     ("Typing — filter, answers, branch names, commands", [
         ("^A ^E", "start / end of the line"),
         ("^B ^F   ← →", "back / forward a character"),

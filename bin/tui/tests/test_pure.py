@@ -1401,6 +1401,11 @@ class TestHelpPage(unittest.TestCase):
         self.assertEqual(headings[:2], ["Moving around", "Setup   · this tab"])
         self.assertTrue(headings[-1].startswith("Typing"))
 
+    def test_palette_commands_and_checkpoints_are_explained(self):
+        text = " ".join(t for _, t, _ in tui.help_lines(100, "Runs"))
+        for words in ("Checkpoints", "Make HCI-8 a checkpoint", "Undo HCI-8", "Queue into"):
+            self.assertIn(words, text)
+
     def test_keys_and_text_are_separate_columns_and_long_text_wraps_under_itself(self):
         lines = tui.help_lines(60, "Runs")
         merge = [i for i, (k, t, s) in enumerate(lines) if k == "m"][0]
