@@ -603,8 +603,8 @@ _CURSES = {"KEY_UP": "up", "KEY_DOWN": "down", "KEY_LEFT": "left", "KEY_RIGHT": 
 NAV = {
     "down": "down", "j": "down", "ctrl-n": "down",
     "up": "up", "k": "up", "ctrl-p": "up",
-    "pgdn": "pgdn", "ctrl-f": "pgdn",
-    "pgup": "pgup", "ctrl-b": "pgup",
+    "pgdn": "pgdn", "alt-n": "pgdn",
+    "pgup": "pgup", "alt-b": "pgup",
     "ctrl-d": "halfdown", "ctrl-u": "halfup",
     "home": "home", "g": "home",
     "end": "end", "G": "end",
@@ -621,7 +621,7 @@ MOVES = ("down", "up", "pgdn", "pgup", "halfdown", "halfup", "home", "end")
 HELP = [
     ("Moving around", [
         ("↑ ↓   j k   ^N ^P", "move"),
-        ("PgDn PgUp   ^F ^B", "a page"),
+        ("PgDn PgUp   alt-N alt-B", "a page"),
         ("^D ^U", "half a page"),
         ("Home End   g G", "top / end"),
         ("⏎   →   l", "in: open a board, a task's question or log, a setting"),
@@ -688,7 +688,7 @@ HELP = [
         ("^D   ⌫", "delete forward / back"),
     ]),
 ]
-HELP_KEYS_WIDTH = 20
+HELP_KEYS_WIDTH = 25
 
 
 def help_lines(width, tab):
@@ -1608,9 +1608,9 @@ class App(object):
         if self.palette is not None:
             return "type to narrow · ↑↓ choose · ⏎ run · esc close"
         if self.help:
-            return "↑↓ ^F ^B scroll · any other key closes"
+            return "↑↓ alt-N alt-B scroll · any other key closes"
         if self.log_path:
-            return "↑↓ ^F ^B scroll · g/G top/end · ←/esc/q back"
+            return "↑↓ alt-N alt-B scroll · g/G top/end · ←/esc/q back"
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:

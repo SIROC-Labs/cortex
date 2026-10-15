@@ -22,7 +22,7 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 | | |
 |---|---|
 | move | `↑` `↓` · `j` `k` · `Ctrl-N` `Ctrl-P` |
-| page / half page | `PgDn` `PgUp` · `Ctrl-F` `Ctrl-B` / `Ctrl-D` `Ctrl-U` |
+| page / half page | `PgDn` `PgUp` · `Alt-N` `Alt-B` / `Ctrl-D` `Ctrl-U` |
 | top / end | `Home` `End` · `g` `G` |
 | in | `⏎` · `→` · `l` — open a board, a run's log |
 | out | `←` · `h` · `Esc` · `⌫` — clear the filter, then leave the board |

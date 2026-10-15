@@ -512,7 +512,7 @@ class TestDecodeKey(unittest.TestCase):
 class TestNav(unittest.TestCase):
     def test_vi_emacs_and_arrows_agree(self):
         for keys, action in ((("down", "j", "ctrl-n"), "down"), (("up", "k", "ctrl-p"), "up"),
-                             (("pgdn", "ctrl-f"), "pgdn"), (("pgup", "ctrl-b"), "pgup"),
+                             (("pgdn", "alt-n"), "pgdn"), (("pgup", "alt-b"), "pgup"),
                              (("right", "l", "enter"), "open"),
                              (("left", "h", "esc", "backspace"), "back")):
             for k in keys:
@@ -567,7 +567,7 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.app.cursor["Boards"], 2)
         self.press("g")
         self.assertEqual(self.app.cursor["Boards"], 0)
-        self.press("ctrl-f")
+        self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
 
     def test_o_opens_the_task_or_the_board_in_asana(self):
@@ -680,7 +680,7 @@ class TestAppKeys(unittest.TestCase):
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
         self.assertTrue(self.app.help)
-        self.press("j", "down", "ctrl-f")
+        self.press("j", "down", "alt-n")
         self.assertTrue(self.app.help)          # the arrows scroll it
         self.press("x")
         self.assertFalse(self.app.help)         # anything else closes it
