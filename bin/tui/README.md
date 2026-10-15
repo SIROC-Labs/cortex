@@ -91,7 +91,8 @@ dependency and the task that needs it waits until it is done some other way.
 
 ## Checkpoints
 
-*Make HCI-8 a checkpoint* in the palette flags a queued task (◆ before its name). A
+*Make HCI-8 a checkpoint* in the palette flags a queued task (◆ before its name) — on
+the Runs tab, or on a board, where a task not queued yet offers *Queue … as a checkpoint*. A
 checkpoint is a gate in its feature's queue: nothing queued after it starts until it has merged
 and you have pressed `c` — however long it takes. With checkpoints on HCI-8 and HCI-10,
 HCI-9 waits for HCI-8, and HCI-11 for HCI-10. Tasks held back say *held back until

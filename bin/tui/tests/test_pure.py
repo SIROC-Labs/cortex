@@ -570,6 +570,20 @@ class TestAppKeys(unittest.TestCase):
         self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
 
+    def test_a_board_task_can_be_queued_as_a_checkpoint_or_flagged_once_queued(self):
+        self.app.ensure_daemon = lambda: None
+        self.press("2", "down", "enter", "down")
+        self.press(":", *"checkpoint", "enter")
+        queue = dm.read_control(self.root)["queue"]
+        self.assertEqual([(q["gid"], q.get("checkpoint")) for q in queue], [("t1", True)])
+        self.assertIn("◆", self.app.view()[1]["cols"][0])
+        self.press(":", *"checkpoint")
+        titles = [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
+                                                          self.app.palette["query"])]
+        self.assertEqual(titles, ["one is no longer a checkpoint"])
+        self.press("esc", "down", " ", ":", *"checkpoint", "enter")
+        self.assertTrue(dm.read_control(self.root)["queue"][1]["checkpoint"])
+
     def test_o_opens_the_task_or_the_board_in_asana(self):
         opened = []
         saved = tui.webbrowser.open

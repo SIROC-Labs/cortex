@@ -505,7 +505,7 @@ def board_list_rows(boards, query, sprint=None):
             for b in boards or [] if matches(b["name"], query)]
 
 
-def board_rows(board_gid, sections, queued, records, query, live=None):
+def board_rows(board_gid, sections, queued, records, query, live=None, checkpoints=()):
     """A board as sections and their tasks. A section stays when its name or any of
     its tasks match the query; a task when it matches or its section does. `live`
     is what the daemon last read of a task, laid over the cached board — it is
@@ -528,7 +528,7 @@ def board_rows(board_gid, sections, queued, records, query, live=None):
                      "tasks": tasks})
         for t in tasks:
             phase = (records.get(t["gid"]) or {}).get("phase")
-            mark = "●" if t["gid"] in queued else " "
+            mark = ("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued else " "
             state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
             rows.append({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
                          "completed": t.get("completed"),
@@ -659,7 +659,8 @@ HELP = [
         ("d", "clear a crashed one's entry"),
     ]),
     ("Commands — : opens them, on the Runs tab for the selected task", [
-        ("checkpoint", "Make HCI-8 a checkpoint (◆) · again: no longer a checkpoint"),
+        ("checkpoint", "Make HCI-8 a checkpoint (◆) · again: no longer a checkpoint · "
+                       "on Boards also: Queue … as a checkpoint"),
         ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
         ("clear", "Clear the finished tasks from the list"),
@@ -670,7 +671,8 @@ HELP = [
                  "has merged and you press c — however long it takes"),
         ("e.g.", "◆ HCI-8 and ◆ HCI-10: HCI-9 waits for HCI-8, HCI-11 for HCI-10; tasks "
                  "before HCI-8, and what they depend on, are never held"),
-        ("set", ": on a queued task, then Make … a checkpoint"),
+        ("set", ": on a task — Runs, or a board — then Make … a checkpoint (or Queue … as "
+                "a checkpoint)"),
         ("c", "once it has merged (⚑, header ⏸) — let the queue past it, to the next one"),
     ]),
     ("Features and dependencies", [
@@ -1077,7 +1079,8 @@ class App(object):
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
-                              self.data.get("records") or {}, query, self.data.get("tasks"))
+                              self.data.get("records") or {}, query, self.data.get("tasks"),
+                              {q["gid"] for q in self.control["queue"] if q.get("checkpoint")})
         if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
         if name == "Setup" and self.setup == "base":
@@ -1257,7 +1260,23 @@ class App(object):
             out.append({"title": ("%s is no longer a checkpoint" if on else
                                   "Make %s a checkpoint") % row["cols"][0],
                         "words": "checkpoint pause stop after milestone gate",
-                        "run": lambda: self.toggle_checkpoint(row, not on)})
+                        "run": lambda: self.toggle_checkpoint(row["id"], row["cols"][0], not on)})
+        if (TABS[self.tab] == "Boards" and self.board and row and row["kind"] == "task"
+                and not row.get("completed")):
+            label = row["name"] if len(row["name"]) <= 40 else row["name"][:39] + "…"
+            item = next((q for q in self.control.get("queue") or [] if q["gid"] == row["id"]), None)
+            if item is None:
+                out.append({"title": "Queue %s as a checkpoint" % label,
+                            "words": "checkpoint pause stop after milestone gate",
+                            "run": lambda: (self.queue([{"gid": row["id"], "board": row["board"],
+                                                         "name": row["name"]}]),
+                                            self.toggle_checkpoint(row["id"], label, True))})
+            else:
+                on = bool(item.get("checkpoint"))
+                out.append({"title": ("%s is no longer a checkpoint" if on else
+                                      "Make %s a checkpoint") % label,
+                            "words": "checkpoint pause stop after milestone gate",
+                            "run": lambda: self.toggle_checkpoint(row["id"], label, not on)})
         if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
                 and row.get("phase") not in (None, "undone")):
             out.append({"title": "Undo %s" % row["cols"][0],
@@ -1291,11 +1310,11 @@ class App(object):
             self.palette["query"] = self.palette["line"].text
             self.palette["cursor"] = 0
 
-    def toggle_checkpoint(self, row, on):
-        self.change_control(lambda c: dm.set_checkpoint(c, row["id"], on))
+    def toggle_checkpoint(self, gid, label, on):
+        self.change_control(lambda c: dm.set_checkpoint(c, gid, on))
         self.message = ("%s is a checkpoint: what is queued after it waits until it has "
-                        "merged and you continue" % row["cols"][0] if on
-                        else "%s is no longer a checkpoint" % row["cols"][0])
+                        "merged and you continue" % label if on
+                        else "%s is no longer a checkpoint" % label)
 
     def undo(self, row):
         """Ask before undoing a task — saying exactly what will be done, and
