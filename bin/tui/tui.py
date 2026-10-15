@@ -1757,31 +1757,41 @@ class App(object):
         scr.refresh()
 
     def draw_palette(self, scr, styles, h, w):
-        """A framed box: the line being typed on top, then the commands, the chosen
-        one marked as well as highlighted — so one or two are never ambiguous."""
+        """A framed panel over a dimmed screen: the line being typed on top, then
+        the commands, the chosen one marked as well as highlighted — so one or two
+        are never ambiguous — and the keys it takes. Solid and coloured, so it
+        reads as on top even over a shared screen."""
         shown = palette_matches(self.palette["commands"], self.palette["query"])
         width = max(30, min(w - 4, 86))
         left = max(0, (w - width) // 2)
-        rows = max(1, min(len(shown), h - 10))
+        rows = max(1, min(len(shown), h - 12))
         cur = min(self.palette["cursor"], max(0, len(shown) - 1))
         top = scroll_top(self.palette.get("top", 0), cur, rows, len(shown))
         self.palette["top"] = top
         inner = width - 4
 
+        panel, edge_attr = styles.get("panel", styles["normal"]), styles.get("edge", styles["bold"])
+        pick = styles.get("pick", styles["sel"])
+
         def row(y, text, attr, edge="│"):
             body = text[:inner].ljust(inner)
-            _put_at(scr, y, left, edge, left + 2, styles["dim"])
+            _put_at(scr, y, left, edge, left + 2, edge_attr)
             _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
-            _put_at(scr, y, left + width - 1, edge, left + width + 1, styles["dim"])
+            _put_at(scr, y, left + width - 1, edge, left + width + 1, edge_attr)
 
-        def rule(y, a, b):
-            _put_at(scr, y, left, a + "─" * (width - 2) + b, left + width + 1, styles["dim"])
+        def rule(y, a, b, label=""):
+            line = a + label + "─" * (width - 2 - len(label)) + b
+            _put_at(scr, y, left, line, left + width + 1, edge_attr)
 
-        for y in range(3, 3 + 4 + max(1, min(len(shown), rows))):
+        for y in range(h):
+            try:
+                scr.chgat(y, 0, curses.A_DIM)
+            except curses.error:
+                pass
+        for y in range(3, 3 + 6 + max(1, min(len(shown), rows))):
             _put_at(scr, y, 0, " " * w, w, styles["normal"])
-        _put_at(scr, 3, left, "╭─ commands " + "─" * (width - 13) + "╮", left + width + 1,
-                styles["dim"])
-        row(4, ": " + self.palette["line"].show(inner - 2), styles["bold"])
+        rule(3, "╭", "╮", "─ Commands ")
+        row(4, ": " + self.palette["line"].show(inner - 2), panel | curses.A_BOLD)
         rule(5, "├", "┤")
         y = 6
         if not shown:
@@ -1790,10 +1800,11 @@ class App(object):
             y += 1
         for i, cmd in enumerate(shown[top:top + rows]):
             picked = top + i == cur
-            row(y, ("▸ " if picked else "  ") + cmd["title"], styles["sel"] if picked
-                else styles["normal"])
+            row(y, ("▸ " if picked else "  ") + cmd["title"], pick if picked else panel)
             y += 1
-        rule(y, "╰", "╯")
+        rule(y, "├", "┤")
+        row(y + 1, "↑↓ choose · ⏎ run · esc close · type to narrow", panel)
+        rule(y + 2, "╰", "╯")
 
 
 def _put(scr, y, text, width, attr):
@@ -1832,6 +1843,13 @@ def run_ui(main_root, forward):
                 curses.init_pair(n, color, -1)
             styles.update(ok=curses.color_pair(1), warn=curses.color_pair(2),
                           bad=curses.color_pair(3) | curses.A_BOLD)
+            # The palette: white on blue, a bright border, the choice black on
+            # yellow — distinct from the list's reverse-video cursor behind it.
+            curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLUE)
+            curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLUE)
+            curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+            styles.update(panel=curses.color_pair(4), edge=curses.color_pair(5) | curses.A_BOLD,
+                          pick=curses.color_pair(6) | curses.A_BOLD)
         app = App(main_root, forward)
         while True:
             app.refresh_state(time.time())
