@@ -169,6 +169,10 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(rows[0]["cols"][1:], ["1 running · 1 merged", ""])
         self.assertEqual(rows[3]["cols"][1:], ["1 queued", "← queueing here"])
 
+    def test_a_feature_heading_shows_its_whole_name(self):
+        line = tui.fit(["feature/recruiter-queue-M5", "1 queued", ""], 100, wide=True)
+        self.assertTrue(line.startswith("feature/recruiter-queue-M5  1 queued"))
+
     def test_one_feature_needs_no_heading(self):
         control = {"queue": [{"gid": "1"}, {"gid": "2", "base": None}]}
         rows = run_rows(control, {"tasks": {}, "records": {}}, [])

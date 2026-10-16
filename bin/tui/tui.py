@@ -567,10 +567,11 @@ def log_line(line):
     return text, "bold" if heading else "normal"
 
 
-def fit(cols, width):
-    """One line from columns: the last column takes what is left."""
+def fit(cols, width, wide=False):
+    """One line from columns: the last column takes what is left. A wide row's
+    first column is as long as it needs."""
     if len(cols) == 3:
-        widths = [10, 46, 0]
+        widths = [max(10, len(str(cols[0]))) if wide else 10, 46, 0]
     else:
         widths = [max(20, width // 2)] + [14] * (len(cols) - 2) + [0]
     parts = []
@@ -1735,7 +1736,7 @@ class App(object):
             for i, row in enumerate(rows[top:top + body]):
                 picked = top + i == cur and not self.palette
                 style = "sel" if picked else row.get("style", "normal")
-                put(3 + i, ("▸ " if picked else "  ") + fit(row["cols"], w - 2), style)
+                put(3 + i, ("▸ " if picked else "  ") + fit(row["cols"], w - 2, row["kind"] == "feature"), style)
             row = rows[cur] if rows else None
             detail = []
             if row and TABS[self.tab] == "Runs" and row["kind"] == "task":
