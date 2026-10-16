@@ -23,9 +23,10 @@ MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
-# Marketplace plugins this script never installs; each project opts in. cortex-qa-tools
-# carries the QA MCP servers, which a runtime starts in every session that enables it.
-OPT_IN_PLUGINS="cortex-qa-tools"
+# Marketplace plugins this script never installs; each project opts in. cortex-qa-web and
+# cortex-qa-mobile carry the QA MCP servers, which a runtime starts in every session that
+# enables them.
+OPT_IN_PLUGINS="cortex-qa-web cortex-qa-mobile"
 
 OPENCODE=false
 CODEX=false
@@ -167,13 +168,14 @@ repoint_dev() {
 
 # How to opt a repo into the QA MCP servers. Args: the runtimes to cover.
 print_qa_tools_hint() {
-  echo "  Browser/mobile QA (web-qa, mobile-qa) needs the QA MCP servers. They are opt-in:"
+  echo "  Browser/mobile QA (web-qa, mobile-qa) needs the QA MCP servers. They are opt-in;"
+  echo "  enable cortex-qa-web for browser QA, cortex-qa-mobile for mobile QA:"
   local runtime
   for runtime in "$@"; do
     case "$runtime" in
-      claude)   echo -e "    Claude Code, in each repo:  ${GREEN}claude plugin install cortex-qa-tools@${MARKETPLACE_NAME} --scope project${NC}" ;;
-      codex)    echo -e "    Codex, every session:       ${GREEN}codex plugin add cortex-qa-tools@${MARKETPLACE_NAME}${NC}" ;;
-      opencode) echo    "    OpenCode, in each repo:     add the servers to opencode.json, see https://github.com/${MARKETPLACE_REPO}/blob/main/.opencode/INSTALL.md" ;;
+      claude)   echo -e "    Claude Code, in each repo:  ${GREEN}claude plugin install cortex-qa-<web|mobile>@${MARKETPLACE_NAME} --scope project${NC}" ;;
+      codex)    echo -e "    Codex, every session:       ${GREEN}codex plugin add cortex-qa-<web|mobile>@${MARKETPLACE_NAME}${NC}" ;;
+      opencode) echo    "    OpenCode, in each repo:     add the server(s) to opencode.json, see https://github.com/${MARKETPLACE_REPO}/blob/main/.opencode/INSTALL.md" ;;
     esac
   done
   echo ""
@@ -477,7 +479,7 @@ for name, entry in (("cortex-workflow", cortex_entry), ("superpowers", superpowe
         existing.add(name)
 config["plugin"] = plugins
 
-# The QA MCP servers (plugins/cortex-qa-tools/.mcp.json) are opt-in per project:
+# The QA MCP servers (plugins/cortex-qa-{web,mobile}/.mcp.json) are opt-in per project:
 # each repo that runs browser/mobile QA declares them in its own opencode.json.
 
 perm = config.get("permission", {})
@@ -532,10 +534,13 @@ configure_codex() {
     MP_SOURCE="$SCRIPT_DIR"
 
     # Validate the local marketplace + per-plugin manifests before registering them.
-    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json" "${SCRIPT_DIR}/plugins/cortex-qa-tools/.mcp.json")
+    local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json")
     local p
     for p in $PLUGINS $OPT_IN_PLUGINS; do
       MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
+    done
+    for p in $OPT_IN_PLUGINS; do
+      MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.mcp.json")
     done
     local manifest
     for manifest in "${MANIFESTS[@]}"; do
@@ -571,9 +576,10 @@ PYEOF
     return 1
   fi
 
-  # The QA MCP servers (mobile-mcp, chrome-devtools) ship in the opt-in
-  # cortex-qa-tools plugin (.codex-plugin/plugin.json -> ./.mcp.json); they load when
-  # that plugin is added — no `codex mcp add` needed. It is not installed here.
+  # The QA MCP servers ship in the opt-in cortex-qa-web (chrome-devtools) and
+  # cortex-qa-mobile (mobile-mcp) plugins (.codex-plugin/plugin.json -> ./.mcp.json);
+  # each loads when its plugin is added — no `codex mcp add` needed. Neither is
+  # installed here.
 
   if [ "$INSTALL_PLUGINS" != true ]; then
     info "Skipping plugin install — choose from the marketplace:"

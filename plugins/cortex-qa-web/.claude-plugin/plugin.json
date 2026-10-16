@@ -1,0 +1,8 @@
+{
+  "name": "cortex-qa-web",
+  "description": "Chrome DevTools MCP server for cortex-workflow web QA (web-qa). Enable per project.",
+  "version": "0.1.0",
+  "author": {
+    "name": "SIROC Team"
+  }
+}

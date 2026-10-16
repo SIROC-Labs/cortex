@@ -5,7 +5,8 @@ import shlex
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+PLUGIN = os.path.abspath(os.path.join(HERE, ".."))
+REPO = os.path.abspath(os.path.join(PLUGIN, "..", ".."))
 
 
 def read(*parts):
@@ -14,7 +15,7 @@ def read(*parts):
 
 
 def servers():
-    manifest = json.loads(read("plugins", "cortex-qa-tools", ".mcp.json"))
+    manifest = json.loads(read(PLUGIN, ".mcp.json"))
     return {name: [s["command"], *s["args"]] for name, s in manifest["mcpServers"].items()}
 
 
@@ -26,7 +27,8 @@ class ServerDocsMatchManifest(unittest.TestCase):
         if block is None:
             self.fail("mcp snippet missing from .opencode/INSTALL.md")
         snippet = json.loads(block.group(1))["mcp"]
-        self.assertEqual({name: s["command"] for name, s in snippet.items()}, servers())
+        for name, command in servers().items():
+            self.assertEqual(snippet.get(name, {}).get("command"), command, name)
 
     def test_codex_fallback_commands(self):
         lines = re.findall(r"^codex mcp add (.+)$", read(".codex", "INSTALL.md"), re.M)
@@ -35,7 +37,8 @@ class ServerDocsMatchManifest(unittest.TestCase):
             name, sep, *command = shlex.split(line)
             self.assertEqual(sep, "--")
             commands[name] = command
-        self.assertEqual(commands, servers())
+        for name, command in servers().items():
+            self.assertEqual(commands.get(name), command, name)
 
 
 if __name__ == "__main__":
