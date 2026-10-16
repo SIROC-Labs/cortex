@@ -8,7 +8,7 @@ The plugin ships no scheduler. The loop is two kinds of tick, each one invocatio
 - **One tick of each kind at a time on this machine.** Two ticks of one kind would both read the same column before either claims. Other people's ticks on the same board are safe; each takes only its own or unassigned cards. `~/.cortex/agent-loop/<key>.last-run.json` (build) and `<key>.review.last-run.json` (review) with `outcome: "running"` and a recent `started` mean a run of that kind is in flight.
 - **Fresh context per tick.** Inheriting the previous card's context is how one task silently adopts another's assumptions. The ways marked *shared* below break this; use them to watch or to drain a board once, not as the standing loop.
 - **A trusted working directory.** Run from `<repos_root>`, a parent of every repository and worktree the runs touch, so no trust prompt blocks the run.
-- **No permission prompt.** Grant what a tick needs up front: shell, git, `gh`, the task-manager transport, the browser MCP for rung 5, network, and writes outside one repository (worktrees, `~/.cortex`).
+- **No permission prompt.** Grant what a tick needs up front: shell, git, `gh`, the task-manager transport, the browser MCP for rung 5 (enabled where the tick starts, in `<repos_root>`, not per project; see `../../start-task/references/skill-dependencies.md` → MCP Servers), network, and writes outside one repository (worktrees, `~/.cortex`).
 - **Stuck runs.** A `running` outcome older than a few hours is wedged. Warn a human; never kill it blind: the card stays claimed either way and the next tick adopts it.
 
 ## One tick, per runtime

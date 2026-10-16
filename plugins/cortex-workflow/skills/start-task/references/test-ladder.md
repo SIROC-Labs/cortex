@@ -67,6 +67,8 @@ Mount only what changed, with recorded fixture data, in a standalone page, and d
 
 Render every state side by side, resize through the real breakpoints, screenshot, read the DOM, and read the console: an error there is a defect. Harness files live in `.qa/` (excluded above, never committed) and are pasted into the verification report with the command that serves them.
 
+No browser MCP tools in the session does not put rungs 5 and 6 out of reach: the QA MCP servers are opt-in per project and this one has not enabled them. Stop with a `failed` verdict whose "Needs from you" names the missing QA MCP servers and points to `skill-dependencies.md` → MCP Servers.
+
 ## Rung 6 — whole-app local run
 
 Permitted only when every dependency the flow touches runs locally. Drive the real user flow through the browser MCP and assert on what the page shows. The moment the flow needs a staging API or a real third-party account, this rung is out of reach; pointing the local app at a deployed backend is rung 7 in disguise.

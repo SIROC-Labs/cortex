@@ -206,6 +206,15 @@ Skills NOT bundled — must be installed separately:
 
 Capability-to-skill resolution per runtime lives in `references/runtime-bindings.md`.
 
+MCP servers NOT bundled — each ships in its own opt-in plugin, enabled per project:
+
+| Server | Plugin | Used By |
+|---|---|---|
+| `chrome-devtools` | `cortex-qa-web` | web-qa; submit-breakdown (prototype screenshots); test-ladder rungs 5-6 |
+| `mobile-mcp` | `cortex-qa-mobile` | mobile-qa |
+
+Never add an `.mcp.json` to this plugin: every session that enables cortex-workflow would start those servers. The servers are opt-in; per-runtime enable commands are in `skills/start-task/references/skill-dependencies.md`.
+
 ## Task Manager Abstraction
 
 Skills never talk to a task-tracking provider directly. They call the neutral `task-manager` seam (operations like `get_task`, `create_task`, `set_status`, `set_field`, `add_comment`, `upload_attachment`, `get_comments`, `resolve_board`). The seam resolves the active provider by **detection** — per-repo cache provider-marker → task-URL detection → ask the operator — via `resolve_provider.py` (no committed selector file; the marker is persisted in the machine-local `~/.cortex/` cache). It then delegates to the matching `task-manager-<provider>` skill — currently `task-manager-asana` (Asana) or `task-manager-jira` (Jira). This keeps every orchestrator provider-agnostic; swapping or adding a provider touches only the provider skill.

@@ -1,6 +1,5 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { readFileSync } from "node:fs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pluginsDir = path.resolve(__dirname, "../../plugins/cortex-workflow")
@@ -41,10 +40,11 @@ Skills reference external plugins. Handle them as follows under OpenCode:
   opencode.json. Invoke its skills normally via the native skill tool. If it is
   absent, stop and tell the user to run \`bash setup.sh --opencode\`.
 
-- **MCP servers**: REQUIRED. mobile-mcp and chrome-devtools are declared by
-  this plugin (.mcp.json) and registered automatically when the plugin loads.
-  If a QA skill needs one and it is unavailable, stop and tell the user to
-  restart OpenCode (or re-run \`bash setup.sh --opencode\`).
+- **MCP servers**: OPT-IN PER PROJECT. mobile-mcp and chrome-devtools are only
+  present when the project's opencode.json declares them. If a QA skill needs
+  one and it is unavailable, stop and tell the user to add it to the project's
+  opencode.json (snippet: https://github.com/SIROC-Labs/cortex/blob/main/.opencode/INSTALL.md)
+  and restart OpenCode.
 
 When a skill references /plugin install or /plugin reload commands, those are
 Claude Code-specific plugin management commands. Under OpenCode, dependencies
@@ -128,22 +128,6 @@ export const CortexWorkflowPlugin = async () => {
       // ^ skill reference files live inside the plugin install (read at runtime by skills)
       config.permission.external_directory["/tmp/qa-evidence/*"] = "allow"
       // ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
-
-      // Register the plugin's MCP servers from its bundled .mcp.json — the single
-      // source of truth shared with Claude Code (bundled) and Codex (manifest).
-      // Translate the .mcp.json shape to OpenCode's { type: "local", command: [...] }.
-      if (!config.mcp) config.mcp = {}
-      try {
-        const manifest = JSON.parse(readFileSync(path.resolve(pluginsDir, ".mcp.json"), "utf8"))
-        for (const [name, server] of Object.entries(manifest.mcpServers || {})) {
-          config.mcp[name] = {
-            type: "local",
-            command: [server.command, ...(server.args || [])],
-          }
-        }
-      } catch {
-        // .mcp.json missing/unreadable — skip; QA skills will report the missing MCP.
-      }
     },
 
     "shell.env": async (_input, output) => {

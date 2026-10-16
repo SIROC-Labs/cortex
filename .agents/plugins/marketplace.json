@@ -26,6 +26,28 @@
         "installation": "INSTALLED_BY_DEFAULT"
       },
       "category": "Developer Tools"
+    },
+    {
+      "name": "cortex-qa-web",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cortex-qa-web"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "cortex-qa-mobile",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cortex-qa-mobile"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
     }
   ]
 }

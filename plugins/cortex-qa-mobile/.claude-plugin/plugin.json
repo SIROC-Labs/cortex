@@ -1,0 +1,8 @@
+{
+  "name": "cortex-qa-mobile",
+  "description": "mobile-mcp server for cortex-workflow mobile QA (mobile-qa). Enable per project.",
+  "version": "0.1.0",
+  "author": {
+    "name": "SIROC Team"
+  }
+}

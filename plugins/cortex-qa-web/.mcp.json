@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "sh",
+      "args": ["-c", "bin=$(npx -y --package=chrome-devtools-mcp@latest -c \"command -v chrome-devtools-mcp\") || exit 1; exec \"$bin\" --experimentalScreencast --no-usage-statistics"]
+    }
+  }
+}
