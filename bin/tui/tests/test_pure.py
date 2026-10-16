@@ -1007,6 +1007,27 @@ class TestAnswering(unittest.TestCase):
         self.press("c")
         self.assertFalse(self.app.control.get("commands"))
 
+    def test_c_on_a_held_back_task_offers_to_drop_the_checkpoint(self):
+        with dm.control_file(self.root) as c:
+            dm.set_checkpoint(c, "1", True)
+        self.app.snapshot()
+        self.select("2")
+        self.press("c")
+        self.assertIn("checkpoint A-1 has not merged yet — drop it", self.app.message)
+        self.press("y")
+        self.assertFalse(dm.planned_checkpoints(dm.read_control(self.root)))
+
+    def test_a_stopped_checkpoint_can_still_be_dropped(self):
+        with dm.control_file(self.root) as c:
+            dm.set_checkpoint(c, "2", True)
+        state = dm.read_json(os.path.join(dm.queue_dir(self.root), "state.json"))
+        state["records"]["2"] = {"phase": "stopped"}
+        dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), state)
+        self.app.snapshot()
+        self.select("2")
+        self.press(":", *"checkpoint")
+        self.assertEqual(self.palette_titles(), ["A-2 is no longer a checkpoint"])
+
     def test_it_is_found_by_the_words_you_would_use(self):
         st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
         with dm.control_file(self.root) as c:

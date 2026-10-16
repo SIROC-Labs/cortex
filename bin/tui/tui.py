@@ -652,7 +652,8 @@ HELP = [
         ("x", "stop and unqueue · on a finished task, just remove it from the list"),
         ("r", "retry a failed or stopped task"),
         ("o", "open its PR (or the task) · on a merged task, what it changed"),
-        ("c", "continue past a reached checkpoint — its feature starts tasks again"),
+        ("c", "continue past a reached checkpoint — its feature starts tasks again · "
+              "on a held-back task, drop the checkpoint holding it"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task · on a section, queue all of it"),
@@ -685,6 +686,8 @@ HELP = [
         ("plan", "on a board, flag them before queueing (◇), then queue the milestone: "
                  "each is a checkpoint (◆) once it is queued"),
         ("c", "once it has merged (⚑, header ⏸) — let the queue past it, to the next one"),
+        ("drop", "c on a task it holds back, before it has merged — or : on it, then "
+                 "… is no longer a checkpoint"),
     ]),
     ("Features and dependencies", [
         ("feature", "the branch work targets: Setup → Queue into picks where what you queue "
@@ -1265,7 +1268,7 @@ class App(object):
                             "words": "remove merged done acknowledge tidy clean",
                             "run": lambda: self.clear(finished)})
         if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
-                and not row.get("finished")):
+                and (not row.get("finished") or row.get("phase") in ("stopped", "failed"))):
             on = any(q["gid"] == row["id"] and q.get("checkpoint")
                      for q in self.control.get("queue") or [])
             out.append({"title": ("%s is no longer a checkpoint" if on else
@@ -1312,6 +1315,36 @@ class App(object):
         elif self.palette["line"].key(key):
             self.palette["query"] = self.palette["line"].text
             self.palette["cursor"] = 0
+
+    def continue_key(self):
+        """c: continue past the selected reached checkpoint, or the only one.
+        On a task held back by a checkpoint that has not merged yet — or on that
+        checkpoint — offer to drop the checkpoint instead."""
+        gates, held, reached = gate_state(self.control, self.data)
+        row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
+        row = row if row and row["kind"] == "task" else None
+        gate = next((g for g in reached if row and g["gid"] == row["id"]), None)
+        if gate is None and len(reached) == 1 and not (row and row["id"] in held):
+            gate = reached[0]
+        tasks = self.data.get("tasks") or {}
+        name_of = lambda g: (tasks.get(g["gid"]) or {}).get("key") or g.get("name")
+        if gate is not None:
+            self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)"
+                     % name_of(gate), lambda: self.command("continue", gate["gid"]))
+            return
+        blocking = next((g for g in gates.values() if row and g not in reached
+                         and (g["gid"] == row["id"] or (row["id"] in held
+                                                        and g is gates.get(row.get("feature"))))),
+                        None)
+        if blocking is not None:
+            name = name_of(blocking)
+            self.ask("checkpoint %s has not merged yet — drop it, so what is queued after it "
+                     "can start? (y/n)" % name,
+                     lambda: self.toggle_checkpoint(blocking["gid"], name, False))
+        elif reached:
+            self.message = "%d checkpoints are reached — select one (Runs, ⚑) and press c" % len(reached)
+        else:
+            self.message = "no checkpoint is holding anything back"
 
     def toggle_checkpoint(self, gid, label, on):
         self.change_control(lambda c: dm.set_checkpoint(c, gid, on))
@@ -1596,18 +1629,8 @@ class App(object):
         if key == "?":
             self.help = True
             self.help_scroll = 0
-        elif key == "c" and gate_state(self.control, self.data)[2]:
-            reached = gate_state(self.control, self.data)[2]
-            row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
-            gate = next((g for g in reached if row and g["gid"] == row["id"]), None)
-            if gate is None and len(reached) == 1:
-                gate = reached[0]
-            if gate is None:
-                self.message = "%d checkpoints are reached — select one (Runs, ⚑) and press c" % len(reached)
-            else:
-                name = ((self.data.get("tasks") or {}).get(gate["gid"]) or {}).get("key") or gate.get("name")
-                self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)" % name,
-                         lambda: self.command("continue", gate["gid"]))
+        elif key == "c":
+            self.continue_key()
         elif key == ":":
             self.palette = {"query": "", "cursor": 0, "line": LineEdit(),
                             "commands": self.palette_commands(self.selected(rows))}

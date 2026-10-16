@@ -100,7 +100,9 @@ and you have pressed `c` — however long it takes. With checkpoints on HCI-8 an
 HCI-9 waits for HCI-8, and HCI-11 for HCI-10. Tasks held back say *held back until
 checkpoint HCI-8*; once HCI-8 merges it is flagged ⚑, the header says the checkpoint is
 reached, and `c` lets the queue past it, up to the next one. With checkpoints reached
-in more than one feature, select the one to continue and press `c`.
+in more than one feature, select the one to continue and press `c`. To drop a checkpoint
+before it has merged, press `c` on a task it holds back (or on it), or use *HCI-8 is no
+longer a checkpoint* in the palette.
 
 What runs before the gate is not held: anything already going carries on, and a task
 after the checkpoint that something before it depends on is let through, since the
