@@ -115,6 +115,29 @@ class TestCheckpointGate(unittest.TestCase):
         dm.set_checkpoint(c, "1", False)
         self.assertNotIn("checkpoint", c["queue"][0])
 
+    def test_flagged_before_queueing_it_is_a_checkpoint_once_queued(self):
+        c = dm.empty_control()
+        dm.set_checkpoint(c, "2", True)
+        self.assertEqual(c["queue"], [])
+        self.assertEqual(dm.planned_checkpoints(c), {"2"})
+        dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}, {"gid": "3"}])
+        self.assertEqual([q.get("checkpoint") for q in c["queue"]], [None, True, None])
+        self.assertEqual(c["checkpoints"], [])
+        dm.set_checkpoint(c, "4", True)
+        dm.set_checkpoint(c, "4", False)
+        self.assertEqual(c["checkpoints"], [])
+
+    def test_unqueueing_keeps_the_flag_but_clearing_does_not(self):
+        c = dm.empty_control()
+        dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}])
+        dm.set_checkpoint(c, "1", True)
+        dm.set_checkpoint(c, "2", True)
+        dm.queue_remove(c, ["1"], keep_checkpoints=True)
+        dm.queue_remove(c, ["2"])
+        self.assertEqual(dm.planned_checkpoints(c), {"1"})
+        dm.queue_insert_before(c, [{"gid": "1"}], None)
+        self.assertTrue(c["queue"][0]["checkpoint"])
+
 
 class TestFeatures(unittest.TestCase):
     def test_changing_the_target_keeps_what_is_queued_where_it_was(self):
@@ -570,19 +593,26 @@ class TestAppKeys(unittest.TestCase):
         self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
 
-    def test_a_board_task_can_be_queued_as_a_checkpoint_or_flagged_once_queued(self):
+    def test_a_board_task_can_be_flagged_as_a_checkpoint_before_it_is_queued(self):
         self.app.ensure_daemon = lambda: None
         self.press("2", "down", "enter", "down")
         self.press(":", *"checkpoint", "enter")
-        queue = dm.read_control(self.root)["queue"]
-        self.assertEqual([(q["gid"], q.get("checkpoint")) for q in queue], [("t1", True)])
+        control = dm.read_control(self.root)
+        self.assertEqual(control["queue"], [])
+        self.assertEqual(control["checkpoints"], ["t1"])
+        self.assertIn("◇", self.app.view()[1]["cols"][0])
+        self.press(" ")
+        control = dm.read_control(self.root)
+        self.assertEqual([(q["gid"], q.get("checkpoint")) for q in control["queue"]], [("t1", True)])
+        self.assertEqual(control["checkpoints"], [])
         self.assertIn("◆", self.app.view()[1]["cols"][0])
         self.press(":", *"checkpoint")
         titles = [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
                                                           self.app.palette["query"])]
         self.assertEqual(titles, ["one is no longer a checkpoint"])
-        self.press("esc", "down", " ", ":", *"checkpoint", "enter")
-        self.assertTrue(dm.read_control(self.root)["queue"][1]["checkpoint"])
+        self.press("esc", " ")
+        self.assertEqual(dm.read_control(self.root)["checkpoints"], ["t1"])
+        self.assertIn("◇", self.app.view()[1]["cols"][0])
 
     def test_o_opens_the_task_or_the_board_in_asana(self):
         opened = []

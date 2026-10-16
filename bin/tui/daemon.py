@@ -108,14 +108,34 @@ def queue_add(control, items):
             entry["needed_by"] = item["needed_by"]
         if "base" in item:
             entry["base"] = item["base"]
+        take_planned_checkpoint(control, entry)
         control["queue"].append(entry)
         have.add(item["gid"])
         added.append(item["gid"])
     return added
 
 
-def queue_remove(control, gids):
+def take_planned_checkpoint(control, entry):
+    """A task flagged as a checkpoint before it was queued is one once it is."""
+    planned = control.get("checkpoints") or []
+    if entry["gid"] in planned:
+        entry["checkpoint"] = True
+        control["checkpoints"] = [g for g in planned if g != entry["gid"]]
+
+
+def planned_checkpoints(control):
+    """Every task flagged as a checkpoint, queued or not."""
+    return set(control.get("checkpoints") or []) | {
+        q["gid"] for q in control.get("queue") or [] if q.get("checkpoint")}
+
+
+def queue_remove(control, gids, keep_checkpoints=False):
+    """Take tasks off the queue. With keep_checkpoints, a checkpoint stays
+    flagged, to be one again when it is queued again."""
     gids = set(gids)
+    if keep_checkpoints:
+        control["checkpoints"] = sorted(set(control.get("checkpoints") or []) | {
+            q["gid"] for q in control["queue"] if q["gid"] in gids and q.get("checkpoint")})
     control["queue"] = [q for q in control["queue"] if q["gid"] not in gids]
 
 
@@ -213,6 +233,7 @@ def queue_insert_before(control, items, before_gid):
                  "added": time.time(), "needed_by": item.get("needed_by")}
         if "base" in feature:
             entry["base"] = feature["base"]
+        take_planned_checkpoint(control, entry)
         control["queue"].insert(index, entry)
         index += 1
         have.add(item["gid"])
@@ -221,14 +242,18 @@ def queue_insert_before(control, items, before_gid):
 
 
 def set_checkpoint(control, gid, on):
-    """Flag (or unflag) a queued task as a checkpoint: what is queued after it
-    waits until it has merged and someone says continue."""
+    """Flag (or unflag) a task as a checkpoint: what is queued after it waits
+    until it has merged and someone says continue. A task not queued yet is
+    remembered, and is a checkpoint once it is queued."""
     for item in control["queue"]:
         if item["gid"] == gid:
             if on:
                 item["checkpoint"] = True
             else:
                 item.pop("checkpoint", None)
+            return
+    planned = [g for g in control.get("checkpoints") or [] if g != gid]
+    control["checkpoints"] = planned + [gid] if on else planned
 
 
 def pending_commands(control, applied):
