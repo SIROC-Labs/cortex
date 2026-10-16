@@ -567,6 +567,14 @@ def log_line(line):
     return text, "bold" if heading else "normal"
 
 
+def open_link(row):
+    """What o opens for a run: a merged task's changes on its PR, otherwise
+    its PR, or the task when it has none."""
+    if row.get("pr_url") and row.get("phase") == "merged":
+        return row["pr_url"].rstrip("/") + "/files"
+    return row["links"][0]
+
+
 def fit(cols, width, wide=False):
     """One line from columns: the last column takes what is left. A wide row's
     first column is as long as it needs."""
@@ -643,7 +651,7 @@ HELP = [
               "m again calls it off · on a blocked merge, tries again"),
         ("x", "stop and unqueue · on a finished task, just remove it from the list"),
         ("r", "retry a failed or stopped task"),
-        ("o", "open its PR (or the task)"),
+        ("o", "open its PR (or the task) · on a merged task, what it changed"),
         ("c", "continue past a reached checkpoint — its feature starts tasks again"),
     ]),
     ("Boards", [
@@ -1385,7 +1393,7 @@ class App(object):
                 self.command("retry", row["id"])
                 self.message = "retry asked — a failed or stopped task starts again when ready"
             elif key == "o" and row.get("links"):
-                webbrowser.open(row["links"][0])
+                webbrowser.open(open_link(row))
         elif name == "Boards" and key == "o" and row:
             if row["kind"] == "task":
                 webbrowser.open(task_url(row["board"], row["id"]))
