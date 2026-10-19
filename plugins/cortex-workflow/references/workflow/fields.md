@@ -14,6 +14,7 @@ The canonical fields the siroc workflow uses, by meaning. Provider-agnostic: thi
 | Labels | Free-form tags on a task. |
 | Parent / Epic | The task's parent or epic membership (hierarchy). |
 | Product Status | Where the task sits in the lifecycle (see `lifecycle.md`). |
+| Dev Status | A milestone member's execution state: To Do, In Progress, Owner Review, Blocked, Done (see `lifecycle.md`). |
 
 Not every board carries every field. A missing field is skipped gracefully, never invented.
 

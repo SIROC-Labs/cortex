@@ -69,8 +69,9 @@
 # option, PUT custom_fields), and falls back to a board SECTION move (discover the
 # task's project sections; if <status-name> matches a section name, POST
 # /sections/<gid>/addTask). Matches neither -> exit 1 with a clear message. A
-# milestone member (subtask) tries its Dev Status field first, resolved through its
-# parent's projects; "Done" also marks it completed. set-field/set-fields resolve a
+# milestone member (subtask) tries its Dev Status field, then Product Status, both
+# resolved through its parent's projects, and never moves on a board; "Done" also
+# marks it completed. set-field/set-fields resolve a
 # project-less subtask's fields the same way.
 #
 # `task get` fetches the task with the documented opt_fields and prints a COMPACT
@@ -1931,11 +1932,14 @@ def decide_set_status(status_name, ps_field, sections):
             ):
                 return ("field", opt.get("id"))
     if isinstance(sections, list):
-        for sect in sections:
-            if not isinstance(sect, dict):
-                continue
-            sname = sect.get("name")
-            if isinstance(sname, str) and status_name.lower() == sname.lower():
+        named = [s for s in sections if isinstance(s, dict) and isinstance(s.get("name"), str)]
+        for sect in named:
+            if status_name.lower() == sect["name"].lower():
+                return ("section", sect.get("gid"))
+        # A qualified column ("To QA (local)") realizes its bare status ("To QA").
+        for sect in named:
+            sname = sect["name"].lower()
+            if sname.startswith(status_name.lower() + " ("):
                 return ("section", sect.get("gid"))
     return ("none", None)
 
@@ -1966,8 +1970,9 @@ def fetch_project_sections(project_gid, token):
 
 # Set a task's status (per ../../../references/workflow/lifecycle.md).
 # <task-ref> is a task GID; <status-name> is a neutral lifecycle name. A milestone
-# member (subtask) tries its Dev Status field first, resolved through its own or
-# its parent's projects; "Done" also marks it completed. Otherwise, two axes:
+# member (subtask) tries its Dev Status field, then Product Status, resolved through
+# its own or its parent's projects, and never takes a section move; "Done" also
+# marks it completed. Otherwise, two axes:
 # (1) Product Status custom field — resolve via the `fields` logic against the
 #     task's project(s); if <status-name> matches an enum option, PUT the option.
 # (2) Board section move — discover the task's project sections; if <status-name>
@@ -1998,11 +2003,11 @@ def task_set_status(args):
                                          "completed": completes, "task": task_gid}, indent=2) + "\n")
             sys.exit(0)
 
-    project_gids = task_project_gids(task_gid, token)
+    # A member still carries a Product Status (resolved like its Dev Status), but never
+    # moves on a board: a section move would place it there.
+    project_gids = field_gids if is_member else task_project_gids(task_gid, token)
     if not project_gids:
-        if is_member:
-            die(1, "%s: task set-status: '%s' is not a Dev Status option on the projects of task %s's parent" % (PROG, status_name, task_gid))
-        die(1, "%s: task set-status: task %s belongs to no project — cannot resolve status" % (PROG, task_gid))
+        die(1, "%s: task set-status: neither task %s nor its parents belong to a project — cannot resolve status" % (PROG, task_gid))
 
     # Axis 1: Product Status custom field — try each of the task's projects.
     for pgid in project_gids:
@@ -2016,6 +2021,9 @@ def task_set_status(args):
             sys.stdout.write(json.dumps({"axis": "field", "field": "Product Status",
                                          "option": target, "task": out.get("gid") if isinstance(out, dict) else None}, indent=2) + "\n")
             sys.exit(0)
+
+    if is_member:
+        die(1, "%s: task set-status: '%s' is not a Dev Status or Product Status option for member task %s" % (PROG, status_name, task_gid))
 
     # Axis 2: board section move — try each of the task's projects.
     for pgid in project_gids:

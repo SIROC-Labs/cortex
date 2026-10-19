@@ -125,6 +125,9 @@ Task stays **"In Progress"** → ■ PAUSED
              │  fields · notes · memberships              │
              │  → print summary                           │
              │  checkpoint.sh set <task-ref> task_id      │
+             │  classify: parent → member (fetch the      │
+             │    milestone, show it; set milestone_ref)  │
+             │    else → standalone                       │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼
@@ -158,6 +161,11 @@ Task stays **"In Progress"** → ■ PAUSED
              │       not-yet-started → go;                │
              │       else → set start state (Assigned)    │
              │  ◻ task_key           WARN/skip (per prov) │
+             │                                            │
+             │  member: active_sprint on the milestone    │
+             │    (fix on the milestone, manually);       │
+             │    estimate skip (never offered);          │
+             │    status = Dev Status, To Do startable    │
              └───────────────────┬────────────────────────┘
                                  │
                             ◆ all blocking pass?
@@ -217,6 +225,12 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  6b · Base Branch? (BLOCKING)              │
              │  main (default) or specify other           │
+             │  member: no question — milestone branch    │
+             │    from the Branches table → fetch; or     │
+             │    missing → create milestone/<slug> off   │
+             │    parent, push, record via                │
+             │    set_description                         │
+             │  checkpoint.sh set <task-ref> base_branch  │
              └───────────────────┬────────────────────────┘
                                  │
                                  ▼
@@ -232,6 +246,7 @@ Task stays **"In Progress"** → ■ PAUSED
              │  8 · Create Draft PR                       │
              │  empty commit → push branch                │
              │  gh pr create --draft                      │
+             │    (member: --base <milestone branch>)     │
              │  capture PR URL (threaded to ship-it)      │
              └───────────────────┬────────────────────────┘
                                  │
@@ -244,6 +259,8 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌────────────────────────────────────────────┐
              │  9a · Move to In Progress                  │
              │  set_status(task, "In Progress")           │
+             │  member: Dev Status; then milestone →      │
+             │    "In Progress" unless already there      │
              │  if move fails: report, do not block       │
              └───────────────────┬────────────────────────┘
                                  │
@@ -422,6 +439,8 @@ Details in `plugins/cortex-workflow/references/qa-routing.md`. Skipped entirely 
              │  12 · Ship It                              │
              │  triggers: QA sub-flow completes / skipped │
              │  or fast mode direct to ship               │
+             │  hand-off: unit (member / standalone),     │
+             │    milestone ref, base branch              │
              │  do not wait for user to ask               │
              │                                            │
              │  pre-ship-check  (owns QA gate)            │
@@ -432,7 +451,8 @@ Details in `plugins/cortex-workflow/references/qa-routing.md`. Skipped entirely 
              │  documentation  (docs commit)              │
              │  work-summary                              │
              │  promote draft PR → ready                  │
-             │  move task → "In Review"                   │
+             │  status move for the unit                  │
+             │    (standalone: "In Review")               │
              │  post completion comment                   │
              │                                            │
              │  on success:                               │

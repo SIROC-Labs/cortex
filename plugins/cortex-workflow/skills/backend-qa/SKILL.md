@@ -53,6 +53,10 @@ produces a coverage verdict. It does not write code or drive a running service.
    failure or skip — a skipped integration test is not a pass.
 5. **Report** — follow [references/reporting.md](references/reporting.md). Lead with the verdict,
    then per-area "what's tested / why it matters / gaps", then the run evidence.
+6. **Post the verdict to the task** — only when a task is in context; standalone, the report is the
+   artifact. Post the `✅ QA Verification — PASSED` / `❌ QA Verification — FAILED` comment via the
+   `task-manager` interface (`add_comment`), per
+   [references/reporting.md](references/reporting.md) → "Task comment".
 
 ## Rules
 

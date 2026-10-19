@@ -56,9 +56,13 @@ Reuse all of this when invoking `create-pr`. In particular, pass the **Task ID**
 
 If neither `start-task` nor `log-task` was used but a task URL appeared earlier in the conversation, resolve the task from it via the `task-manager` interface (`find_task(ref)`). Only prompt for the URL if there is genuinely no task context available.
 
+### Milestone member
+
+A task whose `get_task(task)` carries a `parent` is a milestone member. Resolve its milestone and milestone branch per `references/milestone-member.md` (reuse any the invoking workflow handed over). Without a `parent` the task is standalone and every step below runs unchanged.
+
 ## Unattended invocation
 
-With `unattended: true` from the invoker: pass the flag through to `pre-ship-check`, `documentation` and `create-pr`; **skip Step 4** (task update) entirely — the invoker routes the card and writes its own comment; on any sub-skill failure return a `failed` report to the invoker instead of asking how to proceed. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
+With `unattended: true` from the invoker: pass the flag through to `pre-ship-check`, `documentation` and `create-pr`; **skip Step 4** (task update) entirely — for a milestone member that includes the merge and the milestone check, so its PR stays open — the invoker routes the card and writes its own comment; on any sub-skill failure return a `failed` report to the invoker instead of asking how to proceed. Answers come from `plugins/cortex-workflow/references/unattended-answers.md`.
 
 ## The Flow
 
@@ -92,12 +96,15 @@ Invoke `create-pr`, passing:
 - The work summary from Step 2
 - The task URL (from context threading above, if available)
 - `orchestrator: true` — signals create-pr to skip its own git-check (already done in Step 1)
+- For a milestone member: `milestone` (ref, name) and `base` (the milestone branch)
 
 If a draft PR exists from `start-task`, create-pr will promote it to ready, update its description with the work summary, and assign reviewers — no new PR needed.
 
 ### Step 4: Task Update
 
 Handle via the `task-manager` interface. All task operations use the task handle from context threading.
+
+**Milestone member:** follow `references/milestone-member.md` instead of item 1 — merge into the milestone branch (or leave the PR open on `Owner Review`), set Dev Status, post the ship comment, then check whether the milestone is ready for QA. Standalone tasks continue below.
 
 1. **Move to "In Review":** `set_status(task, "In Review")` (per `plugins/cortex-workflow/references/workflow/lifecycle.md`). The seam resolves the board and target column — do not re-fetch board structure.
 
@@ -130,6 +137,7 @@ Print a single recap:
 > - PR created: <pr-url> (or "already existed" / "skipped")
 > - Task moved to "In Review": <task-url> (or "skipped")
 > - Task comment posted (or "skipped")
+> - Milestone member: the recap lines from `references/milestone-member.md`
 
 ## Skippable Steps Summary
 

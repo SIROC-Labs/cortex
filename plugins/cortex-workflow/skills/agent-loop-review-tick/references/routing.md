@@ -11,7 +11,7 @@ Walked per card in `$AL order --user <me>` order. The first card passing every c
 | `🤖 [AGENT] Ready for review` marker with a `PR: <url>` line | `get_comments(card)` | skip, print `stray — <name> (<ref>): no PR` |
 | No live review: a `🤖 [REVIEW] started` newer than the last `🤖 [AGENT]` comment with no `🤖 [REVIEW]` verdict after it, and younger than **3 hours** | comments | skip, print `in flight — <name> (<ref>)`; older than 3 h → adopt (print `adopting — <name> (<ref>)`) |
 | PR `state == OPEN` | `gh pr view` | skip, print `stray — <name> (<ref>): PR <state>` |
-| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **recover**: read the card's milestone anchor (`get_task(card)` → milestone → its description's Branches table); it names a branch for this repository that exists on `origin` → `gh pr edit <n> --base <branch>` and continue. No milestone, or no branch for this repository → **blocked**: `No way forward — PR targets <base> and no milestone branch is named for <repo>` |
+| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **recover**: read the card's milestone (`get_task(card).parent` → `get_task(<parent ref>)` → its description's Branches table); it names a branch for this repository that exists on `origin` → `gh pr edit <n> --base <branch>` and continue. No milestone, or no branch for this repository → **blocked**: `No way forward — PR targets <base> and no milestone branch is named for <repo>` |
 | No armed `autoMergeRequest` on any open PR of the head | `gh pr list --head` | **recover**: `gh pr merge <n> --disable-auto`, note it in the review report, continue |
 | `statusCheckRollup` has no `PENDING`/`IN_PROGRESS`/`QUEUED` entries | `gh pr view` | skip, print `checks pending — <name> (<ref>)` |
 
@@ -23,7 +23,7 @@ Author as Markdown, post with `add_comment`. The first line is exact: the build 
 
 | Outcome | Comment, verbatim shape | Column |
 |---|---|---|
-| pass | `🤖 [REVIEW] Merged into <base>` · `Squash: <sha>` · `PR: <url>` · `Fixed here: <n> findings` · `Left for you: <the card's live check, or "none">` | `ready` |
+| pass | `🤖 [REVIEW] Merged into <base>` · `Squash: <sha>` · `PR: <url>` · `Fixed here: <n> findings` · `Left for you: <the card's live check, or "none">` · `Milestone: To QA · PRs: <urls>` when this merge completed it | `ready`, Dev Status `Done` |
 | hand back | `🤖 [REVIEW] Changes requested` · `PR: <url>` · numbered findings, one line each: `<kind> — file:line — what is needed` · `Fixed here: <n>` · `Left for rework: <n>` · `The queue takes this card as rework in priority order.` | `queue` |
 | no way forward | `🤖 [REVIEW] Blocked — <reason>` · `Stopped because: <no way to reach the goal | contradiction>` · `Needs from you: <one line>` · `PR: <url>` · `Once resolved, move the card back to In Review.` | `blocked` |
 
@@ -37,7 +37,11 @@ Author as Markdown, post with `add_comment`. The first line is exact: the build 
 
 ## Mirror rule
 
-For every other board the card is on (`get_task(card).board` memberships), `get_board(that board)`; if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on.
+For every other board the card is on (`get_task(card).board` memberships), `get_board(that board)`; if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on. A card with a `parent` is a milestone member and is on no sprint board, so nothing mirrors there; other boards it is on mirror as above.
+
+## Completing the milestone
+
+On a pass, after the merge: `set_status(card, "Done")` (Dev Status; it completes the member), then `move_task(card, board, ready)`. Then `milestone_tasks(<parent ref>)`: when every member is completed, `set_status(<parent ref>, "To QA")` and, per row of the milestone's Branches table, open the milestone PR unless one is already open (`references/merging.md` → "Milestone PR"). Opening it is the end of this run's part: the PR is never merged, approved or armed for auto-merge here; human QA and the owner's merge follow.
 
 ## Every terminal path
 

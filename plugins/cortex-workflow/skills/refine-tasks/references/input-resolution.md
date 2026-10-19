@@ -10,30 +10,30 @@ Resolve each URL to a task handle via `find_task(ref)`. The provider extracts wh
 
 If multiple URLs are provided, resolve each independently. Order them by their dependencies once status filtering is done.
 
-### 2. A project URL + milestone (grouping) name
+### 2. A project URL + milestone name
 
 User says something like:
 
-- "refine M1 in this project: <project-url>"
+- "refine E1 in this project: <project-url>"
 - "refine the Core Data Layer milestone: <project-url>"
-- "/refine-tasks <project-url> M1"
+- "/refine-tasks <project-url> E1"
 
 Resolve by:
 1. Resolve the project from the URL via the `task-manager` interface.
-2. List the project's groupings (milestones) through the interface.
-3. Match the grouping by:
-   - **Exact name** (e.g., `M1 :: Core Data Layer`)
-   - **`M<n>` prefix** (e.g., user says "M1", match the grouping whose name starts with `M1 ::`)
-   - **Substring on the descriptive part** (e.g., "Core Data Layer" matches `M1 :: Core Data Layer`)
-4. If multiple groupings match, show the candidates and ask the user to pick.
-5. List the tasks in that grouping via the interface.
+2. List the project's milestones with `list_milestones(board)`.
+3. Match the milestone by:
+   - **Exact name** (e.g., `E1 — Core Data Layer`)
+   - **`E<n>` prefix** (e.g., user says "E1", match the milestone whose name starts with `E1 — `); a legacy `M<n>` matches a name starting with `M<n>: ` or `E<n> — `
+   - **Substring on the descriptive part** (e.g., "Core Data Layer" matches `E1 — Core Data Layer`)
+4. If multiple milestones match, show the candidates and ask the user to pick.
+5. List its members with `milestone_tasks(milestone)`.
 
 ### 3. A project URL alone
 
-Implies "every task in Refinement status across the project."
+Implies "every task in Refinement status across the project" — standalone tasks and milestone members.
 
 1. Resolve the project from the URL.
-2. List all tasks in the project (across all groupings) through the interface.
+2. List the board's tasks with `list_tasks(board)`, drop the milestones (`kind == milestone`), and add each milestone's members via `list_milestones(board)` + `milestone_tasks(milestone)` — members are not on the board.
 3. Phase 1 then filters down to Refinement status only.
 4. Order by dependencies.
 
@@ -43,13 +43,13 @@ This shape is for bulk refinement runs. If the resolved set is large (>10 tasks)
 
 User says something like:
 
-- "refine all backend Refinement tasks in M2"
+- "refine all backend Refinement tasks in E2"
 - "refine the Refinement tasks that depend on the Employee entity task"
 - "<project-url> — refine only backend tasks"
 
 For these cases:
 
-1. Resolve the broader scope (project, optionally grouping).
+1. Resolve the broader scope (project, optionally a milestone).
 2. Apply the user's filter on the fetched task list. Common filters:
    - **Platform:** filter by the Platform field's value.
    - **Dependencies:** filter by dependency relationships (e.g., tasks that depend on a specific task).

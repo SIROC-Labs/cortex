@@ -14,7 +14,7 @@ Every plan starts with:
 # <Task title>
 
 - **Task:** <url>
-- **Milestone:** <milestone name as it appears in the task manager, e.g., "M1 :: Core Data Layer">
+- **Milestone:** <milestone name as it appears in the task manager, ASCII dash, e.g., "E1 - Core Data Layer"; omit for a standalone task>
 - **Purpose:** <one sentence, verbatim from the task description's Purpose>
 ```
 

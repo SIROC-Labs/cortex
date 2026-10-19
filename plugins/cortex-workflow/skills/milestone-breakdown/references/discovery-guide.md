@@ -35,26 +35,26 @@ When a project URL is among the inputs, inspect the existing milestone landscape
 
 1. Resolve the project's board through the seam.
 2. Call `list_milestones(board)`. Each milestone is a first-class thing (`kind = milestone`) and comes back as `{ref, name, expanded}` — the seam classifies it directly, so there is nothing to derive:
-   - **expanded** = `expanded: true` — the milestone already has ≥1 member task.
-   - **unexpanded** = `expanded: false` — the milestone has no member tasks yet.
+   - **expanded** = `expanded: true` — the milestone already has ≥1 member.
+   - **unexpanded** = `expanded: false` — the milestone has no members yet.
    When you need to see a milestone's members (e.g. to describe what an expanded milestone already covers), call `milestone_tasks(milestone)`.
 3. Surface the landscape to the user as a table. Example:
 
    ```
-   M1: Auth System        — expanded   (read-only, 6 tasks)
-   M2: User Management    — expanded   (read-only, 4 tasks)
-   M3: Billing            — unexpanded (touchable)
+   E1 — Auth System        — expanded   (read-only, 6 members)
+   E2 — User Management    — expanded   (read-only, 4 members)
+   E3 — Billing            — unexpanded (touchable)
    ```
 
 4. Ask the user (verbatim): *"I'll add new milestones and may refine [name unexpanded milestones from the landscape table above]. Expanded milestones are read-only context. OK?"*
    *(Replace the bracketed text with the actual unexpanded milestone names. If no unexpanded milestones exist, drop "and may refine ..." entirely.)*
 5. Wait for explicit confirmation before continuing.
 
-New milestones append to the existing project sequence. Markdown M-labels are always sequential from M1 regardless of what M-labels already exist in the task manager — they are local-only identifiers. `submit-breakdown` remaps them to the correct M-labels at push time (e.g., if the project already has M1–M3, the markdown's M1, M2 will be pushed as M4, M5).
+New milestones append to the existing project sequence. Markdown E-labels are always sequential from E1 regardless of the ordinals already on the board — they are local-only identifiers. `submit-breakdown` assigns board ordinals at push time (e.g., if the project already has E1–E3, the markdown's E1, E2 are pushed as `E4 — …`, `E5 — …`). Legacy `M{n}: <Name>` milestones count toward that numbering.
 
 ## Protectionism Rule
 
-An expanded milestone is read-only. The skill refuses unconditionally to modify, rename, delete, or replace any milestone that already has member tasks (`expanded: true`). There is no override.
+An expanded milestone is read-only. The skill refuses unconditionally to modify, rename, delete, or replace any milestone that already has members (`expanded: true`). There is no override.
 
 > "An expanded milestone has implementation tasks under it. Modifying its description, deleting/renaming it, or replacing its attachment risks orphaning those tasks or breaking the link between them and their parent. The skill refuses unconditionally. The user must rename the new milestone, redesign it not to overlap, or operate via a different workflow."
 

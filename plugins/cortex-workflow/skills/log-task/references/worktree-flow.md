@@ -31,6 +31,8 @@ git fetch origin main
 git worktree add "$WORKTREE_PATH" -b "<branch_name>" origin/main
 ```
 
+For a milestone member, use the milestone's branch for this repository (the Branches table in the milestone's description) in place of `main` in the two commands above; with no row for this repository, first create the milestone branch and its row as `../../../references/workflow/boards.md` → "Milestone branches" defines, so the member's PR never lands on `main`.
+
 Report to the user:
 > "Created worktree at `../cortex-MT251-182` on branch `MT251-182/fix-csv-export-null-crash`."
 

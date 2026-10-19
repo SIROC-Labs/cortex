@@ -35,7 +35,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 ...
 ```
 
-- **No M-blocks.** task-breakdown never authors milestone content.
+- **No E-blocks.** task-breakdown never authors milestone content. Each T-block becomes a member of the target milestone; `submit-breakdown` names it `E{n}.{m} — <title>` on the board, so write the plain title here.
 - **No file-level References block, no rationale paragraphs.** Do not add a top-of-file `## References` section. **Per-task references, however, belong on the T-block as an optional `**References:**` field** — `submit-breakdown` aggregates that field into the task description (as the top "Visual Context" Figma link and the References list). This is the *only* path a task-specific design link reaches the task: the implementation-plan attachment is generated later and is not parsed for references. So a Figma frame that applies to one task must go on that T-block's `**References:**`, not solely in the attachment. Keep the field to genuinely load-bearing, non-obvious links (design frames, external API/doc URLs, a related task) — the same allowed-list `submit-breakdown` applies; do not restate CLAUDE.md, the repo, or the breakdown file.
 - **T-labels are sequential across the whole file** (T1, T2, T3 …) and local-only — they carry no meaning outside this file.
 - **`**Target milestone:**`** (optional) appears once at the top, immediately after the title. It is **metadata, not a directive** — `submit-breakdown` always confirms with the user before slotting tasks under that milestone.
@@ -45,7 +45,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 
 | Field | Role | Pushed to task description? |
 |---|---|---|
-| File-level `**Target milestone:**` (optional) | Routing metadata | No — parsed once at the file level, used to resolve which milestone parents the tasks (user-confirmed) |
+| File-level `**Target milestone:**` (optional) | Routing metadata | No — parsed once at the file level, used to resolve which milestone the tasks become members of (user-confirmed) |
 | `**Purpose:**` | Body | Yes |
 | `**Description:**` | Body | Yes |
 | `**Acceptance criteria:**` | Body | Yes |
@@ -55,7 +55,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 
 Parsing rules:
 
-- For each `## T{N} :: <Name>` header → one implementation task.
+- For each `## T{N} :: <Name>` header → one implementation task (a member of the target milestone).
 - Collect body fields → render them as the task description, verbatim, in the canonical order: **Purpose → Description → Acceptance criteria → References**. (`submit-breakdown` promotes any Figma URL in References to the top-of-description Visual Context link; see `submit-breakdown/references/description-template.md`.)
 - Collect metadata fields → route per the table above.
 - The optional file-level `**Target milestone:**` line is parsed once at the top of the file and applies to every T-block. It is not pushed to any task description.
@@ -135,7 +135,7 @@ List of files in the same folder as `breakdown.md` to upload as attachments on t
 
 `submit-breakdown` renames the file to `implementation-plan.md` at upload time (stripping the `T{N}-<slug>-` prefix — local-only ordering). Re-runs match by the renamed filename and replace.
 
-A task with an implementation plan attached lands `Unassigned`. A task with no plan attached lands `Refinement`.
+A task with an implementation plan attached lands `Unassigned`. A task with no plan attached lands `Refinement`. Either way its Dev Status starts at `To Do`; neither skill sets an estimate.
 
 ## Target Milestone Convention
 
@@ -145,7 +145,7 @@ The optional `**Target milestone:**` line at the top of `breakdown.md` is metada
 **Target milestone:** <milestone-task-url>
 ```
 
-It is a milestone task URL — resolved through the `task-manager` seam (`get_task`), whose `kind` must be `milestone`. It is not a directive. `submit-breakdown` resolves the URL, surfaces the milestone name, and confirms with the user before slotting any task. If the line is absent and the T-blocks have no other parent context, `submit-breakdown` prompts at upload time: "Which milestone should these N tasks go under?"
+It is a milestone task URL — the epic whose members the tasks become — resolved through the `task-manager` seam (`get_task`), whose `kind` must be `milestone`. It is not a directive. `submit-breakdown` resolves the URL, surfaces the milestone name, and confirms with the user before slotting any task. If the line is absent and the T-blocks have no other parent context, `submit-breakdown` prompts at upload time: "Which milestone should these N tasks go under?"
 
 Author this line when the input shape made the parent milestone unambiguous (e.g., the user passed a milestone task URL, or named a milestone explicitly during the interview). Omit otherwise — let `submit-breakdown` interactively resolve.
 

@@ -83,6 +83,8 @@ It runs `POST /tasks` (name, notes, workspace from the board cache, assignee) �
 
 A task can belong to multiple projects — to add it to additional projects, `POST /tasks/<gid>/addProject` once per project.
 
+**Milestone member.** `task create <project-gid> --title T --milestone <epic-gid> [--set Name=Value ...]` instead `POST`s `/tasks/<epic-gid>/subtasks` (no workspace, no project — the member never joins a sprint board), then applies `--set` fields resolved from `<project-gid>` (the epic's board) in one `PUT`, adding `Dev Status=To Do` when the board has that field and `--set` does not name it. A `--milestone` that is a legacy `resource_subtype=milestone` anchor keeps the old path: create + `addProject`, then `POST /sections/<anchor-section>/addTask`.
+
 ### Add Dependencies
 
 Mark a task as blocked by / dependent on another task. Wire dependencies only after all referenced tasks exist (their GIDs must already be available). Use the script — it builds the request with urllib (no `curl`):
@@ -129,6 +131,10 @@ scripts/tm.py task set-status <task-gid> <status-name>
 
 Order (documented): it tries the **Product Status custom field FIRST** — resolve via the `fields` logic; if `<status-name>` matches an enum option, `PUT /tasks/<gid>` `custom_fields:{<field-gid>:<option-gid>}`. **Then** a **board section** move — discover the task's project sections (`GET /projects/<gid>/sections`), and if `<status-name>` matches a section name, `POST /sections/<section-gid>/addTask` `{"data":{"task":"<gid>"}}`. Matches neither → exit 1 (not a known Product Status option or section).
 
+Section match is exact (case-insensitive) first, then a qualified column `"<status> (…)"` — `To QA` lands in `To QA (local)`.
+
+**Milestone member** (a subtask): before the two axes, the script resolves the **Dev Status** field through the nearest ancestor that has projects (`GET /tasks/<gid>?opt_fields=projects.gid,parent.gid`, walking `parent`) and, when `<status-name>` matches an option, `PUT`s `custom_fields:{<dev-status-gid>:<option-gid>}` — plus `completed: true` for `Done`. A name that is no Dev Status option is tried as a Product Status option on the same projects; a member never takes a section move.
+
 The underlying section-move endpoints, for reference:
 
 1. List sections in the project:
@@ -160,7 +166,7 @@ Use the script — it resolves the canonical field (gid/type/enums) via the `fie
 scripts/tm.py task set-field <task-gid> <CanonicalName> <value>
 ```
 
-Realization: enum → the matching option GID (value matched by option name or gid); `Estimate` → unit-adaptive (enum hh:mm option, or number in hours/minutes/duration per the field — see `custom-fields.md`); `Assignee` → the native `assignee` field (`PUT /tasks/<gid>`, not a custom field); other custom fields → `PUT custom_fields:{<field-gid>:<value>}`. Exit 2 when the canonical field is not on the task's project(s) — skip gracefully.
+Realization: enum → the matching option GID (value matched by option name or gid); `Estimate` → unit-adaptive (enum hh:mm option, or number in hours/minutes/duration per the field — see `custom-fields.md`); `Assignee` → the native `assignee` field (`PUT /tasks/<gid>`, not a custom field); other custom fields → `PUT custom_fields:{<field-gid>:<value>}`. Exit 2 when the canonical field is not on the task's project(s) — skip gracefully. A project-less subtask (milestone member) resolves fields through its nearest ancestor's projects; Asana accepts the parent's project fields on it (and auto-assigns the ID field).
 
 ### Post Comment on Task
 
@@ -195,6 +201,8 @@ It then decides the API field automatically: a body containing HTML tags is sent
 curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
   "https://app.asana.com/api/1.0/tasks/<task-gid>/subtasks?opt_fields=name,completed,gid"
 ```
+
+An epic's subtasks are its milestone members; `scripts/tm.py milestone tasks <project-gid> <epic-gid>` reads them with their canonical fields.
 
 ### Fetch Task Stories (Comments)
 

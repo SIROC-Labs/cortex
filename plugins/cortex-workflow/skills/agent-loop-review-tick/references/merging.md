@@ -91,3 +91,15 @@ git -C <repo> rev-parse origin/<base>                            # the squash SH
 ```
 
 `<type>` follows the branch's commits (`feat`, `fix`, …). `--delete-branch` removes the remote head; the local deletions cover the branch and the anchors in the primary checkout. Nothing here touches `<base>`, `main`, or any branch the primary checkout has checked out. A merge that fails because the head moved is re-read and retried once, then left for the next run; one rejected by a protection rule is a card with no way forward.
+
+## Milestone PR
+
+Per row `| <repo> | <branch> | <parent> |` of the milestone's Branches table, once every member is completed:
+
+```bash
+gh pr list --repo <repo> --head <branch> --base <parent> --state open --json url
+gh pr create --repo <repo> --head <branch> --base <parent> \
+  --title "<milestone name>" --body "Milestone: <milestone url>"   # only when the list is empty
+```
+
+Never `gh pr merge` it and never `--auto`: merging into the parent is the owner's after human QA.

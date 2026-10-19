@@ -88,14 +88,16 @@ ship-it
   ├── pre-ship-check     (readiness gate, owns QA verification gate)
   ├── documentation      (update docs the change affects, docs commit)
   ├── work-summary       (session summary)
-  └── create-pr          (open PR)
+  ├── create-pr          (open PR; a milestone member's PR targets the milestone branch)
+  ├── task-manager       (set_status, add_comment; for a member: milestone_tasks, milestone → To QA)
+  └── (gh)               (member: squash-merge into the milestone branch; last member: open milestone → parent PR)
 
 pre-ship-check
   ├── git-check                 (git state)
   └── web-qa / mobile-qa / backend-qa  (QA verification prompt on non-bug tasks; resolution per plugin references/qa-routing.md)
 
 log-task
-  ├── task-manager       (create task, set fields, add to boards)
+  ├── task-manager       (create task, set fields, add to boards; list_milestones to file it as a milestone member)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
 
 product-one-pager      (standalone: generate or review a product one-pager/brief; no skill dependencies)
@@ -139,8 +141,8 @@ agent-loop-tick            (unattended build run: one own or unassigned card per
 agent-loop-review-tick     (unattended review run: one own or unassigned in-review card per run)
   ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, in_review), get_comments, add_comment, set_field, move_task)
   ├── (reviewer agents)  (completeness, security, simplify passes in parallel; one validator; one per-fix validator)
-  ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup)
-  └── → ready (merged) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into main
+  ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup; opens the milestone → parent PR after the last member)
+  └── → ready (merged, member Done) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into main
 
 agent-loop-author          (attended: input → one milestone, milestone branches, cards)
   ├── agent-loop-readiness (author mode gate, loop until READY)

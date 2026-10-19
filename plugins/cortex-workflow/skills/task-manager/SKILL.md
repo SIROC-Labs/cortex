@@ -35,13 +35,13 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 
 - `get_current_user()` — the authenticated user.
 - `find_task(ref)` — resolve a URL or id to a task handle.
-- `get_task(task)` — name, kind (`task`/`milestone`), description, assignee, fields, status, board membership.
-- `create_task(title, description, board?, assignee?, fields?, kind?, milestone?)` — `fields` is an optional map of `field_name → value` (from `references/workflow/fields.md`) applied at creation in one shot. `kind` ∈ `task` (default) | `milestone` — a milestone is a first-class anchor task; the provider realizes the kind natively (Asana milestone subtype, Jira issue type). `milestone` (a milestone ref) makes the new task a **member of** that milestone; the provider realizes membership natively (Asana: same board grouping as the anchor; Jira: epic link).
+- `get_task(task)` — name, kind (`task`/`milestone`), description, assignee, fields, status, completed, board membership, and `parent` `{ref, name}` when the task is a milestone member (the milestone, or the member it is nested under).
+- `create_task(title, description, board?, assignee?, fields?, kind?, milestone?)` — `fields` is an optional map of `field_name → value` (from `references/workflow/fields.md`) applied at creation in one shot. `kind` ∈ `task` (default) | `milestone` — a milestone is a first-class anchor task; the provider realizes the kind natively (Asana milestone subtype, Jira issue type). `milestone` (a milestone ref) makes the new task a **member of** that milestone, starting at Dev Status `To Do`; the provider realizes membership natively (Asana: a subtask of the epic; Jira: epic link). A member is never added to a sprint board.
 - `delete_task(task)` — permanently remove a task.
 - `add_to_board(task, board)`
 - `add_dependency(task, depends_on)` — mark `task` as blocked by / dependent on another task. The native relationship/link **type** (e.g. Jira "Blocks") may be provider-configured.
 - `set_parent(task, parent)` — set the task's parent / add it to an epic (hierarchy write).
-- `set_status(task, status)` — `status` is a name from `references/workflow/lifecycle.md`.
+- `set_status(task, status)` — `status` is a name from `references/workflow/lifecycle.md`. On a milestone member a Dev Status name writes Dev Status; `Done` also completes it.
 - `set_field(task, field_name, value)` — `field_name` from `references/workflow/fields.md`.
 - `set_fields(task, {field_name: value, …})` — set multiple fields at once; **prefer over repeated `set_field` when setting 2+ fields** (providers apply them in a single write). Fields a provider can't address are skipped/surfaced, never silently wrong.
 - `set_description(task, body)` — replace the task's description; author `body` as Markdown (the provider converts). The editing counterpart to `create_task`'s `description`.
@@ -51,7 +51,7 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `list_fields(board)` — canonical fields available on a board.
 - `list_tasks(board, column?)` — enumerate the tasks on a board, or on one of its columns, in the provider's native order; each is `{ref, name, kind, completed, assignee, fields}` with `fields` holding canonical names from `references/workflow/fields.md` so callers can find milestone anchors or read `Priority`/`Category` without provider terms.
 - `list_milestones(board)` — the board's milestones, each `{ref, name, expanded}` (`expanded` = has ≥1 member task). For the backlog-board landscape (which milestones exist, which are already broken into tasks).
-- `milestone_tasks(milestone)` — the member tasks of a milestone.
+- `milestone_tasks(milestone)` — the member tasks of a milestone, each with its name, completion and fields.
 - `ensure_milestone(board, name)` — idempotently create the milestone if missing; return its ref. Reuses an existing one; never overwrites its description (set that with `set_description`).
 - `resolve_board(intent)` — e.g. `"active sprint"`, `"backlog"` (policy in `references/workflow/boards.md`), or `"agent-queue"` — the agent board and its role → column map from the machine-local agent-loop cache (`${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/agent-loop-setup/scripts/agent_loop.py read <provider>`; exit 4 means the setup skill has not run). The provider does no work for this intent.
 - `list_boards()` — every non-archived board in the workspace as `[{ref, name, completed}]`.

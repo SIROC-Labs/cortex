@@ -287,6 +287,14 @@ class StatusPlanTest(TmCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out), {"axis": "section", "section_gid": "s2"})
 
+    def test_qualified_section_realizes_bare_status(self):
+        self.ingest()
+        sections = self.SECTIONS + [{"gid": "s3", "name": "To QA (local)"}]
+        path = helpers.write_json(self.home, "sections.json", sections)
+        code, out, err = self.tm("status", "plan", "p1", "To QA", "--sections-from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"axis": "section", "section_gid": "s3"})
+
     def test_neither_exits_1(self):
         self.ingest()
         path = helpers.write_json(self.home, "sections.json", self.SECTIONS)

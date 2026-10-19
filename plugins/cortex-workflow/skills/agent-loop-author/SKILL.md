@@ -59,20 +59,23 @@ milestone branch hangs off, and what a later extension adds cards to. See `refer
 
 - **Hosting project.** Ask the operator for the URL of the project that hosts milestones; there is no
   default. Resolve it through the task-manager interface and confirm it is a board. Refuse the agent
-  board: a milestone there is a section, and the agent board's columns are its six roles.
-- **Anchor.** `ensure_milestone(project, <name>)`, the name proposed from the source in one line and
-  confirmed.
+  board: its columns are its six roles, and a milestone there would be a card a run could claim.
+- **Anchor.** `ensure_milestone(project, <name>)`, the name (`E{n} — <name>`) proposed from the source in
+  one line and confirmed.
 - **Branches.** Per repository the cards touch, the parent is the branch this work extends: `main`, or
   an unmerged branch the work builds on. Cut `milestone/<slug>` from `origin/<parent>` and push it, so
   the readiness check finds it on `origin`. One `<slug>` across every repository. An existing
   `milestone/<slug>` is reused.
 - **Base branch.** Every card's base is `milestone/<slug>`; no card ever targets `main`. The review
-  run merges each card's PR into that branch; merging the milestone branch into its parent stays the
-  operator's, and the anchor's description says so.
+  run merges each card's PR into that branch and completes the card; when the last card completes it
+  moves the milestone to To QA and opens `milestone/<slug>` → parent. Merging that PR stays the
+  operator's, and the anchor's description says so. The Branches table in the anchor's description is
+  the same `| Repository | Branch | Parent |` table `start-task` reads.
 
 Set blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads
 dependencies and lets a blocker through once it is completed or sits in the board's ready or done column
-— that is, merged into its milestone branch; "after the ledger task lands" in a description is invisible
+— that is, merged into its milestone branch. A completed member counts as merged: the review run
+completes a card when it merges it. "After the ledger task lands" in a description is invisible
 to it and the run will start anyway.
 
 ## Card shape
@@ -130,11 +133,11 @@ case you scoped too narrowly.
 
 Show the milestone name, the per-repository branch table and the full card list in chat for approval first — titles plus the one-line goal, the repository, and the dependency order. Then state the hosting project, the target board and column before writing anything.
 
-Order of writes: the milestone anchor, the branches, then the cards. Cards meant for unattended execution go to the agent board's **queue**: `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run agent-loop-setup" when there is none; stop and say so). For each approved card, in dependency order: `create_task(title, description, board, milestone=<anchor ref>, fields={Priority, Category, …})`, then `move_task(card, board, columns.queue)` — a card created without a column may land outside every role and the run never sees it. Membership in the milestone places the card in the hosting project too; the agent board stays the queue. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs. Last, `set_description(anchor, …)` with the card list filled in.
+Order of writes: the milestone anchor, the branches, then the cards. Cards meant for unattended execution go to the agent board's **queue**: `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run agent-loop-setup" when there is none; stop and say so). For each approved card, in dependency order: `create_task(title, description, <hosting project>, milestone=<anchor ref>, fields={Priority, Category, …})` — the milestone's board, so its fields resolve — then `move_task(card, <agent board>, columns.queue)` — a card created without a column may land outside every role and the run never sees it. Membership ties the card to the milestone; the card goes on no sprint board and carries no Estimate, and the agent board stays the queue. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs. Last, `set_description(anchor, …)` with the card list filled in.
 
 **There is one queue and it is ordered by priority.** Reworks and first implementations sit in the same column, so `Priority` decides what runs next — set it on every card, and put the card at the top of the column when it should be taken before its equals. Never assume a card will be picked up because it is a fix.
 
-Create nothing beyond the milestone and its cards: no section, no project, no second milestone.
+Create nothing beyond the milestone and its cards: no board, no column, no second milestone.
 
 ## Reporting back
 
