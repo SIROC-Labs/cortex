@@ -29,7 +29,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 
 <rationale paragraph — md-only, ignored by submit-breakdown>
 
-**Goal:** <one sentence — the sprint goal this milestone delivers>
+**Goal:** <one sentence — what this milestone delivers>
 **Description:** <2–4 sentences, product language>
 **Definition of done:**
 - <observable outcome 1>
@@ -51,7 +51,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 - **Action:** Delete | Complete
 ```
 
-Each `## E{N} :: <Name>` block represents one milestone (epic): a sprint goal whose implementation tasks become its members later. E-labels in this file are sequential from E1 and local-only (see "## E-label Conventions" below).
+Each `## E{N} :: <Name>` block represents one milestone (epic): a block of work toward a sprint goal, whose implementation tasks become its members later. E-labels in this file are sequential from E1 and local-only (see "## E-label Conventions" below).
 
 ## Parsing Contract
 
