@@ -603,6 +603,15 @@ class TestAppKeys(unittest.TestCase):
         self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
 
+    def test_the_list_still_moves_while_typing_a_filter(self):
+        self.press("2", "/", "ctrl-n")
+        self.assertTrue(self.app.typing)
+        self.assertEqual(self.app.cursor["Boards"], 1)
+        self.press("ctrl-p")
+        self.assertEqual(self.app.cursor["Boards"], 0)
+        self.press("alt-n")
+        self.assertEqual(self.app.cursor["Boards"], 2)
+
     def test_a_board_task_can_be_flagged_as_a_checkpoint_before_it_is_queued(self):
         self.app.ensure_daemon = lambda: None
         self.press("2", "down", "enter", "down")

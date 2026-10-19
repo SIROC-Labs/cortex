@@ -625,6 +625,9 @@ NAV = {
 for _n in range(1, len(TABS) + 1):
     NAV[str(_n)] = NAV["alt-%d" % _n] = "tab"
 MOVES = ("down", "up", "pgdn", "pgup", "halfdown", "halfup", "home", "end")
+# What still moves through the list while typing a filter: the keys the line
+# itself has no use for.
+TYPING_MOVES = ("up", "down", "ctrl-n", "ctrl-p", "pgdn", "pgup", "alt-n")
 
 # The help page: sections of (keys, what they do). Kept short — one key or key
 # group a line — so it reads as a table.
@@ -638,7 +641,7 @@ HELP = [
         ("←   h   esc   ⌫", "out: clear the filter first, then leave the board"),
         ("1–4   alt-1–4", "go to a tab; its number again takes it back to its top"),
         ("tab   shift-tab", "cycle the tabs"),
-        ("/", "filter the list (⏎ keeps it, esc clears it)"),
+        ("/", "filter the list (⏎ keeps it, esc clears it) · ↑↓ ^N ^P PgDn PgUp alt-N still move"),
         (":", "commands that have no key of their own"),
         ("?", "this page"),
         ("q", "quit — the daemon keeps working"),
@@ -1617,8 +1620,8 @@ class App(object):
             elif key == "esc":
                 self.typing = False
                 self.query[vk] = ""
-            elif key in ("up", "down"):
-                self.move(key, len(rows))
+            elif key in TYPING_MOVES:
+                self.move(NAV[key], len(rows))
             elif self.line.key(key):
                 self.query[vk] = self.line.text
                 self.cursor[vk] = 0
