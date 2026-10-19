@@ -16,7 +16,7 @@ Full PR lifecycle — from pre-checks through creation to capturing the PR URL f
 ## Usage Modes
 
 - **Standalone** — The user asks "create a PR" from any branch. Generate the summary from git diff/log and prompt for missing inputs.
-- **Orchestrator step** — Called by `ship-it` with `orchestrator: true`. Receives the work summary, task URL, and skips git-check (already done by pre-ship-check).
+- **Orchestrator step** — Called by `ship-it` with `orchestrator: true`. Receives the work summary, task URL, for a milestone member the milestone and base branch, and skips git-check (already done by pre-ship-check).
 - **Update mode** — The user asks to update an existing PR's description or reviewers.
 
 ## Unattended invocation
@@ -35,7 +35,14 @@ All inputs are optional. When missing, derive them automatically or prompt the u
 | Testing / QA evidence | From the QA gate (`✅ QA Verification` posted in session by pre-ship-check / a QA skill) plus `work-summary` test results | Generated from the test/lint/build runs done this session |
 | Task URL | Passed by `ship-it` | Prompt user: "Is there a task URL for this? (press Enter to skip)" |
 | Reviewers | Passed by caller or from CLAUDE.md defaults | From CLAUDE.md defaults, or prompt user |
+| Milestone | Passed by caller (`milestone`: ref, name) | The task's `parent` from `get_task(task)`, followed up to the ancestor whose `kind` is `milestone`; none → standalone |
+| Base branch (`$BASE`) | Passed by caller (`base`) | See **Base Branch** below |
 | orchestrator | `true` when called from ship-it | absent |
+
+## Base Branch
+
+- **Milestone member** — the milestone branch: the `Branch` cell of the row for this repository (matching rule in `../../references/workflow/boards.md` → "Milestone branches") in the milestone description's **Branches** table (`| Repository | Branch | Parent |`), unless the caller passed `base`. No matching row → stop and ask; never fall back to the default branch.
+- **Standalone** — the repository default: `git rev-parse --abbrev-ref origin/HEAD | sed 's|origin/||'`.
 
 ## Step 1: Git Checks
 
@@ -124,6 +131,9 @@ Build the PR body from available sections. **Omit any section that has no conten
 ## How to test
 <step-by-step testing instructions>
 
+## Milestone
+<milestone name> — merges into `<milestone branch>`
+
 ## Task
 <url>
 ```
@@ -133,6 +143,7 @@ Rules:
 - Populate `## Testing` from the QA gate and `work-summary`: name the regression/added tests, the suites run with their pass counts (distinguish integration vs unit — an integration run against real containers is stronger evidence than a unit run), lint/build status, and the QA verdict (e.g. `backend-qa: PASS`). Omit the section only when there is genuinely no test or QA signal — and when omitting, say why in the Summary.
 - If no "How to test" content is available, omit the entire section (header and body).
 - If no task URL was provided, omit the entire "Task" section.
+- Include "Milestone" only for a milestone member.
 - Keep bullets concise and specific. Name files, endpoints, components — not vague descriptions.
 
 ## Step 5: Reviewer Assignment
@@ -191,11 +202,11 @@ EOF
 Add flags as needed:
 - `--assignee @me` — always included to self-assign the PR to the creator
 - `--reviewer user1,user2` — if reviewers are specified
-- `--base $BASE` — if the target branch isn't the default (detect with `git rev-parse --abbrev-ref origin/HEAD | sed 's|origin/||'`)
+- `--base $BASE` — always for a milestone member; otherwise only if the target branch isn't the default (see **Base Branch**)
 
 ### Draft PR from start-task (promote to ready)
 
-When a draft PR exists from `start-task`, update it and mark it as ready:
+When a draft PR exists from `start-task`, update it and mark it as ready. For a milestone member whose draft does not target `$BASE` (`gh pr view <pr-number> --json baseRefName`), retarget it first with `gh pr edit <pr-number> --base $BASE`.
 
 1. Update title and body with the full description:
    ```bash

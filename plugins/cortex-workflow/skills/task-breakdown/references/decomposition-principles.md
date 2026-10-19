@@ -54,7 +54,7 @@ Infrastructure-only tasks should not exist as standalone tasks. They fail the in
 
 **Corollary for "implement as needed":** types, service methods, and query hooks belong in the task that first uses them — not in a shared upfront task. Each subsequent task adds only what it needs. This keeps every task independently runnable and avoids building API surface that won't be exercised until much later.
 
-The one exception: if the infrastructure genuinely unblocks multiple tasks that will be worked in parallel by different developers *in the same sprint*, a standalone infrastructure task may be worth the tradeoff. Call this out explicitly, confirm with the user, and add a note explaining why it can't be absorbed.
+The one exception: if the infrastructure genuinely unblocks multiple tasks that will be worked in parallel by different developers *in the same sprint*, a separate infrastructure task may be worth the tradeoff. Call this out explicitly, confirm with the user, and add a note explaining why it can't be absorbed.
 
 ## Cleanup Tasks
 

@@ -36,6 +36,20 @@ The neutral lifecycle collapses onto Jira's three categories:
 
 Several neutral "not-started" states (`Unassigned`, `Scheduled`, `Assigned`, etc.) all map onto the single `new` bucket — Jira does not distinguish them as separate statuses unless the project's workflow happens to define matching status names. Do **not** assume a neutral state survives a 1:1 round-trip.
 
+### Dev Status (milestone members)
+
+A milestone member is a child issue of its epic; its Dev Status is its workflow status, mapped by category the same way:
+
+| Dev Status | statusCategory |
+|---|---|
+| To Do | `new` |
+| In Progress | `indeterminate` |
+| Owner Review | `indeterminate` (prefer a status named like "Review") |
+| Blocked | `indeterminate` (prefer a status named like "Blocked") |
+| Done | `done` |
+
+**PARTIAL** — `scripts/tm.py task set-status` knows only `In Progress` and `Done` of these; the others exit 1 and are transitioned directly with `acli jira workitem transition`.
+
 ## Resolving a target status name for a transition
 
 `set_status(task, <neutral-name>)`:

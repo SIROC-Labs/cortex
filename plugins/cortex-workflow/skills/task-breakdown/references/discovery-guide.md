@@ -8,7 +8,7 @@ Inspect each argument (or the current working directory if no argument was given
 
 | Source type | How to detect | How to ingest |
 |---|---|---|
-| Task-manager task or project | URL points at the project's task manager | Ingest **through the `task-manager` seam** — `find_task` / `get_task` for a task; `resolve_board` + `list_tasks` / `list_milestones` for a project. Never name a provider or hit an API directly |
+| Task-manager task or project | URL points at the project's task manager | Ingest **through the `task-manager` seam** — `find_task` / `get_task` for a task; `resolve_board` + `list_tasks` / `list_milestones` for a project, and `milestone_tasks` for a milestone's members (they are not on the board). Never name a provider or hit an API directly |
 | GitHub issue or PR | `github.com/.../issues/` or `/pull/` in URL | Use `gh issue view` / `gh pr view` |
 | Notion page | `notion.so` or `notion.site` in URL | Use Notion MCP |
 | Confluence page | `atlassian.net/wiki/` in URL | Use Atlassian MCP |
@@ -77,7 +77,7 @@ Every source named by the user (task URL, spec path, Figma link, free text). Rea
 
 - `CLAUDE.md` / `AGENTS.md` at every relevant level
 - Current source in directories the work will touch
-- For existing projects: which milestone (if any) is the natural parent — captured as a candidate `**Target milestone:**`, resolved and confirmed via the seam (`get_task`, `kind=milestone`)
+- For existing projects: which milestone (if any) the tasks join as members — captured as a candidate `**Target milestone:**`, resolved and confirmed via the seam (`get_task`, `kind=milestone`)
 
 ### 3. Platform Inventory
 

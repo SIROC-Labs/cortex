@@ -66,3 +66,23 @@ in backend-qa.
 State it: **Confirmed** (you ran the suites and read the tests), **Likely** (read the tests, couldn't
 run a suite — say which and why), or **Suspicion** (inference only). Never report a clean pass at
 anything below Confirmed.
+
+## Task comment
+
+When a task is in context, post the verdict with `add_comment(task, body)` through the `task-manager`
+interface, in the Verify-mode format of
+[generic-qa/process.md](../../generic-qa/process.md) → Step 6 (prefix, then **What was verified**,
+**Result**, **Evidence**). Author it in Markdown.
+
+| Verdict | Prefix |
+|---|---|
+| ✅ Pass | `✅ QA Verification — PASSED` |
+| ⚠️ Pass with gaps | `✅ QA Verification — PASSED` — list the gaps under **Result** |
+| ❌ Fail | `❌ QA Verification — FAILED` |
+
+- **What was verified** — the scope line and the covered areas.
+- **Result** — the verdict and the gaps that drove it.
+- **Evidence** — the run evidence block, inline. There are no screenshots; attach nothing.
+
+Never post `PASSED` below Confirmed confidence — a gate reads this comment and must not pass on an
+unrun suite.

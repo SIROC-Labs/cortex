@@ -7,7 +7,7 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | Gate | Answer |
 |---|---|
 | Worktree or current directory | worktree |
-| Base branch | the branch the card names; none named → `main`; a named branch absent on `origin` → stop (`clarification`) |
+| Base branch | a milestone member: its milestone's branch for the repository, created from its parent and recorded on the milestone when missing; otherwise the branch the card names; none named → `main`; a named branch absent on `origin` → stop (`clarification`) |
 | Task assigned to someone else | reassign to the current user, silently |
 | Existing branch or PR for the task | reuse it; never open a second PR for one card |
 | Sprint-readiness fields (Product Status, Estimate, Sizing) | not applicable; never set or demanded |

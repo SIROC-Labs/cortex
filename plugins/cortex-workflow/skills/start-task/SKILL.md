@@ -75,7 +75,7 @@ Per-step differences from the attended flow:
 | 5 | As attended. Rework: also read the PR's review threads (`gh pr view <url> --json reviews,comments`; `gh api repos/<org>/<repo>/pulls/<n>/comments`). The delta since this system's last `🤖 [AGENT]` comment is the scope. |
 | 6 | Rework: reuse the branch and PR named in the start marker or the checkpoint. Fresh with an existing branch: reuse it. Never open a second PR for one card. |
 | 6a | Always a worktree at `<repo>/.worktrees/<branch>`; recipe in `references/git-workflow.md` → "Unattended worktree". Bootstrap failure → `failed`. |
-| 6b | The base branch the card names, else `main`. A named branch missing on `origin` → `clarification`. |
+| 6b | Member: as attended. Otherwise the base branch the card names, else `main`. A named branch missing on `origin` → `clarification`. |
 | 7 | Branch `agent/<task-ref>-<slug>` (rework: the existing one). |
 | 8 | Draft PR with `--assignee @me`; body stub `## Task\n<url>`. Rework: confirm the PR exists, do not create or re-draft. |
 | 9a | Skipped; the invoker owns board routing. |
@@ -108,7 +108,7 @@ The task URL is passed as `$ARGUMENTS`. If empty or invalid, prompt for it. Extr
 
 Resolve the URL to a task handle via `find_task(ref)`, then fetch the full task (fields, board memberships, assignee, and description) via `get_task(task)` through the `task-manager` interface.
 
-Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify board memberships per **`plugins/cortex-workflow/references/workflow/boards.md`**.
+Present a quick summary for confirmation: task name, assignee, category, task ID, sprint, and backlog board memberships. Classify board memberships per **`plugins/cortex-workflow/references/workflow/boards.md`**. Classify the unit: a task with a `parent` is a **milestone member** — fetch its milestone (`parent`, or its nearest ancestor of kind `milestone`) via `get_task`, show it in the summary, and record it (`checkpoint.sh set <task-ref> milestone_ref <ref>`); any other task, a milestone with no members included, is **standalone**. Later steps branch on this.
 
 ### Step 2a: Validate Assignee
 
@@ -125,7 +125,7 @@ Fetch the current user via `get_current_user()` to obtain their identity. Then c
 
 Run the code-enforced verdict — do not evaluate the checks by hand. Run `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --url <task-url> <task-ref>`; it resolves the provider, fetches the data via that provider's primitives, and returns a verdict JSON (`{ready, checks:[active_sprint, estimate, status, task_key]}`). See **`references/validation-rules.md`** for the verdict shape, how to branch on it, the operator-facing checklist, and skip rules.
 
-Report the verdict as a checklist. Active sprint membership, Estimate, and a not-yet-started status are all blocking — `status` passes only when the task is in a not-yet-started state; otherwise offer to set it to the start state (e.g. `Assigned`) via the task-manager interface. Offer to set Estimate via the interface too; active sprint membership is fixed manually. Do not proceed until the blocking checks pass. Only the task key / ID field can be skipped after a warning (and is skipped entirely on providers with a native key).
+Report the verdict as a checklist. Active sprint membership, Estimate, and a not-yet-started status are all blocking — `status` passes only when the task is in a not-yet-started state; otherwise offer to set it to the start state (e.g. `Assigned`) via the task-manager interface. Offer to set Estimate via the interface too; active sprint membership is fixed manually. A member is gated through its milestone: the milestone must be in the active sprint (fixed on the milestone, manually), no estimate is asked or offered, and Dev Status `To Do` is the start state. Do not proceed until the blocking checks pass. Only the task key / ID field can be skipped after a warning (and is skipped entirely on providers with a native key).
 
 Unattended: see **Unattended Mode**.
 
@@ -171,7 +171,7 @@ Present the choice:
 > - **main** _(default — latest stable base)_
 > - Another branch _(enter branch name)_
 
-Default to `main` only after the user confirms. If the user specifies a different base branch, use that instead. Record the chosen base branch for Step 7.
+Default to `main` only after the user confirms. If the user specifies a different base branch, use that instead. Record the chosen base branch for Step 7. **Member:** do not ask. Run the milestone branch check in **`references/git-workflow.md`** → "Milestone Branch" and use that branch as the base; inform. Record it (`checkpoint.sh set <task-ref> base_branch <branch>`).
 
 Unattended: see **Unattended Mode**.
 
@@ -193,7 +193,7 @@ Immediately after creating the branch, create an empty commit and a draft PR to 
    git push -u origin $(git branch --show-current)
    ```
 
-3. Create the draft PR:
+3. Create the draft PR (member: add `--base <milestone branch>` so it targets the milestone branch):
    ```bash
    gh pr create --draft --title "<TASK-ID> :: <description>" --body "$(cat <<'EOF'
    ## Task
@@ -208,7 +208,7 @@ Immediately after creating the branch, create an empty commit and a draft PR to 
 
 **This happens automatically — no permission needed.**
 
-Move the task to "In Progress" via `set_status(task, "In Progress")`. Skip if already there. If the move fails, report why but do not block the workflow — proceed to Step 9b.
+Move the task to "In Progress" via `set_status(task, "In Progress")`. Skip if already there. For a member this writes its Dev Status; then, if the milestone is not already "In Progress", move it too via `set_status(milestone, "In Progress")`. If a move fails, report why but do not block the workflow — proceed to Step 9b.
 
 Unattended: see **Unattended Mode**.
 
@@ -285,8 +285,11 @@ Invoke `ship-it`. The following context is already in this session — pass it t
 | Task ID | From task fields (Step 2) |
 | Branch name | Created in Step 7 |
 | Draft PR URL | Captured in Step 8 |
+| Unit | `member` or `standalone` (Step 2) |
+| Milestone ref | Member only (Step 2) |
+| Base branch | Step 6b — the milestone branch for a member |
 
-`ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, move the task to "In Review" (via `set_status(task, "In Review")`), and post a completion comment.
+`ship-it` will run pre-ship-check, generate a work summary, promote the draft PR to ready, apply the status move for the unit (standalone: `set_status(task, "In Review")`), and post a completion comment.
 
 After `ship-it` returns successfully, delete `~/.cortex/cortex-workflow/checkpoints/<task-ref>.md` (via `checkpoint.sh delete <task-ref>`). Post-ship work (code-review fixes, follow-up commits) is out of scope for this checkpoint — see **`references/checkpoints.md`** → "Lifecycle End".
 
@@ -307,7 +310,7 @@ Triggered either by a step going into `State = blocked` during the flow or by th
 - **`references/skill-dependencies.md`** — External plugin dependencies, install commands, check instructions
 - **`references/validation-rules.md`** — Sprint-readiness checks, failure display, skip rules
 - **`references/task-patterns.md`** — comment templates posted via the task-manager interface
-- **`references/git-workflow.md`** — Existing work detection, branch creation, naming convention
+- **`references/git-workflow.md`** — Existing work detection, milestone branch, branch creation, naming convention
 - **`references/test-ladder.md`** — Unattended mode's proof ladder, rung by rung
 - **`references/reporting.md`** — Unattended mode's GitHub write-up: PR body, review notes, verification report
 - **`references/checkpoints.md`** — Checkpoint file format, initialization, per-step updates, resume flow, lifecycle end, edge cases

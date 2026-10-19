@@ -16,7 +16,7 @@ Author comments as Markdown and post with `add_comment`; the provider renders.
 
 ## Mirror rule
 
-For every other board the card is already on (`get_task(card).board` memberships), `get_board(that board)` and, if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on. This keeps a team sprint board honest without configuring it.
+For every other board the card is already on (`get_task(card).board` memberships), `get_board(that board)` and, if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on. This keeps a team sprint board honest without configuring it. A card with a `parent` (`get_task(card).parent`) is a milestone member: it is on no sprint board, so there is nothing to mirror there; its milestone, not the card, moves on the sprint board. Other boards it is on mirror as above.
 
 ## Every terminal path
 

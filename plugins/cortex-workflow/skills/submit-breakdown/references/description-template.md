@@ -1,26 +1,30 @@
 # Task Description Template
 
-Each task description is a **thin, faithful render** of one block from the breakdown — either an implementation-task entry (`### Tn ...` / `## Tn ::`) or a milestone block (`## Mn :: ...`) — with references aggregated from the levels above so it is self-contained.
+Each task description is a **thin, faithful render** of one block from the breakdown — either an implementation-task entry (`### Tn ...` / `## Tn ::`) or a milestone block (`## En :: ...`, legacy `## Mn :: ...`) — with references aggregated from the levels above so it is self-contained.
 
-The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task. Milestones never carry an implementation plan — they are anchors, not work items.
+The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task. Milestones never carry an implementation plan — a milestone is the unit of planning and delivery; its members are the work items.
 
 Author all descriptions in **Markdown**; the provider renders them (see Formatting Rules below). Do not hand-write provider markup.
 
 ## Two description types
 
 - **Implementation-task description** — for regular tasks (`kind == task`). Structure: Visual Context, Purpose, Description, Out of scope (optional), Acceptance Criteria, References. Detailed in "Implementation Task Description Structure" below.
-- **Milestone description** — for milestone anchors (`kind == milestone`). Set only on **newly created** milestones (existing ones are frozen; expanded ones are protected — see SKILL.md Phase 3 Step 1). Structure below.
+- **Milestone description** — for milestones (`kind == milestone`). Set only on **newly created** milestones (existing ones are frozen; expanded ones are protected — see SKILL.md Phase 3 Step 1). Structure below.
 
 ## Milestone Description
 
-The milestone anchor is the canonical context for the milestone — it must be self-sufficient. Render the milestone block's body fields in canonical order, omitting any that are absent:
+The milestone's description is its canonical context — it must be self-sufficient. Render the milestone block's body fields in canonical order, omitting any that are absent:
 
 ```markdown
-**Purpose**
-<one sentence from the block's Purpose field>
+**Goal**
+<one sentence from the block's Goal field (legacy: Purpose)>
 
 **Description**
 <paragraph from the block's Description field>
+
+**Definition of done**
+- <outcome 1>
+- ...
 
 **Out of scope**
 - <exclusion 1>
@@ -29,13 +33,19 @@ The milestone anchor is the canonical context for the milestone — it must be s
 **References**
 - <ref 1>
 - ...
+
+**Execution order**
+1. E2.1 — <member name>
+2. E2.2 — <member name>
 ```
 
 Milestone description rules:
 - **No rationale paragraph.** The block's free-text rationale is md-only — not rendered.
-- **No "Depends on" text and no M-labels.** Milestone-to-milestone dependencies are wired natively via `add_dependency` (SKILL.md Phase 3 Step 4).
+- **Execution order** lists the members' board names in order. It is written only once the milestone has members (SKILL.md Phase 3 Step 3) and is the one section rewritten on an existing milestone.
+- **No Branches table.** It is written when the first member starts, never here.
+- **No "Depends on" text and no E-labels.** Milestone-to-milestone dependencies are wired natively via `add_dependency` (SKILL.md Phase 3 Step 4).
 - **References** aggregate the block's `References:` field plus the file-header `## References` (dedup by URL/path, milestone-specific first), using the same stripping rules as task-level aggregation below.
-- **Never overwrite an existing milestone's description.** submit-breakdown only sets this on milestones it just created.
+- **Never overwrite an existing milestone's description** beyond its Execution order section. submit-breakdown only sets the full body on milestones it just created.
 
 ## Implementation Task Description Structure
 
@@ -129,7 +139,7 @@ For a task entry in the breakdown that looks like:
   - API style guide: docs/api-style.md
 ```
 
-inside an `M1` milestone with `References: Sprint plan: https://example.com/...` and a file header `References: Spec: docs/spec.md, Figma: https://figma.com/file/abc`, the task description becomes:
+inside an `E1` milestone with `References: Sprint plan: https://example.com/...` and a file header `References: Spec: docs/spec.md, Figma: https://figma.com/file/abc`, the task description becomes:
 
 ```markdown
 [→ Figma](https://figma.com/file/abc)
@@ -201,4 +211,4 @@ Two section types, two rules — apply them consistently:
 
 **Rule:** leave a blank line between each section. Body text starts on the line immediately after its bold title — no blank line between the title and the content.
 
-Dependencies are **not** written in the description. They are wired natively via the task dependency graph (Phase 3 Step 2), where they are already visible as blocking relationships. Repeating them in the description text adds no information.
+Dependencies are **not** written in the description. They are wired natively via the task dependency graph (Phase 3 Steps 4–5), where they are already visible as blocking relationships. Repeating them in the description text adds no information.

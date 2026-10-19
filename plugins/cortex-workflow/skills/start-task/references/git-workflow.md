@@ -22,9 +22,22 @@ gh pr list --search "<task-id>" --state open
 
 If resuming, check out the existing branch and skip branch creation. If starting fresh, proceed normally.
 
+## Milestone Branch
+
+A milestone member's base is its milestone's branch for the current repository, never chosen by the operator. The repository is the `origin` remote's `<org>/<repo>`.
+
+1. Read the **Branches** table (`| Repository | Branch | Parent |`) in the milestone's description and find the row for the repository (matching rule in `../../../references/workflow/boards.md` → "Milestone branches").
+2. **Row present** — fetch it and use it:
+   ```bash
+   git fetch origin <branch>
+   ```
+   Missing on `origin` → stop and report; do not recreate a branch the milestone already records.
+3. **Row missing** — create it from the parent branch (default `main`) as `../../../references/workflow/boards.md` → "Milestone branches" defines (slug, push, row). Inform:
+   > Created `milestone/<slug>` off `<parent>` and recorded it on the milestone.
+
 ## Create Feature Branch
 
-Use the base branch confirmed by the user in Step 6b of start-task. Do not assume `main` — always use the explicitly chosen base.
+Use the base branch confirmed by the user in Step 6b of start-task — for a milestone member, the milestone branch from "Milestone Branch" above. Do not assume `main` — always use the explicitly chosen base.
 
 Inform (do not ask) when creating:
 

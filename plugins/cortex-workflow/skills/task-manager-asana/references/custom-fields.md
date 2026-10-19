@@ -23,12 +23,15 @@ Match fields by name using fuzzy, case-insensitive patterns:
 
 | Field | Match patterns |
 |-------|---------------|
+| Dev Status | "dev status", "development status" |
 | Platform | "platform" |
 | Priority | "priority", "urgency", "severity" |
 | Sizing | "size", "sizing", "story points", "points", "t-shirt" |
 | Estimate | "estimate", "estimated time", "time estimate", "effort" |
 | Category | "category", "type" |
 | Product Status | "product status", "status", "state" |
+
+Patterns are tried in the script's order, Dev Status first, so a field named "Dev Status" never maps to Product Status. Dev Status is defined on the epic's board; a member (a project-less subtask) reads and writes it through that board.
 
 Assignee is handled natively by Asana — not a custom field.
 

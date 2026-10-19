@@ -9,7 +9,7 @@ description: >
   or after discovering and fixing an issue together.
   Do NOT trigger on generic logging requests ("log this error", "console.log", "log to Sentry")
   or on requests that reference an existing task URL (those go to start-task or ship-it).
-argument-hint: "[sprint: <sprint-url>] [backlog: <backlog-url>]"
+argument-hint: "[sprint: <sprint-url>] [backlog: <backlog-url>] [milestone: <milestone-url>]"
 ---
 
 # Log Task
@@ -23,9 +23,9 @@ Take something discovered or completed in conversation and formalize it as a tas
 
 ---
 
-## Step 0: Parse Arguments for Board Overrides
+## Step 0: Parse Arguments for Board and Milestone Overrides
 
-Before doing anything else, scan `$ARGUMENTS` and the triggering message for board references (URLs or names that point at a specific sprint or backlog board).
+Before doing anything else, scan `$ARGUMENTS` and the triggering message for board references (URLs or names that point at a specific sprint or backlog board) and for a milestone reference.
 
 **Disambiguate sprint vs backlog** using context words near each reference:
 
@@ -33,6 +33,7 @@ Before doing anything else, scan `$ARGUMENTS` and the triggering message for boa
 |---|---|
 | "sprint", "current sprint", "new sprint", "use sprint" | sprint override |
 | "backlog", "product backlog", "use backlog", "new backlog" | backlog override |
+| "milestone", "epic", "under", "member of" | milestone reference — resolve it with `find_task` and keep it for Step 2b |
 | No context words | ambiguous — ask: "Is this the sprint board or a backlog board?" |
 
 For each board reference detected, resolve it to a board through the `task-manager` interface and store the resolved override to apply in Step 2.
@@ -76,6 +77,19 @@ Use `references/board-config.md` for the smart board-suggestion scoring (categor
 
 ---
 
+## Step 2b: Milestone or Standalone
+
+Choose where the task goes (`plugins/cortex-workflow/references/workflow/boards.md` → "Milestones (epics) and members"):
+
+- **Member** of an existing milestone — implementation work inside a milestone. Offer `list_milestones(<board>)` for the product/backlog boards from Step 2, expanded and unexpanded alike, plus the milestone from Step 0 when one was given. A member lives on its milestone's board, is never added to the sprint board, carries no Estimate, and starts at Dev Status `To Do`.
+- **Standalone** — bugs, hotfixes, anything outside a milestone. Today's flow: the sprint board is added automatically, backlog boards are multi-homed.
+
+Ask: "Member of a milestone, or standalone? [<milestone list> / standalone]". A milestone given in Step 0 is preselected. Unattended: standalone unless a milestone ref was given.
+
+For a member, the milestone's board (the board it was listed from; for a Step 0 ref, its board in `get_task(milestone)`) replaces the active sprint in Steps 3, 5 and 6, and backlog suggestions are skipped.
+
+---
+
 ## Step 3: Discover Available Fields
 
 Through the `task-manager` interface, call `list_fields(<active sprint board>)` to learn which of the canonical workflow fields this board carries (see `plugins/cortex-workflow/references/workflow/fields.md` for their meanings). A field that isn't present is skipped gracefully in later steps, never invented. Also resolve the current user via `get_current_user()` for the Assignee default.
@@ -92,9 +106,10 @@ Extract from conversation context as much as possible. Fill gaps with smart defa
 | **Description** | Summary of issue/fix/plan | Include root cause if known |
 | **Priority** | Highest urgency option | Match semantically: prefer names containing "0", "critical", or "urgent"; or the option with the lowest numeric suffix (P0 < P1 < P2). Fall back to first in list only if no semantic match. |
 | **Sizing** | Lowest available option | e.g., XS, 1, S — if Fix Done, use session scope as proxy |
-| **Estimate** | Plan Only: blank. Fix Done: `00:00` | See Estimate rules below |
+| **Estimate** | Plan Only: blank. Fix Done: `00:00`. Member: none | See Estimate rules below |
 | **Assignee** | Current user (Fix Done) / Unassigned (Plan Only) | |
 | **Product Status** | "Assigned" | New ad-hoc tasks land at Product Status `Assigned` (see `plugins/cortex-workflow/references/workflow/lifecycle.md`) |
+| **Dev Status** | Member: "To Do" | Set by the provider on create; standalone tasks have none |
 
 **Sizing scale** (assumes a 5-step scale ordered smallest → largest, e.g. XS/S/M/L/XL): 1st = ≤ 8h (1 day), 2nd = ≤ 16h (2 days), 3rd = ≤ 40h (5 days / 1 week), 4th = ≤ 80h (10 days / 2 weeks), 5th = > 80h. Match by position, not name. If the project's scale isn't 5-step, fall back to "err toward smaller."
 
@@ -103,6 +118,7 @@ Extract from conversation context as much as possible. Fill gaps with smart defa
 **Estimate rules**:
 - **Plan Only**: leave the Estimate blank. Do not pick a default.
 - **Fix Done**: default to `00:00`. The work is already completed without an estimate.
+- **Member**: never set an Estimate; the milestone carries the sprint's sizing.
 
 **Time format**: Always display and submit estimate values in `hh:mm` format (e.g., `00:00`, `00:30`, `01:00`). Never use shorthand like `30m`, `1h`, `1d`.
 
@@ -120,6 +136,8 @@ Task draft:
   Description:    The CSV exporter crashes when the input DataFrame has zero
                   rows. Root cause: missing empty-check before column iteration.
 
+  Placement:  standalone        [or: member of E3 — CSV export hardening]
+
   Boards:
     Sprint:    ENG | Sprint 26.16  (auto-detected)
     Backlogs:
@@ -131,7 +149,7 @@ Task draft:
     Priority:       P0            [options: P0, P1, P2, P3]
     Sizing:         XS            [options: XS, S, M, L, XL]
     Estimate:       —             [options: 00:00, 00:30, 01:00, 02:00, 04:00] (Plan Only: blank; Fix Done: 00:00)
-    Product Status: Assigned      [options: Assigned, In Progress, Done]
+    Product Status: Assigned      [options: Requirements, Sizing, Refinement, Unassigned, Scheduled, Assigned, Ready, Cancelled]
     Assignee:       Francisco Javier (you)
 
   Fields not found in this project: (none)
@@ -139,13 +157,13 @@ Task draft:
 Create this task? [Y/n / type field name to edit]
 ```
 
-If a field couldn't be discovered, show it as `— (not available in this project)`. If the user edits a field, update the draft and show it again. Do not create until explicit confirmation.
+For a member, `Boards` shows only the milestone's board, `Estimate` is omitted, and `Dev Status: To Do` is listed. If a field couldn't be discovered, show it as `— (not available in this project)`. If the user edits a field, update the draft and show it again. Do not create until explicit confirmation.
 
 ---
 
 ## Step 6: Create the Task
 
-Perform every step through the `task-manager` interface. Execute in this order — do not skip or reorder:
+Perform every step through the `task-manager` interface. Execute in this order — do not skip or reorder. For a **member**, 6a is `create_task(title, description, <milestone's board>, assignee?, milestone=<milestone ref>)`, 6b and 6c are skipped, and 6d sets no Estimate:
 
 1. **6a** — `create_task(title, description, assignee?)` — create the task with the assignee resolved in Step 4 (the current user for Fix Done, unassigned for Plan Only).
 2. **6b** — `add_to_board(task, <active sprint>)` — file it on the active sprint board.
@@ -159,7 +177,7 @@ Report success:
 ✓ Task created: Fix null pointer in export pipeline when CSV is empty
   ID:      MT251-182
   Link:    <task URL returned by the task manager>
-  Sprint:  <active sprint board name>
+  Sprint:  <active sprint board name>     (member: Milestone: <milestone name>)
   Boards:  <confirmed backlog board names>
 ```
 
@@ -221,6 +239,7 @@ Thread the full task context so `ship-it` / `create-pr` can skip re-asking and b
 - Task ID: `<task_id>` — the project ID prefix (e.g., `MT251-182`) resolved in Step 6d; required for PR title formatting
 - Task title: `<task_title>` — used as the PR title description
 - Branch name: `<task_id>/<slug>` — already created in 7b-3
+- Milestone: `<milestone ref>` and its branch — members only; the PR targets the milestone branch, not `main`
 
 If the task ID could not be resolved in Step 6d (all retries failed), explicitly tell `ship-it` that the PR title must fall back to the type-prefixed branch slug (`fix/…`, `feat/…`) with no `TASK-ID :: ` prefix — do not let `create-pr` guess.
 
