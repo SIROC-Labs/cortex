@@ -312,7 +312,9 @@ def read_waits(main_root, control, data):
         elif gid in reached:
             waits[gid] = {"kind": "checkpoint", "key": key,
                           "headline": "Checkpoint reached — what is queued after it waits for you"}
-        elif ((records.get(gid) or {}).get("merge") or {}).get("blocked"):
+        elif (((records.get(gid) or {}).get("merge") or {}).get("blocked")
+              and (records.get(gid) or {}).get("phase") != "merged"
+              and not (tasks.get(gid) or {}).get("completed")):
             waits[gid] = {"kind": "merge", "key": key,
                           "headline": "Merge blocked: %s" % records[gid]["merge"]["blocked"]}
         elif (records.get(gid) or {}).get("phase") == "conflict":

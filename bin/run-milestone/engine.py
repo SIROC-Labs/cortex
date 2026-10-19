@@ -1444,6 +1444,9 @@ class Engine(object):
             for dep in task.get("deps") or []:
                 if dep.get("ref") == gid:
                     dep["completed"] = True
+        merge = self.record(gid).get("merge")
+        if merge:
+            merge["blocked"] = None
         self.set_phase(gid, "merged")
         if self.is_checkpoint(gid):
             log("%s was a checkpoint — what comes after it waits for you to continue" % key)

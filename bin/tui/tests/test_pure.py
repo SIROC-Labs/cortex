@@ -1183,6 +1183,14 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual(self.app.waits["2"]["kind"], "merge")
         self.assertIn("a to say what to do, m to just try again", wait_summary(self.app.waits["2"]))
 
+    def test_a_merge_that_went_through_anyway_waits_on_nothing(self):
+        path = os.path.join(dm.queue_dir(self.root), "state.json")
+        data = dm.read_json(path)
+        data["records"]["2"].update(phase="merged", merge={"blocked": "gh pr merge refused: timed out"})
+        dm.write_json(path, data)
+        self.app.snapshot()
+        self.assertNotIn("2", self.app.waits)
+
     def test_a_on_a_blocked_merge_sends_your_instructions(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
         data = dm.read_json(path)
