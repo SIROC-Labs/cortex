@@ -127,6 +127,10 @@ SETTINGS = [
                                    "format": "duration", "precision": 0}},
     {"gid": "s3", "custom_field": {"gid": "f3", "name": "Product Status", "type": "enum",
                                    "enum_options": [{"gid": "o8", "name": "Assigned"}, {"gid": "o9", "name": "Ready"}]}},
+    {"gid": "s4", "custom_field": {"gid": "f4", "name": "Dev Status", "type": "enum",
+                                   "enum_options": [{"gid": "d1", "name": "To Do"}, {"gid": "d2", "name": "In Progress"},
+                                                    {"gid": "d3", "name": "Owner Review"}, {"gid": "d4", "name": "Blocked"},
+                                                    {"gid": "d5", "name": "Done"}]}},
 ]
 
 
@@ -141,6 +145,14 @@ class FieldsIngestTest(TmCase):
         self.assertTrue(fm["Assignee"]["native"])
         cache = helpers.read_cache(self.home, self.key)
         self.assertEqual(cache["fields"]["p1"]["Priority"]["id"], "f1")
+
+    def test_dev_status_is_not_taken_for_product_status(self):
+        path = helpers.write_json(self.home, "settings.json", SETTINGS)
+        code, out, err = self.tm("fields", "ingest", "p1", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        fm = json.loads(out)
+        self.assertEqual(fm["Dev Status"]["id"], "f4")
+        self.assertEqual(fm["Product Status"]["id"], "f3")
 
     def test_ingest_from_project_object(self):
         path = helpers.write_json(self.home, "project.json",
@@ -228,6 +240,31 @@ class TaskProjectTest(TmCase):
         code, _, _ = self.tm("task", "project", "--from-json", "-", stdin="[1,2]")
         self.assertEqual(code, 1)
 
+    def test_epic_section_task_is_a_milestone(self):
+        raw = {"gid": "e1", "name": "E3 — Dev env", "resource_subtype": "default_task", "completed": False,
+               "memberships": [{"project": {"name": "Board"}, "section": {"name": "Epics"}},
+                               {"project": {"name": "Sprint 26/4"}, "section": {"name": "Backlog"}}]}
+        code, out, err = self.tm("task", "project", "--from-json", "-", stdin=json.dumps(raw))
+        self.assertEqual(code, 0, err)
+        p = json.loads(out)
+        self.assertEqual(p["kind"], "milestone")
+        self.assertFalse(p["completed"])
+        self.assertNotIn("parent", p)
+
+    def test_subtask_carries_parent_and_dev_status(self):
+        raw = {"gid": "s1", "name": "E3.1 — Step", "completed": True, "memberships": [],
+               "parent": {"gid": "e1", "name": "E3 — Dev env"},
+               "custom_fields": [{"name": "Dev Status", "type": "enum", "display_value": "Done"},
+                                 {"name": "Product Status", "type": "enum", "display_value": "Ready"}]}
+        code, out, err = self.tm("task", "project", "--from-json", "-", stdin=json.dumps(raw))
+        self.assertEqual(code, 0, err)
+        p = json.loads(out)
+        self.assertEqual(p["kind"], "task")
+        self.assertTrue(p["completed"])
+        self.assertEqual(p["parent"], {"ref": "e1", "name": "E3 — Dev env"})
+        self.assertEqual(p["fields"]["Dev Status"], "Done")
+        self.assertEqual(p["status"], "Ready")
+
 
 class StatusPlanTest(TmCase):
     SECTIONS = [{"gid": "s1", "name": "Backlog"}, {"gid": "s2", "name": "In Progress"}]
@@ -260,6 +297,24 @@ class StatusPlanTest(TmCase):
         path = helpers.write_json(self.home, "sections.json", self.SECTIONS)
         code, _, _ = self.tm("status", "plan", "p1", "Backlog", "--sections-from-json", path)
         self.assertEqual(code, 2)
+
+    def test_member_plans_dev_status(self):
+        self.ingest()
+        code, out, err = self.tm("status", "plan", "p1", "in progress", "--member")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"axis": "field", "field_gid": "f4", "option_gid": "d2", "completed": False})
+
+    def test_member_done_also_completes(self):
+        self.ingest()
+        code, out, err = self.tm("status", "plan", "p1", "Done", "--member")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["completed"])
+
+    def test_member_unknown_dev_status_exits_1(self):
+        self.ingest()
+        code, _, err = self.tm("status", "plan", "p1", "Assigned", "--member")
+        self.assertEqual(code, 1)
+        self.assertIn("Dev Status", err)
 
 
 class RenderBodyTest(TmCase):
@@ -303,6 +358,22 @@ class MilestoneClassifyTest(TmCase):
         self.assertEqual(json.loads(out), [
             {"name": "M1", "ref": "a", "expanded": True},
             {"name": "M2", "ref": "c", "expanded": False},
+        ])
+
+    def test_classify_epics_section(self):
+        groups = [
+            {"section": {"gid": "s0", "name": "Epics"}, "tasks": [
+                {"gid": "e1", "name": "E1 — Done thing", "resource_subtype": "default_task", "num_subtasks": 17},
+                {"gid": "e2", "name": "E2 — New thing", "resource_subtype": "default_task", "num_subtasks": 0}]},
+            {"section": {"gid": "s1", "name": "Backlog"}, "tasks": [
+                {"gid": "t1", "name": "Loose bug", "resource_subtype": "default_task"}]},
+        ]
+        path = helpers.write_json(self.home, "groups.json", groups)
+        code, out, err = self.tm("milestone", "classify", "--from-json", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), [
+            {"name": "E1 — Done thing", "ref": "e1", "expanded": True},
+            {"name": "E2 — New thing", "ref": "e2", "expanded": False},
         ])
 
 
