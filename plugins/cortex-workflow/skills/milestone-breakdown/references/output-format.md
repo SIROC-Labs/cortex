@@ -51,7 +51,7 @@ Create the folder if it doesn't exist. The folder is a local working artifact â€
 - **Action:** Delete | Complete
 ```
 
-Each `## E{N} :: <Name>` block represents one milestone (epic): a block of work toward a sprint goal, whose implementation tasks become its members later. E-labels in this file are sequential from E1 and local-only (see "## E-label Conventions" below).
+Each `## E{N} :: <Name>` block represents one milestone (epic): the unit of planning and delivery, whose implementation tasks become its members later. E-labels in this file are sequential from E1 and local-only (see "## E-label Conventions" below).
 
 ## Parsing Contract
 

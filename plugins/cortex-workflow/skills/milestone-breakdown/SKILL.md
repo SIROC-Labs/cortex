@@ -21,7 +21,7 @@ description: >
 Produce a milestone-based roadmap as a folder of artifacts under
 `docs/cortex/milestone-breakdown/<YYYY-MM-DD>-<slug>/`:
 
-- **`breakdown.md`** — one rich block per milestone, structured for `submit-breakdown` to push verbatim as milestone descriptions. A milestone (epic) is a block of work toward a sprint goal; its implementation tasks become its members later.
+- **`breakdown.md`** — one rich block per milestone, structured for `submit-breakdown` to push verbatim as milestone descriptions. A milestone (epic) is the unit of planning and delivery; its implementation tasks become its members later.
 - **`E{N}-milestone-spec.md`** — per-milestone technical spec (Product Requirements + Acceptance Criteria + Technical Spec). Uploaded as a milestone attachment by `submit-breakdown` so future task expansion is self-sufficient.
 
 Each milestone is atomic: its description + the attached `milestone-spec.md` together carry everything a future `task-breakdown` EXPAND session needs. No dependency on the original PRD, input spec, or any uncommitted file.

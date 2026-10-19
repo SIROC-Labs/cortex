@@ -81,7 +81,7 @@ Use `references/board-config.md` for the smart board-suggestion scoring (categor
 
 Choose where the task goes (`plugins/cortex-workflow/references/workflow/boards.md` → "Milestones (epics) and members"):
 
-- **Member** of an existing milestone — implementation work toward a sprint goal. Offer `list_milestones(<board>)` for the product/backlog boards from Step 2, expanded and unexpanded alike, plus the milestone from Step 0 when one was given. A member lives on its milestone's board, is never added to the sprint board, carries no Estimate, and starts at Dev Status `To Do`.
+- **Member** of an existing milestone — implementation work inside a milestone. Offer `list_milestones(<board>)` for the product/backlog boards from Step 2, expanded and unexpanded alike, plus the milestone from Step 0 when one was given. A member lives on its milestone's board, is never added to the sprint board, carries no Estimate, and starts at Dev Status `To Do`.
 - **Standalone** — bugs, hotfixes, anything outside a milestone. Today's flow: the sprint board is added automatically, backlog boards are multi-homed.
 
 Ask: "Member of a milestone, or standalone? [<milestone list> / standalone]". A milestone given in Step 0 is preselected. Unattended: standalone unless a milestone ref was given.

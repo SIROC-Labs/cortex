@@ -2,7 +2,7 @@
 
 Each task description is a **thin, faithful render** of one block from the breakdown — either an implementation-task entry (`### Tn ...` / `## Tn ::`) or a milestone block (`## En :: ...`, legacy `## Mn :: ...`) — with references aggregated from the levels above so it is self-contained.
 
-The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task. Milestones never carry an implementation plan — a milestone is a block of work toward a sprint goal; its members are the work items.
+The description does **not** contain an implementation plan. That is produced later during refinement and attached as an `implementation-plan.md` file on the same task. Milestones never carry an implementation plan — a milestone is the unit of planning and delivery; its members are the work items.
 
 Author all descriptions in **Markdown**; the provider renders them (see Formatting Rules below). Do not hand-write provider markup.
 
