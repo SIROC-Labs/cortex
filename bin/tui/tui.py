@@ -507,11 +507,14 @@ def board_list_rows(boards, query, sprint=None):
             for b in boards or [] if matches(b["name"], query)]
 
 
-def board_rows(board_gid, sections, queued, records, query, live=None, checkpoints=()):
+def board_rows(board_gid, sections, queued, records, query, live=None, checkpoints=(),
+               subtasks=None):
     """A board as sections and their tasks. A section stays when its name or any of
     its tasks match the query; a task when it matches or its section does. `live`
     is what the daemon last read of a task, laid over the cached board — it is
-    newer for anything the daemon is working."""
+    newer for anything the daemon is working. `subtasks` holds the expanded
+    tasks' subtasks (None while they load), shown indented under them."""
+    subtasks = subtasks or {}
     live = live or {}
     sections = [dict(sec, tasks=[dict(t, completed=t.get("completed")
                                       or bool((live.get(t["gid"]) or {}).get("completed")))
@@ -529,16 +532,34 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
                      "cols": [section["name"], "%d open" % open_count], "style": "bold",
                      "tasks": tasks})
         for t in tasks:
-            phase = (records.get(t["gid"]) or {}).get("phase")
-            mark = (("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
-                    else "◇" if t["gid"] in checkpoints else " ")
-            state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
-            rows.append({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
-                         "completed": t.get("completed"),
-                         "cols": ["  %s %s" % (mark, t["name"]), state],
-                         "style": "dim" if t.get("completed") else
-                                  PHASE_STYLE.get(phase, "normal")})
+            count = t.get("subtasks") or 0
+            open_ = t["gid"] in subtasks
+            fold = ("  %s %d subtask%s" % ("▾" if open_ else "▸", count, "" if count == 1 else "s")
+                    if count else "")
+            rows.append(task_row(board_gid, t, "  ", fold, queued, records, checkpoints,
+                                 subtasks=count))
+            if not open_:
+                continue
+            if subtasks[t["gid"]] is None:
+                rows.append({"kind": "loading", "id": "loading:%s" % t["gid"], "parent": t["gid"],
+                             "cols": ["        loading subtasks…", ""], "style": "dim"})
+                continue
+            for sub in subtasks[t["gid"]]:
+                rows.append(task_row(board_gid, sub, "      ", "", queued, records, checkpoints,
+                                     parent=t["gid"]))
     return rows
+
+
+def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
+    phase = (records.get(t["gid"]) or {}).get("phase")
+    mark = (("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
+            else "◇" if t["gid"] in checkpoints else " ")
+    state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
+    return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
+                 "completed": t.get("completed"),
+                 "cols": ["%s%s %s%s" % (indent, mark, t["name"], fold), state],
+                 "style": "dim" if t.get("completed") else PHASE_STYLE.get(phase, "normal")},
+                **extra)
 
 
 def daemon_rows(entries, now):
@@ -661,7 +682,9 @@ HELP = [
               "on a held-back task, drop the checkpoint holding it"),
     ]),
     ("Boards", [
-        ("space", "queue or unqueue a task · on a section, queue all of it"),
+        ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
+        ("→ l ⏎", "on a task with subtasks (▸ 3 subtasks): show them"),
+        ("← h", "hide them again (on a subtask or its task) · then: leave the board"),
         ("o", "open the task (or the board) in Asana"),
         ("R", "reload from Asana"),
     ]),
@@ -862,6 +885,7 @@ class App(object):
         self.boards, self.boards_at = self.cache.get("boards")
         self.sections = {}
         self.sections_at = {}
+        self.subtasks = {}
         self.setup = None
         self.branches, self.default_branch, self.branches_at = None, None, None
         cached, at = self.cache.get("branches-%s" % os.path.basename(main_root))
@@ -1032,6 +1056,15 @@ class App(object):
                     self.message = "could not refresh the board: %s" % done[1]
                 else:
                     self.sections[gid], self.sections_at[gid] = done[0], now
+        for gid in [g for g, subs in self.subtasks.items() if subs is None]:
+            done = self.loader.take("subtasks-%s" % gid)
+            if done:
+                if done[1]:
+                    self.subtasks.pop(gid)
+                    self.message = "could not read the subtasks: %s" % done[1]
+                else:
+                    self.subtasks[gid] = [{"gid": t["ref"], "name": t["name"],
+                                           "completed": t.get("completed")} for t in done[0] or []]
         if self.sent:
             self.follow_commands()
         for gid in list(self.posting):
@@ -1099,7 +1132,7 @@ class App(object):
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
                               self.data.get("records") or {}, query, self.data.get("tasks"),
-                              dm.planned_checkpoints(self.control))
+                              dm.planned_checkpoints(self.control), self.subtasks)
         if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
         if name == "Setup" and self.setup == "base":
@@ -1445,7 +1478,7 @@ class App(object):
             elif key == " " and row and row["kind"] == "section":
                 self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
                              "completed": t.get("completed")} for t in row["tasks"]])
-            elif key == " " and row:
+            elif key == " " and row and row["kind"] == "task":
                 if row["id"] in {q["gid"] for q in self.control["queue"]}:
                     self.change_control(lambda c: dm.queue_remove(c, [row["id"]],
                                                                   keep_checkpoints=True))
@@ -1483,7 +1516,13 @@ class App(object):
             return
         if name == "Boards" and not self.board:
             self.board = (row["id"], row["name"])
+            self.subtasks = {}
             self.refresh_board(row["id"], BOARD_OPEN_MAX_AGE)
+        elif name == "Boards" and row["kind"] == "task" and row.get("subtasks"):
+            if row["id"] not in self.subtasks:
+                self.subtasks[row["id"]] = None
+                self.loader.start("subtasks-%s" % row["id"], row["id"],
+                                  lambda: self.asana(["task", "subtasks", row["id"]]))
         elif name == "Runs":
             if row["kind"] == "feature":
                 self.message = "%s — %s" % (row["cols"][0], row["cols"][1])
@@ -1526,10 +1565,25 @@ class App(object):
         if self.query.get(vk):
             self.query[vk] = ""
             self.cursor[vk] = 0
+        elif TABS[self.tab] == "Boards" and self.board and self.fold_back():
+            pass
         elif TABS[self.tab] == "Boards" and self.board:
             self.board = None
         elif TABS[self.tab] == "Setup" and self.setup:
             self.setup = None
+
+    def fold_back(self):
+        """Hide the subtasks the cursor is on or under, landing on their task.
+        False when there is nothing to hide."""
+        rows = self.view()
+        row = self.selected(rows)
+        gid = row and (row.get("parent") or (row["id"] if row["id"] in self.subtasks else None))
+        if not gid:
+            return False
+        self.subtasks.pop(gid, None)
+        vk = self.view_key()
+        self.cursor[vk] = next((i for i, r in enumerate(self.view()) if r["id"] == gid), 0)
+        return True
 
     def goto(self, tab):
         if tab == self.tab:

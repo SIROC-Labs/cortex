@@ -127,7 +127,7 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 | Tab | What it shows | Keys |
 |---|---|---|
 | **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `c` continue past a reached checkpoint · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) — on a merged task, the PR's changed files |
-| **2 Boards** | every board in the workspace; open one to see its sections and tasks | `space` queue or unqueue a task, or on a section queue all of it · `o` open the task (or board) in Asana · `R` reload |
+| **2 Boards** | every board in the workspace; open one to see its sections and tasks, with how many subtasks each has (▸ 3 subtasks) | `space` queue or unqueue a task or subtask, or on a section queue all of it · `→` `l` `⏎` on a task with subtasks shows them, `←` `h` hides them · `o` open the task (or board) in Asana · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
 

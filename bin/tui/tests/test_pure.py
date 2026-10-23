@@ -325,6 +325,20 @@ class TestBoardRows(unittest.TestCase):
         rows = board_rows("100", self.SECTIONS, {"2"}, {"2": {"phase": "pr_open"}}, "dto")
         self.assertEqual(rows[1]["cols"][1], "pr_open")
 
+    def test_a_task_says_how_many_subtasks_it_has_and_shows_them_when_open(self):
+        sections = [{"gid": "s", "name": "M", "tasks": [
+            {"gid": "1", "name": "Parent", "kind": "task", "subtasks": 2}]}]
+        rows = board_rows("100", sections, set(), {}, "")
+        self.assertIn("▸ 2 subtasks", rows[1]["cols"][0])
+        rows = board_rows("100", sections, set(), {}, "", subtasks={"1": None})
+        self.assertEqual(rows[2]["kind"], "loading")
+        rows = board_rows("100", sections, {"a"}, {}, "", subtasks={"1": [
+            {"gid": "a", "name": "first"}, {"gid": "b", "name": "second", "completed": True}]})
+        self.assertIn("▾ 2 subtasks", rows[1]["cols"][0])
+        self.assertEqual([(r["id"], r.get("parent")) for r in rows[2:]], [("a", "1"), ("b", "1")])
+        self.assertIn("●", rows[2]["cols"][0])
+        self.assertEqual(rows[3]["cols"][1], "done")
+
 
 class TestBoardListRows(unittest.TestCase):
     def test_marks_the_sprint_and_filters(self):
@@ -611,6 +625,28 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.app.cursor["Boards"], 0)
         self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
+
+    def test_subtasks_open_with_l_queue_on_their_own_and_close_with_h(self):
+        self.app.ensure_daemon = lambda: None
+        self.app.sections["2"][0]["tasks"][0]["subtasks"] = 2
+        self.addCleanup(self.app.sections["2"][0]["tasks"][0].pop, "subtasks")
+        self.app.asana = lambda args: [{"ref": "u1", "name": "sub one", "completed": False},
+                                       {"ref": "u2", "name": "sub two", "completed": False}]
+        self.press("2", "down", "enter", "down", "l")
+        for _ in range(100):
+            self.app.sync()
+            if self.app.subtasks.get("t1") is not None:
+                break
+            tui.time.sleep(0.01)
+        self.assertEqual([r["id"] for r in self.app.view()], ["s", "t1", "u1", "u2", "t2"])
+        self.press("down", "down", " ")
+        self.assertEqual([q["gid"] for q in dm.read_control(self.root)["queue"]], ["u2"])
+        self.press("h")
+        self.assertEqual([r["id"] for r in self.app.view()], ["s", "t1", "t2"])
+        self.assertEqual(self.app.selected(self.app.view())["id"], "t1")
+        self.assertTrue(self.app.board)
+        self.press("h")
+        self.assertFalse(self.app.board)
 
     def test_a_board_task_can_be_flagged_as_a_checkpoint_before_it_is_queued(self):
         self.app.ensure_daemon = lambda: None

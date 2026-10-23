@@ -1741,7 +1741,7 @@ def task_set_notes(args):
 
 # Fetch a section's tasks as [{gid,name,kind}] (paginated).
 def fetch_section_tasks(section_gid, token):
-    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,completed&limit=100" % (API_BASE, section_gid)
+    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,completed,num_subtasks&limit=100" % (API_BASE, section_gid)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1751,7 +1751,8 @@ def fetch_section_tasks(section_gid, token):
                 if isinstance(t, dict):
                     out.append({"gid": t.get("gid"), "name": t.get("name"),
                                 "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task",
-                                "completed": bool(t.get("completed"))})
+                                "completed": bool(t.get("completed")),
+                                "subtasks": t.get("num_subtasks") or 0})
         nxt = payload.get("next_page") if isinstance(payload, dict) else None
         url = nxt.get("uri") if isinstance(nxt, dict) else None
     return out
