@@ -179,6 +179,18 @@ class TestFeatures(unittest.TestCase):
         line = tui.fit(["feature/recruiter-queue-M5", "1 queued", ""], 100, wide=True)
         self.assertTrue(line.startswith("feature/recruiter-queue-M5  1 queued"))
 
+    def test_hiding_done_tasks_keeps_their_count_on_the_feature_line(self):
+        control = {"queue": [{"gid": "1", "base": None}, {"gid": "2", "base": None}]}
+        data = {"me": {"gid": "42"},
+                "tasks": {g: {"key": "A-" + g, "name": "n" + g, "completed": False,
+                              "status": "Unassigned", "deps": []} for g in "12"},
+                "records": {"1": {"phase": "merged"}, "2": {"phase": "running"}}}
+        rows = run_rows(control, data, [], default_branch="main", hide_done=True)
+        self.assertEqual([(r["kind"], r["id"]) for r in rows],
+                         [("feature", "feature:"), ("task", "2")])
+        self.assertEqual(rows[0]["cols"][1], "1 running · 1 merged")
+        self.assertEqual(len(run_rows(control, data, [], default_branch="main")), 2)
+
     def test_one_feature_needs_no_heading(self):
         control = {"queue": [{"gid": "1"}, {"gid": "2", "base": None}]}
         rows = run_rows(control, {"tasks": {}, "records": {}}, [])
@@ -324,6 +336,12 @@ class TestBoardRows(unittest.TestCase):
     def test_a_task_shows_its_run_phase(self):
         rows = board_rows("100", self.SECTIONS, {"2"}, {"2": {"phase": "pr_open"}}, "dto")
         self.assertEqual(rows[1]["cols"][1], "pr_open")
+
+    def test_hiding_done_leaves_out_completed_tasks_and_emptied_sections(self):
+        sections = self.SECTIONS + [{"gid": "s3", "name": "Old", "tasks": [
+            {"gid": "9", "name": "Finished", "kind": "task", "completed": True}]}]
+        rows = board_rows("100", sections, set(), {}, "", hide_done=True)
+        self.assertEqual([r["id"] for r in rows], ["s1", "2", "s2", "3"])
 
     def test_a_task_says_how_many_subtasks_it_has_and_shows_them_when_open(self):
         sections = [{"gid": "s", "name": "M", "tasks": [
@@ -625,6 +643,15 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.app.cursor["Boards"], 0)
         self.press("alt-n")
         self.assertEqual(self.app.cursor["Boards"], 2)
+
+    def test_done_tasks_toggle_from_setup_and_from_the_palette(self):
+        self.press("3")
+        rows = self.app.view()
+        self.app.cursor[self.app.view_key()] = [r["id"] for r in rows].index("done")
+        self.press("enter")
+        self.assertTrue(dm.read_control(self.root).get("hide_done"))
+        self.press(":", *"show done", "enter")
+        self.assertFalse(dm.read_control(self.root).get("hide_done"))
 
     def test_subtasks_open_with_l_queue_on_their_own_and_close_with_h(self):
         self.app.ensure_daemon = lambda: None
@@ -1031,7 +1058,7 @@ class TestAnswering(unittest.TestCase):
         self.press(":")
         self.assertEqual(self.palette_titles(),
                          ["Change A-2's PR base branch to feature/m1", "Make A-2 a checkpoint",
-                          "Undo A-2", "Start this repo's daemon"])
+                          "Undo A-2", "Hide done tasks", "Start this repo's daemon"])
 
     def test_c_continues_past_a_merged_checkpoint(self):
         with dm.control_file(self.root) as c:
@@ -1392,7 +1419,7 @@ class TestSetup(unittest.TestCase):
     def test_rows_say_what_is_set(self):
         rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "base": None, "merge_mode": "always"},
                           "main")
-        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Queue into", "Merging"])
+        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Queue into", "Merging", "Done tasks"])
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")

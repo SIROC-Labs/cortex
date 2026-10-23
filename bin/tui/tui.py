@@ -323,11 +323,13 @@ def read_waits(main_root, control, data):
 
 
 def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None,
-             default_branch=None):
+             default_branch=None, hide_done=False):
     """The Runs tab: every task waiting on you first, then the rest of the queue
     in its order — grouped by feature, under a line saying how each stands,
     once there is more than one — then every live start-task run nothing here
-    owns, then every agent left working with no run at all."""
+    owns, then every agent left working with no run at all. `hide_done` leaves
+    out the tasks that are done — merged or complete, and not waiting on you —
+    while the feature lines still count them."""
     tasks, records = data.get("tasks") or {}, data.get("records") or {}
     me_gid = me_gid or (data.get("me") or {}).get("gid")
     waits = waits or {}
@@ -372,6 +374,7 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
                      "pr_url": record.get("pr_url"), "phase": record.get("phase"),
                      "finished": record.get("phase") in FINISHED
                                  or bool(task and task.get("completed")),
+                     "done": record.get("phase") == "merged" or bool(task and task.get("completed")),
                      "merge": record.get("merge"),
                      "links": [u for u in (record.get("pr_url"),
                                            task_url(item.get("board"), gid)) if u]})
@@ -381,7 +384,7 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
         feature = dm.feature_of(item, control.get("base"))
         if feature not in features:
             features.append(feature)
-    if len(features) > 1:
+    if len(features) > 1 or hide_done:
         grouped = []
         for feature in features:
             members = [r for r in rows if r["feature"] == feature]
@@ -391,7 +394,7 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
                             "cols": [feature_label(feature, default_branch),
                                      feature_summary(members),
                                      "← queueing here" if here else ""]})
-            grouped += members
+            grouped += [r for r in members if not (hide_done and r["done"] and not r.get("wait"))]
         rows = grouped
     managed = [r.get("pid") for r in records.values() if r.get("pid")]
     for tid, pid in dm.unmanaged(live, managed):
@@ -418,6 +421,9 @@ def setup_rows(control, default_branch=None):
                   % (" (%s)" % default_branch if default_branch else "")]},
         {"kind": "setting", "id": "merge", "style": "normal",
          "cols": ["Merging", MERGE_LABELS[mode]]},
+        {"kind": "setting", "id": "done", "style": "normal",
+         "cols": ["Done tasks", "hidden — boards and Runs leave them out; Runs still counts them"
+                  if control.get("hide_done") else "shown"]},
     ]
 
 
@@ -508,12 +514,13 @@ def board_list_rows(boards, query, sprint=None):
 
 
 def board_rows(board_gid, sections, queued, records, query, live=None, checkpoints=(),
-               subtasks=None):
+               subtasks=None, hide_done=False):
     """A board as sections and their tasks. A section stays when its name or any of
     its tasks match the query; a task when it matches or its section does. `live`
     is what the daemon last read of a task, laid over the cached board — it is
     newer for anything the daemon is working. `subtasks` holds the expanded
-    tasks' subtasks (None while they load), shown indented under them."""
+    tasks' subtasks (None while they load), shown indented under them.
+    `hide_done` leaves out completed tasks, and sections with nothing else."""
     subtasks = subtasks or {}
     live = live or {}
     sections = [dict(sec, tasks=[dict(t, completed=t.get("completed")
@@ -524,8 +531,9 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
     for section in sections or []:
         hit = matches(section["name"], query)
         tasks = [t for t in section.get("tasks") or []
-                 if t.get("kind") != "milestone" and (hit or matches(t["name"], query))]
-        if not tasks and not hit:
+                 if t.get("kind") != "milestone" and (hit or matches(t["name"], query))
+                 and not (hide_done and t.get("completed"))]
+        if not tasks and (not hit or hide_done):
             continue
         open_count = sum(1 for t in tasks if not t.get("completed"))
         rows.append({"kind": "section", "id": section["gid"], "board": board_gid,
@@ -544,7 +552,7 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
                 rows.append({"kind": "loading", "id": "loading:%s" % t["gid"], "parent": t["gid"],
                              "cols": ["        loading subtasks…", ""], "style": "dim"})
                 continue
-            for sub in subtasks[t["gid"]]:
+            for sub in [x for x in subtasks[t["gid"]] if not (hide_done and x.get("completed"))]:
                 rows.append(task_row(board_gid, sub, "      ", "", queued, records, checkpoints,
                                      parent=t["gid"]))
     return rows
@@ -690,7 +698,7 @@ HELP = [
         ("R", "reload from Asana"),
     ]),
     ("Setup", [
-        ("⏎", "pick the sprint or the feature to queue into · cycle Merging"),
+        ("⏎", "pick the sprint or the feature to queue into · cycle Merging · show or hide done tasks"),
         ("n", "new feature branch (in the branch list), created on origin"),
     ]),
     ("Daemons", [
@@ -704,6 +712,7 @@ HELP = [
         ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
         ("clear", "Clear the finished tasks from the list"),
+        ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
         ("daemon", "start or stop this repo's daemon"),
     ]),
     ("Checkpoints", [
@@ -1127,13 +1136,15 @@ class App(object):
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
             return run_rows(self.control, self.data, self.live, agents=self.agents,
+                            hide_done=bool(self.control.get("hide_done")),
                             waits=self.waits, activity=self.activity,
                             default_branch=self.default_branch)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
                               self.data.get("records") or {}, query, self.data.get("tasks"),
-                              dm.planned_checkpoints(self.control), self.subtasks)
+                              dm.planned_checkpoints(self.control), self.subtasks,
+                              bool(self.control.get("hide_done")))
         if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
         if name == "Setup" and self.setup == "base":
@@ -1328,6 +1339,11 @@ class App(object):
                         "words": "revert discard throw away back out cancel reset",
                         "run": lambda: self.undo(row)})
         if TABS[self.tab] != "Daemons":
+            hidden = bool(self.control.get("hide_done"))
+            out.append({"title": "Show done tasks" if hidden else "Hide done tasks",
+                        "words": "filter completed merged finished hide show toggle",
+                        "run": self.toggle_done})
+        if TABS[self.tab] != "Daemons":
             if not self.alive:
                 out.append({"title": "Start this repo's daemon", "words": "run begin",
                             "run": self.ensure_daemon})
@@ -1384,6 +1400,12 @@ class App(object):
             self.message = "%d checkpoints are reached — select one (Runs, ⚑) and press c" % len(reached)
         else:
             self.message = "no checkpoint is holding anything back"
+
+    def toggle_done(self):
+        hide = not self.control.get("hide_done")
+        self.change_control(lambda c: c.update(hide_done=hide))
+        self.message = ("done tasks hidden — Runs still counts them" if hide
+                        else "done tasks shown")
 
     def toggle_checkpoint(self, gid, label, on):
         self.change_control(lambda c: dm.set_checkpoint(c, gid, on))
@@ -1544,7 +1566,9 @@ class App(object):
             else:
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
-            if row["id"] == "merge":
+            if row["id"] == "done":
+                self.toggle_done()
+            elif row["id"] == "merge":
                 order = list(MERGE_LABELS)
                 mode = self.control.get("merge_mode")
                 mode = mode if mode in MERGE_LABELS else "branches"

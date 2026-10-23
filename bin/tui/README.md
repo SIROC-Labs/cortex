@@ -161,6 +161,11 @@ its daemon.
 
   `m` works in every mode. An automatic merge is exactly what `m` does, conflicts and
   failing checks included; `m` on one calls it off, and it stays off for that task.
+- **Done tasks** — shown or hidden; `⏎` toggles, as do *Hide done tasks* / *Show done
+  tasks* in the palette. Hidden, boards leave out completed tasks (and sections with
+  nothing else), and Runs leaves out merged or completed tasks — except one still
+  waiting on you, like a reached checkpoint — while each feature's line above them
+  still counts them.
 
 ## What each row says
 
