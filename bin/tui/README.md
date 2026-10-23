@@ -21,10 +21,10 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 
 | | |
 |---|---|
-| move | `↑` `↓` · `j` `k` · `Ctrl-N` `Ctrl-P` |
+| move | `↑` `↓` · `j` `k` · `Ctrl-N` `Ctrl-P` (`Ctrl-K` too) |
 | page / half page | `PgDn` `PgUp` · `Alt-N` `Alt-B` / `Ctrl-D` `Ctrl-U` |
 | top / end | `Home` `End` · `g` `G` |
-| in | `⏎` · `→` · `l` — open a board, a run's log |
+| in | `⏎` · `→` · `l` (`Ctrl-L` too) — open a board, a run's log |
 | out | `←` · `h` · `Esc` · `⌫` — clear the filter, then leave the board |
 | tabs | `1`–`4` (or `Alt-1`–`4`) straight to one; the current tab's number again takes it back to its top. `Tab` / `Shift-Tab` cycle |
 | filter | `/`, then type — `⏎` keeps it, `Esc` clears it |

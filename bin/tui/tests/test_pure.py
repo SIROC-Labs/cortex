@@ -623,6 +623,12 @@ class TestAppKeys(unittest.TestCase):
         self.press("btab", "btab", "btab")
         self.assertEqual(self.app.tab, 3)
 
+    def test_holding_ctrl_on_l_and_k_still_works(self):
+        self.assertEqual(tui.decode_key(12), "ctrl-l")
+        self.assertEqual(tui.NAV["ctrl-l"], "open")
+        self.assertEqual(tui.NAV["ctrl-k"], "up")
+        self.assertEqual(tui.NAV["backspace"], "back")
+
     def test_moving_in_every_style_and_clamping(self):
         self.press("2", "down", "j", "ctrl-n")
         self.assertEqual(self.app.cursor["Boards"], 2)

@@ -634,7 +634,8 @@ _CSI_TILDE = {"1": "home", "7": "home", "4": "end", "8": "end", "5": "pgup",
               "6": "pgdn", "3": "delete", "2": "insert"}
 _CONTROL = {9: "tab", 10: "enter", 13: "enter", 8: "backspace", 127: "backspace",
             3: "ctrl-c", 14: "ctrl-n", 16: "ctrl-p", 6: "ctrl-f", 2: "ctrl-b",
-            4: "ctrl-d", 21: "ctrl-u", 1: "ctrl-a", 5: "ctrl-e", 11: "ctrl-k", 23: "ctrl-w"}
+            4: "ctrl-d", 21: "ctrl-u", 1: "ctrl-a", 5: "ctrl-e", 11: "ctrl-k", 12: "ctrl-l",
+            23: "ctrl-w"}
 _CURSES = {"KEY_UP": "up", "KEY_DOWN": "down", "KEY_LEFT": "left", "KEY_RIGHT": "right",
            "KEY_NPAGE": "pgdn", "KEY_PPAGE": "pgup", "KEY_HOME": "home", "KEY_END": "end",
            "KEY_ENTER": "enter", "KEY_BACKSPACE": "backspace", "KEY_BTAB": "btab",
@@ -644,13 +645,13 @@ _CURSES = {"KEY_UP": "up", "KEY_DOWN": "down", "KEY_LEFT": "left", "KEY_RIGHT": 
 # work; a number goes straight to its tab.
 NAV = {
     "down": "down", "j": "down", "ctrl-n": "down",
-    "up": "up", "k": "up", "ctrl-p": "up",
+    "up": "up", "k": "up", "ctrl-p": "up", "ctrl-k": "up",
     "pgdn": "pgdn", "alt-n": "pgdn",
     "pgup": "pgup", "alt-b": "pgup",
     "ctrl-d": "halfdown", "ctrl-u": "halfup",
     "home": "home", "g": "home",
     "end": "end", "G": "end",
-    "right": "open", "l": "open", "enter": "open",
+    "right": "open", "l": "open", "ctrl-l": "open", "enter": "open",
     "left": "back", "h": "back", "esc": "back", "backspace": "back",
     "tab": "next", "btab": "next",
 }
@@ -665,11 +666,11 @@ TYPING_MOVES = ("up", "down", "ctrl-n", "ctrl-p", "pgdn", "pgup", "alt-n")
 # group a line — so it reads as a table.
 HELP = [
     ("Moving around", [
-        ("↑ ↓   j k   ^N ^P", "move"),
+        ("↑ ↓   j k   ^N ^P ^K", "move"),
         ("PgDn PgUp   alt-N alt-B", "a page"),
         ("^D ^U", "half a page"),
         ("Home End   g G", "top / end"),
-        ("⏎   →   l", "in: open a board, a task's question or log, a setting"),
+        ("⏎   →   l ^L", "in: open a board, a task's question or log, a setting"),
         ("←   h   esc   ⌫", "out: clear the filter first, then leave the board"),
         ("1–4   alt-1–4", "go to a tab; its number again takes it back to its top"),
         ("tab   shift-tab", "cycle the tabs"),
