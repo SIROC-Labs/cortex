@@ -329,12 +329,12 @@ class TestBoardRows(unittest.TestCase):
         sections = [{"gid": "s", "name": "M", "tasks": [
             {"gid": "1", "name": "Parent", "kind": "task", "subtasks": 2}]}]
         rows = board_rows("100", sections, set(), {}, "")
-        self.assertIn("▸ 2 subtasks", rows[1]["cols"][0])
+        self.assertEqual(rows[1]["cols"][1], "▸ 2 subtasks")
         rows = board_rows("100", sections, set(), {}, "", subtasks={"1": None})
         self.assertEqual(rows[2]["kind"], "loading")
         rows = board_rows("100", sections, {"a"}, {}, "", subtasks={"1": [
             {"gid": "a", "name": "first"}, {"gid": "b", "name": "second", "completed": True}]})
-        self.assertIn("▾ 2 subtasks", rows[1]["cols"][0])
+        self.assertIn("▾ 2 subtasks", rows[1]["cols"][1])
         self.assertEqual([(r["id"], r.get("parent")) for r in rows[2:]], [("a", "1"), ("b", "1")])
         self.assertIn("●", rows[2]["cols"][0])
         self.assertEqual(rows[3]["cols"][1], "done")

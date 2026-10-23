@@ -534,7 +534,7 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
         for t in tasks:
             count = t.get("subtasks") or 0
             open_ = t["gid"] in subtasks
-            fold = ("  %s %d subtask%s" % ("▾" if open_ else "▸", count, "" if count == 1 else "s")
+            fold = ("%s %d subtask%s" % ("▾" if open_ else "▸", count, "" if count == 1 else "s")
                     if count else "")
             rows.append(task_row(board_gid, t, "  ", fold, queued, records, checkpoints,
                                  subtasks=count))
@@ -557,7 +557,8 @@ def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
     state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
     return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
                  "completed": t.get("completed"),
-                 "cols": ["%s%s %s%s" % (indent, mark, t["name"], fold), state],
+                 "cols": ["%s%s %s" % (indent, mark, t["name"]),
+                          "  ·  ".join(x for x in (state, fold) if x)],
                  "style": "dim" if t.get("completed") else PHASE_STYLE.get(phase, "normal")},
                 **extra)
 
