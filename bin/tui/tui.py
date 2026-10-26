@@ -519,7 +519,8 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
     its tasks match the query; a task when it matches or its section does. `live`
     is what the daemon last read of a task, laid over the cached board — it is
     newer for anything the daemon is working. `subtasks` holds the expanded
-    tasks' subtasks (None while they load), shown indented under them.
+    tasks' subtasks (None while they load), shown indented under them. A milestone
+    shows (◈) so its subtasks can be expanded and queued, but is not itself queued.
     `hide_done` leaves out completed tasks, and sections with nothing else."""
     subtasks = subtasks or {}
     live = live or {}
@@ -531,14 +532,15 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
     for section in sections or []:
         hit = matches(section["name"], query)
         tasks = [t for t in section.get("tasks") or []
-                 if t.get("kind") != "milestone" and (hit or matches(t["name"], query))
+                 if (hit or matches(t["name"], query))
                  and not (hide_done and t.get("completed"))]
         if not tasks and (not hit or hide_done):
             continue
-        open_count = sum(1 for t in tasks if not t.get("completed"))
+        runnable = [t for t in tasks if t.get("kind") != "milestone"]
+        open_count = sum(1 for t in runnable if not t.get("completed"))
         rows.append({"kind": "section", "id": section["gid"], "board": board_gid,
                      "cols": [section["name"], "%d open" % open_count], "style": "bold",
-                     "tasks": tasks})
+                     "tasks": runnable})
         for t in tasks:
             count = t.get("subtasks") or 0
             open_ = t["gid"] in subtasks
@@ -560,11 +562,13 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
 
 def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
     phase = (records.get(t["gid"]) or {}).get("phase")
-    mark = (("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
+    milestone = t.get("kind") == "milestone"
+    mark = ("◈" if milestone
+            else ("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
             else "◇" if t["gid"] in checkpoints else " ")
     state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
     return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
-                 "completed": t.get("completed"),
+                 "completed": t.get("completed"), "milestone": milestone,
                  "cols": ["%s%s %s" % (indent, mark, t["name"]),
                           "  ·  ".join(x for x in (state, fold) if x)],
                  "style": "dim" if t.get("completed") else PHASE_STYLE.get(phase, "normal")},
@@ -693,7 +697,7 @@ HELP = [
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
-        ("→ l ⏎", "on a task with subtasks (▸ 3 subtasks): show them"),
+        ("→ l ⏎", "on a task or milestone (◈) with subtasks (▸ 3 subtasks): show them"),
         ("← h", "hide them again (on a subtask or its task) · then: leave the board"),
         ("o", "open the task (or the board) in Asana"),
         ("R", "reload from Asana"),
@@ -1327,7 +1331,7 @@ class App(object):
                         "words": "checkpoint pause stop after milestone gate",
                         "run": lambda: self.toggle_checkpoint(row["id"], row["cols"][0], not on)})
         if (TABS[self.tab] == "Boards" and self.board and row and row["kind"] == "task"
-                and not row.get("completed")):
+                and not row.get("completed") and not row.get("milestone")):
             label = row["name"] if len(row["name"]) <= 40 else row["name"][:39] + "…"
             on = row["id"] in dm.planned_checkpoints(self.control)
             out.append({"title": ("%s is no longer a checkpoint" if on else
@@ -1502,6 +1506,9 @@ class App(object):
             elif key == " " and row and row["kind"] == "section":
                 self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
                              "completed": t.get("completed")} for t in row["tasks"]])
+            elif key == " " and row and row["kind"] == "task" and row.get("milestone"):
+                self.message = ("a milestone is not run itself — open it (→) and queue its "
+                                "subtasks" if row.get("subtasks") else "a milestone is not run itself")
             elif key == " " and row and row["kind"] == "task":
                 if row["id"] in {q["gid"] for q in self.control["queue"]}:
                     self.change_control(lambda c: dm.queue_remove(c, [row["id"]],

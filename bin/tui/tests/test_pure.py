@@ -316,14 +316,20 @@ class TestBoardRows(unittest.TestCase):
             {"gid": "3", "name": "Deploy", "kind": "task", "completed": False}]},
     ]
 
-    def test_sections_then_their_tasks_without_the_milestone_anchor(self):
+    def test_sections_then_their_tasks(self):
         rows = board_rows("100", self.SECTIONS, {"2"}, {}, "")
         self.assertEqual([(r["kind"], r["id"]) for r in rows],
-                         [("section", "s1"), ("task", "1"), ("task", "2"),
+                         [("section", "s1"), ("task", "m"), ("task", "1"), ("task", "2"),
                           ("section", "s2"), ("task", "3")])
         self.assertEqual(rows[0]["cols"][1], "1 open")
-        self.assertIn("●", rows[2]["cols"][0])
-        self.assertEqual(rows[1]["cols"][1], "done")
+        self.assertIn("●", rows[3]["cols"][0])
+        self.assertEqual(rows[2]["cols"][1], "done")
+
+    def test_a_milestone_shows_but_its_section_does_not_queue_it(self):
+        rows = board_rows("100", self.SECTIONS, set(), {}, "")
+        self.assertTrue(rows[1]["milestone"])
+        self.assertIn("◈", rows[1]["cols"][0])
+        self.assertNotIn("m", [t["gid"] for t in rows[0]["tasks"]])
 
     def test_filter_keeps_matching_tasks_under_their_section(self):
         rows = board_rows("100", self.SECTIONS, set(), {}, "dto")
@@ -341,7 +347,7 @@ class TestBoardRows(unittest.TestCase):
         sections = self.SECTIONS + [{"gid": "s3", "name": "Old", "tasks": [
             {"gid": "9", "name": "Finished", "kind": "task", "completed": True}]}]
         rows = board_rows("100", sections, set(), {}, "", hide_done=True)
-        self.assertEqual([r["id"] for r in rows], ["s1", "2", "s2", "3"])
+        self.assertEqual([r["id"] for r in rows], ["s1", "m", "2", "s2", "3"])
 
     def test_a_task_says_how_many_subtasks_it_has_and_shows_them_when_open(self):
         sections = [{"gid": "s", "name": "M", "tasks": [
