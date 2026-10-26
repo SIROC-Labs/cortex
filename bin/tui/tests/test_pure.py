@@ -257,6 +257,12 @@ class TestOrphanAgents(unittest.TestCase):
                 (501, 500, "bash -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && make")]
         self.assertEqual([pid for _, pid in dm.orphan_agents(rows, self.WT, [])], [500])
 
+    def test_work_started_from_your_own_session_or_terminal_is_yours(self):
+        work = "/bin/zsh -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && uv run celery"
+        for session in ("claude --resume 31ad", "node /usr/local/bin/claude", "-zsh"):
+            rows = [(1, 0, "launchd"), (300, 1, session), (500, 300, work)]
+            self.assertEqual(dm.orphan_agents(rows, self.WT, []), [], session)
+
     def test_other_repos_and_processes_are_not_ours(self):
         rows = [(500, 1, "claude -p --add-dir /other/.cortex/worktrees/X+y"), (9, 1, "vim")]
         self.assertEqual(dm.orphan_agents(rows, self.WT, []), [])

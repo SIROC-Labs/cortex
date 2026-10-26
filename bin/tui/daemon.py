@@ -284,12 +284,27 @@ def unmanaged(live_runs, managed_pids):
     return sorted((tid, pid) for tid, pid in live_runs if pid not in managed)
 
 
+def _yours(cmd):
+    """Whether a process is a person's own: a terminal's login shell, or an
+    interactive Claude Code session — not one a run started with `claude -p`."""
+    words = cmd.split()
+    if not words:
+        return False
+    if words[0].startswith("-") or os.path.basename(words[0]) == "login":
+        return True
+    claude = os.path.basename(words[0]) == "claude" or (
+        len(words) > 1 and os.path.basename(words[1]) == "claude")
+    return claude and not ({"-p", "--print"} & set(words))
+
+
 def orphan_agents(rows, worktrees_dir, owners):
     """Processes working in this repo's worktrees that no live run owns:
     [(worktree, pid)]. An agent whose run was killed keeps editing unseen; this is
     how it is found. Only the topmost such process of a tree is listed — stopping
-    it is what matters. `rows` is [(pid, ppid, command)]."""
+    it is what matters — and none started from your own terminal or Claude Code
+    session. `rows` is [(pid, ppid, command)]."""
     parent = {pid: ppid for pid, ppid, _ in rows}
+    command = {pid: cmd for pid, _, cmd in rows}
     marker = worktrees_dir.rstrip("/") + "/"
     working = {pid: cmd for pid, _, cmd in rows if marker in cmd}
     owners = set(owners)
@@ -297,7 +312,7 @@ def orphan_agents(rows, worktrees_dir, owners):
     for pid, cmd in working.items():
         seen, up, owned = set(), parent.get(pid), False
         while up and up not in seen:
-            if up in owners or up in working:
+            if up in owners or up in working or _yours(command.get(up, "")):
                 owned = True
                 break
             seen.add(up)
