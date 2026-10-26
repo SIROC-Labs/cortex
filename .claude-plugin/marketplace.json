@@ -32,7 +32,7 @@
       "name": "dev-toolkit",
       "source": "./plugins/dev-toolkit",
       "description": "Independent, reusable development utilities",
-      "version": "0.3.1"
+      "version": "0.4.0"
     },
     {
       "name": "cortex-qa-web",
