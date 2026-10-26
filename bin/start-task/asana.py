@@ -1125,11 +1125,29 @@ def _task_subresource(task_gid, sub_path, opt_fields):
     return data if isinstance(data, list) else []
 
 
+KEY_FIELDS = ("custom_fields.resource_subtype,custom_fields.display_value")
+
+
+# The human key (HRT1-335) of a task read with KEY_FIELDS: its custom_id field, or
+# else a text field holding an XXX-123 value. None when it has neither.
+def custom_key(custom_fields):
+    fields = [cf for cf in custom_fields or [] if isinstance(cf, dict)]
+    for cf in fields:
+        if cf.get("resource_subtype") == "custom_id" and isinstance(cf.get("display_value"), str) \
+                and cf["display_value"]:
+            return cf["display_value"]
+    for cf in fields:
+        dv = cf.get("display_value")
+        if isinstance(dv, str) and TASK_ID_RE.match(dv.strip()):
+            return dv.strip()
+    return None
+
+
 def task_subtasks(args):
     if not args:
         die(1, "usage: %s task subtasks <task-ref>" % PROG)
-    rows = _task_subresource(args[0], "subtasks", "name,completed,gid")
-    out = [{"ref": r.get("gid"), "name": r.get("name"),
+    rows = _task_subresource(args[0], "subtasks", "name,completed,gid," + KEY_FIELDS)
+    out = [{"ref": r.get("gid"), "name": r.get("name"), "key": custom_key(r.get("custom_fields")),
             "completed": bool(r.get("completed"))}
            for r in rows if isinstance(r, dict)]
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
@@ -1741,7 +1759,8 @@ def task_set_notes(args):
 
 # Fetch a section's tasks as [{gid,name,kind}] (paginated).
 def fetch_section_tasks(section_gid, token):
-    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,completed,num_subtasks&limit=100" % (API_BASE, section_gid)
+    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,completed,num_subtasks,%s&limit=100" % (
+        API_BASE, section_gid, KEY_FIELDS)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1750,6 +1769,7 @@ def fetch_section_tasks(section_gid, token):
             for t in data:
                 if isinstance(t, dict):
                     out.append({"gid": t.get("gid"), "name": t.get("name"),
+                                "key": custom_key(t.get("custom_fields")),
                                 "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task",
                                 "completed": bool(t.get("completed")),
                                 "subtasks": t.get("num_subtasks") or 0})

@@ -325,6 +325,17 @@ class TestBoardRows(unittest.TestCase):
         self.assertIn("●", rows[3]["cols"][0])
         self.assertEqual(rows[2]["cols"][1], "done")
 
+    def test_a_task_key_comes_before_its_name_faintly_and_can_be_filtered_on(self):
+        sections = [{"gid": "s", "name": "S", "tasks": [
+            {"gid": "1", "name": "Login", "key": "HRT1-7", "kind": "task"},
+            {"gid": "2", "name": "Logout", "kind": "task"}]}]
+        rows = board_rows("100", sections, set(), {}, "")
+        self.assertEqual(rows[1]["cols"][0], "    HRT1-7 Login")
+        self.assertEqual(rows[1]["cols"][0][slice(rows[1]["faint"][0], sum(rows[1]["faint"]))], "HRT1-7")
+        self.assertEqual(rows[2]["cols"][0], "    Logout")
+        self.assertIsNone(rows[2]["faint"])
+        self.assertEqual([r["id"] for r in board_rows("100", sections, set(), {}, "hrt1-7")], ["s", "1"])
+
     def test_a_milestone_shows_but_its_section_does_not_queue_it(self):
         rows = board_rows("100", self.SECTIONS, set(), {}, "")
         self.assertTrue(rows[1]["milestone"])

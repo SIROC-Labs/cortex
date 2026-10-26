@@ -532,7 +532,7 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
     for section in sections or []:
         hit = matches(section["name"], query)
         tasks = [t for t in section.get("tasks") or []
-                 if (hit or matches(t["name"], query))
+                 if (hit or matches("%s %s" % (t.get("key") or "", t["name"]), query))
                  and not (hide_done and t.get("completed"))]
         if not tasks and (not hit or hide_done):
             continue
@@ -567,9 +567,12 @@ def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
             else ("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
             else "◇" if t["gid"] in checkpoints else " ")
     state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
+    key = t.get("key") or ""
+    lead = "%s%s " % (indent, mark)
     return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
                  "completed": t.get("completed"), "milestone": milestone,
-                 "cols": ["%s%s %s" % (indent, mark, t["name"]),
+                 "faint": (len(lead), len(key)) if key else None,
+                 "cols": ["%s%s%s" % (lead, key + " " if key else "", t["name"]),
                           "  ·  ".join(x for x in (state, fold) if x)],
                  "style": "dim" if t.get("completed") else PHASE_STYLE.get(phase, "normal")},
                 **extra)
@@ -1078,7 +1081,7 @@ class App(object):
                     self.subtasks.pop(gid)
                     self.message = "could not read the subtasks: %s" % done[1]
                 else:
-                    self.subtasks[gid] = [{"gid": t["ref"], "name": t["name"],
+                    self.subtasks[gid] = [{"gid": t["ref"], "name": t["name"], "key": t.get("key"),
                                            "completed": t.get("completed")} for t in done[0] or []]
         if self.sent:
             self.follow_commands()
@@ -1859,7 +1862,12 @@ class App(object):
             for i, row in enumerate(rows[top:top + body]):
                 picked = top + i == cur and not self.palette
                 style = "sel" if picked else row.get("style", "normal")
-                put(3 + i, ("▸ " if picked else "  ") + fit(row["cols"], w - 2, row["kind"] == "feature"), style)
+                line = ("▸ " if picked else "  ") + fit(row["cols"], w - 2, row["kind"] == "feature")
+                put(3 + i, line, style)
+                if row.get("faint"):
+                    start, length = row["faint"]
+                    _put_at(scr, 3 + i, 2 + start, line[2 + start:2 + start + length], w,
+                            styles[style] | curses.A_DIM)
             row = rows[cur] if rows else None
             detail = []
             if row and TABS[self.tab] == "Runs" and row["kind"] == "task":
