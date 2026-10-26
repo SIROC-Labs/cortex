@@ -7,7 +7,7 @@
 | Security updates | `gh api repos/{o}/{r}/automated-security-fixes` | `gh api -X PUT repos/{o}/{r}/automated-security-fixes` | Needs alerts on first. |
 | Secret scanning, push protection, Code Security, Advanced Security | `gh api repos/{o}/{r} -q .security_and_analysis`: each feature has `.status` `enabled` or `disabled` | Not via this skill | Private repos need GitHub Advanced Security. |
 | Code scanning | `gh api repos/{o}/{r}/code-scanning/default-setup -q .state` (`configured` or `not-configured`). A 403 saying Code Security must be enabled means off. | Not via this skill | Only meaningful when Code Security is enabled. |
-| Private vulnerability reporting | `gh api repos/{o}/{r}/private-vulnerability-reporting -q .enabled`. A 404 means it isn't available for the repository, so off. | Not via this skill | |
+| Private vulnerability reporting | `gh api repos/{o}/{r}/private-vulnerability-reporting -q .enabled`: `false` is off. GitHub offers it for public repositories, so a 404 on a private repository is off; a 404 on a public repository is unknown (it can also mean no access). | Not via this skill | |
 
 Report each of these as on, off or unknown. The responses named above are known states. Any other error, or a missing field, is unknown, never off.
 
