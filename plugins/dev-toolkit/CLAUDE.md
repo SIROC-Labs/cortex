@@ -15,7 +15,8 @@ dev-toolkit/
     ├── update-pr/         ← Sync a PR branch with its base (fetch → rebase/merge → resolve → push)
     ├── cso/               ← Chief Security Officer audit (secrets, deps, CI/CD, OWASP, STRIDE, LLM/AI) + references/audit-phases.md
     ├── codex/             ← Second opinion from Codex CLI (review/challenge/consult) for non-Codex hosts + sections/ + scripts/codex-probe.sh
-    └── claude/            ← Second opinion from Claude Code CLI (review/challenge/consult) for non-Claude hosts
+    ├── claude/            ← Second opinion from Claude Code CLI (review/challenge/consult) for non-Claude hosts
+    └── dependabot-setup/  ← Dependabot config, alerts and daily audit workflow, per repository or per organization + references/
 ```
 
 Each skill follows: `skills/<name>/SKILL.md` + optional `references/` subdirectory.
