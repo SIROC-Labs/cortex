@@ -1146,5 +1146,17 @@ class TestGithubRefused(unittest.TestCase):
         self.assertIn("--base", calls[0])
         self.assertEqual(calls[0][calls[0].index("--base") + 1], "main")
 
+class TestWalkthroughComment(unittest.TestCase):
+    def test_walkthrough_then_notes_then_files(self):
+        body = start_task.walkthrough_comment({
+            "walkthrough": "Start with `a.py`.", "notes": "No migration.",
+            "files_changed": ["a.py", "b.py"]})
+        self.assertEqual(body, "Start with `a.py`.\n\n## Notes\nNo migration.\n\n"
+                               "## Files\n- `a.py`\n- `b.py`")
+
+    def test_empty_when_the_agent_gave_nothing_to_explain(self):
+        self.assertEqual(start_task.walkthrough_comment({"summary": "x", "notes": ""}), "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

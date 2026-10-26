@@ -50,8 +50,18 @@ you confidently can and put the problem in `notes`. Do not invent requirements.
 
 ## How to write the text for the PR
 
-A human reads the text you write for the PR (`summary` and `notes`) to review a large change. Write it in
-ASD-STE100 Simplified Technical English:
+The PR gets two texts from you:
+
+- `summary` is the PR description. Keep it short: what the change does and why, in
+  1-3 sentences.
+- `walkthrough` is posted as the first comment on the PR. A reviewer reads it to
+  review the change, which can be large. Start with where to begin reading. Then
+  explain each part of the change — what it does, why, and how the parts connect —
+  with one heading or list item for each part. Tell the reviewer what to examine
+  carefully: risky changes, behaviour that changes for users, and decisions you made
+  where the task did not say. End with what you tested.
+
+Write both, and `notes`, in ASD-STE100 Simplified Technical English:
 
 - Write one topic in each sentence. Keep a sentence to 20 words or fewer when it tells
   the reader to do something, and to 25 words or fewer when it describes something.
@@ -76,9 +86,10 @@ When you implemented the task:
 
 ```json
 {
-  "summary": "What changed and why, in 1-3 sentences of Simplified Technical English. Used verbatim as the PR description.",
+  "summary": "What changed and why, in 1-3 sentences. Used verbatim as the PR description.",
+  "walkthrough": "The explanation of the change for the reviewer, in Markdown. Posted as a PR comment.",
   "files_changed": ["path/one.ts", "path/two.ts"],
-  "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups, in Simplified Technical English. Empty string if none."
+  "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups. Empty string if none."
 }
 ```
 

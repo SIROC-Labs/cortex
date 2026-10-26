@@ -1541,6 +1541,20 @@ def lookup_pr(branch, cwd):
     return prs[0].get("url") if prs else None
 
 
+def walkthrough_comment(result):
+    """The PR comment that explains the change: the agent's walkthrough, then its
+    notes and the files it changed."""
+    parts = []
+    if (result.get("walkthrough") or "").strip():
+        parts.append(result["walkthrough"].strip())
+    if (result.get("notes") or "").strip():
+        parts.append("## Notes\n%s" % result["notes"].strip())
+    files = result.get("files_changed") or []
+    if files:
+        parts.append("## Files\n%s" % "\n".join("- `%s`" % f for f in files))
+    return "\n\n".join(parts)
+
+
 def phase_ship(args, state=None):
     state = state or State.find(main_repo_root(os.path.abspath(args.repo)), args.task)
     context = state.read("context.json")
@@ -1576,14 +1590,18 @@ def phase_ship(args, state=None):
         context["git"]["pr_url"] = pr_url
         state.write("context.json", context)
 
-    files = result.get("files_changed") or []
-    body = "## Task\n%s\n\n## What changed\n%s\n" % (
-        context["task"]["url"], result.get("summary") or "(no summary)")
-    if files:
-        body += "\n## Files\n%s\n" % "\n".join("- `%s`" % f for f in files)
-    if result.get("notes"):
-        body += "\n## Notes\n%s\n" % result["notes"]
+    body = "## Task\n%s\n\n%s\n" % (context["task"]["url"], result.get("summary") or "(no summary)")
     run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
+    if not state.read("walkthrough.json", None):
+        walkthrough = walkthrough_comment(result)
+        if walkthrough:
+            code, _, errout = run(["gh", "pr", "comment", pr_url, "--body", mark(walkthrough)],
+                                  cwd=worktree, check=False)
+            if code == 0:
+                state.write("walkthrough.json", {"at": time.time(), "pr_url": pr_url})
+                info("posted the walkthrough on %s" % pr_url)
+            else:
+                warn("could not post the walkthrough on %s: %s" % (pr_url, errout.strip()))
     while True:
         code, _, errout = run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
         if code == 0:

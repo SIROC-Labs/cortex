@@ -172,11 +172,12 @@ The prompt is `prompts/implement.md` rendered with `context.json`, sent through 
 seam. It ends by requiring a final fenced JSON block:
 
 ```json
-{"summary": "...", "files_changed": ["..."], "notes": "..."}
+{"summary": "...", "walkthrough": "...", "files_changed": ["..."], "notes": "..."}
 ```
 
-Parsed into `result.json`. `summary` becomes the PR description in the ship phase, so
-the PR body costs no extra call.
+Parsed into `result.json`. `summary` becomes the PR description in the ship phase, and
+`walkthrough` (in ASD-STE100) the PR comment that explains the change to the reviewer,
+so neither costs an extra call.
 
 The block has a second legal shape. An agent genuinely blocked on a decision returns
 `{"questions": [{"q": "...", "why": "..."}]}` instead, and `call_agent_resumable`
@@ -276,7 +277,8 @@ screen look right" — is out of scope; see Non-goals.
 
 ### ship — pure Python
 
-1. `gh pr ready <url>`; set the PR body from `result.json.summary`.
+1. `gh pr ready <url>`; set the PR body from `result.json.summary`; post the walkthrough,
+   notes and files as one PR comment (once — `walkthrough.json` records it).
 2. `set-status In Review`.
 3. Post the 🚀 completion comment with the summary and PR link.
 

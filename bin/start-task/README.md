@@ -244,9 +244,9 @@ appearing to have honoured it.
 | Phase | Model calls | What it does |
 |---|---|---|
 | `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.cortex/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
-| `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, files_changed, notes}` block back |
+| `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, walkthrough, files_changed, notes}` block back |
 | `qa` | 0–2 | Runs the gates the change touches; on failure hands the output to a repair call, retries the gate, max 2 attempts before asking |
-| `ship` | 0 | Commits, pushes (checked), sets the PR body from `summary`, marks it ready, status → In Review, 🚀 comment |
+| `ship` | 0 | Commits, pushes (checked), sets the PR body from `summary`, posts the `walkthrough` as a PR comment, marks it ready, status → In Review, 🚀 comment |
 | `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
 State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
