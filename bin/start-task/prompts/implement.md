@@ -48,6 +48,26 @@ If the task cannot be implemented as specified — it contradicts the code, depe
 something absent, or is ambiguous in a way that changes the outcome — implement what
 you confidently can and put the problem in `notes`. Do not invent requirements.
 
+## How to write the text for the PR
+
+A human reads the text you write for the PR (`summary` and `notes`) to review a large change. Write it in
+ASD-STE100 Simplified Technical English:
+
+- Write one topic in each sentence. Keep a sentence to 20 words or fewer when it tells
+  the reader to do something, and to 25 words or fewer when it describes something.
+- Use the active voice and the simple tenses: "This change adds a retry", not "A retry
+  has been added".
+- Use common words with one meaning. Do not use idioms, slang, or vague words such as
+  "various", "some cleanup" or "tweaks".
+- Use the same term for the same thing every time. Put code names, file paths and
+  commands in backticks, exactly as they are in the code.
+- Do not leave out "the", "a" or "is" to make a sentence shorter.
+- Do not put more than three nouns together. Write "the timeout for the push", not
+  "the push retry timeout setting".
+- Use a vertical list for steps or for more than two items. Keep a paragraph to six
+  sentences or fewer.
+- Write instructions to the reviewer as commands: "Examine `engine.py` first."
+
 ## Required output
 
 End your response with a fenced JSON block, in one of exactly two shapes.
@@ -56,9 +76,9 @@ When you implemented the task:
 
 ```json
 {
-  "summary": "What changed and why, in 1-3 sentences. Used verbatim as the PR description.",
+  "summary": "What changed and why, in 1-3 sentences of Simplified Technical English. Used verbatim as the PR description.",
   "files_changed": ["path/one.ts", "path/two.ts"],
-  "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups. Empty string if none."
+  "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups, in Simplified Technical English. Empty string if none."
 }
 ```
 

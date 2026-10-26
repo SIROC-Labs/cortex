@@ -23,6 +23,26 @@ is {{pr}}; its base is `{{base}}`.
    merge `{{base}}` into the branch (`git merge {{base}}`) and resolve the conflicts
    keeping both sides' intent. Never rebase and never force-push.
 
+## How to write the text for the PR
+
+A human reads the text you write for the PR (`summary` and `reply`) to review a large change. Write it in
+ASD-STE100 Simplified Technical English:
+
+- Write one topic in each sentence. Keep a sentence to 20 words or fewer when it tells
+  the reader to do something, and to 25 words or fewer when it describes something.
+- Use the active voice and the simple tenses: "This change adds a retry", not "A retry
+  has been added".
+- Use common words with one meaning. Do not use idioms, slang, or vague words such as
+  "various", "some cleanup" or "tweaks".
+- Use the same term for the same thing every time. Put code names, file paths and
+  commands in backticks, exactly as they are in the code.
+- Do not leave out "the", "a" or "is" to make a sentence shorter.
+- Do not put more than three nouns together. Write "the timeout for the push", not
+  "the push retry timeout setting".
+- Use a vertical list for steps or for more than two items. Keep a paragraph to six
+  sentences or fewer.
+- Write instructions to the reviewer as commands: "Examine `engine.py` first."
+
 ## Required output
 
 End your response with a fenced JSON block, in one of exactly two shapes.
@@ -32,7 +52,7 @@ When you addressed the feedback:
 ```json
 {
   "summary": "What changed, in 1-3 sentences.",
-  "reply": "The reply to post on the PR: point by point, what you changed and what you did not, and why.",
+  "reply": "The reply to post on the PR, in Simplified Technical English: point by point, what you changed and what you did not, and why.",
   "files_changed": ["path/one.ts"]
 }
 ```
