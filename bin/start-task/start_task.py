@@ -659,6 +659,7 @@ def set_up_branch(args, repo, main_root, tid, task):
 
     ensure_cortex_dir(main_root)
     worktree = worktree_path(main_root, tid, slug)
+    reused = True
 
     # A branch can only be checked out once. Honouring an existing worktree — which
     # may sit at a path an older version of this script chose — keeps work in flight
@@ -692,12 +693,22 @@ def set_up_branch(args, repo, main_root, tid, task):
         git(["worktree", "add", worktree, existing], cwd=repo)
         branch = existing
     else:
+        reused = False
         git(["worktree", "add", worktree, "-b", branch, base], cwd=repo)
         _, on, _ = git(["branch", "--show-current"], cwd=worktree, check=False)
         if on != branch:
             die("the worktree came up on %r, not %r — nothing was committed or pushed; "
                 "remove %s and the local branch %r, then run again" % (on, branch, worktree, on))
         info("created %s off %s in %s" % (branch, base, worktree))
+
+    if reused and not args.no_worktree:
+        _, log, _ = git(["log", "--format=%h %s", "%s..HEAD" % base], cwd=worktree, check=False)
+        foreign = foreign_commits(log, tid)
+        if foreign:
+            die("%s is not built on %s: it holds %d commit(s) from other work, such as "
+                "\"%s\". Undo the task and queue it again, so it starts fresh from %s"
+                % (branch, base.replace("origin/", ""), len(foreign), foreign[0],
+                   base.replace("origin/", "")))
 
     pr_url = existing_pr
     if not pr_url:
@@ -717,6 +728,17 @@ def set_up_branch(args, repo, main_root, tid, task):
     else:
         info("existing PR: %s" % pr_url)
     return branch, base, worktree, pr_url, None
+
+
+def foreign_commits(log, tid):
+    """The lines of a `git log --format='%h %s' base..HEAD` that are not the task's
+    own work: neither its `<tid> :: …` commits nor merges."""
+    out = []
+    for line in log.splitlines():
+        subject = line.partition(" ")[2]
+        if not (subject.startswith("%s :: " % tid) or subject.startswith("Merge ")):
+            out.append(subject)
+    return out
 
 
 def create_draft_pr(tid, name, task_url, base, branch, cwd):

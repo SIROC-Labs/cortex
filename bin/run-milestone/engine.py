@@ -1134,7 +1134,14 @@ class Engine(object):
         state = self.start_state(gid)
         git_info = (state.read("context.json") or {}).get("git") or {}
         worktree, branch = git_info.get("worktree"), git_info.get("branch")
+        if not branch:
+            # Stopped before its prologue recorded anything: find what it made.
+            worktree, branch = self.leftovers(self.key_of(gid))
         pr = self.records.get(gid, {}).get("pr_url") or git_info.get("pr_url")
+        if not pr and branch:
+            view = self.gh_json(["pr", "list", "--head", branch, "--state", "open",
+                                 "--json", "url"]) or []
+            pr = view[0]["url"] if view else None
         done = []
         with st.repo_lock(self.main_root):
             if worktree and os.path.isdir(worktree) and os.path.abspath(worktree) != self.main_root:
@@ -1153,6 +1160,20 @@ class Engine(object):
         if os.path.isdir(state.dir):
             shutil.rmtree(state.dir, ignore_errors=True)
         return True, "; ".join(done) or "nothing had been started"
+
+    def leftovers(self, key):
+        """(worktree, branch) a run of `key` made before it recorded them — its
+        branch is always `<key>/<slug>`."""
+        _, listing, _ = run(["git", "worktree", "list", "--porcelain"], cwd=self.main_root)
+        for block in listing.split("\n\n"):
+            lines = dict(l.split(" ", 1) for l in block.splitlines() if " " in l)
+            name = lines.get("branch", "").replace("refs/heads/", "")
+            if name.startswith(key + "/"):
+                return lines.get("worktree"), name
+        _, out, _ = run(["git", "branch", "-a", "--list", "%s/*" % key, "origin/%s/*" % key,
+                         "--format=%(refname:short)"], cwd=self.main_root)
+        names = [b.replace("origin/", "", 1) for b in out.split()]
+        return None, (names[0] if names else None)
 
     def undo_merged(self, gid):
         record = self.records[gid]

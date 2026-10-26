@@ -1146,6 +1146,17 @@ class TestGithubRefused(unittest.TestCase):
         self.assertIn("--base", calls[0])
         self.assertEqual(calls[0][calls[0].index("--base") + 1], "main")
 
+class TestForeignCommits(unittest.TestCase):
+    def test_the_tasks_own_commits_and_merges_are_not_foreign(self):
+        log = ("a1 HRT1-335 :: start\nb2 Merge origin/feature/x into HRT1-335/y\n"
+               "c3 HGM-375 :: Jooble PDFs open as a preview\nd4 HRT1-3350 :: other")
+        self.assertEqual(start_task.foreign_commits(log, "HRT1-335"),
+                         ["HGM-375 :: Jooble PDFs open as a preview", "HRT1-3350 :: other"])
+
+    def test_nothing_ahead_is_nothing_foreign(self):
+        self.assertEqual(start_task.foreign_commits("", "HRT1-335"), [])
+
+
 class TestWalkthroughComment(unittest.TestCase):
     def test_walkthrough_then_notes(self):
         body = start_task.walkthrough_comment({
