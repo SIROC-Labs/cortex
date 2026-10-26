@@ -1,7 +1,7 @@
 ---
 name: dependabot-setup
 version: 0.1.0
-description: Use when setting up, auditing or tightening Dependabot and dependency vulnerability scanning, for one repository or a whole GitHub organization. Covers "set up dependabot", "add a dependabot.yml", "our dependabot PRs are noisy", "turn on security alerts", "scan dependencies daily", "audit our lock files on a cron", "which of our repos have dependabot", "enable dependabot across the org", or a repo with no `.github/dependabot.yml`. Project mode writes a grouped, cooldown-gated, staggered dependabot.yml, turns on alerts and security updates, and adds a daily audit workflow. Organization mode reports coverage across every repository and applies an org security configuration.
+description: Use when setting up, auditing or tightening Dependabot and dependency vulnerability scanning, for one repository or a whole GitHub organization. Covers "set up dependabot", "add a dependabot.yml", "our dependabot PRs are noisy", "turn on security alerts", "scan dependencies daily", "audit our lock files on a cron", "which of our repos have dependabot", "enable dependabot across the org", or a repo with no `.github/dependabot.yml`. Project mode applies a fixed policy (weekly, grouped, cooldown-gated, staggered, never auto-merged) to the ecosystems, directories and runtimes it finds in the repository, turns on alerts and security updates, and adds a daily audit workflow. Organization mode reports coverage across every repository and applies an org security configuration.
 ---
 
 # Dependabot Setup
@@ -19,13 +19,15 @@ If the request is ambiguous, ask which mode. Organization mode changes many repo
 
 ### 1. Inventory
 
-Find out what exists before writing anything:
+The policy (schedule, limits, cooldowns, grouping, audit threshold) is fixed and lives in the references. The needs come from this step: what to cover, where, what couples and how commits are named. Nothing about the repository is assumed or copied from an example.
 
-- **Ecosystems and directories:** manifests and lock files (`uv.lock`, `poetry.lock`, `requirements*.txt`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Gemfile.lock`, `go.sum`, `Cargo.lock`, `composer.lock`, `Dockerfile*`, `compose*.yml`, `*.tf` with `.terraform.lock.hcl`, `.github/workflows/*.yml`). Skip `node_modules`, `.venv` and vendored trees. A workspace (uv, npm, pnpm) is one entry at its root.
-- **Existing config:** `.github/dependabot.yml`, audit or CI workflows, Renovate config. If Renovate is present, ask which tool should own updates; running both doubles every PR.
-- **Conventions:** commit style from `git log` (prefixes must match it), default branch, whether actions are pinned to commit SHAs.
-- **Runtime pins:** `.nvmrc`, `.node-version`, `.python-version`, `.tool-versions`, `engines`. Dependabot neither updates nor alerts on these.
-- **Constraint style:** floors (`>=`) or exact pins. This decides `versioning-strategy`.
+- **Ecosystems and directories:** the ecosystems Dependabot supports come from its schema; find each one's manifests in the tree (skip dependency and vendored directories) and cross-check with GitHub's dependency graph.
+- **Existing setup:** `.github/dependabot.yml`, CI and scheduled workflows, any other update bot. If another bot owns updates, ask which tool should; running both doubles every PR.
+- **Conventions:** commit types and scopes from `git log`, the default branch and any integration branch, runner labels, and how actions are pinned.
+- **Private dependencies:** private registries and private Git dependencies, and whether Dependabot secrets exist for them. Without access, every update fails to resolve.
+- **History:** if Dependabot ran before, its open, merged and failed PRs. They show which groups and ignores the repository needs.
+- **Version files:** any file that pins a runtime or tool version. Dependabot neither updates nor alerts on these.
+- **Constraint style and peer ranges:** floors or exact pins in manifests, and peer dependencies in lock files. These decide `versioning-strategy`, coupled groups and ignores.
 
 ### 2. Repository settings
 
@@ -33,11 +35,11 @@ Read first, then turn on Dependabot alerts and security updates. Commands and ad
 
 ### 3. Write `.github/dependabot.yml`
 
-Follow `references/config.md`: policy per key, a full example, and ecosystem-specific rules. If a config exists, keep its working parts and explain each change.
+Follow `references/config.md`: the fixed policy, where each need comes from, and the shape of the file. If a config exists, keep its working parts and explain each change.
 
 ### 4. Write `.github/workflows/audit.yml`
 
-Follow `references/audit.md`: one job per lock file with that package manager's audit command, one job per pinned runtime with a security feed, a daily cron plus `workflow_dispatch`, `permissions: contents: read`, a timeout on every job, and SHA-pinned actions if the repo already pins them.
+Follow `references/audit.md`: one job per lock file with that package manager's audit command, one job per pinned runtime with a security feed, the policy's daily schedule and severity threshold, and actions pinned the way the repository pins them.
 
 PR CI usually runs only on the trees a PR touches, so an advisory against an unchanged lock file goes unseen. The daily job closes that gap.
 
@@ -58,8 +60,8 @@ Do not commit or push unless the user asks.
 
 ## Rules in both modes
 
+- **The policy is fixed; the needs are found.** Don't tune the policy per repository, and don't add a need (ecosystem, group, ignore, runtime check) the repository doesn't show.
 - **Never auto-merge Dependabot PRs.** A cooldown delays a compromised release; it does not replace review.
-- **No `multi-ecosystem-groups`.** One PR across ecosystems is harder to review and to roll back.
 - **Every `ignore` gets a comment** saying why and when to lift it.
 - **Read before writing** any setting, and show the user what will change before changing more than one repository.
 - **Check option names against the [Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)** when unsure. The schema check catches typos, not semantics.

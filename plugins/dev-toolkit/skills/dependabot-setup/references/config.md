@@ -1,112 +1,78 @@
-# dependabot.yml policy
+# dependabot.yml
 
-## Per key
+Two kinds of value go into the file:
+
+- **The policy** is fixed. It is the same in every repository and the skill applies it as written.
+- **The needs** come from the repository: which ecosystems and directories to cover, what couples, what to ignore, and how commits are named. Nothing about them is assumed or copied from an example.
+
+## Policy (fixed)
 
 | Key | Value | Why |
 |---|---|---|
-| `schedule` | `weekly`, same day, one ecosystem per 30-minute slot from 06:00 UTC | PRs don't land together, and CI isn't flooded at once. |
-| `open-pull-requests-limit` | `3` | With grouping, three open PRs per ecosystem is plenty. A higher limit only grows the review queue. |
-| `cooldown.default-days` | `7` | Most malicious releases are caught and yanked within days. Security updates ignore the cooldown. |
-| `cooldown.semver-major-days` | `30` where supported | Majors break more and get more fixes in their first weeks. |
-| `groups.<eco>-security` | `applies-to: security-updates`, `patterns: ['*']` | One security PR per ecosystem instead of one per advisory. |
-| `groups.<eco>-minor-patch` | `update-types: [minor, patch]` | One routine PR per ecosystem per week. Majors stay as their own PRs. |
-| `commit-message.prefix` | Matches the repo's convention, e.g. `chore(deps)`, `chore(ci)`, `chore(infra)` | Commit and PR titles pass commit linting. The prefix also applies to security-update PRs. |
-| `commit-message.prefix-development` | e.g. `chore(deps-dev)` | Supported by bundler, composer, mix, maven, npm, pip and uv. |
-| `versioning-strategy` | `lockfile-only` when every constraint is a `>=` floor | Otherwise Dependabot raises the floor in the manifest, which is noise. Keep the default when the manifest pins exact versions. |
+| `schedule` | `weekly`, Monday, one entry per 30-minute slot from 06:00 UTC | PRs don't land together, and CI isn't flooded at once. |
+| `open-pull-requests-limit` | `3` | Per entry, version updates only; security updates have their own fixed limit of 10. A grouped PR counts as one, so 3 is the weekly minor+patch PR plus up to two majors. A further major waits until one closes: backpressure, so stalled majors stay visible instead of piling up. GitHub's default is 5. |
+| `cooldown.default-days` | `7` | Most malicious releases are caught and yanked within days. Security updates skip the cooldown. |
+| `cooldown.semver-major-days` | `30`, where the ecosystem supports it | Majors break more and get more fixes in their first weeks. |
+| `groups.<eco>-security` | `applies-to: security-updates`, `patterns: ['*']` | One security PR per entry instead of one per advisory. |
+| `groups.<eco>-minor-patch` | `update-types: [minor, patch]` | One routine PR per entry per week. Majors stay as their own PRs. |
+| Auto-merge | never | A cooldown delays a compromised release; it doesn't replace review. |
+| `multi-ecosystem-groups` | none | One PR across ecosystems is harder to review and roll back. |
 
-Don't change `target-branch` unless the repo merges into a branch other than its default.
+## Needs (from the repository)
 
-## SemVer cooldown keys
+| Key | Source |
+|---|---|
+| `package-ecosystem` | The `package-ecosystem` enum in the Dependabot schema: `curl -fsSL https://json.schemastore.org/dependabot-2.0.json \| jq -c '.. \| objects \| select(.enum? and (.enum \| index("npm"))) \| .enum'`. For each value, look for that ecosystem's manifests in the tree. |
+| `directory` / `directories` | Where those manifests are. Cross-check with what GitHub detected: `gh api graphql -f query='{repository(owner:"<o>",name:"<r>"){dependencyGraphManifests(first:100){nodes{blobPath}}}}'`. The dependency graph misses some ecosystems (Docker, Terraform), so the tree is the source of truth. A workspace (its root manifest declares members) is one entry at its root. |
+| `commit-message.prefix` | `git log` subjects: the convention, and the type and scope used for each directory. `prefix-development` only where the options reference allows it for that ecosystem. |
+| `versioning-strategy` | The manifest's constraint style and the lock file. `lockfile-only` only when every constraint is a floor (`>=`), the entry's directory has a committed lock file Dependabot updates, and the options reference lists the strategy for that ecosystem; an update then moves only the lock file. A floors-only manifest without a lock file (typical for a library), exact pins, or mixed → the default. |
+| Where `semver-major-days` applies | The SemVer column of the cooldown table in the [options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference). Without SemVer support, `default-days` alone. The schema accepts the key either way. |
+| Coupled-major groups | The lock file's peer dependencies. Packages whose peer ranges pin each other's major must move together, or each PR fails to install on its own (`ERESOLVE`). Group them for majors, before `<eco>-minor-patch`: a dependency joins the first group it matches. |
+| `ignore` | A conflict visible today: a major that a peer range in the lock file excludes, or type packages that follow a runtime pinned in a version file. The comment names the constraint and when to lift it. Use the `update-types` form (`version-update:semver-major`); only that form leaves security updates untouched. Ignoring a dependency outright, or by `versions`, can also block its security updates: don't add one, and flag any existing one in the report. |
+| `registries` | Private registries and private Git dependencies: registry URLs in `.npmrc`, `pip.conf`, `uv`/Poetry sources, `Gemfile` sources, Go `GOPRIVATE`, Git URLs in manifests. Add a `registries` block per source and reference it from the entry, using Dependabot secrets for credentials. Report which secrets must exist; without them every update for that entry fails to resolve, even though the file validates. |
+| `group-by: dependency-name` | Several directories that pin the same dependencies, each with its own lock file: one PR per dependency across all of them. Needs `directories:`. |
+| `target-branch` | Only if the repository merges into a branch other than its default. An entry with `target-branch` applies to version updates only, so its security group stops working. Keep a second entry for the same ecosystem and directory on the default branch with the security group and `open-pull-requests-limit: 0` (security updates only), so the policy's grouped security PRs still apply. |
 
-`semver-major-days`, `semver-minor-days` and `semver-patch-days` only apply to ecosystems with SemVer versioning, among them bundler, bun, cargo, composer, gomod, gradle, maven, npm, nuget, pip, pub, swift and uv. `github-actions`, `docker`, `docker-compose`, `helm`, `terraform` and `pre-commit` don't support them: use `default-days` alone. If you're unsure about one, check the options reference; the schema check accepts the key either way.
+If a config exists, bring it to the policy, keep the needs it already covers correctly, and explain every change.
 
-## Group order
+## Shape
 
-A dependency joins the first group it matches. Put narrow groups (a framework's majors) before the broad `<eco>-minor-patch` group.
-
-## Coupled majors
-
-Packages that must move together go into one group for majors. If they don't, Dependabot opens one PR per package and each fails to install on its own (`ERESOLVE`, peer conflicts). Typical sets:
-
-- React: `react`, `react-dom`, `@types/react`, `@types/react-dom`, plus a router that follows React's major.
-- Angular: `@angular/*`. Vue: `vue`, `@vue/*`. ESLint: `eslint`, `@eslint/*`, `typescript-eslint`.
-
-Only add a coupled group for packages the repo actually uses, and only when their current versions show the coupling (a peer range in the lock file, a shared major). The sets above are illustrations, not a checklist.
-
-## Ignores worth having
-
-- `@types/node` majors when the Node major is pinned in `.nvmrc`. The types should follow the runtime, not npm's latest.
-- A major blocked by a peer range elsewhere (e.g. `typescript` while `typescript-eslint` caps it). The comment says which package to watch.
-
-Add an ignore only when the repo's own versions or peer ranges show the conflict today; don't copy these examples. Ignores only affect version updates. Security updates still arrive.
-
-## Ecosystem notes
-
-- **Workspaces** (uv, npm, pnpm, yarn): one entry at the workspace root.
-- **github-actions:** `directory: /` covers `.github/workflows`. If actions are pinned to a SHA with the tag in a trailing comment, Dependabot updates both.
-- **docker:** one entry per directory that has a Dockerfile, or `directories:` with globs.
-- **terraform:** watch the root stacks that own provider constraints and lock files, not the modules. `directories:` with globs plus `group-by: dependency-name` in the minor-patch group (it needs `directories:`) gives one PR per provider across every stack, so the stacks stay on the same version.
-- **docker-compose:** use `package-ecosystem: docker-compose` for image tags in compose files.
-
-## Example
+Policy values as written; placeholders are needs from the repository.
 
 ```yaml
 version: 2
 
-# Weekly, one ecosystem every half hour from 06:00 UTC so the pull requests do not land together. Minors and patches
-# arrive as one grouped pull request per ecosystem; a major arrives on its own, after a longer cooldown where the
-# ecosystem supports SemVer. Security updates skip the cooldown and the schedule, and arrive grouped per ecosystem.
-# Dependabot pull requests are never auto-merged.
+# Weekly, one entry every half hour from 06:00 UTC so the pull requests do not land together. Minors and patches
+# arrive as one grouped pull request per entry; a major arrives on its own, after a longer cooldown where the ecosystem
+# supports SemVer. Security updates skip the cooldown and the schedule, and arrive grouped. Never auto-merged.
 updates:
-  - package-ecosystem: uv
-    directory: /
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+  - package-ecosystem: <schema enum value>
+    directory: <manifest location>
+    schedule:
+      interval: weekly
+      day: monday
+      time: '<next 30-minute slot from 06:00>'
     open-pull-requests-limit: 3
-    cooldown: { default-days: 7, semver-major-days: 30 }
-    # Every constraint is a floor, so an update only moves uv.lock; a raised floor would be noise.
-    versioning-strategy: lockfile-only
-    commit-message: { prefix: chore(deps), prefix-development: chore(deps-dev) }
+    cooldown:
+      default-days: 7
+      semver-major-days: 30              # only where supported
+    versioning-strategy: lockfile-only # only when every constraint is a floor
+    commit-message:
+      prefix: <type(scope) from git log>
     groups:
-      uv-security: { applies-to: security-updates, patterns: ['*'] }
-      uv-minor-patch: { update-types: [minor, patch] }
-
-  - package-ecosystem: npm
-    directory: /apps/web
-    schedule: { interval: weekly, day: monday, time: '06:30' }
-    open-pull-requests-limit: 3
-    cooldown: { default-days: 7, semver-major-days: 30 }
-    commit-message: { prefix: chore(web) }
-    groups:
-      npm-security: { applies-to: security-updates, patterns: ['*'] }
-      # React's majors move together: react-dom pins react as a peer.
-      react:
-        patterns: [react, react-dom, '@types/react', '@types/react-dom']
+      <eco>-security:
+        applies-to: security-updates
+        patterns: ['*']
+      # <the peer range that couples these>
+      <coupled-set>:
+        patterns: [<packages>]
         update-types: [major]
-      npm-minor-patch: { update-types: [minor, patch] }
+      <eco>-minor-patch:
+        update-types: [minor, patch]
     ignore:
-      # @types/node follows the Node major in .nvmrc, not npm's latest.
-      - dependency-name: '@types/node'
+      # <the constraint, and when to lift this>
+      - dependency-name: <package>
         update-types: ['version-update:semver-major']
-
-  - package-ecosystem: github-actions
-    directory: /
-    schedule: { interval: weekly, day: monday, time: '07:00' }
-    open-pull-requests-limit: 3
-    cooldown: { default-days: 7 }
-    commit-message: { prefix: chore(ci) }
-    groups:
-      actions-security: { applies-to: security-updates, patterns: ['*'] }
-      actions-minor-patch: { update-types: [minor, patch] }
-
-  - package-ecosystem: terraform
-    directories: [/infra/envs/*]
-    schedule: { interval: weekly, day: monday, time: '07:30' }
-    open-pull-requests-limit: 3
-    cooldown: { default-days: 7 }
-    commit-message: { prefix: chore(infra) }
-    groups:
-      terraform-security: { applies-to: security-updates, patterns: ['*'] }
-      terraform-minor-patch: { update-types: [minor, patch], group-by: dependency-name }
 ```
 
-Write the real file in block style if the repo's YAML is block style; the flow style here is for brevity.
+Match the repository's YAML style.

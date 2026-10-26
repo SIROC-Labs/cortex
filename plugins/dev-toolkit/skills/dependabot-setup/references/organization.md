@@ -35,13 +35,19 @@ Also count open alerts by severity:
 gh api --paginate 'orgs/{org}/dependabot/alerts?state=open&per_page=100' -q '.[] | [.repository.name, .security_advisory.severity] | @tsv'
 ```
 
-## 3. Exclusions
+## 3. Policy source
+
+Ask whether a repository in the org already has the setup the team wants (a reviewed `dependabot.yml` and audit workflow). If so, compare it with the skill's policy and point out differences, so the org settles on one policy. Every repository still finds its own needs: ecosystems, directories, prefixes, coupled groups, ignores and runtimes.
+
+## 4. Exclusions
 
 Ask which repositories to leave out: archived-to-be, demos, forks, third-party mirrors. Keep the list in the report so the next run uses it.
 
-## 4. Org security configuration
+## 5. Org security configuration
 
 Show the user the commands and the number of repositories they touch. Run them only after an explicit yes.
+
+**Guard: don't switch anything off.** The configuration below is about Dependabot. Settings it leaves out, and `advanced_security=disabled`, could turn off a protection a repository already has. Before attaching, read each selected repository's other security features (see `settings.md`): secret scanning, push protection, code scanning default setup, private vulnerability reporting, Advanced Security. If any is on in a repository, stop for that repository: leave it out of the attach list and report it with what is on, for a separate decision. The usual procedure carries on for every other repository. Repositories whose state reads as unknown are treated as on.
 
 ```bash
 # Reuse one if it exists
@@ -66,7 +72,7 @@ On repositories untouched for a long time, security updates open a burst of PRs 
 
 Repository IDs come from `gh api repos/{org}/{r} -q .id`. Use `scope=all` only when there are no exclusions. Attaching replaces any configuration a repository already has; list those first.
 
-## 5. Org-wide alert notifications (optional)
+## 6. Org-wide alert notifications (optional)
 
 Repository alerts only notify people who watch the repository. For one channel that sees every new high or critical alert, offer a daily workflow in a central repository:
 
@@ -76,10 +82,10 @@ Repository alerts only notify people who watch the repository. For one channel t
 
 Build this only when the user names the central repository and the webhook secret. Don't create repositories or secrets on their behalf.
 
-## 6. Per-repository rollout
+## 7. Per-repository rollout
 
 The org configuration turns alerts on; it does not write `dependabot.yml` or audit workflows. From the coverage report, list repositories missing either and ask which to do. For each one picked, run project mode in a clone of that repository on a feature branch, and open one PR per repository only when the user asks. Do a few first and check their first Dependabot run (`first-run.md`) before doing the rest: a mistake in the policy is cheaper to fix in three repositories than in fifty.
 
-## 7. Report
+## 8. Report
 
-Before and after totals from step 2, what was changed and where, exclusions, repositories proposed for archiving, and open PRs from step 6.
+Before and after totals from step 2, what was changed and where, exclusions, repositories proposed for archiving, and open PRs from step 7.

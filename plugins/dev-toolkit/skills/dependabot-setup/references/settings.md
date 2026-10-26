@@ -2,10 +2,14 @@
 
 | Setting | Read | Enable | Notes |
 |---|---|---|---|
-| Dependency graph | `gh api repos/{o}/{r} -q .security_and_analysis` | Settings → Code security | On by default for public repos. Alerts need it. |
+| Dependency graph | `gh api repos/{o}/{r}/dependency-graph/sbom -i` (200 on; an error means off or no access) | Settings → Code security | On by default for public repos. Alerts need it. |
 | Dependabot alerts | `gh api repos/{o}/{r}/vulnerability-alerts -i` (204 on, 404 off) | `gh api -X PUT repos/{o}/{r}/vulnerability-alerts` | Admin rights. |
 | Security updates | `gh api repos/{o}/{r}/automated-security-fixes` | `gh api -X PUT repos/{o}/{r}/automated-security-fixes` | Needs alerts on first. |
-| Secret scanning, code scanning | `gh api repos/{o}/{r} -q .security_and_analysis` | Not via this skill | Private repos need GitHub Advanced Security. Report the state only. |
+| Secret scanning, push protection, Code Security, Advanced Security | `gh api repos/{o}/{r} -q .security_and_analysis`: each feature has `.status` `enabled` or `disabled` | Not via this skill | Private repos need GitHub Advanced Security. |
+| Code scanning | `gh api repos/{o}/{r}/code-scanning/default-setup -q .state` (`configured` or `not-configured`). A 403 saying Code Security must be enabled means off. | Not via this skill | Only meaningful when Code Security is enabled. |
+| Private vulnerability reporting | `gh api repos/{o}/{r}/private-vulnerability-reporting -q .enabled`. A 404 means it isn't available for the repository, so off. | Not via this skill | |
+
+Report each of these as on, off or unknown. The responses named above are known states. Any other error, or a missing field, is unknown, never off.
 
 Without admin rights the PUT calls return 403 or 404. Give the user the commands to pass to an admin instead of failing silently.
 
