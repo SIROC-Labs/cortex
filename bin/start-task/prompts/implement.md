@@ -54,17 +54,15 @@ The PR gets two texts from you:
 
 - `summary` is the PR description. Keep it short: what the change does and why, in
   1-3 sentences.
-- `walkthrough` is posted as the first comment on the PR. A reviewer reads it to
-  review the change, which can be large. Start with where to begin reading. Then
-  explain each part of the change — what it does, why, and how the parts connect —
-  with one heading or list item for each part. Tell the reviewer what to examine
-  carefully: risky changes, behaviour that changes for users, and decisions you made
-  where the task did not say.
+- `walkthrough` is posted as the first comment on the PR. It says what you did: each
+  part of the change, what it does and why, with one heading or list item for each
+  part. Include behaviour that changes for users, and decisions you made where the
+  task did not say. Describe the change only. Do not tell the reader how to review it,
+  where to start, or what to check.
 
 Write both, and `notes`, in ASD-STE100 Simplified Technical English:
 
-- Write one topic in each sentence. Keep a sentence to 20 words or fewer when it tells
-  the reader to do something, and to 25 words or fewer when it describes something.
+- Write one topic in each sentence. Keep a sentence to 25 words or fewer.
 - Use the active voice and the simple tenses: "This change adds a retry", not "A retry
   has been added".
 - Use common words with one meaning. Do not use idioms, slang, or vague words such as
@@ -74,9 +72,8 @@ Write both, and `notes`, in ASD-STE100 Simplified Technical English:
 - Do not leave out "the", "a" or "is" to make a sentence shorter.
 - Do not put more than three nouns together. Write "the timeout for the push", not
   "the push retry timeout setting".
-- Use a vertical list for steps or for more than two items. Keep a paragraph to six
-  sentences or fewer.
-- Write instructions to the reviewer as commands: "Examine `engine.py` first."
+- Use a vertical list for more than two items. Keep a paragraph to six sentences or
+  fewer.
 
 ## Required output
 

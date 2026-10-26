@@ -176,7 +176,7 @@ seam. It ends by requiring a final fenced JSON block:
 ```
 
 Parsed into `result.json`. `summary` becomes the PR description in the ship phase, and
-`walkthrough` (in ASD-STE100) the PR comment that explains the change to the reviewer,
+`walkthrough` (in ASD-STE100) the PR comment that says what the change does,
 so neither costs an extra call.
 
 The block has a second legal shape. An agent genuinely blocked on a decision returns
