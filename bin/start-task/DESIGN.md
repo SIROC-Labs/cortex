@@ -277,8 +277,8 @@ screen look right" — is out of scope; see Non-goals.
 
 ### ship — pure Python
 
-1. `gh pr ready <url>`; set the PR body from `result.json.summary`; post the walkthrough,
-   notes and files as one PR comment (once — `walkthrough.json` records it).
+1. `gh pr ready <url>`; set the PR body from `result.json.summary`; post the walkthrough
+   and notes as one PR comment (once — `walkthrough.json` records it).
 2. `set-status In Review`.
 3. Post the 🚀 completion comment with the summary and PR link.
 

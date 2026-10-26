@@ -59,7 +59,7 @@ The PR gets two texts from you:
   explain each part of the change — what it does, why, and how the parts connect —
   with one heading or list item for each part. Tell the reviewer what to examine
   carefully: risky changes, behaviour that changes for users, and decisions you made
-  where the task did not say. End with what you tested.
+  where the task did not say.
 
 Write both, and `notes`, in ASD-STE100 Simplified Technical English:
 

@@ -1543,15 +1543,12 @@ def lookup_pr(branch, cwd):
 
 def walkthrough_comment(result):
     """The PR comment that explains the change: the agent's walkthrough, then its
-    notes and the files it changed."""
+    notes."""
     parts = []
     if (result.get("walkthrough") or "").strip():
         parts.append(result["walkthrough"].strip())
     if (result.get("notes") or "").strip():
         parts.append("## Notes\n%s" % result["notes"].strip())
-    files = result.get("files_changed") or []
-    if files:
-        parts.append("## Files\n%s" % "\n".join("- `%s`" % f for f in files))
     return "\n\n".join(parts)
 
 
