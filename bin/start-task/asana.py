@@ -2144,7 +2144,8 @@ def project_get(args):
     sys.exit(0)
 
 
-# `project list <workspace-gid>`: the workspace's live boards as [{gid, name}].
+# `project list <workspace-gid>`: the workspace's live boards as [{gid, name}] —
+# neither archived nor marked complete.
 def project_list(args):
     if not args:
         die(1, "usage: %s project list <workspace-gid>" % PROG)
@@ -2153,7 +2154,8 @@ def project_list(args):
     token = resolve_token(cache_util.project_key())
     out = [{"gid": p.get("gid"), "name": p.get("name")}
            for p in fetch_all_projects(args[0], token)
-           if isinstance(p, dict) and p.get("archived") is not True]
+           if isinstance(p, dict) and p.get("archived") is not True
+           and p.get("completed") is not True]
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
