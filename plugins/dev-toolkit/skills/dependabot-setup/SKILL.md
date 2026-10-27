@@ -31,7 +31,7 @@ The policy (schedule, limits, cooldowns, grouping, audit threshold) is fixed and
 
 ### 2. Repository settings
 
-Read first, then turn on Dependabot alerts and security updates. Commands and admin-rights handling are in `references/settings.md`. Report secret scanning and code scanning state; don't try to enable them.
+Read first, then turn on Dependabot alerts, and security updates once `dependabot.yml` is on the default branch. Commands and admin-rights handling are in `references/settings.md`. Report secret scanning and code scanning state; don't try to enable them.
 
 ### 3. Write `.github/dependabot.yml`
 
@@ -47,7 +47,7 @@ PR CI usually runs only on the trees a PR touches, so an advisory against an unc
 
 ```bash
 uvx check-jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml
-actionlint .github/workflows/audit.yml      # if installed
+actionlint .github/workflows/audit.yml      # or: uvx --from actionlint-py actionlint
 ```
 
 Run each audit command locally and report the result. If one fails today, say so: the workflow will be red from its first run, and that is a finding, not a reason to loosen the threshold.

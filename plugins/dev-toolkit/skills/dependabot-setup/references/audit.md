@@ -16,6 +16,14 @@ Whichever tool it is, confirm from its documentation that the **exit code** foll
 
 If the native audit is experimental or behind a flag, say so in a comment and in the report.
 
+Verified behaviour of audits this skill has used:
+
+| Tool | Command | Exit code |
+|---|---|---|
+| pnpm 10 | `pnpm audit --prod --audit-level high` | Follows both: non-zero only for advisories at or above the level, with dev dependencies dropped before the query. Reads the lock file without installing. |
+| npm | `npm audit --package-lock-only --omit=dev --audit-level=high` | Follows both. |
+| uv | `uv audit --frozen --no-dev --preview-features audit-command,json-output --output-format json` | Preview. Exits 1 on a finding of any severity, and the JSON carries no severity. Read the report, rate each advisory from OSV (`https://api.osv.dev/v1/vulns/<GHSA id>`, `.database_specific.severity`, preferring the GHSA alias), and fail on high, critical or unrated. An exit code above 1 means the audit did not run. A library audits every extra by default: add `--no-extra <name>` for extras that are not runtime (samples, docs). |
+
 ## Runtime check per version file
 
 Derive the product from endoflife.date's catalog, not a list. `https://endoflife.date/api/v1/products` returns each product's name and aliases; match the version file's tool name against those. Identifiers (`pkg:docker/...` and the like) are only in the product details, at each summary's `uri` or `/api/v1/products/full`, so fetch those when a name match fails. Then, for the pinned release cycle (`/api/v1/products/<product>/releases/<cycle>`):
