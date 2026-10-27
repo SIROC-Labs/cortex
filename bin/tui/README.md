@@ -82,6 +82,21 @@ Each feature's queue is its own: checkpoints gate only their feature, and mergin
 by each PR's own target. Dependencies may cross features — a pulled-in dependency joins
 the feature of the task that needs it, and what a task needs is never held back.
 
+## Goals
+
+A goal is an ask that runs by itself. *New goal* in the palette (`:`) takes the ask in
+one line, or *New goal …, written in $EDITOR* for a longer one. It starts at once, on its
+own branch made from **Queue into**, and ends as one PR into that branch. It does not
+touch Asana and does not merge anything. See [the goal tool](../goal/README.md) for how it
+works.
+
+A goal is the first row on the Runs tab: what it is doing, its round, and the highest
+usage of your Claude limits. It pauses by itself while any limit is at 75% or more, and
+carries on when the limit resets. It asks you only what it cannot decide: the row is then
+flagged ⚑, and `⏎`, `a` and `A` work as they do for a task. `x` stops a running goal and
+`r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
+Closing the TUI leaves a goal running.
+
 ## Dependencies
 
 Queueing a task queues every unfinished task it depends on, down the whole tree — each
@@ -126,7 +141,7 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 
 | Tab | What it shows | Keys |
 |---|---|---|
-| **1 Runs** | every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `c` continue past a reached checkpoint · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) — on a merged task, the PR's changed files |
+| **1 Runs** | every goal, then every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `c` continue past a reached checkpoint · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) — on a merged task, the PR's changed files |
 | **2 Boards** | every board in the workspace that is neither archived nor marked complete; open one to see its sections and tasks — each with its ID, faint, when it has one — and how many subtasks each has (▸ 3 subtasks); a milestone (◈) is not run itself, but its subtasks can be shown and queued | `space` queue or unqueue a task or subtask, or on a section queue all of it · `→` `l` `⏎` on a task with subtasks shows them, `←` `h` hides them · `o` open the task (or board) in Asana · `R` reload |
 | **3 Setup** | the sprint queued tasks are added to, the branch new work targets, and whether PRs are merged | `⏎` change one |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |

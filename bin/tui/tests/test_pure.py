@@ -312,6 +312,42 @@ class TestRunRows(unittest.TestCase):
         self.assertEqual(rows[2]["id"], 77)
 
 
+class TestGoalRows(unittest.TestCase):
+    def goal(self, **fields):
+        return dict({"id": "goal-1027-1432-dark-mode", "ask": "Add dark mode\nto settings",
+                     "status": "working", "round": 3, "alive": True, "pid": 9,
+                     "log": "/r/goal.log", "pr_url": "https://github.com/o/r/pull/1",
+                     "limits": [{"name": "session", "used": 61}, {"name": "week", "used": 22}]},
+                    **fields)
+
+    def test_a_working_goal_says_its_round_and_the_usage(self):
+        [row] = tui.goal_rows([self.goal()])
+        self.assertEqual(row["cols"], ["goal", "Add dark mode", "working · round 3 · usage 61%"])
+        self.assertEqual((row["kind"], row["id"], row["style"]), ("goal", "goal:goal-1027-1432-dark-mode", "ok"))
+
+    def test_a_goal_waiting_on_you_comes_first_and_says_why(self):
+        waits = {"goal:b": {"kind": "questions", "questions": [{"q": "Which theme?"}]}}
+        rows = tui.goal_rows([self.goal(id="a"), self.goal(id="b")], waits)
+        self.assertEqual([r["goal"] for r in rows], ["b", "a"])
+        self.assertIn("has questions for you: Which theme?", rows[0]["cols"][2])
+
+    def test_a_goal_whose_process_died_can_carry_on(self):
+        [row] = tui.goal_rows([self.goal(alive=False)])
+        self.assertEqual((row["cols"][2], row["style"]), ("stopped unexpectedly — r carries on", "bad"))
+
+    def test_done_goals_hide_with_done_tasks(self):
+        goals = [self.goal(status="done", alive=False), self.goal(id="b")]
+        self.assertEqual([r["goal"] for r in tui.goal_rows(goals, hide_done=True)], ["b"])
+
+    def test_goals_come_before_the_queue_and_their_questions_are_waits(self):
+        g = self.goal(awaiting={"kind": "problem", "asked_at": "t", "headline": "push refused"})
+        waits = tui.goal_waits([g])
+        self.assertEqual(waits["goal:%s" % g["id"]]["key"], g["id"])
+        rows = tui.run_rows({"queue": []}, {}, [], waits=waits, goals=[g])
+        self.assertEqual(rows[0]["kind"], "goal")
+        self.assertTrue(rows[0]["cols"][2].startswith("⚑ push refused"))
+
+
 class TestBoardRows(unittest.TestCase):
     SECTIONS = [
         {"gid": "s1", "name": "M1 :: Built", "tasks": [
@@ -1087,7 +1123,9 @@ class TestAnswering(unittest.TestCase):
         self.press(":")
         self.assertEqual(self.palette_titles(),
                          ["Change A-2's PR base branch to feature/m1", "Make A-2 a checkpoint",
-                          "Undo A-2", "Hide done tasks", "Start this repo's daemon"])
+                          "Undo A-2", "New goal on feature/m1",
+                          "New goal on feature/m1, written in $EDITOR", "Hide done tasks",
+                          "Start this repo's daemon"])
 
     def test_c_continues_past_a_merged_checkpoint(self):
         with dm.control_file(self.root) as c:

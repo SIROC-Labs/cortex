@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,8 @@ from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
 from engine import ASANA, Stop, describe, task_url  # noqa: E402
 from start_task import usage_summary  # noqa: E402
 from daemon import st  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "goal"))
+import goal as gl  # noqa: E402
 
 TABS = ("Runs", "Boards", "Setup", "Daemons")
 MERGE_LABELS = {
@@ -243,6 +246,13 @@ def wait_lines(wait, width):
     return out
 
 
+GOAL_TEMPLATE = "\n".join([
+    "", "",
+    "# The ask for a new goal. It runs by itself on its own branch and ends as one PR",
+    "# into the branch new work goes into. It asks you only what it cannot decide.",
+    "#", "# Lines starting with # are dropped. An empty ask starts nothing.", ""])
+
+
 def answer_template(title, wait):
     """What the editor opens with: the wait as comments, room for the answer."""
     lines = ["", "", "# Answer for %s" % title, "#"]
@@ -323,7 +333,7 @@ def read_waits(main_root, control, data):
 
 
 def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None,
-             default_branch=None, hide_done=False):
+             default_branch=None, hide_done=False, goals=()):
     """The Runs tab: every task waiting on you first, then the rest of the queue
     in its order — grouped by feature, under a line saying how each stands,
     once there is more than one — then every live start-task run nothing here
@@ -405,7 +415,67 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
         rows.append({"kind": "orphan", "id": pid, "style": "bad", "links": [],
                      "cols": [tree.split("+")[0], "agent pid %d, no run owns it" % pid,
                               "still working in %s — x stops it" % tree]})
+    return goal_rows(goals, waits, hide_done) + rows
+
+
+def goal_status(g, wait=None):
+    """(what a goal is doing, style) for its row on the Runs tab."""
+    if wait:
+        return "⚑ " + wait_summary(wait), "warn"
+    status = g.get("status")
+    if status in gl.LIVE and not g.get("alive"):
+        return "stopped unexpectedly — r carries on", "bad"
+    limits = g.get("limits") or []
+    use = (" · usage %d%%" % max(l["used"] for l in limits)) if limits else ""
+    if status == "working":
+        return "working · round %s%s" % (g.get("round") or 1, use), "ok"
+    if status == "checking":
+        return "checking the branch against the ask · round %s%s" % (g.get("round") or 1, use), "ok"
+    if status == "setting-up":
+        return "setting up its branch and PR", "ok"
+    if status == "paused":
+        return g.get("doing") or "paused for the usage limit", "normal"
+    if status == "done":
+        return "done — its PR is ready for review", "dim"
+    if status == "failed":
+        return "failed — %s · r tries again" % (g.get("reason") or "?").splitlines()[0][:120], "bad"
+    if status == "stopped":
+        return "stopped — r carries on", "dim"
+    return status or "new", "normal"
+
+
+def goal_rows(goals, waits=None, hide_done=False):
+    """The Runs tab's goals, waiting on you first: an ask that runs by itself,
+    on its own branch, into one PR."""
+    waits = waits or {}
+    rows = []
+    for g in goals or []:
+        gid = "goal:%s" % g["id"]
+        wait = waits.get(gid)
+        done = g.get("status") == "done"
+        if hide_done and done and not wait:
+            continue
+        status, style = goal_status(g, wait)
+        rows.append({"kind": "goal", "id": gid, "goal": g["id"], "style": style,
+                     "cols": ["goal", gl.title_of(g.get("ask")), status],
+                     "log": g.get("log"), "wait": wait, "pr_url": g.get("pr_url"),
+                     "links": [u for u in (g.get("pr_url"),) if u],
+                     "alive": g.get("alive"), "status": g.get("status"),
+                     "finished": done or (g.get("status") in ("failed", "stopped")
+                                          and not g.get("alive")),
+                     "done": done})
+    rows.sort(key=lambda r: not r.get("wait"))
     return rows
+
+
+def goal_waits(goals):
+    """What each goal is waiting on you for: its outstanding question or problem."""
+    out = {}
+    for g in goals or []:
+        awaiting = g.get("awaiting")
+        if awaiting and awaiting.get("asked_at"):
+            out["goal:%s" % g["id"]] = dict(awaiting, key=g["id"])
+    return out
 
 
 def setup_rows(control, default_branch=None):
@@ -697,6 +767,9 @@ HELP = [
         ("o", "open its PR (or the task) · on a merged task, what it changed"),
         ("c", "continue past a reached checkpoint — its feature starts tasks again · "
               "on a held-back task, drop the checkpoint holding it"),
+        (": New goal", "an ask that runs by itself, on its own branch, into one PR — "
+                       "it asks you only what it cannot decide"),
+        ("x r o", "on a goal: stop it (finished: remove it) · carry it on · open its PR"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
@@ -947,12 +1020,15 @@ class App(object):
         self.data = dm.read_json(os.path.join(dm.queue_dir(self.main_root), "state.json")) or {}
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
+        self.goals = gl.list_goals(self.main_root)
         self.waits = read_waits(self.main_root, self.control, self.data)
+        self.waits.update(goal_waits(self.goals))
         self.activity = self.read_activity()
         now = time.time()
         self.snapped_at = now
         if agents or not hasattr(self, "agents"):
-            self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live])
+            self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live]
+                                         + [g["pid"] for g in self.goals if g.get("alive")])
             self.agents_at = now
 
     def refresh_state(self, now):
@@ -1146,7 +1222,7 @@ class App(object):
             return run_rows(self.control, self.data, self.live, agents=self.agents,
                             hide_done=bool(self.control.get("hide_done")),
                             waits=self.waits, activity=self.activity,
-                            default_branch=self.default_branch)
+                            default_branch=self.default_branch, goals=self.goals)
         if name == "Boards" and self.board:
             queued = {q["gid"] for q in self.control["queue"]}
             return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
@@ -1237,6 +1313,11 @@ class App(object):
             return
         st.State(self.main_root, wait["key"]).write(
             st.ANSWER_FILE, {"asked_at": wait["asked_at"], "text": text, "at": time.time()})
+        if gid.startswith("goal:"):
+            self.question = None
+            self.message = "answered — the goal carries on"
+            self.snapshot()
+            return
         self.posting[gid] = "answer"
         self.loader.start("answer-%s" % gid, "answer",
                           lambda: self.asana(["comment", "add", gid, text]))
@@ -1278,6 +1359,43 @@ class App(object):
             self.edit_request = row["id"]
         else:
             self.compose = {"kind": "answer", "gid": row["id"], "text": "", "line": LineEdit()}
+
+    def new_goal(self, ask):
+        """Start a goal on the branch new work goes into."""
+        base = self.control.get("base")
+        gid = gl.create(self.main_root, ask, base)
+        gl.launch(self.main_root, gid)
+        self.message = "goal started on %s — it is at the top of the Runs tab" % (
+            base or self.default_branch or "the default branch")
+        self.snapshot()
+
+    def goal_key(self, key, row):
+        """x stops a running goal, or takes a finished one off the list; r starts a
+        stopped one again where it left off; o opens its PR."""
+        goal = gl.Goal(self.main_root, row["goal"])
+        pid = goal.read().get("pid")
+        if key == "x" and row.get("alive") and pid:
+            def stop():
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except OSError:
+                    dm.kill_pid(pid)
+            self.ask("stop the goal \"%s\"? r carries it on later (y/n)" % row["cols"][1], stop)
+        elif key == "x":
+            self.ask("take the goal \"%s\" off the list? Its branch and PR stay (y/n)"
+                     % row["cols"][1], lambda: (goal.update(cleared=True), self.snapshot()))
+        elif key == "r" and row.get("alive"):
+            self.message = "the goal is still running"
+        elif key == "r" and row.get("status") == "done":
+            self.message = "the goal is done — its PR is ready for review"
+        elif key == "r":
+            gl.launch(self.main_root, row["goal"])
+            self.message = "the goal carries on from where it stopped"
+            self.snapshot()
+        elif key == "o" and row.get("pr_url"):
+            webbrowser.open(row["pr_url"])
+        elif key == "o":
+            self.message = "no PR yet"
 
     def merge(self, row):
         """Ask for a task to be got onto main: conflicts resolved, failing checks
@@ -1347,6 +1465,14 @@ class App(object):
                         "words": "revert discard throw away back out cancel reset",
                         "run": lambda: self.undo(row)})
         if TABS[self.tab] != "Daemons":
+            into = self.control.get("base") or self.default_branch or "the default branch"
+            out.append({"title": "New goal on %s" % into,
+                        "words": "autonomous ask run by itself agent swarm implement",
+                        "run": lambda: setattr(self, "compose", {"kind": "goal", "text": "",
+                                                                 "line": LineEdit()})})
+            out.append({"title": "New goal on %s, written in $EDITOR" % into,
+                        "words": "autonomous ask run by itself agent swarm implement editor",
+                        "run": lambda: setattr(self, "edit_request", "new-goal")})
             hidden = bool(self.control.get("hide_done"))
             out.append({"title": "Show done tasks" if hidden else "Hide done tasks",
                         "words": "filter completed merged finished hide show toggle",
@@ -1477,8 +1603,10 @@ class App(object):
     def act(self, key, row):
         name = TABS[self.tab]
         if name == "Runs" and row:
-            if key in ("a", "A") and row["kind"] == "task":
+            if key in ("a", "A") and row["kind"] in ("task", "goal"):
                 self.start_answer(row, editor=key == "A")
+            elif row["kind"] == "goal" and key in ("x", "r", "o"):
+                self.goal_key(key, row)
             elif key == "m" and row["kind"] == "task":
                 self.merge(row)
             elif key == "x" and row["kind"] == "task" and row.get("finished"):
@@ -1669,6 +1797,8 @@ class App(object):
                 compose, self.compose = self.compose, None
                 if compose.get("kind") == "branch":
                     self.new_branch(text)
+                elif compose.get("kind") == "goal" and text:
+                    self.new_goal(text)
                 elif text:
                     self.answer(compose["gid"], text)
                 else:
@@ -1686,7 +1816,7 @@ class App(object):
                 self.message = "answered — nothing waiting there now"
             elif key in ("a", "A"):
                 self.start_answer(row, editor=key == "A")
-            elif key == "m":
+            elif key == "m" and row["kind"] == "task":
                 self.merge(row)
             elif key == "l" and row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
@@ -1759,8 +1889,9 @@ class App(object):
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:
-            return ("enter create · esc cancel · ^U clear — any characters, / included"
-                    if self.compose.get("kind") == "branch" else "enter send · esc cancel · ^U clear")
+            return {"branch": "enter create · esc cancel · ^U clear — any characters, / included",
+                    "goal": "enter start the goal · esc cancel · ^U clear"}.get(
+                        self.compose.get("kind"), "enter send · esc cancel · ^U clear")
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
@@ -1877,8 +2008,9 @@ class App(object):
             for i, line in enumerate(detail[:4]):
                 put(h - 6 + i, "  " + line, "dim")
         if self.compose is not None:
-            prompt = ("new branch from origin/%s › " % (self.default_branch or "the default branch")
-                      if self.compose.get("kind") == "branch" else "answer › ")
+            prompt = {"branch": "new branch from origin/%s › " % (self.default_branch
+                                                                   or "the default branch"),
+                      "goal": "goal › "}.get(self.compose.get("kind"), "answer › ")
             put(h - 2, prompt + self.compose["line"].show(max(1, w - len(prompt) - 3)), "warn")
         else:
             put(h - 2, self.message, "warn")
@@ -1999,7 +2131,14 @@ def run_ui(main_root, forward):
                         break
             except Stop as e:
                 app.message = str(e)
-            if app.edit_request:
+            if app.edit_request == "new-goal":
+                app.edit_request = None
+                text = edit_answer(scr, GOAL_TEMPLATE)
+                if text:
+                    app.new_goal(text)
+                else:
+                    app.message = "no goal started"
+            elif app.edit_request:
                 gid, app.edit_request = app.edit_request, None
                 wait = app.waits.get(gid) or {}
                 text = edit_answer(scr, answer_template(wait.get("key") or gid, wait))
@@ -2037,9 +2176,12 @@ def print_status(main_root):
                                          " (pid %s)" % info.get("pid") if alive else ""))
     sys.stdout.write("sprint:  %s\n" % ((control.get("sprint") or {}).get("name") or "none"))
     live = dm.live_runs(main_root)
+    goals = gl.list_goals(main_root)
     waits = read_waits(main_root, control, data)
-    rows = run_rows(control, data, live, agents=dm.live_agents(main_root, [p for _, p in live]),
-                    waits=waits)
+    waits.update(goal_waits(goals))
+    rows = run_rows(control, data, live, agents=dm.live_agents(
+        main_root, [p for _, p in live] + [g["pid"] for g in goals if g.get("alive")]),
+        waits=waits, goals=goals)
     if not rows:
         sys.stdout.write("\nnothing queued\n")
     if waits:
