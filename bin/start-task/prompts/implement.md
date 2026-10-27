@@ -54,10 +54,17 @@ The PR gets two texts from you:
 
 - `summary` is the PR description. Keep it short: what the change does and why, in
   1-3 sentences.
-- `walkthrough` is posted as the first comment on the PR. It says what you did: each
-  part of the change, what it does and why, with one heading or list item for each
-  part. Include behaviour that changes for users, and decisions you made where the
-  task did not say. Describe the change only. Do not tell the reader how to review it,
+- `walkthrough` is posted as the first comment on the PR. It says what you did.
+  It has these sections, in this order, as `##` headings:
+
+  - **Why**: the problem the change solves, in a few sentences.
+  - **Behaviour**: what is different when the change is live — for users, for data,
+    and for the running system — and what the change does not touch.
+  - **Key files**: only the files that matter to understand the change, each as
+    `path`: one short sentence that says why it changed. Leave out documentation,
+    READMEs, tests, and generated files.
+
+  Keep it short. Describe the change only. Do not tell the reader how to review it,
   where to start, or what to check.
 
 Write both, and `notes`, in ASD-STE100 Simplified Technical English:
@@ -84,7 +91,7 @@ When you implemented the task:
 ```json
 {
   "summary": "What changed and why, in 1-3 sentences. Used verbatim as the PR description.",
-  "walkthrough": "The explanation of the change for the reviewer, in Markdown. Posted as a PR comment.",
+  "walkthrough": "Why, Behaviour and Key files, in Markdown. Posted as a PR comment.",
   "files_changed": ["path/one.ts", "path/two.ts"],
   "notes": "Anything the reviewer must know: assumptions, gaps, follow-ups. Empty string if none."
 }

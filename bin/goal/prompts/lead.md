@@ -56,8 +56,20 @@ When you have more to do, but you stop for now:
 When the ask is fully implemented, committed, and its tests pass:
 
 ```json
-{"status": "done", "summary": "What the change does and why, in 1-3 sentences. It becomes the PR description.", "walkthrough": "What you did, part by part, in Markdown. It is posted as a comment on the PR."}
+{"status": "done", "summary": "What the change does and why, in 1-3 sentences. It becomes the PR description.", "walkthrough": "Why, Behaviour and Key files, in Markdown. It is posted as a comment on the PR."}
 ```
+
+The `walkthrough` says what you did. It has these sections, in this order, as `##` headings:
+
+- **Why**: the problem the change solves, in a few sentences.
+- **Behaviour**: what is different when the change is live — for users, for data,
+  and for the running system — and what the change does not touch.
+- **Key files**: only the files that matter to understand the change, each as
+  `path`: one short sentence that says why it changed. Leave out documentation,
+  READMEs, tests, and generated files.
+
+Keep it short. Describe the change only. Do not tell the reader how to review it,
+where to start, or what to check.
 
 When only the person can make a decision that blocks you:
 
