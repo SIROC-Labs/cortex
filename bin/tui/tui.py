@@ -246,13 +246,6 @@ def wait_lines(wait, width):
     return out
 
 
-GOAL_TEMPLATE = "\n".join([
-    "", "",
-    "# The ask for a new goal. It runs by itself on its own branch and ends as one PR",
-    "# into the branch new work goes into. It asks you only what it cannot decide.",
-    "#", "# Lines starting with # are dropped. An empty ask starts nothing.", ""])
-
-
 def answer_template(title, wait):
     """What the editor opens with: the wait as comments, room for the answer."""
     lines = ["", "", "# Answer for %s" % title, "#"]
@@ -457,7 +450,7 @@ def goal_rows(goals, waits=None, hide_done=False):
             continue
         status, style = goal_status(g, wait)
         rows.append({"kind": "goal", "id": gid, "goal": g["id"], "style": style,
-                     "cols": ["goal", gl.title_of(g.get("ask")), status],
+                     "cols": ["goal", gl.title_of(g), status],
                      "log": g.get("log"), "wait": wait, "pr_url": g.get("pr_url"),
                      "links": [u for u in (g.get("pr_url"),) if u],
                      "alive": g.get("alive"), "status": g.get("status"),
@@ -639,7 +632,7 @@ def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
     state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
     key = t.get("key") or ""
     lead = "%s%s " % (indent, mark)
-    return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"],
+    return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"], "key": key,
                  "completed": t.get("completed"), "milestone": milestone,
                  "faint": (len(lead), len(key)) if key else None,
                  "cols": ["%s%s%s" % (lead, key + " " if key else "", t["name"]),
@@ -767,8 +760,6 @@ HELP = [
         ("o", "open its PR (or the task) · on a merged task, what it changed"),
         ("c", "continue past a reached checkpoint — its feature starts tasks again · "
               "on a held-back task, drop the checkpoint holding it"),
-        (": New goal", "an ask that runs by itself, on its own branch, into one PR — "
-                       "it asks you only what it cannot decide"),
         ("x r o", "on a goal: stop it (finished: remove it) · carry it on · open its PR"),
     ]),
     ("Boards", [
@@ -777,6 +768,8 @@ HELP = [
         ("← h", "hide them again (on a subtask or its task) · then: leave the board"),
         ("o", "open the task (or the board) in Asana"),
         ("R", "reload from Asana"),
+        (": Run as a goal", "on a task or milestone: it runs by itself, on its own branch, "
+                            "into one PR — it asks you only what it cannot decide"),
     ]),
     ("Setup", [
         ("⏎", "pick the sprint or the feature to queue into · cycle Merging · show or hide done tasks"),
@@ -1360,10 +1353,15 @@ class App(object):
         else:
             self.compose = {"kind": "answer", "gid": row["id"], "text": "", "line": LineEdit()}
 
-    def new_goal(self, ask):
-        """Start a goal on the branch new work goes into."""
+    def new_goal(self, row):
+        """Start a goal for a board's ticket, on the branch new work goes into."""
+        existing = gl.find_goal(self.main_root, row["id"])
+        if existing:
+            self.message = "%s is already a goal — it is on the Runs tab" % gl.title_of(existing)
+            return
         base = self.control.get("base")
-        gid = gl.create(self.main_root, ask, base)
+        gid = gl.create(self.main_root, row["id"], row.get("key") or row["id"], row["name"],
+                        url=gl.task_url(row["id"], row["board"]), base=base)
         gl.launch(self.main_root, gid)
         self.message = "goal started on %s — it is at the top of the Runs tab" % (
             base or self.default_branch or "the default branch")
@@ -1464,15 +1462,14 @@ class App(object):
             out.append({"title": "Undo %s" % row["cols"][0],
                         "words": "revert discard throw away back out cancel reset",
                         "run": lambda: self.undo(row)})
-        if TABS[self.tab] != "Daemons":
+        if (TABS[self.tab] == "Boards" and self.board and row and row["kind"] == "task"
+                and not row.get("completed")):
             into = self.control.get("base") or self.default_branch or "the default branch"
-            out.append({"title": "New goal on %s" % into,
-                        "words": "autonomous ask run by itself agent swarm implement",
-                        "run": lambda: setattr(self, "compose", {"kind": "goal", "text": "",
-                                                                 "line": LineEdit()})})
-            out.append({"title": "New goal on %s, written in $EDITOR" % into,
-                        "words": "autonomous ask run by itself agent swarm implement editor",
-                        "run": lambda: setattr(self, "edit_request", "new-goal")})
+            name = row.get("key") or (row["name"] if len(row["name"]) <= 40 else row["name"][:39] + "…")
+            out.append({"title": "Run %s as a goal on %s" % (name, into),
+                        "words": "goal autonomous run by itself agent swarm implement",
+                        "run": lambda: self.new_goal(row)})
+        if TABS[self.tab] != "Daemons":
             hidden = bool(self.control.get("hide_done"))
             out.append({"title": "Show done tasks" if hidden else "Hide done tasks",
                         "words": "filter completed merged finished hide show toggle",
@@ -1797,8 +1794,6 @@ class App(object):
                 compose, self.compose = self.compose, None
                 if compose.get("kind") == "branch":
                     self.new_branch(text)
-                elif compose.get("kind") == "goal" and text:
-                    self.new_goal(text)
                 elif text:
                     self.answer(compose["gid"], text)
                 else:
@@ -1889,8 +1884,7 @@ class App(object):
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:
-            return {"branch": "enter create · esc cancel · ^U clear — any characters, / included",
-                    "goal": "enter start the goal · esc cancel · ^U clear"}.get(
+            return {"branch": "enter create · esc cancel · ^U clear — any characters, / included"}.get(
                         self.compose.get("kind"), "enter send · esc cancel · ^U clear")
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
@@ -2009,8 +2003,7 @@ class App(object):
                 put(h - 6 + i, "  " + line, "dim")
         if self.compose is not None:
             prompt = {"branch": "new branch from origin/%s › " % (self.default_branch
-                                                                   or "the default branch"),
-                      "goal": "goal › "}.get(self.compose.get("kind"), "answer › ")
+                                                                   or "the default branch")}.get(self.compose.get("kind"), "answer › ")
             put(h - 2, prompt + self.compose["line"].show(max(1, w - len(prompt) - 3)), "warn")
         else:
             put(h - 2, self.message, "warn")
@@ -2131,14 +2124,7 @@ def run_ui(main_root, forward):
                         break
             except Stop as e:
                 app.message = str(e)
-            if app.edit_request == "new-goal":
-                app.edit_request = None
-                text = edit_answer(scr, GOAL_TEMPLATE)
-                if text:
-                    app.new_goal(text)
-                else:
-                    app.message = "no goal started"
-            elif app.edit_request:
+            if app.edit_request:
                 gid, app.edit_request = app.edit_request, None
                 wait = app.waits.get(gid) or {}
                 text = edit_answer(scr, answer_template(wait.get("key") or gid, wait))

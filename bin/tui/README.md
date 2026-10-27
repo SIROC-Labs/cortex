@@ -84,10 +84,11 @@ the feature of the task that needs it, and what a task needs is never held back.
 
 ## Goals
 
-A goal is an ask that runs by itself. *New goal* in the palette (`:`) takes the ask in
-one line, or *New goal …, written in $EDITOR* for a longer one. It starts at once, on its
-own branch made from **Queue into**, and ends as one PR into that branch. It does not
-touch Asana and does not merge anything. See [the goal tool](../goal/README.md) for how it
+A goal is a ticket that runs by itself, with no breakdown and no queue. On a board, select
+a task or a milestone and pick *Run … as a goal* in the palette (`:`). It starts at once,
+on its own branch made from **Queue into**, and ends as one PR into that branch. It reads
+the ticket, its open subtasks, its comments and its attachments once, when it starts. It
+writes nothing to Asana and does not merge anything. See [the goal tool](../goal/README.md) for how it
 works.
 
 A goal is the first row on the Runs tab: what it is doing, its round, and the highest

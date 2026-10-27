@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 #
-# goal.py — an ask, implemented autonomously on one branch, into one PR.
+# goal.py — an Asana ticket, implemented autonomously on one branch, into one PR.
 #
+# The ask is the ticket: its description, its subtasks, its comments and its
+# attachments, read once when the goal starts. Nothing is written back to Asana.
 # A lead agent gets the ask and nothing else: it plans, starts its own sub-agents,
 # reviewers and checkers as it sees fit, and keeps a journal so it can always pick
 # the thread back up. This program is the harness around it. It calls the lead in
@@ -10,8 +12,8 @@
 # independent checker confirm "done" against the ask, and pauses while the Claude
 # subscription is at or over its usage threshold. It never merges anything.
 #
-#   cortex goal new --ask "…" [--base feature/x] [--start]   # prints the goal's id
-#   cortex goal run <id>                                      # run or resume it
+#   cortex goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
+#   cortex goal run <id>                                              # run or resume it
 #
 # A goal's state is `.cortex/state/<id>/` — `goal.json`, the journal, its
 # questions and answers — the same place a task's run keeps its own, so the TUI
@@ -68,16 +70,45 @@ FINISHED = ("done", "failed", "stopped")
 
 # --- pure helpers (unit-tested) ----------------------------------------------
 
-def goal_id(ask, now):
-    """A goal's id: when it was made, and a few words of the ask."""
-    return "goal-%s-%s" % (time.strftime("%m%d-%H%M", time.localtime(now)),
-                           st.slugify(ask, max_words=4))
+def goal_id(key, name):
+    """A goal's id: the ticket's key, and a few words of its name."""
+    return "goal-%s-%s" % (st.slugify(key, max_words=3), st.slugify(name, max_words=4))
 
 
-def title_of(ask, width=70):
-    """The first line of the ask, short enough for a PR title."""
-    line = next((l.strip() for l in (ask or "").splitlines() if l.strip()), "goal")
+def title_of(goal, width=70):
+    """The ticket's key and name, short enough for a row."""
+    line = " ".join(x for x in ((goal or {}).get("key"), (goal or {}).get("name")) if x) or "goal"
     return line if len(line) <= width else line[:width - 1].rstrip() + "…"
+
+
+def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
+    """The ask, as the lead reads it: the ticket and everything hanging off it.
+    `subtasks` are full tickets too; `attachments` are download entries with an
+    absolute `path`."""
+    out = ["# %s: %s" % (st.task_key(task), task.get("name") or ""), url, ""]
+    if (task.get("description") or "").strip():
+        out += [task["description"].strip(), ""]
+    open_subtasks = [t for t in subtasks if not t.get("completed")]
+    if open_subtasks:
+        out += ["## Subtasks", "", "All of them are part of the ask.", ""]
+        for t in open_subtasks:
+            out += ["### %s: %s" % (st.task_key(t), t.get("name") or ""), ""]
+            if (t.get("description") or "").strip():
+                out += [t["description"].strip(), ""]
+    said = [c for c in comments
+            if (c.get("text") or "").strip() and not c["text"].startswith(st.BOT_MARK)]
+    if said:
+        out += ["## Comments", ""]
+        out += ["- %s: %s" % (c.get("author") or "someone", c["text"].strip()) for c in said]
+        out.append("")
+    if attachments:
+        out += ["## Attachments", ""]
+        for a in attachments:
+            out.append("- `%s`" % a["path"])
+            if a.get("inline"):
+                out += ["", "```", a["inline"].rstrip(), "```", ""]
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
 
 
 _LIMIT_LINE = re.compile(r"^(?P<name>[^:\n]+):\s*(?P<used>\d+)%\s*used(?:\s*·\s*resets\s+(?P<resets>.+))?$")
@@ -199,16 +230,29 @@ class Goal(object):
         return self.state.path(LOG_FILE)
 
 
-def create(main_root, ask, base=None, threshold=DEFAULT_THRESHOLD, model=DEFAULT_MODEL,
-           now=None):
-    """Write a new goal's state. Returns its id; nothing runs yet."""
-    now = now or time.time()
-    gid = goal_id(ask, now)
+def task_url(gid, board=None):
+    return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
+
+
+def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
+           model=DEFAULT_MODEL, now=None):
+    """Write a new goal for the ticket `ref`. Returns its id; nothing runs yet, and the
+    ticket itself is read when it starts."""
+    gid, n = goal_id(key, name), 1
+    while os.path.isdir(Goal(main_root, gid).state.dir):
+        n += 1
+        gid = "%s-%d" % (goal_id(key, name), n)
     goal = Goal(main_root, gid)
     goal.state.ensure()
-    goal.update(id=gid, ask=ask.strip(), base=base, threshold=threshold, model=model,
-                created=now, status="new", round=0)
+    goal.update(id=gid, ref=ref, key=key, name=name, url=url or task_url(ref), base=base,
+                threshold=threshold, model=model, created=now or time.time(), status="new",
+                round=0)
     return gid
+
+
+def find_goal(main_root, ref):
+    """The goal on the list for the ticket `ref`, if there is one."""
+    return next((g for g in list_goals(main_root) if g.get("ref") == ref), None)
 
 
 def launch(main_root, gid):
@@ -275,25 +319,45 @@ class Runner(object):
 
     # setup
 
+    def read_ticket(self):
+        """The ask, from the ticket as it is now. Read once, when the goal starts."""
+        st.step("Reading the ticket")
+        ref = self.data["ref"]
+        task = st.asana(["task", "get", ref], cwd=self.main_root)
+        subtasks = [dict(st.asana(["task", "get", t["ref"]], cwd=self.main_root) or {},
+                         completed=t.get("completed"))
+                    for t in st.asana(["task", "subtasks", ref], cwd=self.main_root) or []
+                    if not t.get("completed")]
+        comments = st.asana(["comment", "list", ref], cwd=self.main_root) or []
+        attachments = []
+        for att in st.asana(["task", "attachments", ref], cwd=self.main_root) or []:
+            entry = st.download_attachment(att, self.goal.state.path("attachments"))
+            if entry:
+                attachments.append(dict(entry, path=self.goal.state.path(entry["path"])))
+        st.info("%d subtask(s) · %d comment(s) · %d attachment(s)"
+                % (len(subtasks), len(comments), len(attachments)))
+        self.set(ask=ask_from_ticket(task, self.data["url"], subtasks, comments, attachments),
+                 name=task.get("name") or self.data.get("name"))
+
     def set_up(self):
+        if not self.data.get("ask"):
+            os.makedirs(self.goal.state.path("attachments"), exist_ok=True)
+            self.read_ticket()
         if self.data.get("worktree") and os.path.isdir(self.data["worktree"]):
             return
         st.step("Setting up")
+        key, name = self.data["key"], self.data["name"]
         base = st.resolve_base(self.main_root, self.data.get("base"))
-        branch = "goal/%s" % self.goal.id[len("goal-"):]
+        branch = "%s/goal-%s" % (key, st.slugify(name))
         worktree = st.worktree_path(self.main_root, self.goal.id)
         with st.repo_lock(self.main_root):
             st.git(["fetch", "origin"], cwd=self.main_root, check=False)
             st.git(["worktree", "add", worktree, "-b", branch, base], cwd=self.main_root)
-        st.git(["commit", "--allow-empty", "-m", "goal :: %s (start)" % title_of(self.data["ask"])],
-               cwd=worktree)
+        st.git(["commit", "--allow-empty", "-m", "%s :: start the goal" % key], cwd=worktree)
         st.git(["push", "-u", "origin", branch], cwd=worktree)
         st.info("created %s off %s in %s" % (branch, base, worktree))
-        pr_url, error = st.create_draft_pr("Goal", title_of(self.data["ask"]), "",
-                                           base, branch, worktree)
+        pr_url, error = st.create_draft_pr(key, name, self.data["url"], base, branch, worktree)
         if pr_url:
-            st.run(["gh", "pr", "edit", pr_url, "--body", "## The ask\n\n%s\n" % self.data["ask"]],
-                   cwd=worktree, check=False)
             st.info("draft PR: %s" % pr_url)
         else:
             st.warn("could not open the draft PR: %s" % error)
@@ -490,8 +554,7 @@ class Runner(object):
         worktree, pr_url = self.data["worktree"], self.data.get("pr_url")
         self.push()
         if pr_url:
-            body = "%s\n\n<details><summary>The ask</summary>\n\n%s\n\n</details>\n" % (
-                block.get("summary") or "", self.data["ask"])
+            body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
             st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
             if (block.get("walkthrough") or "").strip():
                 st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(block["walkthrough"].strip())],
@@ -570,9 +633,8 @@ def render(path, **kwargs):
 def main(argv):
     parser = argparse.ArgumentParser(prog="cortex goal", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    new = sub.add_parser("new", help="make a goal from an ask")
-    new.add_argument("--ask", help="the ask")
-    new.add_argument("--ask-file", help="a file holding the ask")
+    new = sub.add_parser("new", help="make a goal from an Asana ticket")
+    new.add_argument("task", help="the ticket: its URL or gid")
     new.add_argument("--base", help="the branch to build on and open the PR into")
     new.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                      help="pause while any usage limit is at or over this percentage")
@@ -585,13 +647,16 @@ def main(argv):
     args = parser.parse_args(argv)
     main_root = st.main_repo_root(os.path.abspath(args.repo))
     if args.cmd == "new":
-        ask = args.ask
-        if args.ask_file:
-            with open(args.ask_file) as f:
-                ask = f.read()
-        if not (ask or "").strip():
-            parser.error("give the ask with --ask or --ask-file")
-        gid = create(main_root, ask, args.base, args.threshold, args.model)
+        ref = st.asana(["ref", "parse", args.task], cwd=main_root)
+        if not ref:
+            parser.error("%r is not an Asana task" % args.task)
+        ref = str(ref).strip()
+        existing = find_goal(main_root, ref)
+        if existing:
+            parser.error("the ticket is already the goal %s" % existing["id"])
+        task = st.asana(["task", "get", ref], cwd=main_root)
+        gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
+                     threshold=args.threshold, model=args.model)
         if args.start:
             launch(main_root, gid)
         print(gid)

@@ -4,6 +4,10 @@ and nobody breaks it down for you: that is your job.
 
 ## The ask
 
+The ask is an Asana ticket, with its subtasks, comments and attachments. Everything
+from the ticket is below. Do not read or change Asana. The subtasks are parts of
+this one piece of work, not separate tickets.
+
 {{ask}}
 
 ## Where you are

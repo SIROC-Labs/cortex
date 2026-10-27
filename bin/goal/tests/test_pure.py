@@ -86,18 +86,42 @@ class TestGoals(unittest.TestCase):
         shutil.rmtree(self.root)
 
     def test_a_new_goal_is_listed_and_not_running(self):
-        gid = goal.create(self.root, "Add dark mode to the settings page\nand more", "feature/x",
-                          now=at(2026, 10, 27, 14, 32))
-        self.assertTrue(gid.startswith("goal-1027-"))
-        self.assertIn("dark-mode", gid)
+        gid = goal.create(self.root, "123", "HRT1-519", "Recruiter's queue, first cut", base="feature/x")
+        self.assertEqual(gid, "goal-hrt1-519-recruiter-s-queue-first")
         [listed] = goal.list_goals(self.root)
         self.assertEqual((listed["id"], listed["status"], listed["alive"]), (gid, "new", False))
-        self.assertEqual(listed["base"], "feature/x")
+        self.assertEqual((listed["base"], listed["url"]), ("feature/x", "https://app.asana.com/0/0/123"))
+        self.assertEqual(goal.find_goal(self.root, "123")["id"], gid)
+        self.assertIsNone(goal.find_goal(self.root, "456"))
 
-    def test_the_title_is_the_first_line(self):
-        self.assertEqual(goal.title_of("\n  Do the thing  \nmore"), "Do the thing")
-        self.assertEqual(len(goal.title_of("x" * 200)), 70)
+    def test_the_same_ticket_again_gets_its_own_id(self):
+        first = goal.create(self.root, "123", "A-1", "Thing")
+        goal.Goal(self.root, first).update(cleared=True)
+        self.assertEqual(goal.create(self.root, "123", "A-1", "Thing"), first + "-2")
 
+    def test_the_title_is_the_key_and_the_name(self):
+        self.assertEqual(goal.title_of({"key": "A-1", "name": "Do the thing"}), "A-1 Do the thing")
+        self.assertEqual(len(goal.title_of({"name": "x" * 200})), 70)
+
+
+class TestTheAsk(unittest.TestCase):
+    def test_the_ask_is_the_ticket_and_what_hangs_off_it(self):
+        task = {"ref": "1", "task_id": "A-1", "name": "Queue", "description": "Build the queue."}
+        subtasks = [{"ref": "2", "task_id": "A-2", "name": "List", "description": "Show it."},
+                    {"ref": "3", "name": "Done one", "completed": True}]
+        comments = [{"author": "Sam", "text": "Use the new table."},
+                    {"author": "bot", "text": goal.st.BOT_MARK + " started"}]
+        attachments = [{"path": "/s/attachments/spec.md", "inline": "# Spec"}]
+        ask = goal.ask_from_ticket(task, "https://x/1", subtasks, comments, attachments)
+        self.assertTrue(ask.startswith("# A-1: Queue\nhttps://x/1\n\nBuild the queue.\n"))
+        self.assertIn("### A-2: List\n\nShow it.", ask)
+        self.assertNotIn("Done one", ask)
+        self.assertIn("- Sam: Use the new table.", ask)
+        self.assertNotIn("started", ask)
+        self.assertIn("- `/s/attachments/spec.md`\n\n```\n# Spec\n```", ask)
+
+    def test_a_bare_ticket_is_just_its_name(self):
+        self.assertEqual(goal.ask_from_ticket({"ref": "1", "name": "Queue"}, "u"), "# 1: Queue\nu\n")
 
 if __name__ == "__main__":
     unittest.main()

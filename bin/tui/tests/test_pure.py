@@ -314,7 +314,7 @@ class TestRunRows(unittest.TestCase):
 
 class TestGoalRows(unittest.TestCase):
     def goal(self, **fields):
-        return dict({"id": "goal-1027-1432-dark-mode", "ask": "Add dark mode\nto settings",
+        return dict({"id": "goal-1027-1432-dark-mode", "key": "A-7", "name": "Add dark mode",
                      "status": "working", "round": 3, "alive": True, "pid": 9,
                      "log": "/r/goal.log", "pr_url": "https://github.com/o/r/pull/1",
                      "limits": [{"name": "session", "used": 61}, {"name": "week", "used": 22}]},
@@ -322,7 +322,7 @@ class TestGoalRows(unittest.TestCase):
 
     def test_a_working_goal_says_its_round_and_the_usage(self):
         [row] = tui.goal_rows([self.goal()])
-        self.assertEqual(row["cols"], ["goal", "Add dark mode", "working · round 3 · usage 61%"])
+        self.assertEqual(row["cols"], ["goal", "A-7 Add dark mode", "working · round 3 · usage 61%"])
         self.assertEqual((row["kind"], row["id"], row["style"]), ("goal", "goal:goal-1027-1432-dark-mode", "ok"))
 
     def test_a_goal_waiting_on_you_comes_first_and_says_why(self):
@@ -761,6 +761,19 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(dm.read_control(self.root)["checkpoints"], ["t1"])
         self.assertIn("◇", self.app.view()[1]["cols"][0])
 
+    def test_a_board_ticket_runs_as_a_goal_once(self):
+        launched = []
+        launch, tui.gl.launch = tui.gl.launch, lambda root, gid: launched.append(gid)
+        self.addCleanup(setattr, tui.gl, "launch", launch)
+        self.press("2", "down", "enter", "down")
+        self.press(":", *"goal", "enter")
+        [goal] = tui.gl.list_goals(self.root)
+        self.assertEqual((goal["ref"], goal["name"], goal["status"]), ("t1", "one", "new"))
+        self.assertEqual(launched, [goal["id"]])
+        self.press(":", *"goal", "enter")
+        self.assertEqual(len(tui.gl.list_goals(self.root)), 1)
+        self.assertIn("already a goal", self.app.message)
+
     def test_o_opens_the_task_or_the_board_in_asana(self):
         opened = []
         saved = tui.webbrowser.open
@@ -1123,8 +1136,7 @@ class TestAnswering(unittest.TestCase):
         self.press(":")
         self.assertEqual(self.palette_titles(),
                          ["Change A-2's PR base branch to feature/m1", "Make A-2 a checkpoint",
-                          "Undo A-2", "New goal on feature/m1",
-                          "New goal on feature/m1, written in $EDITOR", "Hide done tasks",
+                          "Undo A-2", "Hide done tasks",
                           "Start this repo's daemon"])
 
     def test_c_continues_past_a_merged_checkpoint(self):
