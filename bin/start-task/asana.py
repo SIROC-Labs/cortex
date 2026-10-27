@@ -1030,6 +1030,7 @@ def project_task(raw):
             sect = m.get("section")
             board.append({
                 "project": proj.get("name") if isinstance(proj, dict) else None,
+                "project_gid": proj.get("gid") if isinstance(proj, dict) else None,
                 "section": sect.get("name") if isinstance(sect, dict) else None,
             })
 

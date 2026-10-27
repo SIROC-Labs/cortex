@@ -47,6 +47,7 @@ cortex <tool> --help    # a tool's own arguments
 | [`run-milestone`](run-milestone/README.md) | Works a board's milestones through `start-task`, in parallel, to merge |
 | [`tui`](tui/README.md) | Browse boards, queue tasks and watch the runs; a background daemon works the queue |
 | [`goal`](goal/README.md) | Implements an Asana ticket by itself — a lead agent with its own sub-agents — on one branch, into one PR |
+| [`queue`](queue/README.md) | Queues Asana tasks, milestones and goals from the command line, as the TUI does — for scripts and other agents |
 
 Run tools from inside the repo you want them to act on.
 
