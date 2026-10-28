@@ -1249,6 +1249,23 @@ class TestAnswering(unittest.TestCase):
         self.app.draw(scr, {k: 0 for k in ("normal", "bold", "dim", "sel", "ok", "warn", "bad")})
         return ["".join(r).rstrip() for r in scr.grid]
 
+    def test_enter_on_a_goal_opens_its_live_view(self):
+        gid = tui.gl.create(self.root, "9", "A-9", "Queue", base="main")
+        tui.gl.Goal(self.root, gid).update(status="working", round=2, doing="round 2",
+                                           worktree="/nowhere")
+        self.app.snapshot()
+        self.press("1", "home", "enter")
+        self.assertEqual(self.app.goal_view, gid)
+        lines = self.frame()
+        self.assertIn("Runs › goal A-9 Queue", lines[2])
+        self.assertTrue(any("No call has started yet." in l for l in lines))
+        self.press("l")
+        self.assertEqual(self.app.log_path, tui.gl.Goal(self.root, gid).log)
+        self.press("esc")
+        self.assertEqual((self.app.log_path, self.app.goal_view), (None, gid))
+        self.press("esc")
+        self.assertIsNone(self.app.goal_view)
+
     def test_the_selected_row_is_marked_not_only_coloured(self):
         self.press("1")
         lines = self.frame()

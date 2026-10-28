@@ -98,6 +98,12 @@ flagged ⚑, and `⏎`, `a` and `A` work as they do for a task. `x` stops a runn
 `r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
 Closing the TUI leaves a goal running.
 
+`⏎` on a goal opens its live view, re-read every two seconds from Claude Code's own
+transcripts: what the lead (or the checker, or a CI fix) is doing now and last said, each
+sub-agent with its task, model and time, the running ones with what they are doing, and the
+end of the goal's journal. `l` opens its log and `u` what each agent cost. The row itself
+says how many sub-agents are running.
+
 ## Dependencies
 
 Queueing a task queues every unfinished task it depends on, down the whole tree — each

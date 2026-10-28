@@ -40,6 +40,7 @@ from start_task import usage_summary  # noqa: E402
 from daemon import st  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "goal"))
 import goal as gl  # noqa: E402
+import goal_view as gv  # noqa: E402
 from agent.claude_cli import DEFAULT_MODEL as TASK_MODEL  # noqa: E402
 
 TABS = ("Runs", "Boards", "Setup", "Daemons")
@@ -64,6 +65,8 @@ MODEL_SETTINGS = [
      "how hard the checker thinks"),
 ]
 BRANCHES_MAX_AGE = 60
+# How often the live goal view re-reads its transcripts.
+GOAL_VIEW_EVERY = 2
 # How often the UI re-reads the daemon's files, and scans for stray agents.
 STATE_EVERY = 1.0
 AGENTS_EVERY = 3.0
@@ -437,6 +440,8 @@ def goal_status(g, wait=None):
     limits = g.get("limits") or []
     use = (" · usage %d%%" % max(l["used"] for l in limits)) if limits else ""
     use += " · ≈ $%.2f" % g["cost"] if g.get("cost") else ""
+    agents = g.get("agents_running")
+    use = (" · %d sub-agent%s running" % (agents, "" if agents == 1 else "s") if agents else "") + use
     if status == "working":
         return "working · round %s%s" % (g.get("round") or 1, use), "ok"
     if status == "checking":
@@ -783,7 +788,8 @@ HELP = [
         ("q", "quit — the daemon keeps working"),
     ]),
     ("Runs", [
-        ("⏎", "on a ⚑ task, read what it is waiting on; otherwise its log"),
+        ("⏎", "on a ⚑ task, read what it is waiting on · on a goal, what it is doing now, "
+              "live · otherwise its log"),
         ("a", "answer a ⚑ task in one line"),
         ("A", "answer it in $EDITOR"),
         ("m", "merge: conflicts resolved and failing checks fixed on the way · "
@@ -1015,6 +1021,7 @@ class App(object):
         self.confirm = None
         self.log_path = None
         self.log_scroll = 0
+        self.goal_view, self.goal_lines = None, (0, [])
         self.tops = {}
         self.help = False
         self.help_scroll = 0
@@ -1049,6 +1056,8 @@ class App(object):
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
         self.goals = gl.list_goals(self.main_root)
+        for g in self.goals:
+            g["agents_running"] = gv.running_count(g) if g.get("alive") else 0
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.waits.update(goal_waits(self.goals))
         self.activity = self.read_activity()
@@ -1727,6 +1736,8 @@ class App(object):
                 self.message = "%s — %s" % (row["cols"][0], row["cols"][1])
             elif row.get("wait"):
                 self.question = row["id"]
+            elif row["kind"] == "goal":
+                self.goal_view, self.goal_lines, self.log_scroll = row["goal"], (0, []), 0
             elif row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
             else:
@@ -1868,6 +1879,24 @@ class App(object):
             elif NAV.get(key) == "back" or key == "q":
                 self.question = None
             return True
+        if self.goal_view and not self.log_path:
+            action = NAV.get(key)
+            goal = gl.Goal(self.main_root, self.goal_view)
+            if action in MOVES:
+                lines = len(self.goal_lines[1])
+                step = {"down": 1, "up": -1, "pgdn": self.page, "pgup": -self.page,
+                        "halfdown": self.page // 2, "halfup": -(self.page // 2),
+                        "home": -lines, "end": lines}[action]
+                self.log_scroll = max(0, min(lines, self.log_scroll + step))
+            elif key == "l":
+                self.log_path, self.log_scroll = goal.log, 0
+            elif key == "u" and os.path.exists(goal.state.path(gl.REPORT_FILE)):
+                self.log_path, self.log_scroll = goal.state.path(gl.REPORT_FILE), 0
+            elif key == "u":
+                self.message = "no call has finished yet"
+            elif action == "back" or key == "q":
+                self.goal_view, self.log_scroll = None, 0
+            return True
         if self.log_path:
             action = NAV.get(key)
             if action in MOVES:
@@ -1877,7 +1906,7 @@ class App(object):
                         "home": lines, "end": -lines}[action]
                 self.log_scroll = max(0, min(lines, self.log_scroll + step))
             elif action == "back" or key == "q":
-                self.log_path = None
+                self.log_path, self.log_scroll = None, 0
             return True
         if self.typing:
             if key == "enter":
@@ -1929,6 +1958,8 @@ class App(object):
             return "↑↓ alt-N alt-B scroll · any other key closes"
         if self.log_path:
             return "↑↓ alt-N alt-B scroll · g/G top/end · ←/esc/q back"
+        if self.goal_view:
+            return "live · ↑↓ scroll · l its log · u what each agent cost · ←/esc/q back"
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:
@@ -2003,6 +2034,20 @@ class App(object):
                                           wait.get("kind") or "questions"), "dim")
             for i, (line, style) in enumerate(wait_lines(wait, w)[:h - 8]):
                 put(5 + i, "  " + line, style)
+        elif self.goal_view and not self.log_path:
+            at, lines = self.goal_lines
+            if time.time() - at > GOAL_VIEW_EVERY:
+                g = next((g for g in self.goals if g["id"] == self.goal_view), None) or {}
+                goal = gl.Goal(self.main_root, self.goal_view)
+                lines = gv.lines_for(g, gv.snapshot(g), gv.journal_tail(goal.journal), w - 4)
+                self.goal_lines = (time.time(), lines)
+            title = next((gl.title_of(g) for g in self.goals if g["id"] == self.goal_view),
+                         self.goal_view)
+            put(2, "Runs › goal %s" % title, "dim")
+            body = h - 6
+            top = min(self.log_scroll, max(0, len(lines) - body))
+            for i, (line, style) in enumerate(lines[top:top + body]):
+                put(4 + i, "  " + line, style)
         elif self.log_path:
             lines = _tail(self.log_path, 2000)
             body = h - 4

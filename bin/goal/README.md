@@ -46,8 +46,9 @@ This program is the harness around the lead:
   finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
   walkthrough, and is marked ready for review.
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
-  (`CLAUDE_CODE_SUBAGENT_MODEL`), since most of them do narrow, well-briefed work; the lead
-  can ask for Opus for one that needs deep reasoning. The checker runs on Fable at `xhigh`
+  (`CLAUDE_CODE_SUBAGENT_MODEL`, and passed by name to each one, since built-in types such
+  as Explore otherwise take the lead's model), as most of them do narrow, well-briefed work;
+  the lead can ask for Opus for one that needs deep reasoning. The checker runs on Fable at `xhigh`
   effort. It only verifies and reports: it plans no fix and changes nothing, and leaves
   the legwork on a large diff to Sonnet sub-agents. So the
   strongest model costs little there. All four are on the TUI's Setup tab, and on

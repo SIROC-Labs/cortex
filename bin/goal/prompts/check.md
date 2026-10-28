@@ -26,7 +26,8 @@ diff is large, give them the legwork:
 - Find where the branch handles each requirement, and report the files and lines.
 - Read large files or unchanged code for context, and report what matters.
 
-Tell each one to report facts only, and to change nothing. Their reports tell you
+Start each one with `model: "{{subagent_alias}}"`, whatever its type, and tell it
+to report facts only and to change nothing. Their reports tell you
 where to look, not what the answer is. Read the lines that decide a verdict
 yourself, and never mark a requirement met on a sub-agent's word alone.
 

@@ -882,7 +882,8 @@ class Runner(object):
         return {"ask": self.data["ask"], "branch": self.data["branch"],
                 "base": self.data["base"], "journal": self.goal.journal,
                 "checks": checks_text(self.data["base"], self.data.get("checks")),
-                "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL}
+                "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
+                "subagent_alias": short_model(self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)}
 
     def first_prompt(self):
         return render(os.path.join(PROMPTS, "lead.md"), **self.fields())
