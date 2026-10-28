@@ -65,6 +65,8 @@ MODEL_SETTINGS = [
      "how hard the checker thinks"),
 ]
 BRANCHES_MAX_AGE = 60
+# The usage limits goals can pause at, in percent of any Claude limit.
+THRESHOLDS = [50, 60, 70, 75, 80, 85, 90, 95]
 # How often the live goal view re-reads its transcripts.
 GOAL_VIEW_EVERY = 2
 # How often the UI re-reads the daemon's files, and scans for stray agents.
@@ -512,6 +514,10 @@ def setup_rows(control, default_branch=None):
         {"kind": "setting", "id": "done", "style": "normal",
          "cols": ["Done tasks", "hidden — boards and Runs leave them out; Runs still counts them"
                   if control.get("hide_done") else "shown"]},
+        {"kind": "setting", "id": "threshold", "style": "normal",
+         "cols": ["Usage limit", "%d%% — goals wind down and pause at this share of any Claude "
+                  "limit, then carry on when it resets" % (control.get("usage_threshold")
+                                                           or gl.DEFAULT_THRESHOLD)]},
     ] + [{"kind": "setting", "id": sid, "style": "normal",
           "cols": [label, "%s — %s" % (model_label(models_of(control).get(key) or default), what)]}
          for sid, label, key, default, what in MODEL_SETTINGS]
@@ -1758,7 +1764,13 @@ class App(object):
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
             setting = next((m for m in MODEL_SETTINGS if m[0] == row["id"]), None)
-            if setting:
+            if row["id"] == "threshold":
+                current = self.control.get("usage_threshold") or gl.DEFAULT_THRESHOLD
+                value = THRESHOLDS[(THRESHOLDS.index(current) + 1) % len(THRESHOLDS)] \
+                    if current in THRESHOLDS else gl.DEFAULT_THRESHOLD
+                self.change_control(lambda c: c.update(usage_threshold=value))
+                self.message = "usage limit: %d%% — goals use it from their next usage read" % value
+            elif setting:
                 sid, label, key, default, _ = setting
                 value = next_setting(sid, models_of(self.control).get(key) or default)
                 self.change_control(lambda c: c.setdefault("models", {}).update({key: value}))

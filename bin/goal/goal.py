@@ -549,7 +549,8 @@ def settings_from(control):
     return {"model": models.get("lead") or DEFAULT_MODEL,
             "subagent_model": models.get("subagent") or DEFAULT_SUBAGENT_MODEL,
             "check_model": models.get("check") or DEFAULT_CHECK_MODEL,
-            "check_effort": models.get("check_effort") or DEFAULT_CHECK_EFFORT}
+            "check_effort": models.get("check_effort") or DEFAULT_CHECK_EFFORT,
+            "threshold": (control or {}).get("usage_threshold") or DEFAULT_THRESHOLD}
 
 
 def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
@@ -688,6 +689,16 @@ class Runner(object):
 
     # usage
 
+    def threshold(self):
+        """The usage limit to pause at: the TUI's Setup tab's, read each time so a
+        change reaches a goal already running, else the goal's own."""
+        try:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+                value = json.load(f).get("usage_threshold")
+        except (IOError, OSError, ValueError):
+            value = None
+        return value if isinstance(value, int) else self.data.get("threshold", DEFAULT_THRESHOLD)
+
     def usage(self):
         code, out, _ = st.run(["claude", "-p", "/usage", "--output-format", "json"],
                               cwd=self.main_root, check=False)
@@ -704,10 +715,10 @@ class Runner(object):
     def wait_for_usage(self):
         """Pause while the subscription is at or over the threshold."""
         while True:
-            worst = over_threshold(self.usage(), self.data.get("threshold", DEFAULT_THRESHOLD))
+            worst = over_threshold(self.usage(), self.threshold())
             if not worst:
                 if self.data.get("status") == "paused":
-                    st.info("usage is back under %d%% — going on" % self.data["threshold"])
+                    st.info("usage is back under %d%% — going on" % self.threshold())
                 return
             until = worst["resets_at"] or time.time() + PAUSE_CHECK
             what = "%s at %d%%" % (worst["name"], worst["used"])
@@ -741,7 +752,6 @@ class Runner(object):
         self.child = subprocess.Popen(cmd + [prompt], cwd=self.data["worktree"], env=env,
                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, start_new_session=True)
-        threshold = self.data.get("threshold", DEFAULT_THRESHOLD)
         winding = False
         while True:
             try:
@@ -749,6 +759,7 @@ class Runner(object):
                 break
             except subprocess.TimeoutExpired:
                 limits = self.usage()
+                threshold = self.threshold()
                 hard = over_threshold(limits, threshold + HARD_MARGIN)
                 if hard:
                     st.warn("%s at %d%% — cutting the call off; it carries on later"

@@ -357,6 +357,19 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(self.timeouts, [goal.USAGE_CHECK, goal.USAGE_CHECK, goal.WIND_CHECK])
         self.assertIn("--settings", self.cmd)
 
+    def test_the_limit_on_the_setup_tab_reaches_a_running_goal(self):
+        import json
+        self.assertEqual(self.runner.threshold(), 75)
+        path = os.path.join(self.dir, goal.st.CORTEX_DIRNAME, "queue", "control.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"usage_threshold": 90}, f)
+        self.assertEqual(self.runner.threshold(), 90)
+        self.readings = [80, 85]
+        _, stop, _ = self.runner.call("go", "s", False, "lead")
+        self.assertNotEqual(stop, "usage")
+        self.assertEqual((self.killed, os.path.exists(self.flag)), ([], False))
+
     def test_past_the_margin_it_is_cut_off(self):
         self.readings = [75, 77]
         _, stop, _ = self.runner.call("go", "s", False, "lead")

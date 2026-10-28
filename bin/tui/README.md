@@ -191,6 +191,9 @@ its daemon.
   still counts them.
 
 
+- **Usage limit** — the share of any Claude usage limit at which goals wind down and
+  pause, until it resets: 75% by default; `⏎` steps through 50–95%. Running goals read it
+  at their next usage check, so raising it lets one finish its work.
 - **Models** — `⏎` on each moves to the next choice (haiku, sonnet, opus, fable; effort
   low to max):
   - *Task model* — every task run: implement, QA and revise. Sonnet by default. It takes
