@@ -1065,8 +1065,11 @@ class App(object):
         self.daemon, self.alive = dm.daemon_info(self.main_root)
         self.live = dm.live_runs(self.main_root)
         self.goals = gl.list_goals(self.main_root)
+        rates = gl.repo_rates(self.main_root) if self.goals else {}
         for g in self.goals:
             g["agents_running"] = gv.running_count(g) if g.get("alive") else 0
+            g["cost"] = gl.write_report(gl.Goal(self.main_root, g["id"]), rates, write=False)[1] \
+                or g.get("cost")
             g["plan"] = gv.plan(gv.read_journal(gl.Goal(self.main_root, g["id"]).journal))
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.waits.update(goal_waits(self.goals))
@@ -1449,7 +1452,7 @@ class App(object):
             webbrowser.open(row["pr_url"])
         elif key == "o":
             self.message = "no PR yet"
-        elif key == "u" and os.path.exists(goal.state.path(gl.REPORT_FILE)):
+        elif key == "u" and gl.write_report(goal, gl.repo_rates(self.main_root))[0]:
             self.log_path, self.log_scroll = goal.state.path(gl.REPORT_FILE), 0
         elif key == "u":
             self.message = "no call has finished yet"
@@ -1906,7 +1909,7 @@ class App(object):
                 self.log_scroll = max(0, min(lines, self.log_scroll + step))
             elif key == "l":
                 self.log_path, self.log_scroll = goal.log, 0
-            elif key == "u" and os.path.exists(goal.state.path(gl.REPORT_FILE)):
+            elif key == "u" and gl.write_report(goal, gl.repo_rates(self.main_root))[0]:
                 self.log_path, self.log_scroll = goal.state.path(gl.REPORT_FILE), 0
             elif key == "u":
                 self.message = "no call has finished yet"

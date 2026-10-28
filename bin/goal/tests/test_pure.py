@@ -395,5 +395,36 @@ class TestWindDown(unittest.TestCase):
         self.assertIn("finish it, or redo it", text)
 
 
+class TestEstimates(unittest.TestCase):
+    tokens = {"input": 0, "output": 200, "cache_read": 0, "cache_write": 0}
+
+    def call(self, cost, sub_cost, model="claude-opus-5-5"):
+        return {"label": "lead", "round": 1, "model": model, "started": 0, "cost": cost,
+                "main": {"model": model, "tokens": self.tokens, "seconds": 60, "cost": sub_cost},
+                "subagents": [{"description": "part", "model": "claude-sonnet-5-5",
+                               "tokens": self.tokens, "seconds": 30, "cost": sub_cost}]}
+
+    def test_rates_are_learned_from_calls_that_reported_a_cost(self):
+        rates = goal.learned_rates([self.call(2.0, 1.0), self.call(None, None)])
+        self.assertAlmostEqual(rates["claude-opus-5-5"], 1.0 / 1000)
+        self.assertAlmostEqual(rates["claude-sonnet-5-5"], 1.0 / 1000)
+
+    def test_a_cut_off_call_is_priced_from_its_tokens_and_says_so(self):
+        rates = {"claude-opus-5-5": 0.002, "claude-sonnet-5-5": 0.001}
+        [priced] = goal.estimate([self.call(None, None)], rates)
+        self.assertAlmostEqual(priced["main"]["cost"], 2.0)
+        self.assertAlmostEqual(priced["subagents"][0]["cost"], 1.0)
+        self.assertAlmostEqual(priced["cost"], 3.0)
+        self.assertTrue(priced["estimated"])
+        report = goal.usage_report([priced])
+        self.assertIn("≈ $3.00 (some estimated)", report)
+        self.assertIn("≈ $2.00 est.", report)
+
+    def test_a_model_never_seen_stays_unknown(self):
+        [priced] = goal.estimate([self.call(None, None, model="claude-haiku-4-5")], {})
+        self.assertIsNone(priced["cost"])
+        self.assertIn("cost unknown", goal.usage_report([priced]))
+
+
 if __name__ == "__main__":
     unittest.main()

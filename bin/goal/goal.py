@@ -405,8 +405,90 @@ def _span(seconds):
             else "%dm %02ds" % (seconds // 60, seconds % 60) if seconds >= 60 else "%ds" % seconds)
 
 
-def _cost(cost):
-    return "≈ $%.2f" % cost if cost is not None else "cost unknown"
+def _cost(cost, estimated=False):
+    if cost is None:
+        return "cost unknown"
+    return "≈ $%.2f%s" % (cost, " est." if estimated else "")
+
+
+# What each model costs per weighted token, learned from calls that reported their
+# cost, so a call that was cut off before it could can still be priced.
+RATES_FILE = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "model-rates.json")
+
+
+def learned_rates(calls):
+    """{model: dollars per weighted token} from every agent entry with a cost."""
+    totals = {}
+    for call in calls or []:
+        for entry in [call.get("main")] + list(call.get("subagents") or []):
+            if entry and entry.get("cost") is not None and not entry.get("estimated") \
+                    and entry.get("model"):
+                units = weight(entry["tokens"])
+                if units:
+                    t = totals.setdefault(entry["model"], [0.0, 0.0])
+                    t[0] += entry["cost"]
+                    t[1] += units
+    return {m: cost / units for m, (cost, units) in totals.items() if units}
+
+
+def load_rates(path=RATES_FILE):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (IOError, OSError, ValueError):
+        return {}
+
+
+def save_rates(rates, path=RATES_FILE):
+    known = load_rates(path)
+    known.update(rates)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(known, f, indent=2)
+
+
+def estimate(calls, rates):
+    """The calls, with every agent whose cost is unknown priced from its tokens at
+    its model's learned rate (marked `estimated`), and each call's total made the
+    sum of its agents where its own result gave none."""
+    out = []
+    for call in calls or []:
+        call = dict(call)
+        entries = []
+        for entry in [call["main"]] + list(call.get("subagents") or []):
+            entry = dict(entry)
+            if entry.get("cost") is None and rates.get(entry.get("model")):
+                entry["cost"] = rates[entry["model"]] * weight(entry["tokens"])
+                entry["estimated"] = True
+            entries.append(entry)
+        call["main"], call["subagents"] = entries[0], entries[1:]
+        if call.get("cost") is None and all(e.get("cost") is not None for e in entries):
+            call["cost"] = sum(e["cost"] for e in entries)
+            call["estimated"] = True
+        out.append(call)
+    return out
+
+
+def write_report(goal, extra_rates=None, write=True):
+    """A goal's calls priced as far as they can be, and their total cost; with
+    `write`, its usage report is rewritten from them too."""
+    calls = goal.state.read(CALLS_FILE) or []
+    rates = dict(load_rates())
+    rates.update(extra_rates or {})
+    rates.update(learned_rates(calls))
+    priced = estimate(calls, rates)
+    if write and calls:
+        with open(goal.state.path(REPORT_FILE), "w") as f:
+            f.write(usage_report(priced))
+    return priced, sum(c.get("cost") or 0 for c in priced)
+
+
+def repo_rates(main_root):
+    """Rates learned from every goal's calls in a repo."""
+    calls = []
+    for g in list_goals(main_root):
+        calls += Goal(main_root, g["id"]).state.read(CALLS_FILE) or []
+    return learned_rates(calls)
 
 
 def _line(name, entry, width=46):
@@ -414,8 +496,10 @@ def _line(name, entry, width=46):
     total = sum(tokens.values())
     name = name if len(name) <= width else name[:width - 1] + "…"
     return "  %-*s %-7s %8s  %6s in · %5s out  %s" % (
-        width, name, short_model(entry.get("model")), _span(entry.get("seconds")),
-        _tokens(total - tokens["output"]), _tokens(tokens["output"]), _cost(entry.get("cost")))
+        width, name, entry.get("model") if "/" in (entry.get("model") or "") else short_model(
+            entry.get("model")), _span(entry.get("seconds")),
+        _tokens(total - tokens["output"]), _tokens(tokens["output"]),
+        _cost(entry.get("cost"), entry.get("estimated")))
 
 
 def usage_report(calls):
@@ -426,7 +510,8 @@ def usage_report(calls):
         for role, entry in [(ROLES.get(call["label"], call["label"]), call["main"])] + [
                 ("sub-agents", a) for a in call.get("subagents") or []]:
             r = roles.setdefault(role, {"tokens": dict.fromkeys(TOKEN_WEIGHTS, 0), "seconds": 0,
-                                        "cost": 0.0, "count": 0, "models": set()})
+                                        "cost": 0.0, "count": 0, "models": set(), "estimated": False})
+            r["estimated"] = r["estimated"] or bool(entry.get("estimated"))
             for k in TOKEN_WEIGHTS:
                 r["tokens"][k] += entry["tokens"][k]
             r["seconds"] += entry.get("seconds") or 0
@@ -439,7 +524,10 @@ def usage_report(calls):
            "Time is each agent's own; sub-agents run alongside their call.", "",
            "All calls: %s · %s%s" % (_span(sum(c["main"].get("seconds") or 0 for c in calls)),
                                      _tokens(sum(sum(r["tokens"].values()) for r in roles.values())),
-                                     " · ≈ $%.2f" % total_cost + ("" if known else " so far known")),
+                                     " · ≈ $%.2f" % total_cost + (
+                                         "" if not known else " (some estimated)" if any(
+                                             c.get("estimated") for c in calls) else "")
+                                     + ("" if known else " so far known")),
            ""]
     for role in ("lead", "sub-agents", "CI fixes", "checker"):
         if role in roles:
@@ -450,7 +538,8 @@ def usage_report(calls):
         out += ["", "%s · %s%s · %s · %s" % (
             {"lead": "Round %s", "check": "Check %s"}.get(call["label"], "CI fix %s") % call["round"],
             short_model(call["model"]), " %s effort" % call["effort"] if call.get("effort") else "",
-            time.strftime("%a %H:%M", time.localtime(call["started"])), _cost(call.get("cost")))]
+            time.strftime("%a %H:%M", time.localtime(call["started"])),
+            _cost(call.get("cost"), call.get("estimated")))]
         out.append(_line(call["label"] + " itself", call["main"]))
         for agent in call.get("subagents") or []:
             out.append(_line("  " + (agent.get("description") or "sub-agent"), agent))
@@ -810,9 +899,9 @@ class Runner(object):
                       "started": started, "cost": envelope.get("total_cost_usd"),
                       "main": dict(main, seconds=time.time() - started), "subagents": agents})
         self.goal.state.write(CALLS_FILE, calls)
-        with open(self.goal.state.path(REPORT_FILE), "w") as f:
-            f.write(usage_report(calls))
-        self.set(cost=sum(c.get("cost") or 0 for c in calls))
+        save_rates(learned_rates(calls))
+        _, total = write_report(self.goal)
+        self.set(cost=total)
 
     def cut_off_notice(self):
         """The prompt after a call was cut off: which sub-agents were stopped and
