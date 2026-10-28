@@ -73,6 +73,9 @@ ANSWER_CHECK = 2
 CI_CHECK = 60
 CI_START = 600
 CI_TIMEOUT = 2 * 3600
+# Tries a cheap fixer gets at failing CI before the lead takes it on.
+CI_FIXES = 2
+ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes"}
 
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
@@ -220,9 +223,22 @@ def conflict_prompt(base, files):
             % (base, "\n".join("- `%s`" % f for f in files)))
 
 
+def ci_fix_prompt(branch, failures):
+    """The cheap fixer's whole brief: the failing checks, and the rules."""
+    return ("You fix failing CI checks on branch `%s`, in this worktree. Another agent "
+            "built the work; only make these checks pass.\n\n%s\n\nRules:\n"
+            "- Fix the cause in the code or the tests. Never weaken a check, skip a test, "
+            "raise a budget, or add a baseline entry.\n"
+            "- Change only what the failures need. Do not refactor or add features.\n"
+            "- Run only the failing tests or the cheap check that failed, not full suites.\n"
+            "- Commit with a clear message. Do not push, rebase, or merge.\n"
+            "- Do not run skills or slash commands, and do not start sub-agents."
+            % (branch, failures))
+
+
 def failed_ci_prompt(failing, excerpts):
-    """What the lead is told when CI fails on its PR: each failed check, with the
-    telling lines of its log where GitHub gave them."""
+    """What CI says when it fails on the PR: each failed check, with the telling
+    lines of its log where GitHub gave them."""
     parts = ["You reported done. CI ran on the PR, and these checks fail:", ""]
     for name, url in failing:
         parts.append("- `%s`%s" % (name, " (%s)" % url if url else ""))
@@ -236,12 +252,10 @@ def failed_ci_prompt(failing, excerpts):
 def checks_text(base, checks):
     """Step 3 of the checker's prompt: what CI already checked."""
     if not checks:
-        return ("The runner merged `%s` into the branch. The PR has no CI checks, so run "
-                "the project's tests yourself." % base)
-    return ("The runner merged `%s` into the branch, and CI passed on it: %s. Do not run "
-            "the test suites again. Run a test yourself only when you must see its result "
-            "to decide whether a requirement is met."
-            % (base, ", ".join("`%s`" % c for c in checks)))
+        return ("The runner merged `%s` into the branch. The PR has no CI checks. Judge the "
+                "code, not test results." % base)
+    return ("The runner merged `%s` into the branch, and CI passed on it: %s. Judge the "
+            "code, not test results." % (base, ", ".join("`%s`" % c for c in checks)))
 
 
 def checks_section(checks):
@@ -359,7 +373,7 @@ def usage_report(calls):
     its sub-agents."""
     roles = {}
     for call in calls:
-        for role, entry in [("lead" if call["label"] == "lead" else "checker", call["main"])] + [
+        for role, entry in [(ROLES.get(call["label"], call["label"]), call["main"])] + [
                 ("sub-agents", a) for a in call.get("subagents") or []]:
             r = roles.setdefault(role, {"tokens": dict.fromkeys(TOKEN_WEIGHTS, 0), "seconds": 0,
                                         "cost": 0.0, "count": 0, "models": set()})
@@ -377,14 +391,14 @@ def usage_report(calls):
                                      _tokens(sum(sum(r["tokens"].values()) for r in roles.values())),
                                      " · ≈ $%.2f" % total_cost + ("" if known else " so far known")),
            ""]
-    for role in ("lead", "sub-agents", "checker"):
+    for role in ("lead", "sub-agents", "CI fixes", "checker"):
         if role in roles:
             r = roles[role]
             entry = dict(r, model="/".join(sorted(r["models"])))
             out.append(_line("%s (%d)" % (role, r["count"]), entry))
     for call in calls:
         out += ["", "%s · %s%s · %s · %s" % (
-            "Round %s" % call["round"] if call["label"] == "lead" else "Check %s" % call["round"],
+            {"lead": "Round %s", "check": "Check %s"}.get(call["label"], "CI fix %s") % call["round"],
             short_model(call["model"]), " %s effort" % call["effort"] if call.get("effort") else "",
             time.strftime("%a %H:%M", time.localtime(call["started"])), _cost(call.get("cost")))]
         out.append(_line(call["label"] + " itself", call["main"]))
@@ -696,7 +710,7 @@ class Runner(object):
             return
         calls = self.goal.state.read(CALLS_FILE) or []
         rounds = self.data.get("round") if label == "lead" else len(
-            [c for c in calls if c["label"] != "lead"]) + 1
+            [c for c in calls if c["label"] == label]) + 1
         calls.append({"label": label, "round": rounds, "model": model, "effort": effort,
                       "started": started, "cost": envelope.get("total_cost_usd"),
                       "main": dict(main, seconds=time.time() - started), "subagents": agents})
@@ -767,7 +781,7 @@ class Runner(object):
 
     def gate(self):
         """Sync the branch with its base, push it, mark the PR ready, and wait for
-        its CI. Returns None when CI passes, or what to tell the lead to fix."""
+        its CI. Returns (None, None) when CI passes, else ("merge" | "ci", what failed)."""
         worktree, base = self.data["worktree"], self.data["base"]
         self.set(status="checking", doing="syncing with %s" % base)
         st.step("Syncing with %s" % base)
@@ -778,17 +792,17 @@ class Runner(object):
             _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree,
                                  check=False)
             if not files.strip():
-                return ("You reported done, but the runner could not merge `origin/%s` into "
+                return "merge", ("You reported done, but the runner could not merge `origin/%s` into "
                         "your branch:\n\n```\n%s\n```\n\nCommit or remove what is in the "
                         "way, then report done again." % (base, (err or out).strip()[-2000:]))
             st.warn("the merge conflicts — back to the lead")
-            return conflict_prompt(base, files.split())
+            return "merge", conflict_prompt(base, files.split())
         self.push()
         pr_url = self.data.get("pr_url")
         if not pr_url:
             st.warn("no PR, so no CI to wait for")
             self.set(checks=[])
-            return None
+            return None, None
         if not self.data.get("ready"):
             # CI may run only on PRs ready for review; it stays ready from here on.
             st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
@@ -814,16 +828,16 @@ class Runner(object):
                 pending, failing = check_states(rollup)
                 if failing:
                     st.warn("CI failed: %s" % ", ".join(n for n, _ in failing))
-                    return failed_ci_prompt(failing, self.ci_excerpts(failing))
+                    return "ci", failed_ci_prompt(failing, self.ci_excerpts(failing))
                 if rollup and not pending:
                     names = sorted({c.get("name") or c.get("context") or "?" for c in rollup})
                     st.info("CI passed: %s" % ", ".join(names))
                     self.set(checks=names)
-                    return None
+                    return None, None
                 if not rollup and waited >= CI_START:
                     st.warn("no CI check reported in %d minutes — taking it as none" % (CI_START // 60))
                     self.set(checks=[])
-                    return None
+                    return None, None
                 self.set(doing="waiting for CI%s" % (": %s" % ", ".join(pending) if pending else ""))
             if waited >= CI_TIMEOUT:
                 # Whatever the person says, CI is what is waited for: start the clock again.
@@ -831,6 +845,24 @@ class Runner(object):
                 self.set(status="checking")
                 started = time.time()
             time.sleep(CI_CHECK)
+
+    def sync_and_ci(self):
+        """The gate, with CI failures handed to a cheap fixer first: (None, None)
+        when CI passes, else what the lead is to fix."""
+        for attempt in range(CI_FIXES + 1):
+            kind, fix = self.gate()
+            if kind != "ci" or attempt == CI_FIXES:
+                return kind, fix
+            st.step("Fixing CI (%d/%d) on %s" % (attempt + 1, CI_FIXES, short_model(
+                self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)))
+            self.wait_for_usage()
+            self.set(status="checking", doing="fixing CI, try %d" % (attempt + 1))
+            prompt = ci_fix_prompt(self.data["branch"], fix.split("\n", 2)[2])
+            _, _, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix",
+                                    self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)
+            if error:
+                st.warn("the CI fixer failed: %s" % error.splitlines()[0][:200])
+        return kind, fix
 
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""
@@ -946,7 +978,7 @@ class Runner(object):
                     prompt = answer_prompt(block["questions"], self.ask_questions(block["questions"]))
                     continue
                 if report == "done":
-                    fix = self.gate()
+                    _, fix = self.sync_and_ci()
                     if fix:
                         self.push()
                         checks += 1

@@ -187,6 +187,7 @@ class TestGate(unittest.TestCase):
         gid = goal.create(self.dir, "1", "A-1", "x", base="main")
         goal.Goal(self.dir, gid).update(worktree=self.work, branch="A-1/goal-x", pr_url="https://gh/pr/1")
         self.runner = goal.Runner(self.dir, gid)
+        self.runner.wait_for_usage = lambda: None
         self.gh, self.rollup = [], []
         run, sleep = goal.st.run, goal.time.sleep
 
@@ -221,7 +222,8 @@ class TestGate(unittest.TestCase):
     def test_failing_ci_goes_back_to_the_lead_with_its_log(self):
         self.commit("app.py", "x", "work")
         self.rollup = [self.check("test", "FAILURE"), self.check("lint", "SUCCESS")]
-        fix = self.runner.gate()
+        kind, fix = self.runner.gate()
+        self.assertEqual(kind, "ci")
         self.assertIn("- `test` (https://github.com/o/r/actions/runs/1/job/2)", fix)
         self.assertIn("FAILED tests/test_x.py::test_y", fix)
         self.assertIn(["pr", "ready"], self.gh)
@@ -229,8 +231,8 @@ class TestGate(unittest.TestCase):
 
     def test_passing_ci_is_recorded_and_the_pr_is_marked_ready_once(self):
         self.rollup = [self.check("test", "SUCCESS"), self.check("lint", "SUCCESS")]
-        self.assertIsNone(self.runner.gate())
-        self.assertIsNone(self.runner.gate())
+        self.assertEqual(self.runner.gate(), (None, None))
+        self.assertEqual(self.runner.gate(), (None, None))
         self.assertEqual(self.runner.data["checks"], ["lint", "test"])
         self.assertEqual(self.gh.count(["pr", "ready"]), 1)
         self.assertIn("CI passed: `lint`, `test`", goal.checks_section(self.runner.data["checks"]))
@@ -238,9 +240,9 @@ class TestGate(unittest.TestCase):
     def test_a_pr_with_no_checks_at_all_counts_as_having_no_ci(self):
         start, goal.CI_START = goal.CI_START, 0
         self.addCleanup(setattr, goal, "CI_START", start)
-        self.assertIsNone(self.runner.gate())
+        self.assertEqual(self.runner.gate(), (None, None))
         self.assertEqual(self.runner.data["checks"], [])
-        self.assertIn("run the project's tests yourself", goal.checks_text("main", []))
+        self.assertIn("The PR has no CI checks", goal.checks_text("main", []))
 
     def test_the_base_is_merged_in_and_a_conflict_goes_back_to_the_lead(self):
         self.commit("shared.txt", "goal\n", "work")
@@ -248,12 +250,36 @@ class TestGate(unittest.TestCase):
         self.commit("shared.txt", "main\n", "elsewhere")
         self.git("push", "-q", "origin", "main")
         self.git("checkout", "-q", "A-1/goal-x")
-        fix = self.runner.gate()
+        kind, fix = self.runner.gate()
+        self.assertEqual(kind, "merge")
         self.assertIn("conflicts in:\n\n- `shared.txt`", fix)
         self.assertNotIn(["pr", "ready"], self.gh)
 
+    def test_failing_ci_goes_to_a_cheap_fixer_first(self):
+        self.rollup = [self.check("test", "FAILURE")]
+        calls = []
+
+        def call(prompt, session, resume, label, model=None, effort=None):
+            calls.append((label, model, prompt))
+            self.rollup = [self.check("test", "SUCCESS")]
+            return None, None, None
+        self.runner.call = call
+        self.assertEqual(self.runner.sync_and_ci(), (None, None))
+        [(label, model, prompt)] = calls
+        self.assertEqual((label, model), ("ci-fix", "claude-sonnet-5-5"))
+        self.assertIn("- `test` (https://github.com/o/r/actions/runs/1/job/2)", prompt)
+        self.assertIn("Never weaken a check", prompt)
+
+    def test_ci_that_the_fixer_cannot_fix_goes_to_the_lead(self):
+        self.rollup = [self.check("test", "FAILURE")]
+        calls = []
+        self.runner.call = lambda *a, **k: calls.append(a) or (None, None, None)
+        kind, fix = self.runner.sync_and_ci()
+        self.assertEqual((kind, len(calls)), ("ci", goal.CI_FIXES))
+        self.assertIn("You reported done. CI ran on the PR", fix)
+
     def test_the_checker_is_told_what_ci_passed(self):
-        self.assertIn("Do not run the test suites again", goal.checks_text("main", ["test"]))
+        self.assertIn("CI passed on it: `test`", goal.checks_text("main", ["test"]))
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,10 +32,11 @@ This program is the harness around the lead:
   to the lead, and it continues.
 - **Sync and CI, by the runner.** When the lead says it is done, the runner merges the base
   into the branch, pushes, marks the PR ready for review, and waits for its CI, as the merge
-  step does for task runs. A conflict, or a failing check with the telling lines of its log,
-  goes back to the lead. The full suites run only on CI, never on this machine; the lead runs
-  only the tests for what it changes and cheap checks. The checker is told what CI passed, so
-  it does not run the suites again, and the PR comment lists it under **Checks**.
+  step does for task runs. A failing check, with the telling lines of its log,
+  goes to a fresh call on the sub-agent model (Sonnet) to fix, with two tries before the lead
+  takes it on. A conflict goes to the lead. The full suites run only on CI, never on this
+  machine. The checker runs no tests or CI at all: it is told what CI passed and judges only
+  the code against the ticket. The PR comment lists what CI passed under **Checks**.
 - **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
   the checker and of every sub-agent it started, from Claude Code's transcripts. `u` on the
   goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API
