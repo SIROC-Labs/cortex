@@ -157,6 +157,11 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 Queueing the first task starts the daemon if it is not running. Nothing starts until
 a sprint is picked; nothing about the sprint is guessed.
 
+Anything that waits on you opens in the same box as the command palette, in the middle
+of the screen: a yes/no question (`y` yes, any other key no), a line to type (an answer, a
+new branch, the usage limit), or a list to pick from (a Setup choice). The bottom line only
+says what happened.
+
 ## Setup
 
 Settings are per repo: they live in the repo's `.cortex/queue/`, beside its queue and

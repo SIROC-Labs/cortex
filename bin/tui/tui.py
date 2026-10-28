@@ -1873,7 +1873,6 @@ class App(object):
 
     def ask(self, prompt, fn):
         self.confirm = (prompt, fn)
-        self.message = prompt
 
     def move(self, key, count):
         vk = self.view_key()
@@ -1919,8 +1918,9 @@ class App(object):
                 else:
                     self.message = "nothing sent"
             elif key == "esc":
-                self.compose = None
-                self.message = "nothing sent"
+                kind, self.compose = self.compose.get("kind"), None
+                self.message = {"threshold": "usage limit unchanged",
+                                "branch": "no branch created"}.get(kind, "nothing sent")
             elif self.compose["line"].key(key):
                 self.compose["text"] = self.compose["line"].text
             return True
@@ -2117,7 +2117,8 @@ class App(object):
             for i, line in enumerate(lines[max(0, end - body):end]):
                 put(3 + i, *log_line(line))
         else:
-            rows = self.view()
+            rows = (setup_rows(self.control, self.default_branch)
+                    if TABS[self.tab] == "Setup" and self.setup in PICKED else self.view())
             busy, age = self.loading()
             crumb = TABS[self.tab] + (" › %s" % self.board[1]
                                       if TABS[self.tab] == "Boards" and self.board else "")
@@ -2140,7 +2141,7 @@ class App(object):
                      "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
                     "warn" if busy else "dim")
             for i, row in enumerate(rows[top:top + body]):
-                picked = top + i == cur and not self.palette
+                picked = top + i == cur and not self.palette and not self.dialog_open()
                 style = "sel" if picked else row.get("style", "normal")
                 line = ("▸ " if picked else "  ") + fit(row["cols"], w - 2, row["kind"] == "feature")
                 put(3 + i, line, style)
@@ -2156,64 +2157,109 @@ class App(object):
                     detail = ["⚑ waiting on you — ⏎ to read it all, a to answer"] + detail[1:]
             for i, line in enumerate(detail[:4]):
                 put(h - 6 + i, "  " + line, "dim")
-        if self.compose is not None:
-            prompt = {"branch": "new branch from origin/%s › " % (self.default_branch
-                                                                   or "the default branch"),
-                      "threshold": "usage limit, in % › "}.get(self.compose.get("kind"), "answer › ")
-            put(h - 2, prompt + self.compose["line"].show(max(1, w - len(prompt) - 3)), "warn")
-        else:
-            put(h - 2, self.message, "warn")
+        put(h - 2, self.message, "warn")
         put(h - 1, self.help_line(), "dim")
         if self.palette is not None:
             self.draw_palette(scr, styles, h, w)
+        else:
+            self.draw_dialog(scr, styles, h, w)
         scr.refresh()
 
     def draw_palette(self, scr, styles, h, w):
         """A framed box: the line being typed on top, then the commands, the chosen
         one marked as well as highlighted — so one or two are never ambiguous."""
         shown = palette_matches(self.palette["commands"], self.palette["query"])
-        width = max(30, min(w - 4, 86))
-        left = max(0, (w - width) // 2)
         rows = max(1, min(len(shown), h - 10))
         cur = min(self.palette["cursor"], max(0, len(shown) - 1))
         top = scroll_top(self.palette.get("top", 0), cur, rows, len(shown))
         self.palette["top"] = top
-        inner = width - 4
-        tint = styles.get("palette", styles["normal"])
-
-        def row(y, text, attr, edge="│"):
-            body = text[:inner].ljust(inner)
-            _put_at(scr, y, left, edge, left + 2, tint)
-            _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
-            _put_at(scr, y, left + width - 1, edge, left + width + 1, tint)
-
-        def rule(y, a, b, label=""):
-            # The run of ─ goes through curses' own line character: the ncurses
-            # macOS ships drops a long run of a multibyte one, leaving a hole the
-            # screen behind shows through.
-            _put_at(scr, y, left, a + label, left + width + 1, tint)
-            try:
-                scr.hline(y, left + 1 + len(label), getattr(curses, "ACS_HLINE", ord("-")) | tint,
-                          max(0, width - 2 - len(label)))
-            except curses.error:
-                pass
-            _put_at(scr, y, left + width - 1, b, left + width + 1, tint)
-
-        rule(3, "╭", "╮", "─ commands ")
-        row(4, ": " + self.palette["line"].show(inner - 2), tint | curses.A_BOLD)
-        rule(5, "├", "┤")
-        y = 6
+        items = [cmd["title"] for cmd in shown[top:top + rows]]
         if not shown:
-            row(y, "nothing here beyond the keys below" if not self.palette["commands"]
-                else "nothing matches", tint)
-            y += 1
-        for i, cmd in enumerate(shown[top:top + rows]):
-            picked = top + i == cur
-            row(y, ("▸ " if picked else "  ") + cmd["title"], styles["sel"] if picked
-                else tint)
-            y += 1
-        rule(y, "╰", "╯")
+            items = ["nothing here beyond the keys below" if not self.palette["commands"]
+                     else "nothing matches"]
+        draw_box(scr, styles, h, w, "commands", [": " + self.palette["line"].show(80)], items,
+                 cur - top if shown else None)
 
+    def dialog_open(self):
+        return bool(self.confirm or self.compose is not None
+                    or (TABS[self.tab] == "Setup" and self.setup in PICKED))
+
+    def draw_dialog(self, scr, styles, h, w):
+        """What waits on you right now, in the palette's box, so it is never missed
+        on the bottom line: a yes/no question, a line to type, or a list to pick from.
+        Returns whether one was drawn."""
+        inner = max(26, min(w - 4, 86)) - 4
+        if self.confirm:
+            question = re.sub(r"\s*\(y/n\)\s*$", "", self.confirm[0])
+            draw_box(scr, styles, h, w, "confirm", textwrap.wrap(question, inner) or [""], [],
+                     footer="y yes · any other key no")
+            return True
+        if self.compose is not None:
+            kind = self.compose.get("kind")
+            title = {"branch": "new branch", "threshold": "usage limit"}.get(kind, "answer")
+            note = {"branch": "created on origin from origin/%s" % (self.default_branch
+                                                                    or "the default branch"),
+                    "threshold": "a percentage of any Claude usage limit, 1 to 100"}.get(kind)
+            header = ["› " + self.compose["line"].show(inner - 2)]
+            draw_box(scr, styles, h, w, title, header, [note] if note else [],
+                     footer=self.help_line().split(" · : commands")[0])
+            return True
+        if TABS[self.tab] == "Setup" and self.setup in PICKED:
+            label = next((m[1] for m in MODEL_SETTINGS if m[0] == self.setup), "Merging")
+            rows = choice_rows(self.setup, self.control)
+            cur = min(self.cursor.get(self.view_key(), 0), max(0, len(rows) - 1))
+            items = ["%-7s %s" % (r["cols"][0], r["cols"][1]) for r in rows]
+            draw_box(scr, styles, h, w, label.lower(), [], items,
+                     cur, footer="↑↓ choose · ⏎ use it · esc back")
+            return True
+        return False
+
+
+def draw_box(scr, styles, h, w, title, header, items, picked=None, footer=None, top=3):
+    """The overlay box the palette and every dialog share: a titled frame, header
+    lines (what is typed, or the question), a rule, the items — `picked` marked as
+    well as highlighted — and a footer of keys."""
+    width = max(30, min(w - 4, 86))
+    left = max(0, (w - width) // 2)
+    inner = width - 4
+    tint = styles.get("palette", styles["normal"])
+
+    def row(y, text, attr, edge="│"):
+        body = text[:inner].ljust(inner)
+        _put_at(scr, y, left, edge, left + 2, tint)
+        _put_at(scr, y, left + 1, " " + body + " ", left + width, attr)
+        _put_at(scr, y, left + width - 1, edge, left + width + 1, tint)
+
+    def rule(y, a, b, label=""):
+        # The run of ─ goes through curses' own line character: the ncurses
+        # macOS ships drops a long run of a multibyte one, leaving a hole the
+        # screen behind shows through.
+        _put_at(scr, y, left, a + label, left + width + 1, tint)
+        try:
+            scr.hline(y, left + 1 + len(label), getattr(curses, "ACS_HLINE", ord("-")) | tint,
+                      max(0, width - 2 - len(label)))
+        except curses.error:
+            pass
+        _put_at(scr, y, left + width - 1, b, left + width + 1, tint)
+
+    rule(top, "╭", "╮", "─ %s " % title)
+    y = top + 1
+    for line in header:
+        row(y, line, tint | curses.A_BOLD)
+        y += 1
+    if items:
+        if header:
+            rule(y, "├", "┤")
+            y += 1
+        for i, text in enumerate(items[:max(1, h - top - 6)]):
+            row(y, ("▸ " if i == picked else "  ") + text if picked is not None else text,
+                styles["sel"] if i == picked else tint)
+            y += 1
+    if footer:
+        rule(y, "├", "┤")
+        row(y + 1, footer, tint | curses.A_DIM)
+        y += 2
+    rule(y, "╰", "╯")
 
 def _put(scr, y, text, width, attr):
     _put_at(scr, y, 0, text, width, attr)

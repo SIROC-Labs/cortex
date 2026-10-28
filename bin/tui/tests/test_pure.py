@@ -661,6 +661,10 @@ class TestAppKeys(unittest.TestCase):
     SECTIONS = [{"gid": "s", "name": "M1", "tasks": [
         {"gid": "t1", "name": "one", "kind": "task"}, {"gid": "t2", "name": "two", "kind": "task"}]}]
 
+    def asked(self):
+        """The yes/no question the TUI is showing in its dialog, or ""."""
+        return self.app.confirm[0] if self.app.confirm else ""
+
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
@@ -859,7 +863,7 @@ class TestAppKeys(unittest.TestCase):
         self.press("home", "enter")
         self.assertEqual(self.app.compose["kind"], "branch")
         self.press(*"milestone/m1", "enter")
-        self.assertIn("create milestone/m1 on origin from origin/main", self.app.message)
+        self.assertIn("create milestone/m1 on origin from origin/main", self.asked())
         self.assertEqual(self.created, [])
         self.press("y")
         self.assertEqual(self.created, ["milestone/m1"])
@@ -1048,6 +1052,10 @@ class TestReadWaits(unittest.TestCase):
 
 
 class TestAnswering(unittest.TestCase):
+    def asked(self):
+        """The yes/no question the TUI is showing in its dialog, or ""."""
+        return self.app.confirm[0] if self.app.confirm else ""
+
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
@@ -1115,7 +1123,7 @@ class TestAnswering(unittest.TestCase):
         rows = self.app.view()
         self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
         self.press("m")
-        self.assertIn("merge A-2", self.app.message)
+        self.assertIn("merge A-2", self.asked())
         self.press("y")
         self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
                          [("merge", "2")])
@@ -1139,7 +1147,7 @@ class TestAnswering(unittest.TestCase):
                 break
             tui.time.sleep(0.01)
         self.assertEqual(seen, [("A-2/x", "main", "feature/m1")])
-        self.assertIn("move A-2's PR from main onto feature/m1? (y/n)", self.app.message)
+        self.assertIn("move A-2's PR from main onto feature/m1? (y/n)", self.asked())
         self.press("y")
         self.assertEqual(self.app.control["commands"][-1],
                          {"id": 1, "op": "retarget", "gid": "2", "base": "feature/m1"})
@@ -1172,7 +1180,7 @@ class TestAnswering(unittest.TestCase):
         dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), state)
         self.app.snapshot()
         self.press("c")
-        self.assertIn("continue past checkpoint A-2", self.app.message)
+        self.assertIn("continue past checkpoint A-2", self.asked())
         self.press("y")
         self.assertEqual(self.app.control["commands"][-1], {"id": 1, "op": "continue", "gid": "2"})
 
@@ -1189,7 +1197,7 @@ class TestAnswering(unittest.TestCase):
         self.app.snapshot()
         self.select("2")
         self.press("c")
-        self.assertIn("checkpoint A-1 has not merged yet — drop it", self.app.message)
+        self.assertIn("checkpoint A-1 has not merged yet — drop it", self.asked())
         self.press("y")
         self.assertFalse(dm.planned_checkpoints(dm.read_control(self.root)))
 
@@ -1281,6 +1289,28 @@ class TestAnswering(unittest.TestCase):
         self.press("esc")
         self.assertIsNone(self.app.goal_view)
 
+    def test_a_question_is_asked_in_the_dialog_box_not_the_bottom_line(self):
+        self.press("1", "down", "x")
+        lines = self.frame()
+        box = [l for l in lines if "│" in l]
+        self.assertTrue(any("─ confirm" in l for l in lines))
+        self.assertTrue(any("stop and unqueue" in l for l in box))
+        self.assertTrue(any("y yes · any other key no" in l for l in box))
+        self.assertNotIn("(y/n)", "\n".join(lines))
+        self.press("n")
+        self.assertFalse(any("─ confirm" in l for l in self.frame()))
+
+    def test_typing_and_picking_happen_in_the_dialog_box(self):
+        self.press("3", *["down"] * 4, "enter")
+        lines = self.frame()
+        self.assertTrue(any("─ usage limit" in l for l in lines))
+        self.assertTrue(any("› 75" in l for l in lines))
+        self.press("esc", "down", "enter")
+        lines = self.frame()
+        self.assertTrue(any("─ task model" in l for l in lines))
+        self.assertTrue(any("▸ sonnet" in l and "← now" in l for l in lines))
+        self.assertTrue(any("Checker effort" in l for l in lines))   # Setup stays behind it
+
     def test_the_selected_row_is_marked_not_only_coloured(self):
         self.press("1")
         lines = self.frame()
@@ -1311,7 +1341,7 @@ class TestAnswering(unittest.TestCase):
     def test_x_on_a_live_task_still_stops_it_after_asking(self):
         self.select("1")
         self.press("x")
-        self.assertIn("stop and unqueue", self.app.message)
+        self.assertIn("stop and unqueue", self.asked())
 
     def test_the_palette_clears_every_finished_task_at_once(self):
         self.finished_setup()
@@ -1327,7 +1357,7 @@ class TestAnswering(unittest.TestCase):
         self.select("2")
         self.press(":", *"undo", "enter")
         self.assertIn("undo A-2: close its PR and delete the branch, remove its worktree and "
-                      "saved state, take it off the sprint and unassign it? (y/n)", self.app.message)
+                      "saved state, take it off the sprint and unassign it? (y/n)", self.asked())
         self.assertEqual(self.app.control.get("commands") or [], [])
         self.press("y")
         self.assertEqual(self.app.control["commands"][-1]["op"], "undo")
@@ -1344,8 +1374,8 @@ class TestAnswering(unittest.TestCase):
         self.select("2")
         self.press(":", *"revert", "enter")
         self.assertIn("open a PR reverting it from feature/m1 (it waits for you to merge it)",
-                      self.app.message)
-        self.assertIn("A-1, which waits on it, already started", self.app.message)
+                      self.asked())
+        self.assertIn("A-1, which waits on it, already started", self.asked())
 
     def test_m_on_a_merge_in_progress_calls_it_off(self):
         path = os.path.join(dm.queue_dir(self.root), "state.json")
@@ -1393,7 +1423,7 @@ class TestAnswering(unittest.TestCase):
         rows = self.app.view()
         self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
         self.press("a")
-        self.assertIn("please resolve", self.app.message)
+        self.assertIn("please resolve", self.asked())
         self.press("y")
         self.assertEqual(asked, [("2", "https://github.com/o/r/pull/7")])
 
