@@ -193,6 +193,68 @@ def short_model(model):
     return model or ""
 
 
+_HEADING = re.compile(r"^(#+)\s*(.*)$")
+_ITEM = re.compile(r"^\s*(?:[-*]|\d+[.)])\s*\[( |x|X)\]\s*(.*)$")
+STAGES = ("building", "syncing", "CI", "checking", "done")
+
+
+def read_journal(path):
+    try:
+        with open(path, errors="replace") as f:
+            return [l.rstrip() for l in f.readlines()]
+    except (IOError, OSError):
+        return []
+
+
+def plan(lines):
+    """The lead's checklist: the `- [ ]` / `- [x]` items under a heading that says
+    plan, or every item in the journal when no heading does. {done, total, next,
+    items: [(done, text)]}, or None when there is no checklist."""
+    section, level = None, None
+    for i, line in enumerate(lines):
+        m = _HEADING.match(line)
+        if m and "plan" in m.group(2).lower():
+            section, level = [], len(m.group(1))
+            for rest in lines[i + 1:]:
+                n = _HEADING.match(rest)
+                if n and len(n.group(1)) <= level:
+                    break
+                section.append(rest)
+            break
+    items = [(m.group(1) != " ", m.group(2).strip())
+             for m in (_ITEM.match(l) for l in (section if section is not None else lines)) if m]
+    if not items:
+        return None
+    done = sum(1 for d, _ in items if d)
+    return {"done": done, "total": len(items), "items": items,
+            "next": next((t for d, t in items if not d), None)}
+
+
+def stage(goal):
+    """Where a goal is in its flow, one of STAGES, from its status and what it says
+    it is doing."""
+    status, doing = goal.get("status"), (goal.get("doing") or "").lower()
+    if status == "done":
+        return "done"
+    if status == "checking":
+        if "sync" in doing:
+            return "syncing"
+        if "ci" in doing.split() or "ci," in doing or "ci:" in doing:
+            return "CI"
+        return "checking"
+    return "building"
+
+
+def stage_line(goal):
+    current = stage(goal)
+    return " ▸ ".join("[%s]" % s if s == current else s for s in STAGES)
+
+
+def bar(done, total, width=20):
+    filled = int(round(width * done / total)) if total else 0
+    return "█" * filled + "░" * (width - filled)
+
+
 def journal_tail(path, n=12):
     try:
         with open(path, errors="replace") as f:
@@ -203,11 +265,17 @@ def journal_tail(path, n=12):
 
 
 def lines_for(goal, snap, journal, width):
-    """The live view, as (text, style) lines."""
+    """The live view, as (text, style) lines. `journal` is the journal's lines."""
     out = []
     doing = goal.get("doing") or goal.get("status") or ""
     rounds = "round %s" % goal["round"] if goal.get("round") else ""
     out.append((doing if not rounds or rounds in doing else "%s · %s" % (doing, rounds), "bold"))
+    out.append(("Stage: " + stage_line(goal), "ok"))
+    steps = plan(journal)
+    if steps:
+        out.append(("Plan:  %s %d of %d steps done%s" % (
+            bar(steps["done"], steps["total"]), steps["done"], steps["total"],
+            " · next: %s" % steps["next"][:width - 60] if steps["next"] else ""), "ok"))
     if goal.get("cost"):
         out.append(("≈ $%.2f so far at API prices · u for the breakdown" % goal["cost"], "dim"))
     out.append(("", "normal"))
@@ -235,7 +303,12 @@ def lines_for(goal, snap, journal, width):
                 out.append(("      %s · %s" % (a["action"][:width - 22], ago(now - a["at"])), "dim"))
         if len(agents) > 30:
             out.append(("  … and %d more" % (len(agents) - 30), "dim"))
-    if journal:
+    if steps:
+        out += [("", "normal"), ("Plan", "bold")]
+        out += [("  %s %s" % ("✓" if d else "·", t[:width - 6]), "dim" if d else "normal")
+                for d, t in steps["items"]]
+    tail = [l for l in journal if l.strip()][-8:]
+    if tail:
         out += [("", "normal"), ("Journal (latest lines)", "bold")]
-        out += [("  " + l[:width - 4], "normal") for l in journal]
+        out += [("  " + l[:width - 4], "normal") for l in tail]
     return out

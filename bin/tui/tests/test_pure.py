@@ -325,6 +325,11 @@ class TestGoalRows(unittest.TestCase):
         self.assertEqual(row["cols"], ["goal", "A-7 Add dark mode", "working · round 3 · usage 61%"])
         self.assertEqual((row["kind"], row["id"], row["style"]), ("goal", "goal:goal-1027-1432-dark-mode", "ok"))
 
+    def test_a_checking_goal_says_what_it_is_doing_and_how_far_its_plan_is(self):
+        [row] = tui.goal_rows([self.goal(status="checking", doing="fixing CI, try 1",
+                                         plan={"done": 5, "total": 5}, limits=[])])
+        self.assertEqual(row["cols"][2], "fixing CI, try 1 · round 3 · plan 5/5")
+
     def test_a_goal_waiting_on_you_comes_first_and_says_why(self):
         waits = {"goal:b": {"kind": "questions", "questions": [{"q": "Which theme?"}]}}
         rows = tui.goal_rows([self.goal(id="a"), self.goal(id="b")], waits)

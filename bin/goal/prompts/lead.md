@@ -19,7 +19,9 @@ this one piece of work, not separate tickets.
 ## How to work
 
 1. Read the codebase and its conventions before you change anything.
-2. Plan the work and keep the plan in the journal. Keep the journal current: what is
+2. Plan the work and keep the plan in the journal, under a `## Plan` heading, as a
+   checklist: one `- [ ]` line for each step, ticked `- [x]` when it is done. The
+   person follows your progress through it. Keep the journal current: what is
    done, what is in progress, what is next, and every decision you made and why.
    You can lose your memory of this conversation at any time. The journal and the
    branch must be enough for you to continue.

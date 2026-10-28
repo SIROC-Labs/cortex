@@ -99,10 +99,11 @@ flagged ⚑, and `⏎`, `a` and `A` work as they do for a task. `x` stops a runn
 Closing the TUI leaves a goal running.
 
 `⏎` on a goal opens its live view, re-read every two seconds from Claude Code's own
-transcripts: what the lead (or the checker, or a CI fix) is doing now and last said, each
+transcripts: the stage it is at (building ▸ syncing ▸ CI ▸ checking ▸ done), how far the
+lead's checklist under `## Plan` in its journal is, with the next step, what the lead (or the checker, or a CI fix) is doing now and last said, each
 sub-agent with its task, model and time, the running ones with what they are doing, and the
 end of the goal's journal. `l` opens its log and `u` what each agent cost. The row itself
-says how many sub-agents are running.
+says what the goal is doing, how many sub-agents are running, and how far its plan is.
 
 ## Dependencies
 

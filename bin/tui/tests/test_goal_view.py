@@ -60,11 +60,13 @@ class TestGoalView(unittest.TestCase):
         self.assertEqual(snap["main"]["said"], "Starting the API with two sub-agents.")
         self.assertEqual([a["description"] for a in snap["agents"]], ["Build the API", "Map the frontend"])
         self.assertEqual(gv.running_count(self.goal), 1)
-        text = "\n".join(l for l, _ in gv.lines_for(self.goal, snap, ["- D1 no tabs"], 100))
+        journal = ["- D1 no tabs", "## Plan", "- [x] Backend", "- [ ] Frontend"]
+        text = "\n".join(l for l, _ in gv.lines_for(self.goal, snap, journal, 100))
         for expected in ("round 2", "Lead · opus", "doing: Edit apps/api/queue.py",
                          "Sub-agents: 1 running, 1 finished", "● Build the API",
                          "Bash: pytest apps/api/tests/test_queue.py", "✓ Map the frontend",
-                         "- D1 no tabs"):
+                         "- D1 no tabs", "[building] ▸ syncing", "1 of 2 steps done · next: Frontend",
+                         "✓ Backend", "· Frontend"):
             self.assertIn(expected, text)
 
     def test_a_sub_agent_quiet_for_long_is_not_running(self):
@@ -82,6 +84,26 @@ class TestGoalView(unittest.TestCase):
         self.write(os.path.join(self.folder, "s1.jsonl"), [line(now)])
         os.utime(os.path.join(self.folder, "s1.jsonl"), (time.time() - 60, time.time() - 60))
         self.assertEqual(gv.snapshot(self.goal)["role"], "call")
+
+    def test_the_plan_is_the_checklist_under_its_heading(self):
+        journal = ["# Journal", "- [x] not part of the plan", "## Plan", "1. [x] Backend",
+                   "2. [ ] Migration 0030", "- [ ] Frontend", "### detail", "- [x] sub-step",
+                   "## Status", "- [ ] not part either"]
+        steps = gv.plan(journal)
+        self.assertEqual((steps["done"], steps["total"], steps["next"]), (2, 4, "Migration 0030"))
+        self.assertEqual(gv.plan(["- [x] a", "- [ ] b"])["total"], 2)
+        self.assertIsNone(gv.plan(["## Status", "- DONE: everything"]))
+
+    def test_the_stage_follows_what_the_goal_says_it_is_doing(self):
+        for status, doing, expected in (("working", "round 2", "building"),
+                                        ("checking", "syncing with main", "syncing"),
+                                        ("checking", "waiting for CI: test", "CI"),
+                                        ("checking", "fixing CI, try 1", "CI"),
+                                        ("checking", "checking the branch against the ask", "checking"),
+                                        ("done", "", "done")):
+            self.assertEqual(gv.stage({"status": status, "doing": doing}), expected)
+        self.assertEqual(gv.stage_line({"status": "checking", "doing": "fixing CI, try 1"}),
+                         "building ▸ syncing ▸ [CI] ▸ checking ▸ done")
 
     def test_no_call_yet(self):
         self.assertIsNone(gv.snapshot(dict(self.goal, worktree="/nothing")))

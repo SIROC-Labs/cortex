@@ -442,10 +442,13 @@ def goal_status(g, wait=None):
     use += " · ≈ $%.2f" % g["cost"] if g.get("cost") else ""
     agents = g.get("agents_running")
     use = (" · %d sub-agent%s running" % (agents, "" if agents == 1 else "s") if agents else "") + use
+    steps = g.get("plan")
+    use = (" · plan %d/%d" % (steps["done"], steps["total"]) if steps else "") + use
     if status == "working":
         return "working · round %s%s" % (g.get("round") or 1, use), "ok"
     if status == "checking":
-        return "checking the branch against the ask · round %s%s" % (g.get("round") or 1, use), "ok"
+        return "%s · round %s%s" % (g.get("doing") or "checking the branch against the ask",
+                                     g.get("round") or 1, use), "ok"
     if status == "setting-up":
         return "setting up its branch and PR", "ok"
     if status == "paused":
@@ -1058,6 +1061,7 @@ class App(object):
         self.goals = gl.list_goals(self.main_root)
         for g in self.goals:
             g["agents_running"] = gv.running_count(g) if g.get("alive") else 0
+            g["plan"] = gv.plan(gv.read_journal(gl.Goal(self.main_root, g["id"]).journal))
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.waits.update(goal_waits(self.goals))
         self.activity = self.read_activity()
@@ -2039,7 +2043,7 @@ class App(object):
             if time.time() - at > GOAL_VIEW_EVERY:
                 g = next((g for g in self.goals if g["id"] == self.goal_view), None) or {}
                 goal = gl.Goal(self.main_root, self.goal_view)
-                lines = gv.lines_for(g, gv.snapshot(g), gv.journal_tail(goal.journal), w - 4)
+                lines = gv.lines_for(g, gv.snapshot(g), gv.read_journal(goal.journal), w - 4)
                 self.goal_lines = (time.time(), lines)
             title = next((gl.title_of(g) for g in self.goals if g["id"] == self.goal_view),
                          self.goal_view)
