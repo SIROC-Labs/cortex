@@ -54,9 +54,14 @@ This program is the harness around the lead:
   strongest model costs little there. All four are on the TUI's Setup tab, and on
   `cortex goal new` as `--model`, `--subagent-model`, `--check-model` and `--check-effort`.
   A goal keeps the models it started with.
-- **Usage.** Your Claude subscription's limits (`/usage`) are read before each round and
-  every 5 minutes during one. At 75% or more of any limit (`--threshold`), the goal stops
-  its call and pauses until that limit resets, then continues the same session.
+- **Usage.** Your Claude subscription's limits (`/usage`) are read before each call and
+  every 5 minutes during one. At 75% of any limit (`--threshold`) the call winds down
+  rather than stopping: through Claude Code hooks, new sub-agents are refused and every
+  tool call tells the agents to finish the step they are on, commit, note in the journal
+  where they stopped, and end. Usage is read every minute while it winds down. Only at 2%
+  past the limit is the call cut off, and then the lead is told on resuming which
+  sub-agents were stopped and which files were left uncommitted. Either way the goal
+  pauses until the limit resets, then carries on.
 - **Stops.** Three rounds in a row that change nothing, four checks in a row that find
   gaps, a refused push, or an agent call that keeps failing: each is a question to you,
   not an end.

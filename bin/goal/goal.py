@@ -25,6 +25,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -59,8 +60,20 @@ DEFAULT_THRESHOLD = 75
 # Turns in one call before the runner takes the wheel back: to push, to read the
 # usage, to see the lead is still getting somewhere. The session carries on.
 MAX_TURNS = 200
-# How often the usage is read while a call runs.
+# How often the usage is read while a call runs, and while one winds down.
 USAGE_CHECK = 300
+WIND_CHECK = 60
+# At the threshold a call is asked to wind down: no new work, and an end at the next
+# safe point. Only this many points past it is it cut off.
+HARD_MARGIN = 2
+WIND_FILE = "wind-down"
+SETTINGS_FILE = "settings.json"
+WIND_DOWN = ("WIND DOWN: the person's Claude usage limit is reached, so this work pauses "
+             "now. Start no new sub-agent and no new step. Finish the step you are on. If "
+             "you lead the work: wait for the sub-agents already running, commit what is "
+             "finished, write in the journal exactly where you stopped, and end your turn "
+             "with the progress block. If you are a sub-agent: stop, and report what you "
+             "finished and what you did not.")
 # While paused, how often the usage is read again when no reset time is known.
 PAUSE_CHECK = 900
 # Rounds in a row that change nothing before the person is asked.
@@ -272,6 +285,36 @@ def checks_section(checks):
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
+def hook_settings(flag):
+    """Claude Code settings whose hooks wind a call down while `flag` exists: a new
+    sub-agent is refused, and every other tool call says to stop at the next safe
+    point. They reach the lead and its sub-agents alike."""
+    check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
+        shlex.quote(flag), shlex.quote(WIND_DOWN))
+    hook = [{"type": "command", "command": check}]
+    return {"hooks": {"PreToolUse": [{"matcher": "Agent|Task", "hooks": hook}],
+                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
+
+
+def cut_off_prompt(at, agents, dirty):
+    """What the lead is told when its last call had to be cut off mid-work."""
+    lines = ["Your last call was cut off at %s, because the person's usage limit ran over "
+             "while it was working. Nothing was handed back to you from it." % time.strftime(
+                 "%H:%M", time.localtime(at)), ""]
+    if agents:
+        lines += ["These sub-agents were still working and were stopped. Their reports "
+                  "never reached you:", ""] + ["- %s" % a for a in agents] + [""]
+    if dirty:
+        lines += ["These files have changes that are not committed. Some may be "
+                  "half done:", ""] + ["- `%s`" % f for f in dirty[:60]]
+        if len(dirty) > 60:
+            lines.append("- … and %d more" % (len(dirty) - 60))
+        lines.append("")
+    lines += ["Check that work before you build on it: finish it, or redo it. Then "
+              "continue.", "", CONTINUE]
+    return "\n".join(lines)
+
+
 def answer_prompt(questions, answer):
     lines = ["You asked the person:", ""]
     lines += ["- %s" % q["q"] for q in questions or []]
@@ -412,6 +455,22 @@ def usage_report(calls):
         for agent in call.get("subagents") or []:
             out.append(_line("  " + (agent.get("description") or "sub-agent"), agent))
     return "\n".join(out) + "\n"
+
+
+def unfinished_subagents(session, since, claude_dir=None):
+    """The descriptions of a session's sub-agents started since `since` that never
+    finished."""
+    base = claude_dir or os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    out = []
+    for meta in glob.glob(os.path.join(base, "projects", "*", session, "subagents", "agent-*.meta.json")):
+        try:
+            with open(meta) as f:
+                data = json.load(f)
+        except (IOError, OSError, ValueError):
+            continue
+        if data.get("finished") is not True and os.path.getmtime(meta[:-len(".meta.json")] + ".jsonl") >= since:
+            out.append(data.get("description") or "a sub-agent")
+    return sorted(out)
 
 
 def read_call(session, since, model_usage=None, claude_dir=None):
@@ -566,6 +625,7 @@ class Runner(object):
         if not self.data:
             st.die("no goal %s in %s" % (gid, main_root), escalate=False)
         self.child = None
+        self.cut_off = None
         signal.signal(signal.SIGTERM, self.on_term)
 
     def on_term(self, *_):
@@ -665,9 +725,13 @@ class Runner(object):
         cut off because the usage crossed the threshold returns stop_reason
         "usage"; its session carries on afterwards."""
         model = model or self.data["model"]
+        flag = self.goal.state.path(WIND_FILE)
+        if os.path.exists(flag):
+            os.remove(flag)
+        self.goal.state.write(SETTINGS_FILE, hook_settings(flag))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
-               "--add-dir", self.goal.state.dir]
+               "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
@@ -678,21 +742,34 @@ class Runner(object):
                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, start_new_session=True)
         threshold = self.data.get("threshold", DEFAULT_THRESHOLD)
+        winding = False
         while True:
             try:
-                out, err = self.child.communicate(timeout=USAGE_CHECK)
+                out, err = self.child.communicate(timeout=WIND_CHECK if winding else USAGE_CHECK)
                 break
             except subprocess.TimeoutExpired:
-                worst = over_threshold(self.usage(), threshold)
-                if worst:
-                    st.warn("%s at %d%% — stopping the call; it carries on later"
-                            % (worst["name"], worst["used"]))
+                limits = self.usage()
+                hard = over_threshold(limits, threshold + HARD_MARGIN)
+                if hard:
+                    st.warn("%s at %d%% — cutting the call off; it carries on later"
+                            % (hard["name"], hard["used"]))
+                    self.cut_off = {"at": time.time(), "session": session, "since": started}
                     os.killpg(self.child.pid, signal.SIGTERM)
                     self.child.communicate()
                     self.child = None
                     self.record_call(label, model, effort, session, started)
                     return None, "usage", None
+                worst = over_threshold(limits, threshold)
+                if worst and not winding:
+                    st.warn("%s at %d%% — winding the call down: no new work, then it stops"
+                            % (worst["name"], worst["used"]))
+                    with open(flag, "w") as f:
+                        f.write("%s at %d%%\n" % (worst["name"], worst["used"]))
+                    winding = True
+                    self.set(doing="winding down — %s at %d%%" % (worst["name"], worst["used"]))
         code, self.child = self.child.returncode, None
+        if winding:
+            st.info("%s: wound down" % label)
         self.record_call(label, model, effort, session, started, out)
         text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
         usage = telemetry.get("usage")
@@ -725,6 +802,16 @@ class Runner(object):
         with open(self.goal.state.path(REPORT_FILE), "w") as f:
             f.write(usage_report(calls))
         self.set(cost=sum(c.get("cost") or 0 for c in calls))
+
+    def cut_off_notice(self):
+        """The prompt after a call was cut off: which sub-agents were stopped and
+        which files were left uncommitted."""
+        cut = getattr(self, "cut_off", None) or {"at": time.time()}
+        agents = unfinished_subagents(cut.get("session"), cut.get("since", 0)) if cut.get("session") else []
+        _, status, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
+        dirty = [line[3:] for line in status.splitlines() if len(line) > 3]
+        self.cut_off = None
+        return cut_off_prompt(cut["at"], agents, dirty)
 
     def lead(self, prompt):
         """Call the lead on its session, through failures and pauses. Returns
@@ -759,7 +846,9 @@ class Runner(object):
                 answer = self.ask_problem("The lead agent keeps failing", error)
                 prompt, failures = "The person says:\n\n%s\n\n%s" % (answer, CONTINUE), 0
                 continue
-            if stop in ("usage", "max_turns"):
+            if stop == "usage":
+                return "cut", {}
+            if stop == "max_turns":
                 return "progress", {}
             return lead_report(block)
 
@@ -989,6 +1078,9 @@ class Runner(object):
                 before = after
                 if report == "question":
                     prompt = answer_prompt(block["questions"], self.ask_questions(block["questions"]))
+                    continue
+                if report == "cut":
+                    prompt = self.cut_off_notice()
                     continue
                 if report == "done":
                     _, fix = self.sync_and_ci()

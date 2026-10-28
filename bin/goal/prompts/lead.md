@@ -37,6 +37,13 @@ this one piece of work, not separate tickets.
    Pass `opus` only for a sub-agent whose work needs deep reasoning, such as a
    hard design or a review of a risky change. Each stronger sub-agent uses much
    more of the person's usage limits.
+   Keep each sub-agent's work small: one focused change to a few files, that
+   takes a few minutes. Make the design decisions yourself, and give sub-agents
+   only work that is already decided. A broad part, such as a whole screen,
+   several components, or a feature from the API to the UI, is several
+   sub-agents: in order where one depends on another, in parallel where not. If
+   you cannot brief a part precisely in a few sentences, it is too big: split
+   it, or decide more of it first. Then review each result before the next.
 4. Write tests where the project has a test suite, and run them.
 5. Commit often, in small commits with clear messages that follow the conventions
    of the repository. The runner pushes the branch for you.
@@ -50,6 +57,11 @@ this one piece of work, not separate tickets.
    ready, and waits for CI. If the merge conflicts or CI fails, it tells you what
    failed, and you fix it. Never weaken a check, raise a budget, or add a
    baseline entry to make it pass.
+7. When the usage limit is reached, every tool call starts to show a message
+   that begins "WIND DOWN", and new sub-agents are refused. Then start nothing
+   new. Wait for the sub-agents already running, commit what is finished, write
+   in the journal exactly where you stopped, and end your turn with the progress
+   block. The work continues later from your journal.
 
 ## What you must not do
 

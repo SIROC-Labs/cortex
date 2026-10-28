@@ -310,5 +310,77 @@ class TestGate(unittest.TestCase):
     def test_the_checker_is_told_what_ci_passed(self):
         self.assertIn("CI passed on it: `test`", goal.checks_text("main", ["test"]))
 
+class TestWindDown(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+        self.dir = tempfile.mkdtemp()
+        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x")
+        self.runner = goal.Runner(self.dir, gid)
+        self.runner.record_call = lambda *a, **k: None
+        self.readings, self.killed = [], []
+        self.runner.usage = lambda: [{"name": "session", "used": self.readings.pop(0), "resets_at": 0}]
+        test = self
+
+        class Proc(object):
+            pid, returncode = 4242, 0
+
+            def __init__(self, cmd, **kw):
+                test.cmd = cmd
+                self.waits = 0
+
+            def communicate(self, timeout=None):
+                if timeout is not None and test.readings:
+                    test.timeouts.append(timeout)
+                    raise subprocess.TimeoutExpired("claude", timeout)
+                return b'{"result": "ok", "subtype": "success"}', b""
+
+            def poll(self):
+                return 0
+        self.timeouts = []
+        popen, killpg = goal.subprocess.Popen, goal.os.killpg
+        goal.subprocess.Popen = Proc
+        goal.os.killpg = lambda pid, sig: self.killed.append(pid)
+        self.addCleanup(setattr, goal.subprocess, "Popen", popen)
+        self.addCleanup(setattr, goal.os, "killpg", killpg)
+        self.flag = self.runner.goal.state.path(goal.WIND_FILE)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def test_at_the_threshold_the_call_winds_down_and_ends_by_itself(self):
+        self.readings = [60, 75, 76]
+        _, stop, _ = self.runner.call("go", "s", False, "lead")
+        self.assertNotEqual(stop, "usage")
+        self.assertEqual(self.killed, [])
+        self.assertTrue(os.path.exists(self.flag))
+        self.assertEqual(self.timeouts, [goal.USAGE_CHECK, goal.USAGE_CHECK, goal.WIND_CHECK])
+        self.assertIn("--settings", self.cmd)
+
+    def test_past_the_margin_it_is_cut_off(self):
+        self.readings = [75, 77]
+        _, stop, _ = self.runner.call("go", "s", False, "lead")
+        self.assertEqual((stop, self.killed), ("usage", [4242]))
+        self.assertEqual(self.runner.cut_off["session"], "s")
+
+    def test_a_new_call_starts_without_the_flag(self):
+        with open(self.flag, "w") as f:
+            f.write("old")
+        self.runner.call("go", "s", False, "lead")
+        self.assertFalse(os.path.exists(self.flag))
+
+    def test_the_hooks_refuse_sub_agents_and_ask_for_a_stop(self):
+        hooks = goal.hook_settings("/s/wind-down")["hooks"]
+        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "Agent|Task")
+        self.assertEqual(hooks["PostToolUse"][0]["matcher"], "*")
+        self.assertIn("test -f /s/wind-down", hooks["PreToolUse"][0]["hooks"][0]["command"])
+
+    def test_after_a_cut_off_the_lead_is_told_what_was_left(self):
+        text = goal.cut_off_prompt(0, ["Task panel"], ["apps/a.ts", "apps/b.ts"])
+        self.assertIn("- Task panel", text)
+        self.assertIn("- `apps/a.ts`", text)
+        self.assertIn("finish it, or redo it", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,8 @@ class TestGoalView(unittest.TestCase):
         self.folder = os.path.join(self.base, "projects", "-r--cortex-worktrees-goal-1-x")
         os.makedirs(os.path.join(self.folder, "s1", "subagents"))
         self.goal = {"id": "goal-1-x", "worktree": self.worktree, "session": "s1",
-                     "doing": "round 2", "round": 2, "cost": 1.5}
+                     "doing": "round 2", "round": 2, "cost": 1.5,
+                     "status": "working"}
 
     def tearDown(self):
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -68,6 +69,18 @@ class TestGoalView(unittest.TestCase):
                          "- D1 no tabs", "[building] ▸ syncing", "1 of 2 steps done · next: Frontend",
                          "✓ Backend", "· Frontend"):
             self.assertIn(expected, text)
+
+    def test_a_sub_agent_of_a_paused_goal_was_cut_off(self):
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self.write(os.path.join(self.folder, "s1.jsonl"), [line(now)])
+        self.agent("a", "Task panel", None, [line(now, model="claude-sonnet-5-5")])
+        paused = dict(self.goal, status="paused")
+        snap = gv.snapshot(paused)
+        self.assertEqual((snap["running"], snap["agents"][0]["cut"]), (0, True))
+        self.assertEqual(gv.running_count(paused), 0)
+        text = "\n".join(l for l, _ in gv.lines_for(paused, snap, [], 100))
+        self.assertIn("0 running, 0 finished, 1 cut off when the goal stopped", text)
+        self.assertIn("✗ Task panel", text)
 
     def test_a_sub_agent_quiet_for_long_is_not_running(self):
         old = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))

@@ -17,6 +17,11 @@ LINE_BYTES = 64 * 1024
 # A sub-agent whose meta file does not say it finished, and whose transcript has not
 # moved for this long, is taken as gone rather than running.
 STALE = 15 * 60
+# A goal in one of these is in a call; in any other, nothing of it runs, and a
+# sub-agent that never finished was cut off.
+ACTIVE = ("working", "checking")
+# A sub-agent running longer than this was given too much: it shows as a warning.
+LONG = 8 * 60
 
 
 def claude_dir():
@@ -104,9 +109,14 @@ def activity(lines):
     return out
 
 
-def subagents(session_path, now=None):
+def active(goal):
+    return goal.get("status") in ACTIVE and goal.get("alive", True)
+
+
+def subagents(session_path, now=None, in_call=True):
     """The call's sub-agents, running first, then the newest: [{description,
-    running, started, at, action, model}]."""
+    running, cut, started, at, action, model}]. With `in_call` false, the call is not
+    running, so none is: one that never finished is `cut` off."""
     now = now or time.time()
     out = []
     folder = os.path.join(session_path[:-len(".jsonl")], "subagents")
@@ -122,8 +132,10 @@ def subagents(session_path, now=None):
             first = {}
         live = activity(_read_tail(path, 64 * 1024))
         moved = live["at"] or os.path.getmtime(path)
+        unfinished = meta.get("finished") is not True
         out.append({"description": meta.get("description") or "sub-agent",
-                    "running": meta.get("finished") is not True and now - moved < STALE,
+                    "running": in_call and unfinished and now - moved < STALE,
+                    "cut": unfinished and not (in_call and now - moved < STALE),
                     "started": _when(first.get("timestamp")) or moved, "at": moved,
                     "action": live["action"], "model": live["model"]})
     return sorted(out, key=lambda a: (not a["running"], -a["at"]))
@@ -146,7 +158,7 @@ def snapshot(goal, now=None):
         return None
     now = now or time.time()
     session = os.path.basename(path)[:-len(".jsonl")]
-    agents = subagents(path, now)
+    agents = subagents(path, now, active(goal))
     return {"session": session, "role": "lead" if session == goal.get("session") else "call",
             "main": activity(_read_tail(path)), "agents": agents,
             "running": sum(1 for a in agents if a["running"]), "now": now}
@@ -156,7 +168,7 @@ def running_count(goal, now=None):
     """How many of the current call's sub-agents are running: cheap enough for every
     refresh, as it reads only their meta files and modification times."""
     path = current_session(goal["worktree"]) if goal.get("worktree") else None
-    if not path:
+    if not path or not active(goal):
         return 0
     now = now or time.time()
     count = 0
@@ -292,13 +304,18 @@ def lines_for(goal, snap, journal, width):
             out.append(("  said:  " + main["said"][:width - 10], "dim"))
         out.append(("", "normal"))
         agents = snap["agents"]
-        out.append(("Sub-agents: %d running, %d finished" % (
-            snap["running"], len(agents) - snap["running"]), "bold"))
+        cut = sum(1 for a in agents if a["cut"])
+        out.append(("Sub-agents: %d running, %d finished%s" % (
+            snap["running"], len(agents) - snap["running"] - cut,
+            ", %d cut off when the goal stopped" % cut if cut else ""), "bold"))
         for a in agents[:30]:
-            mark = "●" if a["running"] else "✓"
-            row = "  %s %-44s %-7s %6s" % (mark, a["description"][:44], short_model(a["model"]),
-                                           span((now if a["running"] else a["at"]) - a["started"]))
-            out.append((row, "ok" if a["running"] else "dim"))
+            took = (now if a["running"] else a["at"]) - a["started"]
+            mark = "●" if a["running"] else "✗" if a["cut"] else "✓"
+            row = "  %s %-44s %-7s %6s%s" % (mark, a["description"][:44], short_model(a["model"]),
+                                             span(took), "  cut off" if a["cut"] else
+                                             "  long — a big brief" if a["running"] and took > LONG else "")
+            out.append((row, "warn" if a["cut"] or (a["running"] and took > LONG)
+                        else "ok" if a["running"] else "dim"))
             if a["running"] and a["action"]:
                 out.append(("      %s · %s" % (a["action"][:width - 22], ago(now - a["at"])), "dim"))
         if len(agents) > 30:
