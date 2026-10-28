@@ -230,6 +230,28 @@ def check_states(rollup):
     return sorted(set(pending)), sorted(set(failing))
 
 
+def ci_fix_due(view, ci, limit):
+    """What to do about CI on an open PR nobody is merging: ("fix", failing,
+    signature), ("blocked", names), ("green", None), or None to wait. `ci` is the
+    record's account of earlier fixes: the failures last acted on (`seen`) and how
+    many fixes were tried. The same failures are acted on once: a fix pushes new
+    commits, or re-runs a flaky check, and that brings new results."""
+    ci = ci or {}
+    rollup = view.get("statusCheckRollup") or []
+    pending, failing = check_states(rollup)
+    if not failing:
+        return ("green", None) if rollup and not pending else None
+    failed = {name for name, _ in failing}
+    signature = sorted("%s@%s" % (c.get("name") or c.get("context"),
+                                  c.get("completedAt") or c.get("startedAt") or "")
+                       for c in latest_checks(rollup) if (c.get("name") or c.get("context")) in failed)
+    if signature == ci.get("seen"):
+        return None
+    if ci.get("attempts", 0) >= limit:
+        return "blocked", sorted(failed)
+    return "fix", failing, signature
+
+
 def merge_step(view, attempts, limits=None, required=()):
     """The next thing to do for a PR that is to be merged: (action, detail).
 
@@ -323,9 +345,10 @@ def failure_excerpt(log_text, max_lines=10):
     return out[-max_lines:]
 
 
-def render_ci_fix(failing, excerpts=None):
+def render_ci_fix(failing, excerpts=None, opening="Merge was asked for, and required checks "
+                                                 "failed on the PR:"):
     excerpts = excerpts or {}
-    lines = ["Merge was asked for, and required checks failed on the PR:", ""]
+    lines = [opening, ""]
     for name, url in failing:
         lines.append("- %s%s" % (name, " — %s" % url if url else ""))
         if excerpts.get(name):
@@ -419,6 +442,9 @@ def describe(gid, tasks, records, me_gid):
         return "merge blocked: %s" % merge["blocked"]
     if merge and phase in ("pr_open", "conflict", "revising"):
         return "merging — %s" % (merge.get("stage") or "starting")
+    if phase == "pr_open" and (record.get("ci") or {}).get("blocked"):
+        return "PR open — checks still failing after %d fixes (%s): needs you" % (
+            record["ci"].get("attempts", 0), ", ".join(record["ci"]["blocked"]))
     if phase == "pr_open":
         return "PR open"
     if phase == "conflict":
@@ -492,7 +518,7 @@ def phase_note(phase, record):
     return {
         "awaiting": "Waiting on you — the question is on the task and the TUI's Runs tab",
         "pr_open": (None if record.get("merge") is not None
-                    else "PR open — watching for review comments and the merge"),
+                    else "PR open — watching for review comments, failing checks and the merge"),
         "conflict": "PR conflicts with its base — parked until a resolve or a merge is asked for",
         "failed": "Failed: %s" % (reason[0] if reason else "see above"),
         "stopped": "Stopped: %s" % (reason[0] if reason else "?"),
@@ -967,7 +993,7 @@ class Engine(object):
             self.drive_merge(gid, owner, name)
             return
         view = self.gh_json(["pr", "view", record["pr_url"], "--json",
-                             "state,mergedAt,mergeable"])
+                             "state,mergedAt,mergeable,statusCheckRollup"])
         changed = False
         if view is not None:
             if view.get("state") == "MERGED":
@@ -990,6 +1016,8 @@ class Engine(object):
                                    "addressing %d review comment(s)" % len(items),
                                    ["%s: %s" % (h, (b.strip().splitlines() or [""])[0][:140])
                                     for _, h, b in items])
+                return
+            if record["phase"] == "pr_open" and self.fix_open_ci(gid, view):
                 return
             ask = resolve_request(items or [])
             if ask and record["phase"] == "conflict":
@@ -1376,6 +1404,42 @@ class Engine(object):
                 log("%s: merge blocked — %s" % (key, detail))
             merge["blocked"] = detail
             record["next_poll"] = time.time() + BLOCKED_POLL
+
+    def fix_open_ci(self, gid, view):
+        """Failing checks on an open PR get fixed, as they would on the way to a
+        merge, up to the same number of tries. Returns whether a fix started."""
+        record = self.records[gid]
+        ci = record.setdefault("ci", {})
+        due = ci_fix_due(view, ci, MERGE_LIMITS["ci"])
+        if not due:
+            return False
+        if due[0] == "green":
+            if ci.get("attempts") or ci.get("blocked"):
+                log("%s: checks pass" % self.key_of(gid))
+            record["ci"] = {}
+            return False
+        if due[0] == "blocked":
+            if ci.get("blocked") != due[1]:
+                log("%s: checks still failing after %d fixes (%s) — needs you"
+                    % (self.key_of(gid), ci.get("attempts", 0), ", ".join(due[1])))
+                self.note(gid, "Checks still failing after %d fixes — needs you"
+                          % ci.get("attempts", 0), ["failing: %s" % ", ".join(due[1])])
+            ci["blocked"] = due[1]
+            return False
+        _, failing, signature = due
+        ci.update(seen=signature, attempts=ci.get("attempts", 0) + 1, blocked=None)
+        names = ", ".join(n for n, _ in failing)
+        log("%s: checks failing (%s) — fixing (%d/%d)" % (self.key_of(gid), names,
+                                                           ci["attempts"], MERGE_LIMITS["ci"]))
+        excerpts = self.ci_excerpts(failing)
+        issues = []
+        for check, _ in failing:
+            issues.append("%s failed%s" % (check, ":" if excerpts.get(check) else
+                                           " (its log could not be read)"))
+            issues += ["  %s" % line for line in excerpts.get(check, [])]
+        self.launch_revise(gid, [], render_ci_fix(failing, excerpts, "Checks failed on the PR:"),
+                           "fixing failing checks (%s)" % names, issues)
+        return True
 
     def pr_base(self, gid):
         """The branch a task's PR targets, as its run recorded it."""

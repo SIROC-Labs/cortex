@@ -817,5 +817,35 @@ class TestShellTokens(unittest.TestCase):
         self.assertEqual(sorted(changed), ["GH_TOKEN", "GITHUB_TOKEN"])
         self.assertEqual(env, {"GH_TOKEN": "new", "OTHER": "kept"})
 
+class TestOpenPrCi(unittest.TestCase):
+    def run_(self, name, conclusion, at="2026-10-28T10:00:00Z"):
+        return {"__typename": "CheckRun", "name": name, "status": "COMPLETED",
+                "conclusion": conclusion, "completedAt": at, "detailsUrl": "https://x/job/1"}
+
+    def test_failing_checks_are_fixed_once_each(self):
+        import engine
+        view = {"statusCheckRollup": [self.run_("test", "FAILURE"), self.run_("lint", "SUCCESS")]}
+        action, failing, seen = engine.ci_fix_due(view, {}, 2)
+        self.assertEqual((action, failing), ("fix", [("test", "https://x/job/1")]))
+        self.assertIsNone(engine.ci_fix_due(view, {"seen": seen, "attempts": 1}, 2))
+        again = {"statusCheckRollup": [self.run_("test", "FAILURE", "2026-10-28T11:00:00Z")]}
+        self.assertEqual(engine.ci_fix_due(again, {"seen": seen, "attempts": 1}, 2)[0], "fix")
+        self.assertEqual(engine.ci_fix_due(again, {"seen": seen, "attempts": 2}, 2),
+                         ("blocked", ["test"]))
+
+    def test_running_or_green_checks_are_not_fixed(self):
+        import engine
+        running = {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS"}
+        self.assertIsNone(engine.ci_fix_due({"statusCheckRollup": [running]}, {}, 2))
+        self.assertIsNone(engine.ci_fix_due({"statusCheckRollup": []}, {}, 2))
+        self.assertEqual(engine.ci_fix_due({"statusCheckRollup": [self.run_("test", "SUCCESS")]}, {}, 2),
+                         ("green", None))
+
+    def test_the_brief_says_why_it_runs(self):
+        import engine
+        self.assertTrue(engine.render_ci_fix([("t", None)], opening="Checks failed on the PR:")
+                        .startswith("Checks failed on the PR:"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

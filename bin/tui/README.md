@@ -257,6 +257,14 @@ rounds of conflicts or two failed fixes of a check, or when something other than
 blocks it (a required review, say); `m` tries again from wherever the PR stands. `m` on
 a merge in progress calls it off.
 
+### Failing checks on an open PR
+
+A PR nobody is merging yet — one into the default branch, waiting for `m` — does not sit
+on failing checks either. When CI fails, the task revises to fix it, or re-runs a plain
+flake, exactly as on the way to a merge. Each set of failures is acted on once, and after
+two fixes that leave checks failing it stops and says *checks still failing after 2 fixes
+(…): needs you*. Green checks reset the count. Review comments still come first.
+
 ## Asana data and its cache
 
 Nothing waits on the network to draw. Boards and their sections are cached in
