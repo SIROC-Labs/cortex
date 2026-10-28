@@ -828,6 +828,10 @@ class Engine(object):
             self.asana(["task", "set-field", gid, "Assignee", self.data["me"]["gid"]])
             log("%s assigned to %s" % (task["key"], self.data["me"]["name"]))
 
+    def run_args(self):
+        """Arguments for every start-task run beyond the forwarded ones."""
+        return []
+
     def spawn(self, gid, argv, phase, label, **fields):
         key = self.key_of(gid)
         os.makedirs(self.path("logs"), exist_ok=True)
@@ -841,7 +845,7 @@ class Engine(object):
         logfile.write(run_header(label))
         logfile.flush()
         cmd = ([sys.executable, START_TASK] + argv
-               + ["--repo", self.repo, "--result-file", result] + self.forward)
+               + ["--repo", self.repo, "--result-file", result] + self.forward + self.run_args())
         # Its own process group, so stopping the run stops its agent too.
         proc = subprocess.Popen(cmd, cwd=self.repo, stdin=subprocess.DEVNULL,
                                 stdout=logfile, stderr=subprocess.STDOUT,

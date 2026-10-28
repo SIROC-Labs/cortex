@@ -46,6 +46,10 @@ DEFAULT_MODEL = "claude-opus-5-5"
 # The lead's sub-agents mostly do narrow, well-briefed parts of the work. The lead
 # can still ask for a stronger model for one that needs it.
 DEFAULT_SUBAGENT_MODEL = "claude-sonnet-5-5"
+# The checker only verifies and reports, and runs only when the lead says it is
+# done: the one place where the strongest model costs little and catches most.
+DEFAULT_CHECK_MODEL = "claude-fable-5-1"
+DEFAULT_CHECK_EFFORT = "xhigh"
 DEFAULT_THRESHOLD = 75
 # Turns in one call before the runner takes the wheel back: to push, to read the
 # usage, to see the lead is still getting somewhere. The session carries on.
@@ -237,9 +241,19 @@ def task_url(gid, board=None):
     return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
 
 
+def settings_from(control):
+    """The models a new goal uses, from the repo's control file (the TUI's Setup
+    tab): {model, subagent_model, check_model, check_effort}."""
+    models = (control or {}).get("models") or {}
+    return {"model": models.get("lead") or DEFAULT_MODEL,
+            "subagent_model": models.get("subagent") or DEFAULT_SUBAGENT_MODEL,
+            "check_model": models.get("check") or DEFAULT_CHECK_MODEL,
+            "check_effort": models.get("check_effort") or DEFAULT_CHECK_EFFORT}
+
+
 def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
-           model=DEFAULT_MODEL, subagent_model=DEFAULT_SUBAGENT_MODEL, check_model=None,
-           now=None):
+           model=DEFAULT_MODEL, subagent_model=DEFAULT_SUBAGENT_MODEL,
+           check_model=DEFAULT_CHECK_MODEL, check_effort=DEFAULT_CHECK_EFFORT, now=None):
     """Write a new goal for the ticket `ref`. Returns its id; nothing runs yet, and the
     ticket itself is read when it starts."""
     gid, n = goal_id(key, name), 1
@@ -250,7 +264,8 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
     goal.state.ensure()
     goal.update(id=gid, ref=ref, key=key, name=name, url=url or task_url(ref), base=base,
                 threshold=threshold, model=model, subagent_model=subagent_model,
-                check_model=check_model or model, created=now or time.time(), status="new",
+                check_model=check_model or model, check_effort=check_effort,
+                created=now or time.time(), status="new",
                 round=0)
     return gid
 
@@ -403,7 +418,7 @@ class Runner(object):
 
     # agent calls
 
-    def call(self, prompt, session, resume, label, model=None):
+    def call(self, prompt, session, resume, label, model=None, effort=None):
         """One `claude -p` call. Returns (structured, stop_reason, error). A call
         cut off because the usage crossed the threshold returns stop_reason
         "usage"; its session carries on afterwards."""
@@ -411,6 +426,7 @@ class Runner(object):
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir]
+        cmd += ["--effort", effort] if effort else []
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
         env = dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL=self.data.get(
@@ -489,7 +505,7 @@ class Runner(object):
         st.step("Checking against the ask")
         prompt = render(os.path.join(PROMPTS, "check.md"), **self.fields())
         block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "check",
-                                       self.data.get("check_model"))
+                                       self.data.get("check_model"), self.data.get("check_effort"))
         # Files the checks leave behind — caches, reports — are not changes to the work.
         _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
                              cwd=self.data["worktree"], check=False)
@@ -651,7 +667,9 @@ def main(argv):
     new.add_argument("--model", default=DEFAULT_MODEL, help="the lead's model")
     new.add_argument("--subagent-model", default=DEFAULT_SUBAGENT_MODEL,
                      help="the default for the lead's sub-agents; it can ask for another")
-    new.add_argument("--check-model", help="the checker's model (default: the lead's)")
+    new.add_argument("--check-model", default=DEFAULT_CHECK_MODEL, help="the checker's model")
+    new.add_argument("--check-effort", default=DEFAULT_CHECK_EFFORT,
+                     choices=("low", "medium", "high", "xhigh", "max"), help="the checker's effort")
     new.add_argument("--start", action="store_true", help="start it in the background")
     new.add_argument("--repo", default=".")
     run = sub.add_parser("run", help="run or resume a goal in the foreground")
@@ -670,7 +688,8 @@ def main(argv):
         task = st.asana(["task", "get", ref], cwd=main_root)
         gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
                      threshold=args.threshold, model=args.model,
-                     subagent_model=args.subagent_model, check_model=args.check_model)
+                     subagent_model=args.subagent_model, check_model=args.check_model,
+                     check_effort=args.check_effort)
         if args.start:
             launch(main_root, gid)
         print(gid)

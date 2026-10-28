@@ -473,6 +473,12 @@ class QueueRun(Engine):
         Engine.__init__(self, queue_dir, repo, forward)
         self.control = empty_control()
 
+    def run_args(self):
+        """The task model picked on the TUI's Setup tab, unless the daemon was
+        started with a --model of its own."""
+        model = (self.control.get("models") or {}).get("task")
+        return ["--model", model] if model and "--model" not in self.forward else []
+
     def scope(self):
         return [{"gid": q["gid"], "board": q.get("board")} for q in self.control["queue"]]
 

@@ -873,6 +873,16 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.app.control["base"], "develop")
         self.assertEqual(self.created, [])
 
+    def test_the_models_are_set_on_setup_and_a_new_goal_uses_them(self):
+        self.press("3", *["down"] * 4, "enter")
+        self.assertEqual(self.app.control["models"], {"task": "claude-opus-5-5"})
+        self.press(*["down"] * 3, "enter", "down", "enter")
+        self.assertEqual(self.app.control["models"]["check"], "claude-haiku-4-5-20251001")
+        self.assertEqual(self.app.control["models"]["check_effort"], "max")
+        settings = tui.gl.settings_from(self.app.control)
+        self.assertEqual(settings, {"model": "claude-opus-5-5", "subagent_model": "claude-sonnet-5-5",
+                                    "check_model": "claude-haiku-4-5-20251001", "check_effort": "max"})
+
     def test_merging_cycles_through_its_three_modes(self):
         self.press("3", "down", "down")
         modes = []
@@ -1498,10 +1508,20 @@ class TestSetup(unittest.TestCase):
     def test_rows_say_what_is_set(self):
         rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "base": None, "merge_mode": "always"},
                           "main")
-        self.assertEqual([r["cols"][0] for r in rows], ["Sprint", "Queue into", "Merging", "Done tasks"])
+        self.assertEqual([r["cols"][0] for r in rows],
+                         ["Sprint", "Queue into", "Merging", "Done tasks", "Task model", "Goal lead",
+                          "Goal sub-agents", "Goal checker", "Checker effort"])
+        self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[4:]],
+                         ["sonnet", "opus", "sonnet", "fable", "xhigh"])
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
+
+    def test_a_model_row_moves_to_the_next_choice(self):
+        self.assertEqual(tui.next_setting("model-task", "claude-sonnet-5-5"), "claude-opus-5-5")
+        self.assertEqual(tui.next_setting("model-task", "claude-fable-5-1"), "claude-haiku-4-5-20251001")
+        self.assertEqual(tui.next_setting("effort-check", "xhigh"), "max")
+        self.assertEqual(tui.next_setting("effort-check", "max"), "low")
 
     def test_merging_defaults_to_the_recommended_mode(self):
         for control in ({}, {"merge_mode": "never"}):

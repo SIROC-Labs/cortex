@@ -40,6 +40,7 @@ from start_task import usage_summary  # noqa: E402
 from daemon import st  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "goal"))
 import goal as gl  # noqa: E402
+from agent.claude_cli import DEFAULT_MODEL as TASK_MODEL  # noqa: E402
 
 TABS = ("Runs", "Boards", "Setup", "Daemons")
 MERGE_LABELS = {
@@ -47,6 +48,21 @@ MERGE_LABELS = {
     "always": "always automatically, the default branch included",
     "asked": "only when asked — m on a task",
 }
+# The models the Setup tab offers, strongest last but one, and the effort levels.
+MODELS = [("claude-haiku-4-5-20251001", "haiku"), ("claude-sonnet-5-5", "sonnet"),
+          ("claude-opus-5-5", "opus"), ("claude-fable-5-1", "fable")]
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+# The Setup tab's model rows: (id, label, key in control["models"], default, what it is).
+MODEL_SETTINGS = [
+    ("model-task", "Task model", "task", TASK_MODEL, "every task run: implement, QA and revise"),
+    ("model-lead", "Goal lead", "lead", gl.DEFAULT_MODEL, "plans a goal and judges its sub-agents"),
+    ("model-subagent", "Goal sub-agents", "subagent", gl.DEFAULT_SUBAGENT_MODEL,
+     "the lead's narrow, well-briefed parts — it can ask for more"),
+    ("model-check", "Goal checker", "check", gl.DEFAULT_CHECK_MODEL,
+     "only verifies the branch against the ask, and reports"),
+    ("effort-check", "Checker effort", "check_effort", gl.DEFAULT_CHECK_EFFORT,
+     "how hard the checker thinks"),
+]
 BRANCHES_MAX_AGE = 60
 # How often the UI re-reads the daemon's files, and scans for stray agents.
 STATE_EVERY = 1.0
@@ -487,7 +503,23 @@ def setup_rows(control, default_branch=None):
         {"kind": "setting", "id": "done", "style": "normal",
          "cols": ["Done tasks", "hidden — boards and Runs leave them out; Runs still counts them"
                   if control.get("hide_done") else "shown"]},
-    ]
+    ] + [{"kind": "setting", "id": sid, "style": "normal",
+          "cols": [label, "%s — %s" % (model_label(models_of(control).get(key) or default), what)]}
+         for sid, label, key, default, what in MODEL_SETTINGS]
+
+
+def models_of(control):
+    return (control or {}).get("models") or {}
+
+
+def model_label(value):
+    return dict(MODELS).get(value, value)
+
+
+def next_setting(sid, current):
+    """The choice after `current` for a model or effort row, round the list."""
+    choices = EFFORTS if sid.startswith("effort-") else [m for m, _ in MODELS]
+    return choices[(choices.index(current) + 1) % len(choices)] if current in choices else choices[0]
 
 
 def parse_ls_remote(text):
@@ -772,7 +804,8 @@ HELP = [
                             "into one PR — it asks you only what it cannot decide"),
     ]),
     ("Setup", [
-        ("⏎", "pick the sprint or the feature to queue into · cycle Merging · show or hide done tasks"),
+        ("⏎", "pick the sprint or the feature to queue into · cycle Merging and the models · "
+              "show or hide done tasks"),
         ("n", "new feature branch (in the branch list), created on origin"),
     ]),
     ("Daemons", [
@@ -1361,7 +1394,8 @@ class App(object):
             return
         base = self.control.get("base")
         gid = gl.create(self.main_root, row["id"], row.get("key") or row["id"], row["name"],
-                        url=gl.task_url(row["id"], row["board"]), base=base)
+                        url=gl.task_url(row["id"], row["board"]), base=base,
+                        **gl.settings_from(self.control))
         gl.launch(self.main_root, gid)
         self.message = "goal started on %s — it is at the top of the Runs tab" % (
             base or self.default_branch or "the default branch")
@@ -1702,7 +1736,15 @@ class App(object):
             else:
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
-            if row["id"] == "done":
+            setting = next((m for m in MODEL_SETTINGS if m[0] == row["id"]), None)
+            if setting:
+                sid, label, key, default, _ = setting
+                value = next_setting(sid, models_of(self.control).get(key) or default)
+                self.change_control(lambda c: c.setdefault("models", {}).update({key: value}))
+                self.message = "%s: %s%s" % (label.lower(), model_label(value),
+                                             " — from the next run on" if key == "task"
+                                             else " — for goals started from now on")
+            elif row["id"] == "done":
                 self.toggle_done()
             elif row["id"] == "merge":
                 order = list(MERGE_LABELS)
@@ -1894,7 +1936,7 @@ class App(object):
             "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
-                      else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it (on Merging: cycles through the three)"),
+                      else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it (on Merging and the models: the next choice)"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
         }[name] + " · : commands · 1-4 tabs · ? keys · q quit"
 

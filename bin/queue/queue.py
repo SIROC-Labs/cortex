@@ -198,7 +198,8 @@ def goal(main_root, ref, branch=None):
         return ["%s is already the goal %s" % (label(task), existing["id"])]
     base = into(main_root, branch)
     goal_id = gl.create(main_root, gid, st.task_key(task), task.get("name"),
-                        url=gl.task_url(gid, board_of(task, ref)), base=base)
+                        url=gl.task_url(gid, board_of(task, ref)), base=base,
+                        **gl.settings_from(dm.read_control(main_root)))
     gl.launch(main_root, goal_id)
     return ["started the goal %s on %s — it is on the TUI's Runs tab"
             % (goal_id, base or "the default branch")]
