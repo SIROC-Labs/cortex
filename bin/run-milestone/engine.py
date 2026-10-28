@@ -209,6 +209,9 @@ def latest_checks(rollup):
     return [check for _, check in latest.values()]
 
 
+CI_NOT_STARTED = "CI to start (every check so far was skipped)"
+
+
 def check_states(rollup):
     """(pending names, failing [(name, url)]) from a PR's statusCheckRollup, which
     mixes check runs (status + conclusion) and commit statuses (state). Only each
@@ -227,6 +230,11 @@ def check_states(rollup):
             pending.append(name)
         elif (check.get("conclusion") or "").upper() in _CHECK_FAILED:
             failing.append((name, url))
+    if not pending and not failing and rollup and all(
+            (c.get("conclusion") or "").upper() == "SKIPPED" for c in latest_checks(rollup)):
+        # Every check skipped is a run that did not apply, such as one on a push to a
+        # draft: the run that counts has not started yet.
+        pending.append(CI_NOT_STARTED)
     return sorted(set(pending)), sorted(set(failing))
 
 

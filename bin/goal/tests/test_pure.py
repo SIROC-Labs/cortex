@@ -237,6 +237,21 @@ class TestGate(unittest.TestCase):
         self.assertEqual(self.gh.count(["pr", "ready"]), 1)
         self.assertIn("CI passed: `lint`, `test`", goal.checks_section(self.runner.data["checks"]))
 
+    def test_a_run_that_skipped_everything_is_not_a_pass(self):
+        skipped = dict(self.check("test", "SKIPPED"), startedAt="2026-10-28T12:07:28Z")
+        real = dict(self.check("test", "FAILURE"), startedAt="2026-10-28T12:11:43Z")
+        polls = [[skipped], [skipped], [skipped, real]]
+        run = goal.st.run
+
+        def view(cmd, cwd=None, check=True):
+            if cmd[1:3] == ["pr", "view"] and polls:
+                self.rollup = polls.pop(0)
+            return run(cmd, cwd=cwd, check=check)
+        goal.st.run = view
+        kind, fix = self.runner.gate()
+        self.assertEqual(kind, "ci")
+        self.assertIn("- `test`", fix)
+
     def test_a_pr_with_no_checks_at_all_counts_as_having_no_ci(self):
         start, goal.CI_START = goal.CI_START, 0
         self.addCleanup(setattr, goal, "CI_START", start)

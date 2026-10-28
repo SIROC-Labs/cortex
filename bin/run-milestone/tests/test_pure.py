@@ -841,6 +841,14 @@ class TestOpenPrCi(unittest.TestCase):
         self.assertEqual(engine.ci_fix_due({"statusCheckRollup": [self.run_("test", "SUCCESS")]}, {}, 2),
                          ("green", None))
 
+    def test_a_run_that_skipped_every_check_has_not_started(self):
+        import engine
+        rollup = [self.run_("test", "SKIPPED"), self.run_("lint", "SKIPPED")]
+        self.assertEqual(engine.check_states(rollup), ([engine.CI_NOT_STARTED], []))
+        self.assertIsNone(engine.ci_fix_due({"statusCheckRollup": rollup}, {}, 2))
+        mixed = rollup + [self.run_("api", "SUCCESS")]
+        self.assertEqual(engine.check_states(mixed), ([], []))
+
     def test_the_brief_says_why_it_runs(self):
         import engine
         self.assertTrue(engine.render_ci_fix([("t", None)], opening="Checks failed on the PR:")

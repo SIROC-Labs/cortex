@@ -38,7 +38,7 @@ import start_task as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import check_states, failure_excerpt  # noqa: E402
+from engine import CI_NOT_STARTED, check_states, failure_excerpt  # noqa: E402
 
 PROMPTS = os.path.join(HERE, "prompts")
 GOAL_FILE = "goal.json"
@@ -834,8 +834,8 @@ class Runner(object):
                     st.info("CI passed: %s" % ", ".join(names))
                     self.set(checks=names)
                     return None, None
-                if not rollup and waited >= CI_START:
-                    st.warn("no CI check reported in %d minutes — taking it as none" % (CI_START // 60))
+                if (not rollup or pending == [CI_NOT_STARTED]) and waited >= CI_START:
+                    st.warn("no CI check ran in %d minutes — taking it as none" % (CI_START // 60))
                     self.set(checks=[])
                     return None, None
                 self.set(doing="waiting for CI%s" % (": %s" % ", ".join(pending) if pending else ""))
