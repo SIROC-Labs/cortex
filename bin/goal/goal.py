@@ -37,6 +37,8 @@ sys.path.insert(0, START_TASK_DIR)
 import start_task as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
+from engine import check_states, failure_excerpt  # noqa: E402
 
 PROMPTS = os.path.join(HERE, "prompts")
 GOAL_FILE = "goal.json"
@@ -66,6 +68,11 @@ STALL_ROUNDS = 3
 # Checks in a row that find gaps before the person is asked.
 MAX_CHECKS = 4
 ANSWER_CHECK = 2
+# How often CI is read while its checks run, how long a PR may go without any
+# check reporting before it counts as having no CI, and how long CI may take.
+CI_CHECK = 60
+CI_START = 600
+CI_TIMEOUT = 2 * 3600
 
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
@@ -213,34 +220,35 @@ def conflict_prompt(base, files):
             % (base, "\n".join("- `%s`" % f for f in files)))
 
 
-def failed_check_prompt(name, command, output):
-    return ("You reported done. The runner ran the repository's checks, and `%s` fails "
-            "(`%s`). The end of its output:\n\n```\n%s\n```\n\nFix the cause, then "
-            "report done again. Never weaken the check, raise a budget, or add a baseline "
-            "entry to make it pass." % (name, command, output.strip()[-6000:]))
+def failed_ci_prompt(failing, excerpts):
+    """What the lead is told when CI fails on its PR: each failed check, with the
+    telling lines of its log where GitHub gave them."""
+    parts = ["You reported done. CI ran on the PR, and these checks fail:", ""]
+    for name, url in failing:
+        parts.append("- `%s`%s" % (name, " (%s)" % url if url else ""))
+    for name, lines in sorted(excerpts.items()):
+        parts += ["", "From the log of `%s`:" % name, "", "```", "\n".join(lines)[-4000:], "```"]
+    parts += ["", "Fix the cause, then report done again. Never weaken a check, raise a "
+              "budget, or add a baseline entry to make it pass."]
+    return "\n".join(parts)
 
 
 def checks_text(base, checks):
-    """Step 3 of the checker's prompt: what the runner already ran."""
-    if checks is None:
-        return ("The runner merged `%s` into the branch. The repository configures no "
-                "checks, so run its tests and checks yourself." % base)
+    """Step 3 of the checker's prompt: what CI already checked."""
     if not checks:
-        return ("The runner merged `%s` into the branch. None of the repository's checks "
-                "applies to the files this branch changes." % base)
-    return ("The runner merged `%s` into the branch, then ran these checks, and they "
-            "passed:\n\n%s\n\n   Do not run them again. Run a test yourself only when you "
-            "must see its result to decide whether a requirement is met."
-            % (base, "\n".join("   - `%s`: `%s`" % (n, c) for n, c in checks)))
+        return ("The runner merged `%s` into the branch. The PR has no CI checks, so run "
+                "the project's tests yourself." % base)
+    return ("The runner merged `%s` into the branch, and CI passed on it: %s. Do not run "
+            "the test suites again. Run a test yourself only when you must see its result "
+            "to decide whether a requirement is met."
+            % (base, ", ".join("`%s`" % c for c in checks)))
 
 
 def checks_section(checks):
-    """The PR comment's Checks section: what the runner ran on the final branch."""
-    if checks is None:
-        return "## Checks\n\nThe repository has no `.start-task.json`, so no checks ran."
+    """The PR comment's Checks section: what CI passed on the final branch."""
     if not checks:
-        return "## Checks\n\nNo check applies to the files this PR changes."
-    return "## Checks\n\n%s" % "\n".join("- `%s` passed" % c for _, c in checks)
+        return "## Checks\n\nThe PR has no CI checks."
+    return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
 def answer_prompt(questions, answer):
@@ -758,11 +766,10 @@ class Runner(object):
         return done, gaps
 
     def gate(self):
-        """Sync the branch with its base and run the repository's checks, as plain
-        git and the commands in `.start-task.json`. Returns None when both pass,
-        or what to tell the lead to fix."""
+        """Sync the branch with its base, push it, mark the PR ready, and wait for
+        its CI. Returns None when CI passes, or what to tell the lead to fix."""
         worktree, base = self.data["worktree"], self.data["base"]
-        self.set(status="checking", doing="syncing with %s and running the checks" % base)
+        self.set(status="checking", doing="syncing with %s" % base)
         st.step("Syncing with %s" % base)
         st.git(["fetch", "origin", base], cwd=worktree, check=False)
         code, out, err = st.git(["merge", "--no-edit", "origin/%s" % base], cwd=worktree,
@@ -776,17 +783,68 @@ class Runner(object):
                         "way, then report done again." % (base, (err or out).strip()[-2000:]))
             st.warn("the merge conflicts — back to the lead")
             return conflict_prompt(base, files.split())
-        st.step("Running the checks")
-        commands = st.qa_commands(worktree, "origin/%s" % base)
-        if commands is None:
-            st.warn("no %s — no checks to run" % st.QA_CONFIG)
-            self.set(checks=None)
+        self.push()
+        pr_url = self.data.get("pr_url")
+        if not pr_url:
+            st.warn("no PR, so no CI to wait for")
+            self.set(checks=[])
             return None
-        failure = st.run_qa_gate(commands, worktree)
-        if failure:
-            return failed_check_prompt(*failure)
-        self.set(checks=[[name, command] for name, command, _ in commands])
-        return None
+        if not self.data.get("ready"):
+            # CI may run only on PRs ready for review; it stays ready from here on.
+            st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
+            self.set(ready=True)
+            st.info("PR marked ready for review: %s" % pr_url)
+        return self.wait_for_ci(pr_url)
+
+    def wait_for_ci(self, pr_url):
+        st.step("Waiting for CI")
+        worktree = self.data["worktree"]
+        _, head, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
+        started = time.time()
+        while True:
+            _, out, _ = st.run(["gh", "pr", "view", pr_url, "--json",
+                                "headRefOid,statusCheckRollup"], cwd=worktree, check=False)
+            try:
+                view = json.loads(out)
+            except ValueError:
+                view = {}
+            rollup = view.get("statusCheckRollup") or []
+            waited = time.time() - started
+            if view.get("headRefOid") == head.strip():
+                pending, failing = check_states(rollup)
+                if failing:
+                    st.warn("CI failed: %s" % ", ".join(n for n, _ in failing))
+                    return failed_ci_prompt(failing, self.ci_excerpts(failing))
+                if rollup and not pending:
+                    names = sorted({c.get("name") or c.get("context") or "?" for c in rollup})
+                    st.info("CI passed: %s" % ", ".join(names))
+                    self.set(checks=names)
+                    return None
+                if not rollup and waited >= CI_START:
+                    st.warn("no CI check reported in %d minutes — taking it as none" % (CI_START // 60))
+                    self.set(checks=[])
+                    return None
+                self.set(doing="waiting for CI%s" % (": %s" % ", ".join(pending) if pending else ""))
+            if waited >= CI_TIMEOUT:
+                # Whatever the person says, CI is what is waited for: start the clock again.
+                self.ask_problem("CI has not finished in %d hours" % (CI_TIMEOUT // 3600), pr_url)
+                self.set(status="checking")
+                started = time.time()
+            time.sleep(CI_CHECK)
+
+    def ci_excerpts(self, failing):
+        """For each failed check, the telling lines of its job's log: {name: [lines]}."""
+        out = {}
+        for name, url in failing:
+            m = re.search(r"github\.com/([^/]+)/([^/]+)/actions/runs/\d+/job/(\d+)", url or "")
+            if not m:
+                continue
+            code, text, _ = st.run(["gh", "api", "--allow-escape-sequences",
+                                    "repos/%s/%s/actions/jobs/%s/logs" % m.groups()],
+                                   cwd=self.data["worktree"], check=False)
+            if code == 0 and text:
+                out[name] = failure_excerpt(text)
+        return out
 
     def fields(self):
         return {"ask": self.data["ask"], "branch": self.data["branch"],
@@ -894,7 +952,7 @@ class Runner(object):
                         checks += 1
                         if checks >= MAX_CHECKS:
                             answer = self.ask_problem(
-                                "the branch still fails to sync or pass its checks after %d tries"
+                                "the branch still fails to sync or pass CI after %d tries"
                                 % checks, fix)
                             prompt, checks = "The person says:\n\n%s\n\n%s" % (answer, fix), 0
                         else:

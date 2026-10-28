@@ -181,36 +181,66 @@ class TestGate(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", origin], check=True)
         subprocess.run(["git", "clone", "-q", origin, self.work], check=True, capture_output=True)
         self.git("checkout", "-q", "-b", "main")
-        with open(os.path.join(self.work, ".start-task.json"), "w") as f:
-            json.dump({"gates": [{"name": "app", "run": "test -f ok", "paths": ["app/"]}]}, f)
-        with open(os.path.join(self.work, "shared.txt"), "w") as f:
-            f.write("base\n")
-        self.git("add", ".")
-        self.git("commit", "-q", "-m", "base")
+        self.commit("shared.txt", "base\n", "base")
         self.git("push", "-q", "origin", "main")
         self.git("checkout", "-q", "-b", "A-1/goal-x")
         gid = goal.create(self.dir, "1", "A-1", "x", base="main")
-        goal.Goal(self.dir, gid).update(worktree=self.work, branch="A-1/goal-x")
+        goal.Goal(self.dir, gid).update(worktree=self.work, branch="A-1/goal-x", pr_url="https://gh/pr/1")
         self.runner = goal.Runner(self.dir, gid)
+        self.gh, self.rollup = [], []
+        run, sleep = goal.st.run, goal.time.sleep
+
+        def fake(cmd, cwd=None, check=True):
+            if cmd[0] != "gh":
+                return run(cmd, cwd=cwd, check=check)
+            self.gh.append(cmd[1:3])
+            if cmd[1:3] == ["pr", "view"]:
+                head = self.git("rev-parse", "HEAD").strip()
+                return 0, json.dumps({"headRefOid": head, "statusCheckRollup": self.rollup}), ""
+            if cmd[1] == "api":
+                return 0, "2026-10-28T10:00:00.0000000Z FAILED tests/test_x.py::test_y\n", ""
+            return 0, "", ""
+        goal.st.run = fake
+        goal.time.sleep = lambda _: None
+        self.addCleanup(setattr, goal.st, "run", run)
+        self.addCleanup(setattr, goal.time, "sleep", sleep)
 
     def tearDown(self):
         shutil.rmtree(self.dir)
 
     def commit(self, path, text, message):
-        os.makedirs(os.path.dirname(os.path.join(self.work, path)) or self.work, exist_ok=True)
         with open(os.path.join(self.work, path), "w") as f:
             f.write(text)
         self.git("add", path)
         self.git("commit", "-q", "-m", message)
 
-    def test_a_failing_check_goes_back_to_the_lead_and_a_passing_one_is_recorded(self):
-        self.commit("app/main.py", "x", "work")
+    def check(self, name, conclusion):
+        return {"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"}
+
+    def test_failing_ci_goes_back_to_the_lead_with_its_log(self):
+        self.commit("app.py", "x", "work")
+        self.rollup = [self.check("test", "FAILURE"), self.check("lint", "SUCCESS")]
         fix = self.runner.gate()
-        self.assertIn("`app` fails (`test -f ok`)", fix)
-        self.commit("ok", "", "fix")
+        self.assertIn("- `test` (https://github.com/o/r/actions/runs/1/job/2)", fix)
+        self.assertIn("FAILED tests/test_x.py::test_y", fix)
+        self.assertIn(["pr", "ready"], self.gh)
+        self.assertEqual(self.git("rev-parse", "origin/A-1/goal-x"), self.git("rev-parse", "HEAD"))
+
+    def test_passing_ci_is_recorded_and_the_pr_is_marked_ready_once(self):
+        self.rollup = [self.check("test", "SUCCESS"), self.check("lint", "SUCCESS")]
         self.assertIsNone(self.runner.gate())
-        self.assertEqual(self.runner.data["checks"], [["app", "test -f ok"]])
-        self.assertIn("- `test -f ok` passed", goal.checks_section(self.runner.data["checks"]))
+        self.assertIsNone(self.runner.gate())
+        self.assertEqual(self.runner.data["checks"], ["lint", "test"])
+        self.assertEqual(self.gh.count(["pr", "ready"]), 1)
+        self.assertIn("CI passed: `lint`, `test`", goal.checks_section(self.runner.data["checks"]))
+
+    def test_a_pr_with_no_checks_at_all_counts_as_having_no_ci(self):
+        start, goal.CI_START = goal.CI_START, 0
+        self.addCleanup(setattr, goal, "CI_START", start)
+        self.assertIsNone(self.runner.gate())
+        self.assertEqual(self.runner.data["checks"], [])
+        self.assertIn("run the project's tests yourself", goal.checks_text("main", []))
 
     def test_the_base_is_merged_in_and_a_conflict_goes_back_to_the_lead(self):
         self.commit("shared.txt", "goal\n", "work")
@@ -220,12 +250,10 @@ class TestGate(unittest.TestCase):
         self.git("checkout", "-q", "A-1/goal-x")
         fix = self.runner.gate()
         self.assertIn("conflicts in:\n\n- `shared.txt`", fix)
+        self.assertNotIn(["pr", "ready"], self.gh)
 
-    def test_the_checker_is_told_what_already_passed(self):
-        self.assertIn("Do not run them again", goal.checks_text("main", [["app", "make verify"]]))
-        self.assertIn("run its tests and checks yourself", goal.checks_text("main", None))
-        self.assertIn("no `.start-task.json`", goal.checks_section(None))
-
+    def test_the_checker_is_told_what_ci_passed(self):
+        self.assertIn("Do not run the test suites again", goal.checks_text("main", ["test"]))
 
 if __name__ == "__main__":
     unittest.main()

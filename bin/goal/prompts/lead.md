@@ -37,10 +37,13 @@ this one piece of work, not separate tickets.
 4. Write tests where the project has a test suite, and run them.
 5. Commit often, in small commits with clear messages that follow the conventions
    of the repository. The runner pushes the branch for you.
-6. Do not run skills or slash commands. When you report done, the runner merges
-   `{{base}}` into your branch and runs the repository's checks. If either one
-   fails, it tells you what failed, and you fix it. Never weaken a check, raise a
-   budget, or add a baseline entry to make it pass.
+6. Do not run skills or slash commands, and do not run the full test suites or CI
+   locally: many goals and tasks run on this machine at once. Run only the tests
+   for what you change, and cheap checks such as a linter or a type check. When
+   you report done, the runner merges `{{base}}` into your branch, marks the PR
+   ready, and waits for CI. If the merge conflicts or CI fails, it tells you what
+   failed, and you fix it. Never weaken a check, raise a budget, or add a
+   baseline entry to make it pass.
 
 ## What you must not do
 
