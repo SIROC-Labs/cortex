@@ -41,8 +41,11 @@ this one piece of work, not separate tickets.
 5. Commit often, in small commits with clear messages that follow the conventions
    of the repository. The runner pushes the branch for you.
 6. Do not run skills or slash commands, and do not run the full test suites or CI
-   locally: many goals and tasks run on this machine at once. Run only the tests
-   for what you change, and cheap checks such as a linter or a type check. When
+   locally: many goals and tasks run on this machine at once. Run only single test
+   files by their path, and cheap checks such as a linter or a type check on the
+   files you change. Never run a whole suite (`npx vitest run`, `pytest` with no
+   paths, `npm test`), coverage, `make verify`, `npm run verify*`, a build, or e2e
+   tests, and tell every sub-agent the same. When
    you report done, the runner merges `{{base}}` into your branch, marks the PR
    ready, and waits for CI. If the merge conflicts or CI fails, it tells you what
    failed, and you fix it. Never weaken a check, raise a budget, or add a

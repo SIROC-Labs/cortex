@@ -230,8 +230,15 @@ def ci_fix_prompt(branch, failures):
             "- Fix the cause in the code or the tests. Never weaken a check, skip a test, "
             "raise a budget, or add a baseline entry.\n"
             "- Change only what the failures need. Do not refactor or add features.\n"
-            "- Run only the failing tests or the cheap check that failed, not full suites.\n"
-            "- Commit with a clear message. Do not push, rebase, or merge.\n"
+            "- Read why it fails from CI, not by running it here: `gh run view <run-id> "
+            "--log-failed` gives the whole log of a failed job (the run id is in its URL).\n"
+            "- This machine runs many agents at once. Run only single test files by their "
+            "path, and a linter or type check on the files you change. Never run a whole "
+            "suite (`npx vitest run`, `pytest` with no paths, `npm test`), coverage, "
+            "`make verify`, `npm run verify*`, a build, or e2e tests. CI runs those after "
+            "your fix.\n"
+            "- Commit with a clear message, then stop. Do not push, rebase, or merge: the "
+            "runner pushes, and CI checks the fix.\n"
             "- Do not run skills or slash commands, and do not start sub-agents."
             % (branch, failures))
 
