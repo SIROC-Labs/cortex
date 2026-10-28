@@ -34,6 +34,11 @@ This program is the harness around the lead:
   the branch with the ask and runs the tests. Gaps go back to the lead. Only a clean check
   finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
   walkthrough, and is marked ready for review.
+- **Models.** The lead and the checker run on Opus. The lead's sub-agents run on Sonnet by
+  default (`CLAUDE_CODE_SUBAGENT_MODEL`), since most of them do narrow, well-briefed work.
+  The lead can ask for Opus for one that needs deep reasoning. Change them with `--model`,
+  `--subagent-model` and `--check-model` on `cortex goal new`. A stronger checker costs
+  little, since it runs only when the lead says it is done.
 - **Usage.** Your Claude subscription's limits (`/usage`) are read before each round and
   every 5 minutes during one. At 75% or more of any limit (`--threshold`), the goal stops
   its call and pauses until that limit resets, then continues the same session.

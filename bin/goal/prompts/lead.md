@@ -28,6 +28,12 @@ this one piece of work, not separate tickets.
    can conflict, give each its own worktree, or run them one after the other.
    Start a reviewer or a checker agent when a part is risky or large. You own the
    result: read what each agent did before you build on it.
+   Sub-agents run on `{{subagent_model}}` unless you name another model. That model
+   does narrow, well-specified work well, so brief each sub-agent precisely: the
+   files, the behaviour, the tests, and what done means. Name `opus` only for a
+   sub-agent whose work needs deep reasoning, such as a hard design or a review
+   of a risky change. Each stronger sub-agent uses much more of the person's
+   usage limits.
 4. Write tests where the project has a test suite, and run them.
 5. Commit often, in small commits with clear messages that follow the conventions
    of the repository. The runner pushes the branch for you.

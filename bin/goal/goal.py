@@ -43,6 +43,9 @@ JOURNAL_FILE = "journal.md"
 LOG_FILE = "goal.log"
 
 DEFAULT_MODEL = "claude-opus-5-5"
+# The lead's sub-agents mostly do narrow, well-briefed parts of the work. The lead
+# can still ask for a stronger model for one that needs it.
+DEFAULT_SUBAGENT_MODEL = "claude-sonnet-5-5"
 DEFAULT_THRESHOLD = 75
 # Turns in one call before the runner takes the wheel back: to push, to read the
 # usage, to see the lead is still getting somewhere. The session carries on.
@@ -235,7 +238,8 @@ def task_url(gid, board=None):
 
 
 def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
-           model=DEFAULT_MODEL, now=None):
+           model=DEFAULT_MODEL, subagent_model=DEFAULT_SUBAGENT_MODEL, check_model=None,
+           now=None):
     """Write a new goal for the ticket `ref`. Returns its id; nothing runs yet, and the
     ticket itself is read when it starts."""
     gid, n = goal_id(key, name), 1
@@ -245,7 +249,8 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
     goal = Goal(main_root, gid)
     goal.state.ensure()
     goal.update(id=gid, ref=ref, key=key, name=name, url=url or task_url(ref), base=base,
-                threshold=threshold, model=model, created=now or time.time(), status="new",
+                threshold=threshold, model=model, subagent_model=subagent_model,
+                check_model=check_model or model, created=now or time.time(), status="new",
                 round=0)
     return gid
 
@@ -398,16 +403,19 @@ class Runner(object):
 
     # agent calls
 
-    def call(self, prompt, session, resume, label):
+    def call(self, prompt, session, resume, label, model=None):
         """One `claude -p` call. Returns (structured, stop_reason, error). A call
         cut off because the usage crossed the threshold returns stop_reason
         "usage"; its session carries on afterwards."""
-        cmd = ["claude", "-p", "--output-format", "json", "--model", self.data["model"],
+        model = model or self.data["model"]
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir]
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
-        self.child = subprocess.Popen(cmd + [prompt], cwd=self.data["worktree"],
+        env = dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL=self.data.get(
+            "subagent_model") or DEFAULT_SUBAGENT_MODEL)
+        self.child = subprocess.Popen(cmd + [prompt], cwd=self.data["worktree"], env=env,
                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, start_new_session=True)
         threshold = self.data.get("threshold", DEFAULT_THRESHOLD)
@@ -430,7 +438,7 @@ class Runner(object):
         if usage:
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             self.goal.state.write(st.USAGE_FILE, st.add_usage(
-                self.goal.state.read(st.USAGE_FILE), usage, label, self.data["model"], at))
+                self.goal.state.read(st.USAGE_FILE), usage, label, model, at))
         if telemetry.get("ok") is False or not out.strip():
             return None, None, (telemetry.get("error") or err.decode("utf-8", "replace").strip()
                                 or "claude exited %d" % code)
@@ -480,7 +488,8 @@ class Runner(object):
         self.set(status="checking", doing="checking the branch against the ask")
         st.step("Checking against the ask")
         prompt = render(os.path.join(PROMPTS, "check.md"), **self.fields())
-        block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "check")
+        block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "check",
+                                       self.data.get("check_model"))
         # Files the checks leave behind — caches, reports — are not changes to the work.
         _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
                              cwd=self.data["worktree"], check=False)
@@ -498,7 +507,8 @@ class Runner(object):
 
     def fields(self):
         return {"ask": self.data["ask"], "branch": self.data["branch"],
-                "base": self.data["base"], "journal": self.goal.journal}
+                "base": self.data["base"], "journal": self.goal.journal,
+                "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL}
 
     def first_prompt(self):
         return render(os.path.join(PROMPTS, "lead.md"), **self.fields())
@@ -638,7 +648,10 @@ def main(argv):
     new.add_argument("--base", help="the branch to build on and open the PR into")
     new.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                      help="pause while any usage limit is at or over this percentage")
-    new.add_argument("--model", default=DEFAULT_MODEL)
+    new.add_argument("--model", default=DEFAULT_MODEL, help="the lead's model")
+    new.add_argument("--subagent-model", default=DEFAULT_SUBAGENT_MODEL,
+                     help="the default for the lead's sub-agents; it can ask for another")
+    new.add_argument("--check-model", help="the checker's model (default: the lead's)")
     new.add_argument("--start", action="store_true", help="start it in the background")
     new.add_argument("--repo", default=".")
     run = sub.add_parser("run", help="run or resume a goal in the foreground")
@@ -656,7 +669,8 @@ def main(argv):
             parser.error("the ticket is already the goal %s" % existing["id"])
         task = st.asana(["task", "get", ref], cwd=main_root)
         gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
-                     threshold=args.threshold, model=args.model)
+                     threshold=args.threshold, model=args.model,
+                     subagent_model=args.subagent_model, check_model=args.check_model)
         if args.start:
             launch(main_root, gid)
         print(gid)
