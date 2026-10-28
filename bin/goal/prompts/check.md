@@ -14,10 +14,7 @@ what is met and what is not.
 
 1. Read the ask carefully, and list what it requires.
 2. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
-3. Run the tests and the checks that the project has. Include every check that CI
-   runs, and the checks in the repository's steps for finishing work before a PR
-   (for example in `.claude/skills/submit/SKILL.md`). Run only the checks, not the
-   reviews or fixes in those steps, and leave out browser QA.
+3. {{checks}}
 4. For each requirement, decide if the branch meets it. Look for things that are
    missing, broken, or only partly done.
 
@@ -27,7 +24,7 @@ Sub-agents run on `{{subagent_model}}`, which costs much less than you. When the
 diff is large, give them the legwork:
 
 - Find where the branch handles each requirement, and report the files and lines.
-- Run long test suites and checks, and report each failure with its test name.
+- Run a long test suite you need, and report each failure with its test name.
 - Read large files or unchanged code for context, and report what matters.
 
 Tell each one to report facts only, and to change nothing. Their reports tell you

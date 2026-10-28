@@ -206,6 +206,43 @@ def gaps_prompt(gaps):
             % "\n".join("- %s" % g for g in gaps))
 
 
+def conflict_prompt(base, files):
+    return ("You reported done. The runner merged `origin/%s` into your branch to sync "
+            "it, and the merge conflicts in:\n\n%s\n\nThe merge is still in progress. "
+            "Resolve the conflicts, commit the merge, then report done again."
+            % (base, "\n".join("- `%s`" % f for f in files)))
+
+
+def failed_check_prompt(name, command, output):
+    return ("You reported done. The runner ran the repository's checks, and `%s` fails "
+            "(`%s`). The end of its output:\n\n```\n%s\n```\n\nFix the cause, then "
+            "report done again. Never weaken the check, raise a budget, or add a baseline "
+            "entry to make it pass." % (name, command, output.strip()[-6000:]))
+
+
+def checks_text(base, checks):
+    """Step 3 of the checker's prompt: what the runner already ran."""
+    if checks is None:
+        return ("The runner merged `%s` into the branch. The repository configures no "
+                "checks, so run its tests and checks yourself." % base)
+    if not checks:
+        return ("The runner merged `%s` into the branch. None of the repository's checks "
+                "applies to the files this branch changes." % base)
+    return ("The runner merged `%s` into the branch, then ran these checks, and they "
+            "passed:\n\n%s\n\n   Do not run them again. Run a test yourself only when you "
+            "must see its result to decide whether a requirement is met."
+            % (base, "\n".join("   - `%s`: `%s`" % (n, c) for n, c in checks)))
+
+
+def checks_section(checks):
+    """The PR comment's Checks section: what the runner ran on the final branch."""
+    if checks is None:
+        return "## Checks\n\nThe repository has no `.start-task.json`, so no checks ran."
+    if not checks:
+        return "## Checks\n\nNo check applies to the files this PR changes."
+    return "## Checks\n\n%s" % "\n".join("- `%s` passed" % c for _, c in checks)
+
+
 def answer_prompt(questions, answer):
     lines = ["You asked the person:", ""]
     lines += ["- %s" % q["q"] for q in questions or []]
@@ -720,9 +757,41 @@ class Runner(object):
             st.info("- %s" % gap)
         return done, gaps
 
+    def gate(self):
+        """Sync the branch with its base and run the repository's checks, as plain
+        git and the commands in `.start-task.json`. Returns None when both pass,
+        or what to tell the lead to fix."""
+        worktree, base = self.data["worktree"], self.data["base"]
+        self.set(status="checking", doing="syncing with %s and running the checks" % base)
+        st.step("Syncing with %s" % base)
+        st.git(["fetch", "origin", base], cwd=worktree, check=False)
+        code, out, err = st.git(["merge", "--no-edit", "origin/%s" % base], cwd=worktree,
+                                check=False)
+        if code != 0:
+            _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree,
+                                 check=False)
+            if not files.strip():
+                return ("You reported done, but the runner could not merge `origin/%s` into "
+                        "your branch:\n\n```\n%s\n```\n\nCommit or remove what is in the "
+                        "way, then report done again." % (base, (err or out).strip()[-2000:]))
+            st.warn("the merge conflicts — back to the lead")
+            return conflict_prompt(base, files.split())
+        st.step("Running the checks")
+        commands = st.qa_commands(worktree, "origin/%s" % base)
+        if commands is None:
+            st.warn("no %s — no checks to run" % st.QA_CONFIG)
+            self.set(checks=None)
+            return None
+        failure = st.run_qa_gate(commands, worktree)
+        if failure:
+            return failed_check_prompt(*failure)
+        self.set(checks=[[name, command] for name, command, _ in commands])
+        return None
+
     def fields(self):
         return {"ask": self.data["ask"], "branch": self.data["branch"],
                 "base": self.data["base"], "journal": self.goal.journal,
+                "checks": checks_text(self.data["base"], self.data.get("checks")),
                 "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL}
 
     def first_prompt(self):
@@ -782,8 +851,7 @@ class Runner(object):
             body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
             st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
             comment = (block.get("walkthrough") or "").strip()
-            if (block.get("checks") or "").strip():
-                comment += "\n\n## Checks\n\n%s" % block["checks"].strip()
+            comment += "\n\n" + checks_section(self.data.get("checks"))
             if comment.strip():
                 st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(comment.strip())],
                        cwd=worktree, check=False)
@@ -820,6 +888,19 @@ class Runner(object):
                     prompt = answer_prompt(block["questions"], self.ask_questions(block["questions"]))
                     continue
                 if report == "done":
+                    fix = self.gate()
+                    if fix:
+                        self.push()
+                        checks += 1
+                        if checks >= MAX_CHECKS:
+                            answer = self.ask_problem(
+                                "the branch still fails to sync or pass its checks after %d tries"
+                                % checks, fix)
+                            prompt, checks = "The person says:\n\n%s\n\n%s" % (answer, fix), 0
+                        else:
+                            prompt = fix
+                        continue
+                    self.push()
                     done, gaps = self.check()
                     if done:
                         self.finish(block)

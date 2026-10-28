@@ -30,11 +30,11 @@ This program is the harness around the lead:
 - **Questions.** The lead asks only what it cannot decide: a decision that is yours, or
   something only you have. The question waits on the TUI's Runs tab; your answer goes back
   to the lead, and it continues.
-- **Finishing like `/submit`.** Before it says it is done, the lead runs the repository's
-  own steps for finishing work before a PR (a `submit` skill, or `CLAUDE.md` / `AGENTS.md`):
-  syncing with the base, the reviews it names, and every check CI runs, until they pass.
-  It skips the tracker, browser QA and screenshots, and shipping, which the runner does.
-  What it ran goes on the PR, under **Checks**.
+- **Sync and checks, by the runner.** When the lead says it is done, the runner merges the
+  base into the branch and runs the repository's checks from `.start-task.json`, the same
+  gates task runs use. A conflict or a failing check goes back to the lead with what
+  failed. The lead runs no skills or slash commands. The checker is told what passed, so
+  it does not run it again, and the PR comment lists it under **Checks**.
 - **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
   the checker and of every sub-agent it started, from Claude Code's transcripts. `u` on the
   goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API

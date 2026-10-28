@@ -168,5 +168,64 @@ class TestBreakdown(unittest.TestCase):
             self.assertIn(line, report)
 
 
+class TestGate(unittest.TestCase):
+    def git(self, *args, cwd=None):
+        import subprocess
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t"] + list(args),
+                              cwd=cwd or self.work, check=True, capture_output=True, text=True).stdout
+
+    def setUp(self):
+        import json, subprocess
+        self.dir = tempfile.mkdtemp()
+        origin, self.work = os.path.join(self.dir, "origin.git"), os.path.join(self.dir, "work")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", origin], check=True)
+        subprocess.run(["git", "clone", "-q", origin, self.work], check=True, capture_output=True)
+        self.git("checkout", "-q", "-b", "main")
+        with open(os.path.join(self.work, ".start-task.json"), "w") as f:
+            json.dump({"gates": [{"name": "app", "run": "test -f ok", "paths": ["app/"]}]}, f)
+        with open(os.path.join(self.work, "shared.txt"), "w") as f:
+            f.write("base\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "base")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "A-1/goal-x")
+        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        goal.Goal(self.dir, gid).update(worktree=self.work, branch="A-1/goal-x")
+        self.runner = goal.Runner(self.dir, gid)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def commit(self, path, text, message):
+        os.makedirs(os.path.dirname(os.path.join(self.work, path)) or self.work, exist_ok=True)
+        with open(os.path.join(self.work, path), "w") as f:
+            f.write(text)
+        self.git("add", path)
+        self.git("commit", "-q", "-m", message)
+
+    def test_a_failing_check_goes_back_to_the_lead_and_a_passing_one_is_recorded(self):
+        self.commit("app/main.py", "x", "work")
+        fix = self.runner.gate()
+        self.assertIn("`app` fails (`test -f ok`)", fix)
+        self.commit("ok", "", "fix")
+        self.assertIsNone(self.runner.gate())
+        self.assertEqual(self.runner.data["checks"], [["app", "test -f ok"]])
+        self.assertIn("- `test -f ok` passed", goal.checks_section(self.runner.data["checks"]))
+
+    def test_the_base_is_merged_in_and_a_conflict_goes_back_to_the_lead(self):
+        self.commit("shared.txt", "goal\n", "work")
+        self.git("checkout", "-q", "main")
+        self.commit("shared.txt", "main\n", "elsewhere")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "A-1/goal-x")
+        fix = self.runner.gate()
+        self.assertIn("conflicts in:\n\n- `shared.txt`", fix)
+
+    def test_the_checker_is_told_what_already_passed(self):
+        self.assertIn("Do not run them again", goal.checks_text("main", [["app", "make verify"]]))
+        self.assertIn("run its tests and checks yourself", goal.checks_text("main", None))
+        self.assertIn("no `.start-task.json`", goal.checks_section(None))
+
+
 if __name__ == "__main__":
     unittest.main()
