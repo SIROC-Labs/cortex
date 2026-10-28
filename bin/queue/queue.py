@@ -7,6 +7,7 @@
 #
 #   cortex queue add <task>... [--into BRANCH] [--checkpoint]   # a milestone queues its open subtasks
 #   cortex queue remove <task>...
+#   cortex queue undo <task>...                                 # discard a task's run, PR and branch
 #   cortex queue goal <task> [--into BRANCH]                     # run the ticket as a goal
 #   cortex queue list
 #
@@ -24,6 +25,7 @@ if sys.path and os.path.abspath(sys.path[0] or ".") == HERE:
 
 import argparse  # noqa: E402
 import re  # noqa: E402
+import time  # noqa: E402
 
 BIN = os.path.dirname(HERE)
 for tool in ("tui", "goal"):
@@ -61,6 +63,18 @@ def label(task):
     return " ".join(x for x in (task.get("task_id"), task.get("name")) if x)
 
 
+def earlier_work(record, context):
+    """What an earlier run of a task left behind, in a phrase, or None. Queued
+    again on top of it, a run carries the old work on, PR and all."""
+    record, git_info = record or {}, (context or {}).get("git") or {}
+    if record.get("phase") in (None, "undone") and not git_info:
+        return None
+    what = ["it is %s" % record["phase"]] if record.get("phase") not in (None, "undone") else []
+    pr = record.get("pr_url") or git_info.get("pr_url")
+    what.append("PR %s" % pr if pr else "branch %s" % (git_info.get("branch") or "unknown"))
+    return ", ".join(what)
+
+
 # --- commands -----------------------------------------------------------------
 
 def fetch(main_root, ref):
@@ -85,8 +99,14 @@ def daemon_note(main_root):
     return notes
 
 
+def daemon_state(main_root):
+    return dm.read_json(os.path.join(dm.queue_dir(main_root), "state.json")) or {}
+
+
 def add(main_root, refs, branch=None, checkpoint=False):
     base = into(main_root, branch)
+    records = daemon_state(main_root).get("records") or {}
+    queued = {q["gid"] for q in dm.read_control(main_root)["queue"]}
     items, out = [], []
     for ref in refs:
         task, gid = fetch(main_root, ref)
@@ -96,7 +116,18 @@ def add(main_root, refs, branch=None, checkpoint=False):
         if not found:
             out.append("%s: nothing to queue — %s" % (label(task), "no open subtasks"
                        if task.get("kind") == "milestone" else "it is complete"))
-        items += [dict(i, base=base) for i in found]
+        keys = {t["ref"]: t.get("key") for t in subtasks}
+        keys[gid] = st.task_key(task)
+        for item in found:
+            key = keys.get(item["gid"]) or item["gid"]
+            left = None if item["gid"] in queued else earlier_work(
+                records.get(item["gid"]), st.State(main_root, key).read("context.json"))
+            if left:
+                out.append("not queued: %s %s — an earlier run left work (%s). Undo it first "
+                           "with `cortex queue undo %s`, then queue it again"
+                           % (key, item["name"], left, item["gid"]))
+            else:
+                items.append(dict(item, base=base))
 
     def change(control):
         added = dm.queue_add(control, items)
@@ -126,6 +157,40 @@ def remove(main_root, refs):
         if any(g in queued for g in gids) else [])
 
 
+def undo(main_root, refs, wait=600):
+    """Have the daemon undo tasks, as the TUI's Undo does, and wait for it."""
+    if not dm.daemon_info(main_root)[1]:
+        raise st.Failure("this repo's daemon is not running, and only it can undo a task")
+    out = []
+    for ref in refs:
+        gid = str(st.asana(["ref", "parse", ref], cwd=main_root) or ref).strip()
+        data = daemon_state(main_root)
+        key = ((data.get("tasks") or {}).get(gid) or {}).get("key") or gid
+        if gid not in (data.get("records") or {}):
+            out.append("%s: the daemon has never run it, so it cannot undo it — undo it in the TUI" % key)
+            continue
+        with dm.control_file(main_root) as control:
+            cid = dm.add_command(control, "undo", gid, data.get("applied", 0))
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            data = daemon_state(main_root)
+            if data.get("applied", 0) >= cid:
+                break
+            time.sleep(2)
+        else:
+            out.append("%s: the daemon has not done the undo yet — `cortex queue list` shows "
+                       "when it has" % key)
+            continue
+        result = next((r for r in data.get("results") or [] if r.get("id") == cid), {})
+        if result.get("ok", True):
+            note = ((data.get("records") or {}).get(gid) or {}).get("reason")
+            out.append("%s: undone%s. In Asana it is off the sprint and unassigned; queueing "
+                       "it again starts it fresh" % (key, " — %s" % note if note else ""))
+        else:
+            out.append("%s: not undone — %s" % (key, result.get("note") or "see the daemon log"))
+    return out
+
+
 def goal(main_root, ref, branch=None):
     task, gid = fetch(main_root, ref)
     existing = gl.find_goal(main_root, gid)
@@ -152,6 +217,9 @@ def main(argv):
                    help="hold the work that follows until these are merged")
     p = sub.add_parser("remove", help="take tasks off the queue")
     p.add_argument("tasks", nargs="+")
+    p = sub.add_parser("undo", help="discard tasks' runs, PRs, branches and worktrees, so "
+                                    "they can be queued again; a merged task gets a revert PR")
+    p.add_argument("tasks", nargs="+")
     p = sub.add_parser("goal", help="run a task or milestone as a goal, by itself, into one PR")
     p.add_argument("task")
     p.add_argument("--into", help="the branch the PR goes into (default: the TUI's Queue into)")
@@ -165,6 +233,7 @@ def main(argv):
             return 0
         lines = {"add": lambda: add(main_root, args.tasks, args.into, args.checkpoint),
                  "remove": lambda: remove(main_root, args.tasks),
+                 "undo": lambda: undo(main_root, args.tasks),
                  "goal": lambda: goal(main_root, args.task, args.into)}[args.cmd]()
     except st.Failure as e:
         sys.stderr.write("queue: %s\n" % e)

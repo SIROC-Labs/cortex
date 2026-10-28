@@ -1154,6 +1154,12 @@ class Engine(object):
                                 st.mark("Undone from the cortex TUI — this work is discarded.")],
                                cwd=self.main_root)
             done.append("PR closed, branch deleted" if code == 0 else "PR not closed: %s" % err)
+            if code != 0 and branch:
+                # An already closed or merged PR cannot be closed again, and its branch
+                # would stay behind for the next run to pick up.
+                code, _, _ = run(["git", "push", "origin", "--delete", branch], cwd=self.main_root)
+                if code == 0:
+                    done.append("branch deleted")
         elif branch:
             run(["git", "push", "origin", "--delete", branch], cwd=self.main_root)
             done.append("branch deleted")
