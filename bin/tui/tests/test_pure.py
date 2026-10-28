@@ -879,25 +879,32 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.created, [])
 
     def test_the_models_are_set_on_setup_and_a_new_goal_uses_them(self):
-        self.press("3", *["down"] * 4, "enter")
-        self.assertEqual(self.app.control["usage_threshold"], 80)
+        self.press("3", *["down"] * 4, "enter", "ctrl-u", *"82", "enter")
+        self.assertEqual(self.app.control["usage_threshold"], 82)
+        self.press("enter", "ctrl-u", *"150", "enter")
+        self.assertEqual(self.app.control["usage_threshold"], 82)
+        self.assertIn("1 to 100", self.app.message)
+        self.press("down", "enter")
+        self.assertEqual([r["cols"][0] for r in self.app.view()], ["haiku", "sonnet", "opus", "fable"])
         self.press("down", "enter")
         self.assertEqual(self.app.control["models"], {"task": "claude-opus-5-5"})
-        self.press(*["down"] * 3, "enter", "down", "enter")
+        self.press(*["down"] * 3, "enter", "home", "enter", "down", "enter", "end", "enter")
         self.assertEqual(self.app.control["models"]["check"], "claude-haiku-4-5-20251001")
         self.assertEqual(self.app.control["models"]["check_effort"], "max")
         settings = tui.gl.settings_from(self.app.control)
         self.assertEqual(settings, {"model": "claude-opus-5-5", "subagent_model": "claude-sonnet-5-5",
                                     "check_model": "claude-haiku-4-5-20251001", "check_effort": "max",
-                                    "threshold": 80})
+                                    "threshold": 82})
 
-    def test_merging_cycles_through_its_three_modes(self):
-        self.press("3", "down", "down")
-        modes = []
-        for _ in range(3):
-            self.press("enter")
-            modes.append(self.app.control["merge_mode"])
-        self.assertEqual(modes, ["always", "asked", "branches"])
+    def test_merging_is_picked_from_its_three_modes(self):
+        self.press("3", "down", "down", "enter")
+        self.assertEqual([r["id"] for r in self.app.view()], ["branches", "always", "asked"])
+        self.assertIn("← now", self.app.view()[0]["cols"][1])
+        self.press("down", "down", "enter")
+        self.assertEqual(self.app.control["merge_mode"], "asked")
+        self.assertIsNone(self.app.setup)
+        self.press("enter", "esc")
+        self.assertEqual((self.app.control["merge_mode"], self.app.setup), ("asked", None))
 
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
@@ -1542,11 +1549,13 @@ class TestSetup(unittest.TestCase):
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
 
-    def test_a_model_row_moves_to_the_next_choice(self):
-        self.assertEqual(tui.next_setting("model-task", "claude-sonnet-5-5"), "claude-opus-5-5")
-        self.assertEqual(tui.next_setting("model-task", "claude-fable-5-1"), "claude-haiku-4-5-20251001")
-        self.assertEqual(tui.next_setting("effort-check", "xhigh"), "max")
-        self.assertEqual(tui.next_setting("effort-check", "max"), "low")
+    def test_a_setting_s_choices_say_what_each_means_and_which_is_set(self):
+        rows = tui.choice_rows("model-check", {})
+        self.assertEqual([r["id"] for r in rows if "← now" in r["cols"][1]], ["claude-fable-5-1"])
+        self.assertIn("narrow, well-briefed work", rows[1]["cols"][1])
+        efforts = tui.choice_rows("effort-check", {"models": {"check_effort": "high"}})
+        self.assertEqual([r["cols"][0] for r in efforts], ["low", "medium", "high", "xhigh", "max"])
+        self.assertEqual(efforts[2]["style"], "bold")
 
     def test_merging_defaults_to_the_recommended_mode(self):
         for control in ({}, {"merge_mode": "never"}):

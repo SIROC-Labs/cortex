@@ -151,7 +151,7 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 |---|---|---|
 | **1 Runs** | every goal, then every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `c` continue past a reached checkpoint · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) — on a merged task, the PR's changed files |
 | **2 Boards** | every board in the workspace that is neither archived nor marked complete; open one to see its sections and tasks — each with its ID, faint, when it has one — and how many subtasks each has (▸ 3 subtasks); a milestone (◈) is not run itself, but its subtasks can be shown and queued | `space` queue or unqueue a task or subtask, or on a section queue all of it · `→` `l` `⏎` on a task with subtasks shows them, `←` `h` hides them · `o` open the task (or board) in Asana · `R` reload |
-| **3 Setup** | the sprint queued tasks are added to, the branch new work targets, whether PRs are merged, and the models for task runs and goals | `⏎` change one |
+| **3 Setup** | the sprint queued tasks are added to, the branch new work targets, whether PRs are merged, and the models for task runs and goals | `⏎` change one: pick it from a list, or type the usage limit |
 | **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
 
 Queueing the first task starts the daemon if it is not running. Nothing starts until
@@ -175,7 +175,7 @@ its daemon.
   rules for its new base. The UI's git calls
   never prompt: if SSH needs a passphrase or a new host key, the call fails and says
   so instead of taking over the terminal.
-- **Merging** — when a shipped PR is merged without you asking; `⏎` cycles:
+- **Merging** — when a shipped PR is merged without you asking; `⏎` lists the three:
   - *automatically, unless it targets the default branch* (the default, and the
     recommendation): a PR into `milestone/m1` lands by itself, one into `main` waits
     for `m`;
@@ -192,10 +192,10 @@ its daemon.
 
 
 - **Usage limit** — the share of any Claude usage limit at which goals wind down and
-  pause, until it resets: 75% by default; `⏎` steps through 50–95%. Running goals read it
+  pause, until it resets: 75% by default; `⏎` and type a percentage, 1 to 100. Running goals read it
   at their next usage check, so raising it lets one finish its work.
-- **Models** — `⏎` on each moves to the next choice (haiku, sonnet, opus, fable; effort
-  low to max):
+- **Models** — `⏎` on each lists its choices, with what each is for (haiku, sonnet, opus,
+  fable; effort low to max), and `⏎` picks one:
   - *Task model* — every task run: implement, QA and revise. Sonnet by default. It takes
     effect from the next run on, unless the daemon was started with a `--model` of its own.
   - *Goal lead*, *Goal sub-agents*, *Goal checker*, *Checker effort* — opus, sonnet,

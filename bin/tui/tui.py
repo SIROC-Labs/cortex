@@ -65,8 +65,12 @@ MODEL_SETTINGS = [
      "how hard the checker thinks"),
 ]
 BRANCHES_MAX_AGE = 60
-# The usage limits goals can pause at, in percent of any Claude limit.
-THRESHOLDS = [50, 60, 70, 75, 80, 85, 90, 95]
+MODEL_NOTES = {"haiku": "fastest and cheapest — simple, mechanical work",
+               "sonnet": "fast and capable — narrow, well-briefed work",
+               "opus": "deep reasoning — planning, design and hard problems",
+               "fable": "the strongest and priciest — judging and verifying"}
+EFFORT_NOTES = {"low": "quick", "medium": "balanced", "high": "careful",
+                "xhigh": "very thorough", "max": "as hard as it can"}
 # How often the live goal view re-reads its transcripts.
 GOAL_VIEW_EVERY = 2
 # How often the UI re-reads the daemon's files, and scans for stray agents.
@@ -531,10 +535,33 @@ def model_label(value):
     return dict(MODELS).get(value, value)
 
 
-def next_setting(sid, current):
-    """The choice after `current` for a model or effort row, round the list."""
-    choices = EFFORTS if sid.startswith("effort-") else [m for m, _ in MODELS]
-    return choices[(choices.index(current) + 1) % len(choices)] if current in choices else choices[0]
+def setting_choices(sid):
+    """[(value, label, what it means)] for a Setup row picked from a list."""
+    if sid == "merge":
+        return [(mode, label, "") for mode, label in MERGE_LABELS.items()]
+    if sid.startswith("effort-"):
+        return [(e, e, EFFORT_NOTES[e]) for e in EFFORTS]
+    return [(m, label, MODEL_NOTES[label]) for m, label in MODELS]
+
+
+def setting_value(sid, control):
+    """What a Setup row picked from a list is set to now."""
+    if sid == "merge":
+        mode = control.get("merge_mode")
+        return mode if mode in MERGE_LABELS else "branches"
+    _, _, key, default, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
+    return models_of(control).get(key) or default
+
+
+def choice_rows(sid, control):
+    """The choices for a Setup row, the current one marked."""
+    current = setting_value(sid, control)
+    return [{"kind": "choice", "id": value, "style": "bold" if value == current else "normal",
+             "cols": [label, " · ".join(x for x in (note, "← now" if value == current else "") if x)]}
+            for value, label, note in setting_choices(sid)]
+
+
+PICKED = ("merge",) + tuple(m[0] for m in MODEL_SETTINGS)
 
 
 def parse_ls_remote(text):
@@ -821,8 +848,8 @@ HELP = [
                             "into one PR — it asks you only what it cannot decide"),
     ]),
     ("Setup", [
-        ("⏎", "pick the sprint or the feature to queue into · cycle Merging and the models · "
-              "show or hide done tasks"),
+        ("⏎", "change the setting: pick from its list, type the usage limit, or show or "
+              "hide done tasks"),
         ("n", "new feature branch (in the branch list), created on origin"),
     ]),
     ("Daemons", [
@@ -1281,6 +1308,8 @@ class App(object):
                               bool(self.control.get("hide_done")))
         if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
             return board_list_rows(self.boards, query, self.control.get("sprint"))
+        if name == "Setup" and self.setup in PICKED:
+            return choice_rows(self.setup, self.control)
         if name == "Setup" and self.setup == "base":
             return branch_rows(self.branches, self.default_branch, query, self.control.get("base"),
                                self.feature_summaries())
@@ -1294,6 +1323,18 @@ class App(object):
         if TABS[self.tab] == "Setup" and self.setup:
             return "Setup:%s" % self.setup
         return TABS[self.tab]
+
+    def set_threshold(self, text):
+        """The usage limit typed on the Setup tab: a whole percentage, 1 to 100."""
+        try:
+            value = int(text.strip().rstrip("%"))
+        except ValueError:
+            value = None
+        if value is None or not 1 <= value <= 100:
+            self.message = "the usage limit is a percentage from 1 to 100 — %r is not" % text
+            return
+        self.change_control(lambda c: c.update(usage_threshold=value))
+        self.message = "usage limit: %d%% — goals use it from their next usage read" % value
 
     def set_base(self, name):
         base = None if name == self.default_branch else name
@@ -1760,35 +1801,34 @@ class App(object):
             self.change_control(lambda c: c.update(sprint=sprint))
             self.setup = None
             self.message = "sprint: %s" % row["name"]
+        elif name == "Setup" and self.setup in PICKED and key == "enter":
+            sid, value = self.setup, row["id"]
+            self.setup = None
+            if sid == "merge":
+                self.change_control(lambda c: c.update(merge_mode=value))
+                self.message = "merging: %s" % MERGE_LABELS[value]
+            else:
+                _, label, mkey, _, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
+                self.change_control(lambda c: c.setdefault("models", {}).update({mkey: value}))
+                self.message = "%s: %s%s" % (label.lower(), model_label(value),
+                                             " — from the next run on" if mkey == "task"
+                                             else " — for goals started from now on")
         elif name == "Setup" and self.setup == "base" and key == "enter":
             if row["kind"] == "new":
                 self.compose = {"kind": "branch", "text": "", "line": LineEdit()}
             else:
                 self.set_base(row["id"])
         elif name == "Setup" and not self.setup:
-            setting = next((m for m in MODEL_SETTINGS if m[0] == row["id"]), None)
             if row["id"] == "threshold":
-                current = self.control.get("usage_threshold") or gl.DEFAULT_THRESHOLD
-                value = THRESHOLDS[(THRESHOLDS.index(current) + 1) % len(THRESHOLDS)] \
-                    if current in THRESHOLDS else gl.DEFAULT_THRESHOLD
-                self.change_control(lambda c: c.update(usage_threshold=value))
-                self.message = "usage limit: %d%% — goals use it from their next usage read" % value
-            elif setting:
-                sid, label, key, default, _ = setting
-                value = next_setting(sid, models_of(self.control).get(key) or default)
-                self.change_control(lambda c: c.setdefault("models", {}).update({key: value}))
-                self.message = "%s: %s%s" % (label.lower(), model_label(value),
-                                             " — from the next run on" if key == "task"
-                                             else " — for goals started from now on")
+                current = str(self.control.get("usage_threshold") or gl.DEFAULT_THRESHOLD)
+                self.compose = {"kind": "threshold", "text": current, "line": LineEdit(current)}
             elif row["id"] == "done":
                 self.toggle_done()
-            elif row["id"] == "merge":
-                order = list(MERGE_LABELS)
-                mode = self.control.get("merge_mode")
-                mode = mode if mode in MERGE_LABELS else "branches"
-                nxt = order[(order.index(mode) + 1) % len(order)]
-                self.change_control(lambda c: c.update(merge_mode=nxt))
-                self.message = "merging: %s" % MERGE_LABELS[nxt]
+            elif row["id"] in PICKED:
+                self.setup = row["id"]
+                ids = [r["id"] for r in self.view()]
+                current = setting_value(self.setup, self.control)
+                self.cursor[self.view_key()] = ids.index(current) if current in ids else 0
             else:
                 self.setup = row["id"]
                 self.query[self.view_key()] = ""
@@ -1870,7 +1910,9 @@ class App(object):
             if key == "enter":
                 text = self.compose["text"].strip()
                 compose, self.compose = self.compose, None
-                if compose.get("kind") == "branch":
+                if compose.get("kind") == "threshold":
+                    self.set_threshold(text)
+                elif compose.get("kind") == "branch":
                     self.new_branch(text)
                 elif text:
                     self.answer(compose["gid"], text)
@@ -1982,7 +2024,8 @@ class App(object):
         if self.typing:
             return "type to filter · enter keep · esc clear"
         if self.compose is not None:
-            return {"branch": "enter create · esc cancel · ^U clear — any characters, / included"}.get(
+            return {"branch": "enter create · esc cancel · ^U clear — any characters, / included",
+                    "threshold": "type a percentage, 1 to 100 · enter set it · esc cancel"}.get(
                         self.compose.get("kind"), "enter send · esc cancel · ^U clear")
         if self.question:
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
@@ -1992,7 +2035,7 @@ class App(object):
             "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
-                      else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it (on Merging and the models: the next choice)"),
+                      else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it"),
             "Daemons": "s start this repo's · x stop · d clear crashed",
         }[name] + " · : commands · 1-4 tabs · ? keys · q quit"
 
@@ -2115,7 +2158,8 @@ class App(object):
                 put(h - 6 + i, "  " + line, "dim")
         if self.compose is not None:
             prompt = {"branch": "new branch from origin/%s › " % (self.default_branch
-                                                                   or "the default branch")}.get(self.compose.get("kind"), "answer › ")
+                                                                   or "the default branch"),
+                      "threshold": "usage limit, in % › "}.get(self.compose.get("kind"), "answer › ")
             put(h - 2, prompt + self.compose["line"].show(max(1, w - len(prompt) - 3)), "warn")
         else:
             put(h - 2, self.message, "warn")
