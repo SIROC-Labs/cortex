@@ -37,7 +37,8 @@ This program is the harness around the lead:
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
   (`CLAUDE_CODE_SUBAGENT_MODEL`), since most of them do narrow, well-briefed work; the lead
   can ask for Opus for one that needs deep reasoning. The checker runs on Fable at `xhigh`
-  effort. It only verifies and reports: it plans no fix and changes nothing, so the
+  effort. It only verifies and reports: it plans no fix and changes nothing, and leaves
+  the legwork on a large diff to Sonnet sub-agents. So the
   strongest model costs little there. All four are on the TUI's Setup tab, and on
   `cortex goal new` as `--model`, `--subagent-model`, `--check-model` and `--check-effort`.
   A goal keeps the models it started with.

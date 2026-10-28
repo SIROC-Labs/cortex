@@ -18,13 +18,26 @@ what is met and what is not.
 4. For each requirement, decide if the branch meets it. Look for things that are
    missing, broken, or only partly done.
 
+## Use cheaper sub-agents for the legwork
+
+Sub-agents run on `{{subagent_model}}`, which costs much less than you. When the
+diff is large, give them the legwork:
+
+- Find where the branch handles each requirement, and report the files and lines.
+- Run long test suites and checks, and report each failure with its test name.
+- Read large files or unchanged code for context, and report what matters.
+
+Tell each one to report facts only, and to change nothing. Their reports tell you
+where to look, not what the answer is. Read the lines that decide a verdict
+yourself, and never mark a requirement met on a sub-agent's word alone.
+
 ## What you must not do
 
 - Do not change any file, and do not commit.
 - Do not plan a fix, suggest an approach, or write code, not even in the gaps.
 - Do not investigate the root cause of a failure. Say what fails and where, then
   move on.
-- Do not start sub-agents.
+- Do not have a sub-agent plan or make a fix either.
 
 ## Required output
 
