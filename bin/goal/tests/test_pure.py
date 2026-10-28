@@ -123,5 +123,50 @@ class TestTheAsk(unittest.TestCase):
     def test_a_bare_ticket_is_just_its_name(self):
         self.assertEqual(goal.ask_from_ticket({"ref": "1", "name": "Queue"}, "u"), "# 1: Queue\nu\n")
 
+def msg(at, mid, model, out, cache_read=0):
+    import json
+    return json.dumps({"timestamp": at, "message": {"id": mid, "model": model, "usage": {
+        "input_tokens": 10, "output_tokens": out, "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": 0}}})
+
+
+class TestBreakdown(unittest.TestCase):
+    def test_each_message_counts_once_and_only_since_the_call_began(self):
+        lines = [msg("2026-10-28T10:00:00Z", "a", "m", 1),
+                 msg("2026-10-28T11:00:00Z", "b", "m", 5),
+                 msg("2026-10-28T11:00:03Z", "b", "m", 5),
+                 msg("2026-10-28T11:01:00Z", "c", "m", 7, cache_read=100)]
+        since = goal._when("2026-10-28T10:30:00Z")
+        use = goal.transcript_usage(lines, since)
+        self.assertEqual(use["tokens"], {"input": 20, "output": 12, "cache_read": 100, "cache_write": 0})
+        self.assertEqual(use["last"] - use["first"], 60)
+        self.assertIsNone(goal.transcript_usage(lines, goal._when("2026-10-29T00:00:00Z")))
+
+    def test_a_model_s_cost_is_shared_by_weighted_tokens(self):
+        costs = goal.unit_costs({"m": {"inputTokens": 100, "outputTokens": 100, "costUSD": 6.0}})
+        self.assertAlmostEqual(costs["m"], 0.01)
+        entry = goal.priced({"model": "m", "tokens": {"input": 0, "output": 20, "cache_read": 0,
+                                                      "cache_write": 0}}, costs)
+        self.assertAlmostEqual(entry["cost"], 1.0)
+        self.assertIsNone(goal.priced({"model": "x", "tokens": entry["tokens"]}, costs)["cost"])
+
+    def test_the_report_has_totals_by_role_then_each_call(self):
+        tokens = {"input": 1000, "output": 2000, "cache_read": 0, "cache_write": 0}
+        calls = [{"label": "lead", "round": 1, "model": "claude-opus-5-5", "effort": None,
+                  "started": 0, "cost": 3.0,
+                  "main": {"model": "claude-opus-5-5", "tokens": tokens, "seconds": 600, "cost": 2.0},
+                  "subagents": [{"description": "Build the exporter", "model": "claude-sonnet-5-5",
+                                 "tokens": tokens, "seconds": 300, "cost": 1.0}]},
+                 {"label": "check", "round": 1, "model": "claude-fable-5-1", "effort": "xhigh",
+                  "started": 0, "cost": 4.0,
+                  "main": {"model": "claude-fable-5-1", "tokens": tokens, "seconds": 120, "cost": 4.0},
+                  "subagents": []}]
+        report = goal.usage_report(calls)
+        self.assertIn("All calls: 12m 00s · 9k · ≈ $7.00", report)
+        for line in ("lead (1)", "sub-agents (1)", "checker (1)", "Round 1 · opus", "Check 1 · fable xhigh effort",
+                     "Build the exporter"):
+            self.assertIn(line, report)
+
+
 if __name__ == "__main__":
     unittest.main()

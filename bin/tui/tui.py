@@ -436,6 +436,7 @@ def goal_status(g, wait=None):
         return "stopped unexpectedly — r carries on", "bad"
     limits = g.get("limits") or []
     use = (" · usage %d%%" % max(l["used"] for l in limits)) if limits else ""
+    use += " · ≈ $%.2f" % g["cost"] if g.get("cost") else ""
     if status == "working":
         return "working · round %s%s" % (g.get("round") or 1, use), "ok"
     if status == "checking":
@@ -792,7 +793,8 @@ HELP = [
         ("o", "open its PR (or the task) · on a merged task, what it changed"),
         ("c", "continue past a reached checkpoint — its feature starts tasks again · "
               "on a held-back task, drop the checkpoint holding it"),
-        ("x r o", "on a goal: stop it (finished: remove it) · carry it on · open its PR"),
+        ("x r o u", "on a goal: stop it (finished: remove it) · carry it on · open its PR · "
+                    "what each agent took: time, tokens, cost"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
@@ -1428,6 +1430,10 @@ class App(object):
             webbrowser.open(row["pr_url"])
         elif key == "o":
             self.message = "no PR yet"
+        elif key == "u" and os.path.exists(goal.state.path(gl.REPORT_FILE)):
+            self.log_path, self.log_scroll = goal.state.path(gl.REPORT_FILE), 0
+        elif key == "u":
+            self.message = "no call has finished yet"
 
     def merge(self, row):
         """Ask for a task to be got onto main: conflicts resolved, failing checks
@@ -1636,7 +1642,7 @@ class App(object):
         if name == "Runs" and row:
             if key in ("a", "A") and row["kind"] in ("task", "goal"):
                 self.start_answer(row, editor=key == "A")
-            elif row["kind"] == "goal" and key in ("x", "r", "o"):
+            elif row["kind"] == "goal" and key in ("x", "r", "o", "u"):
                 self.goal_key(key, row)
             elif key == "m" and row["kind"] == "task":
                 self.merge(row)

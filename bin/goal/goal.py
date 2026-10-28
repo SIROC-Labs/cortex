@@ -21,6 +21,7 @@
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
@@ -41,6 +42,8 @@ PROMPTS = os.path.join(HERE, "prompts")
 GOAL_FILE = "goal.json"
 JOURNAL_FILE = "journal.md"
 LOG_FILE = "goal.log"
+CALLS_FILE = "calls.json"
+REPORT_FILE = "usage.txt"
 
 DEFAULT_MODEL = "claude-opus-5-5"
 # The lead's sub-agents mostly do narrow, well-briefed parts of the work. The lead
@@ -208,6 +211,179 @@ def answer_prompt(questions, answer):
     lines += ["- %s" % q["q"] for q in questions or []]
     lines += ["", "They answered:", "", answer.strip(), "", CONTINUE]
     return "\n".join(lines)
+
+
+# --- what each call cost --------------------------------------------------------
+#
+# A call's own messages and each sub-agent's are in Claude Code's transcripts, with
+# their model, tokens and times. The call's result says what each model cost in
+# all; that is shared out by tokens, weighted as the API prices them.
+
+TOKEN_KEYS = (("input", "input_tokens", "inputTokens"),
+              ("output", "output_tokens", "outputTokens"),
+              ("cache_read", "cache_read_input_tokens", "cacheReadInputTokens"),
+              ("cache_write", "cache_creation_input_tokens", "cacheCreationInputTokens"))
+TOKEN_WEIGHTS = {"input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25}
+MODEL_NAMES = (("fable", "fable"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku"))
+
+
+def _when(text):
+    try:
+        return datetime.datetime.strptime(text[:19], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=datetime.timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def transcript_usage(lines, since=0):
+    """From a transcript's JSON lines: {model, tokens, first, last}, counting each
+    message once and only what came at or after `since`. None when nothing did."""
+    seen, tokens, models, times = set(), dict.fromkeys(TOKEN_WEIGHTS, 0), {}, []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        at = _when(row.get("timestamp"))
+        if at is None or at < since:
+            continue
+        times.append(at)
+        message = row.get("message") or {}
+        usage = message.get("usage")
+        if not isinstance(usage, dict) or message.get("id") in seen:
+            continue
+        seen.add(message.get("id"))
+        for name, key, _ in TOKEN_KEYS:
+            tokens[name] += usage.get(key) or 0
+        if message.get("model"):
+            models[message["model"]] = models.get(message["model"], 0) + 1
+    if not seen:
+        return None
+    return {"model": max(models, key=models.get) if models else None, "tokens": tokens,
+            "first": min(times), "last": max(times)}
+
+
+def weight(tokens):
+    return sum(TOKEN_WEIGHTS[k] * (tokens.get(k) or 0) for k in TOKEN_WEIGHTS)
+
+
+def unit_costs(model_usage):
+    """{model: dollars per weighted token}, from a call result's `modelUsage`."""
+    out = {}
+    for model, use in (model_usage or {}).items():
+        units = weight({name: use.get(camel) or 0 for name, _, camel in TOKEN_KEYS})
+        if units and use.get("costUSD") is not None:
+            out[model] = use["costUSD"] / units
+    return out
+
+
+def priced(entry, costs):
+    cost = costs.get(entry.get("model"))
+    return dict(entry, cost=None if cost is None else cost * weight(entry["tokens"]))
+
+
+def short_model(model):
+    return next((short for key, short in MODEL_NAMES if key in (model or "")), model or "?")
+
+
+def _tokens(n):
+    return "%.1fM" % (n / 1e6) if n >= 1e6 else "%dk" % round(n / 1e3) if n >= 1e3 else str(n)
+
+
+def _span(seconds):
+    seconds = int(seconds or 0)
+    return ("%dh %02dm" % (seconds // 3600, seconds % 3600 // 60) if seconds >= 3600
+            else "%dm %02ds" % (seconds // 60, seconds % 60) if seconds >= 60 else "%ds" % seconds)
+
+
+def _cost(cost):
+    return "≈ $%.2f" % cost if cost is not None else "cost unknown"
+
+
+def _line(name, entry, width=46):
+    tokens = entry["tokens"]
+    total = sum(tokens.values())
+    name = name if len(name) <= width else name[:width - 1] + "…"
+    return "  %-*s %-7s %8s  %6s in · %5s out  %s" % (
+        width, name, short_model(entry.get("model")), _span(entry.get("seconds")),
+        _tokens(total - tokens["output"]), _tokens(tokens["output"]), _cost(entry.get("cost")))
+
+
+def usage_report(calls):
+    """The goal's usage, as the TUI shows it: totals by role, then each call with
+    its sub-agents."""
+    roles = {}
+    for call in calls:
+        for role, entry in [("lead" if call["label"] == "lead" else "checker", call["main"])] + [
+                ("sub-agents", a) for a in call.get("subagents") or []]:
+            r = roles.setdefault(role, {"tokens": dict.fromkeys(TOKEN_WEIGHTS, 0), "seconds": 0,
+                                        "cost": 0.0, "count": 0, "models": set()})
+            for k in TOKEN_WEIGHTS:
+                r["tokens"][k] += entry["tokens"][k]
+            r["seconds"] += entry.get("seconds") or 0
+            r["count"] += 1
+            r["models"].add(short_model(entry.get("model")))
+            r["cost"] = None if r["cost"] is None or entry.get("cost") is None else r["cost"] + entry["cost"]
+    total_cost = sum(c["cost"] or 0 for c in calls) if calls else 0
+    known = all(c.get("cost") is not None for c in calls)
+    out = ["Costs are at API prices: on a subscription, what the work would cost, not a bill.",
+           "Time is each agent's own; sub-agents run alongside their call.", "",
+           "All calls: %s · %s%s" % (_span(sum(c["main"].get("seconds") or 0 for c in calls)),
+                                     _tokens(sum(sum(r["tokens"].values()) for r in roles.values())),
+                                     " · ≈ $%.2f" % total_cost + ("" if known else " so far known")),
+           ""]
+    for role in ("lead", "sub-agents", "checker"):
+        if role in roles:
+            r = roles[role]
+            entry = dict(r, model="/".join(sorted(r["models"])))
+            out.append(_line("%s (%d)" % (role, r["count"]), entry))
+    for call in calls:
+        out += ["", "%s · %s%s · %s · %s" % (
+            "Round %s" % call["round"] if call["label"] == "lead" else "Check %s" % call["round"],
+            short_model(call["model"]), " %s effort" % call["effort"] if call.get("effort") else "",
+            time.strftime("%a %H:%M", time.localtime(call["started"])), _cost(call.get("cost")))]
+        out.append(_line(call["label"] + " itself", call["main"]))
+        for agent in call.get("subagents") or []:
+            out.append(_line("  " + (agent.get("description") or "sub-agent"), agent))
+    return "\n".join(out) + "\n"
+
+
+def read_call(session, since, model_usage=None, claude_dir=None):
+    """(main, [sub-agents]) of a call, from its session's transcripts: each with
+    model, tokens, seconds and cost."""
+    base = claude_dir or os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    found = glob.glob(os.path.join(base, "projects", "*", session + ".jsonl"))
+    if not found:
+        return None, []
+    costs = unit_costs(model_usage)
+
+    def entry(path, **extra):
+        with open(path) as f:
+            use = transcript_usage(f, since)
+        if not use:
+            return None
+        return priced(dict(extra, model=use["model"], tokens=use["tokens"],
+                           seconds=use["last"] - use["first"]), costs)
+
+    main = entry(found[0])
+    agents = []
+    for path in sorted(glob.glob(os.path.join(found[0][:-len(".jsonl")], "subagents", "agent-*.jsonl"))):
+        try:
+            with open(path[:-len(".jsonl")] + ".meta.json") as f:
+                meta = json.load(f)
+        except (IOError, OSError, ValueError):
+            meta = {}
+        agent = entry(path, description=meta.get("description"), depth=meta.get("spawnDepth"))
+        if agent:
+            agents.append(agent)
+    if main and costs:
+        # The call's own share is what its model cost, less its sub-agents on that model.
+        same = sum(a["cost"] or 0 for a in agents if a["model"] == main["model"])
+        own = (model_usage.get(main["model"]) or {}).get("costUSD")
+        if own is not None:
+            main["cost"] = max(0.0, own - same)
+    agents.sort(key=lambda a: a.get("seconds") or 0, reverse=True)
+    return main, agents
 
 
 # --- state -------------------------------------------------------------------
@@ -429,6 +605,7 @@ class Runner(object):
         cmd += ["--effort", effort] if effort else []
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
+        started = time.time()
         env = dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL=self.data.get(
             "subagent_model") or DEFAULT_SUBAGENT_MODEL)
         self.child = subprocess.Popen(cmd + [prompt], cwd=self.data["worktree"], env=env,
@@ -447,8 +624,10 @@ class Runner(object):
                     os.killpg(self.child.pid, signal.SIGTERM)
                     self.child.communicate()
                     self.child = None
+                    self.record_call(label, model, effort, session, started)
                     return None, "usage", None
         code, self.child = self.child.returncode, None
+        self.record_call(label, model, effort, session, started, out)
         text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
         usage = telemetry.get("usage")
         if usage:
@@ -460,6 +639,26 @@ class Runner(object):
                                 or "claude exited %d" % code)
         st.info("%s: %s turns" % (label, telemetry.get("turns") or "?"))
         return extract_last_json_block(text), telemetry.get("stop_reason"), None
+
+    def record_call(self, label, model, effort, session, started, out=b""):
+        """Note what a call cost, by agent, and rewrite the goal's usage report."""
+        try:
+            envelope = json.loads(out.decode("utf-8", "replace")) if out.strip() else {}
+        except ValueError:
+            envelope = {}
+        main, agents = read_call(session, started - 1, envelope.get("modelUsage"))
+        if not main:
+            return
+        calls = self.goal.state.read(CALLS_FILE) or []
+        rounds = self.data.get("round") if label == "lead" else len(
+            [c for c in calls if c["label"] != "lead"]) + 1
+        calls.append({"label": label, "round": rounds, "model": model, "effort": effort,
+                      "started": started, "cost": envelope.get("total_cost_usd"),
+                      "main": dict(main, seconds=time.time() - started), "subagents": agents})
+        self.goal.state.write(CALLS_FILE, calls)
+        with open(self.goal.state.path(REPORT_FILE), "w") as f:
+            f.write(usage_report(calls))
+        self.set(cost=sum(c.get("cost") or 0 for c in calls))
 
     def lead(self, prompt):
         """Call the lead on its session, through failures and pauses. Returns
@@ -582,8 +781,11 @@ class Runner(object):
         if pr_url:
             body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
             st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
-            if (block.get("walkthrough") or "").strip():
-                st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(block["walkthrough"].strip())],
+            comment = (block.get("walkthrough") or "").strip()
+            if (block.get("checks") or "").strip():
+                comment += "\n\n## Checks\n\n%s" % block["checks"].strip()
+            if comment.strip():
+                st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(comment.strip())],
                        cwd=worktree, check=False)
             st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
             st.info("PR ready: %s" % pr_url)

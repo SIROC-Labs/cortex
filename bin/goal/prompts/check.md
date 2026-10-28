@@ -14,7 +14,10 @@ what is met and what is not.
 
 1. Read the ask carefully, and list what it requires.
 2. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
-3. Run the tests and the checks that the project has.
+3. Run the tests and the checks that the project has. Include every check that CI
+   runs, and the checks in the repository's steps for finishing work before a PR
+   (for example in `.claude/skills/submit/SKILL.md`). Run only the checks, not the
+   reviews or fixes in those steps, and leave out browser QA.
 4. For each requirement, decide if the branch meets it. Look for things that are
    missing, broken, or only partly done.
 

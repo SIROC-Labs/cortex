@@ -30,6 +30,15 @@ This program is the harness around the lead:
 - **Questions.** The lead asks only what it cannot decide: a decision that is yours, or
   something only you have. The question waits on the TUI's Runs tab; your answer goes back
   to the lead, and it continues.
+- **Finishing like `/submit`.** Before it says it is done, the lead runs the repository's
+  own steps for finishing work before a PR (a `submit` skill, or `CLAUDE.md` / `AGENTS.md`):
+  syncing with the base, the reviews it names, and every check CI runs, until they pass.
+  It skips the tracker, browser QA and screenshots, and shipping, which the runner does.
+  What it ran goes on the PR, under **Checks**.
+- **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
+  the checker and of every sub-agent it started, from Claude Code's transcripts. `u` on the
+  goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API
+  prices: what the work would cost, not a bill.
 - **Done means checked.** When the lead says it is done, a separate checker agent compares
   the branch with the ask and runs the tests. Gaps go back to the lead. Only a clean check
   finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
@@ -63,6 +72,7 @@ A goal keeps its state in `.cortex/state/<id>/`:
 | `goal.log` | everything the harness did |
 | `awaiting.json` | the question waiting on you, while there is one |
 | `usage.json` | the tokens of every call |
+| `calls.json`, `usage.txt` | each call's time, tokens and cost, by agent, and the report `u` shows |
 
 Its worktree is `.cortex/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
 

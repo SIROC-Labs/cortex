@@ -37,10 +37,23 @@ this one piece of work, not separate tickets.
 4. Write tests where the project has a test suite, and run them.
 5. Commit often, in small commits with clear messages that follow the conventions
    of the repository. The runner pushes the branch for you.
+6. Before you report done, run the repository's own steps for finishing work
+   before a PR. Find them in a `submit` skill or command (for example
+   `.claude/skills/submit/SKILL.md`), or in `CLAUDE.md` or `AGENTS.md`. Run every
+   step in order, as the repository describes it, with these exceptions:
+   - Skip the task-tracker steps: no Asana or other tracker reads or writes.
+   - Skip browser QA and screenshots.
+   - Skip pushing, opening the PR, and asking for reviewers. The runner does these.
+   Run everything else: syncing with `{{base}}`, the reviews it names (such as
+   simplify and code review, with their fixes), and every check that CI runs,
+   until all of them pass. Never weaken a check, raise a budget, or add a
+   baseline entry to make it pass. If the repository has no such steps, run its
+   tests, linters and type checks.
 
 ## What you must not do
 
-- Do not push, force-push, rebase, or merge into `{{base}}` or any other branch.
+- Do not push, force-push, or rebase, and do not merge into `{{base}}` or any other
+  branch. To sync, you may merge `origin/{{base}}` into your own branch.
 - Do not open, close, or merge pull requests.
 - Do not change files outside this worktree, except the journal.
 - Do not stop to ask about anything you can decide yourself. Decide, write the
@@ -66,7 +79,7 @@ When you have more to do, but you stop for now:
 When the ask is fully implemented, committed, and its tests pass:
 
 ```json
-{"status": "done", "summary": "What the change does and why, in 1-3 sentences. It becomes the PR description.", "walkthrough": "Why, Behaviour and Key files, in Markdown. It is posted as a comment on the PR."}
+{"status": "done", "summary": "What the change does and why, in 1-3 sentences. It becomes the PR description.", "walkthrough": "Why, Behaviour and Key files, in Markdown. It is posted as a comment on the PR.", "checks": "Each finishing step you ran, with its result, one per line. Name any step you skipped, and why."}
 ```
 
 The `walkthrough` says what you did. It has these sections, in this order, as `##` headings:
