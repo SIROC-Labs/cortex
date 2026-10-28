@@ -365,7 +365,12 @@ def render_ci_fix(failing, excerpts=None, opening="Merge was asked for, and requ
     lines += ["", "Find out why with `gh pr checks` and `gh run view <run-id> --log-failed`, "
               "and fix the cause. If a failure is plainly flaky and unrelated to this "
               "change, re-run it with `gh run rerun <run-id> --failed` instead of "
-              "changing code, and say so in your reply."]
+              "changing code, and say so in your reply.", "",
+              "This machine runs many agents at once. Run only single test files by their "
+              "path, and a linter or type check on the files you change. Never run a whole "
+              "suite (`npx vitest run`, `pytest` with no paths, `npm test`), coverage, "
+              "`make verify`, `npm run verify*`, a build, or e2e tests: CI runs those again "
+              "once your fix is pushed."]
     return "\n".join(lines) + "\n"
 
 
