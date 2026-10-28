@@ -856,20 +856,25 @@ class Runner(object):
     def sync_and_ci(self):
         """The gate, with CI failures handed to a cheap fixer first: (None, None)
         when CI passes, else what the lead is to fix."""
-        for attempt in range(CI_FIXES + 1):
+        attempt = 0
+        while True:
             kind, fix = self.gate()
             if kind != "ci" or attempt == CI_FIXES:
                 return kind, fix
-            st.step("Fixing CI (%d/%d) on %s" % (attempt + 1, CI_FIXES, short_model(
-                self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)))
-            self.wait_for_usage()
-            self.set(status="checking", doing="fixing CI, try %d" % (attempt + 1))
+            attempt += 1
+            model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
             prompt = ci_fix_prompt(self.data["branch"], fix.split("\n", 2)[2])
-            _, _, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix",
-                                    self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)
+            while True:
+                st.step("Fixing CI (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
+                self.wait_for_usage()
+                self.set(status="checking", doing="fixing CI, try %d" % attempt)
+                _, stop, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
+                # A call cut off at the usage threshold was not a try: it starts over
+                # once the limit frees up.
+                if stop != "usage":
+                    break
             if error:
                 st.warn("the CI fixer failed: %s" % error.splitlines()[0][:200])
-        return kind, fix
 
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""

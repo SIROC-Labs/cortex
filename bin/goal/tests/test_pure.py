@@ -285,6 +285,20 @@ class TestGate(unittest.TestCase):
         self.assertIn("- `test` (https://github.com/o/r/actions/runs/1/job/2)", prompt)
         self.assertIn("Never weaken a check", prompt)
 
+    def test_a_fix_cut_off_by_the_usage_limit_is_not_a_try(self):
+        self.rollup = [self.check("test", "FAILURE")]
+        calls = []
+
+        def call(prompt, session, resume, label, model=None, effort=None):
+            calls.append(label)
+            if len(calls) == 1:
+                return None, "usage", None
+            self.rollup = [self.check("test", "SUCCESS")]
+            return None, None, None
+        self.runner.call = call
+        self.assertEqual(self.runner.sync_and_ci(), (None, None))
+        self.assertEqual(calls, ["ci-fix", "ci-fix"])
+
     def test_ci_that_the_fixer_cannot_fix_goes_to_the_lead(self):
         self.rollup = [self.check("test", "FAILURE")]
         calls = []
