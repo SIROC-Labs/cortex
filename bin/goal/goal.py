@@ -595,12 +595,13 @@ def checks_section(checks):
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
-def hook_settings(flag, subagent=None):
+def hook_settings(flag, subagent=None, fence=()):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
     change to the PR are always refused: only the runner pushes. A sub-agent
-    started without a model gets `subagent`."""
+    started without a model gets `subagent`. A tool call that names one of the
+    `fence` texts is refused."""
     check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
         shlex.quote(flag), shlex.quote(WIND_DOWN))
     hook = [{"type": "command", "command": check}]
@@ -609,8 +610,10 @@ def hook_settings(flag, subagent=None):
         return {"type": "command", "command": " ".join(
             shlex.quote(a) for a in (sys.executable, HOOK) + args)}
     agent = hook + ([guard("agent", subagent)] if subagent else [])
-    return {"hooks": {"PreToolUse": [{"matcher": "Agent|Task", "hooks": agent},
-                                     {"matcher": "Bash", "hooks": [guard("bash")]}],
+    pre = [{"matcher": "Agent|Task", "hooks": agent}, {"matcher": "Bash", "hooks": [guard("bash")]}]
+    if fence:
+        pre.append({"matcher": "*", "hooks": [guard("fence", *fence)]})
+    return {"hooks": {"PreToolUse": pre,
                       "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
 
 
@@ -1007,7 +1010,8 @@ def create_part(main_root, parent, part, index, built):
                 ask=part_ask(parent, part, built), threshold=parent.get("threshold"),
                 model=parent.get("model"), subagent_model=parent.get("subagent_model"),
                 check_model=parent.get("check_model"), check_effort=parent.get("check_effort"),
-                created=time.time(), status="new", round=0, phase="planning")
+                fence=parent.get("fence"), created=time.time(), status="new", round=0,
+                phase="planning")
     return gid
 
 
@@ -1198,7 +1202,7 @@ class Runner(object):
         if os.path.exists(flag):
             os.remove(flag)
         self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
-            self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)))
+            self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or ()))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]

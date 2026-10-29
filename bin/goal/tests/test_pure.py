@@ -745,6 +745,14 @@ class TestWindDown(unittest.TestCase):
         for command in ("git push", "git push -u origin x", "cd a && git -C b push --force",
                         "gh pr ready 5", "gh pr merge 5", "gh workflow run ci", "gh run rerun 9"):
             self.assertTrue(hook.blocked(command), command)
+        self.assertTrue(hook.fenced({"file_path": "/u/Coding/SIROC/cortex/bin/tui/tui.py"},
+                                    ["SIROC/cortex", "cortex"]))
+        self.assertTrue(hook.fenced({"command": "cd x && cortex tui --status"}, ["cortex"]))
+        self.assertFalse(hook.fenced({"command": "cat bin/cortex/README.md"}, ["cortex"]))
+        self.assertFalse(hook.fenced({"pattern": "def main"}, ["SIROC/cortex", "cortex"]))
+        fence = goal.hook_settings("/f", "sonnet", ["SIROC/cortex"])["hooks"]["PreToolUse"][2]
+        self.assertEqual(fence["matcher"], "*")
+        self.assertTrue(fence["hooks"][0]["command"].endswith("hook.py fence SIROC/cortex"))
         for command in ("git status", "git stash push -m x", "git commit -m 'push it'",
                         "gh run view 9 --log-failed", "gh pr view 5", "npm run lint"):
             self.assertFalse(hook.blocked(command), command)
