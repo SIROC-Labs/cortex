@@ -25,6 +25,7 @@
 
 import argparse
 import datetime
+import fcntl
 import glob
 import html.parser
 import json
@@ -97,11 +98,47 @@ CI_TIMEOUT = 2 * 3600
 CI_FIXES = 2
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes"}
 
+# A large goal is split into parts, each a goal of its own on a branch off the
+# goal's, merged back into it when done. A part does not split again.
+PARTS_FILE = "parts.json"
+MAX_DEPTH = 1
+PARALLEL_PARTS = 2
+PARTS_CHECK = 30
+MAX_PARTS = 8
 PLANNING = ("This first round is the analysis: steps 1 to 4 of How to work. Do not "
             "change code yet. When the journal has the references, the acceptance criteria "
             "and the plan, end with the `planned` block.")
 BUILDING = ("The analysis is finished: the journal has the references, the acceptance "
             "criteria and the plan. Build the work.")
+SPLIT = """   When the work is large, split it into parts: do not build it alone. Large is
+   several areas of the product, such as separate screens, or an API and the
+   screens on it, or more than about 25 acceptance criteria. Each part is built by
+   its own lead, with its own sub-agents, journal and checker, on its own branch,
+   and merged into yours. Write the parts to `{{parts_file}}` as JSON:
+
+   ```json
+   {"parts": [{"name": "Tasks API and data model", "after": [], "brief": "…", "criteria": ["…"]}]}
+   ```
+
+   - `criteria`: the acceptance criteria the part must meet, copied word for word
+     from your list. Each criterion goes to one part at most. Keep the criteria
+     about how the parts fit together for yourself.
+   - `after`: the names of the parts it builds on. Put the shared layers first,
+     such as the data model and the API contracts, and the parts that use them
+     after. Parts with nothing between them run at the same time, so give them
+     work that does not touch the same files.
+   - `brief`: what the part builds, and what it must not touch; the references
+     and their sections that cover it, such as the prototype's functions; and the
+     contracts it must follow: the names, types, endpoints and files that other
+     parts depend on. Decide those contracts yourself, before the parts start. A
+     part's lead gets its brief, its criteria and the whole ask, and nothing else
+     from you.
+
+   Two to %d parts is usual. For small work, do not split, and do not write the
+   file. When every part is merged into your branch, you integrate: check that the
+   parts fit together, build what no part covers, and tick the criteria.""" % MAX_PARTS
+NO_SPLIT = ("   This is one part of a larger goal. Do not split it: build it yourself, with "
+            "sub-agents.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -109,7 +146,7 @@ CONTINUE = ("Continue the work. Read your journal if you need to remind yourself
 # zombies that still look alive.
 _CHILDREN = []
 
-LIVE = ("setting-up", "working", "checking", "waiting", "paused")
+LIVE = ("setting-up", "working", "checking", "waiting", "paused", "parts")
 FINISHED = ("done", "failed", "stopped")
 
 
@@ -359,9 +396,10 @@ def unmet_prompt(unmet):
             "Then report done again." % "\n".join("- %s" % c for c in unmet))
 
 
-def review_prompt(gaps, answers):
+def review_prompt(gaps, answers, again=False):
     """What the lead hears after the criteria review: what to change in the
-    criteria, and the person's answers. Then it builds."""
+    criteria, and the person's answers. Then it builds, or with `again`, corrects
+    its criteria and its parts before they start."""
     parts = []
     if gaps:
         parts += ["Before you build, a reviewer compared your acceptance criteria with the "
@@ -372,8 +410,112 @@ def review_prompt(gaps, answers):
                   "then the one-pager.", ""]
     if answers:
         parts += [answers, ""]
-    parts += ["Then build the work, as the plan says. The analysis is finished.", "", CONTINUE]
+    if again:
+        parts += ["Correct the criteria and the parts first: each part starts from them. "
+                  "Then report planned again, and the parts start."]
+    else:
+        parts += ["Then build the work, as the plan says. The analysis is finished.", "", CONTINUE]
     return "\n".join(parts)
+
+
+def read_parts(text):
+    """The parts a lead wrote, from the JSON of its parts file: [{name, after,
+    brief, criteria}], or None when it is not that."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    parts = data.get("parts") if isinstance(data, dict) else None
+    if not isinstance(parts, list):
+        return None
+    out = []
+    for p in parts:
+        if not isinstance(p, dict):
+            return None
+        out.append({"name": str(p.get("name") or "").strip(),
+                    "after": [str(a).strip() for a in p.get("after") or []],
+                    "brief": str(p.get("brief") or "").strip(),
+                    "criteria": [str(c).strip() for c in p.get("criteria") or [] if str(c).strip()]})
+    return out
+
+
+def parts_problems(parts, criteria):
+    """What is wrong with a split: [] when every part has a name, a brief and
+    criteria from the lead's list, builds only on parts before it in a way that
+    can finish, and no criterion is in two parts."""
+    if parts is None:
+        return ["the parts file is not JSON of the form {\"parts\": [...]}"]
+    problems, names, seen = [], [p["name"] for p in parts], {}
+    known = {re.sub(r"\s+", " ", c).strip() for _, c in criteria or []}
+    if len(parts) < 2:
+        problems.append("a split needs two parts or more; for one, do not write the file")
+    if len(parts) > MAX_PARTS:
+        problems.append("%d parts is too many: %d at most" % (len(parts), MAX_PARTS))
+    if len(set(names)) != len(names) or not all(names):
+        problems.append("every part needs a name of its own")
+    for p in parts:
+        if not p["brief"]:
+            problems.append("part \"%s\" has no brief" % p["name"])
+        if not p["criteria"]:
+            problems.append("part \"%s\" has no criteria" % p["name"])
+        for a in p["after"]:
+            if a not in names:
+                problems.append("part \"%s\" is after \"%s\", which is not a part" % (p["name"], a))
+        for c in p["criteria"]:
+            if re.sub(r"\s+", " ", c) not in known:
+                problems.append("part \"%s\" has a criterion that is not in your list: %s"
+                                % (p["name"], c[:120]))
+            if c in seen:
+                problems.append("\"%s\" is in both \"%s\" and \"%s\"" % (c[:80], seen[c], p["name"]))
+            seen[c] = p["name"]
+    if not problems and part_order(parts) is None:
+        problems.append("the parts' `after` lists go round in a circle")
+    return problems
+
+
+def part_order(parts):
+    """The part names in an order where each comes after what it builds on; None
+    when that cannot be."""
+    left, out = {p["name"]: set(p["after"]) for p in parts}, []
+    while left:
+        ready = [n for n, after in left.items() if after <= set(out)]
+        if not ready:
+            return None
+        for n in sorted(ready, key=[p["name"] for p in parts].index):
+            out.append(n)
+            del left[n]
+    return out
+
+
+def part_ask(parent, part, built):
+    """A part's ask: its brief and criteria, what was built before it, and the
+    whole goal's ask for context."""
+    out = ["# %s part: %s" % (parent.get("key") or "", part["name"]), "",
+           "This is one part of a larger goal. The goal's lead split the work into parts, "
+           "and this part is yours. Other leads build the other parts: build only this one, "
+           "and follow the contracts in its brief.", "", "## This part", "", part["brief"], "",
+           "## Its acceptance criteria", ""]
+    out += ["- %s" % c for c in part["criteria"]] + [""]
+    if built:
+        out += ["## Built before it", "", "These parts are done, and their work is on your "
+                "branch already:", ""]
+        out += ["- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""]
+    out += ["## The whole goal's ask, for context", "", parent.get("ask") or ""]
+    return "\n".join(out).rstrip() + "\n"
+
+
+def part_id(parent_id, name):
+    return "%s--%s" % (parent_id, st.slugify(name, max_words=4))
+
+
+def parts_done_prompt(parts):
+    lines = ["Every part is built, passed its own checker, and is merged into your branch:", ""]
+    lines += ["- %s: %s" % (p["name"], p.get("summary") or "done") for p in parts]
+    lines += ["", "Now integrate. Read what each part did. Check that the parts fit together: "
+              "the contracts, the data flowing between them, and the screens end to end. Build "
+              "what no part covers. Tick each acceptance criterion the branch meets, with the "
+              "file that meets it. Then report done.", "", CONTINUE]
+    return "\n".join(lines)
 
 
 def gaps_prompt(gaps, answers=None):
@@ -398,7 +540,7 @@ def answers_text(questions, answer):
 
 
 def conflict_prompt(base, files):
-    return ("You reported done. The runner merged `origin/%s` into your branch to sync "
+    return ("You reported done. The runner merged `%s` into your branch to sync "
             "it, and the merge conflicts in:\n\n%s\n\nThe merge is still in progress. "
             "Resolve the conflicts, commit the merge, then report done again."
             % (base, "\n".join("- `%s`" % f for f in files)))
@@ -847,7 +989,26 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
 
 def find_goal(main_root, ref):
     """The goal on the list for the ticket `ref`, if there is one."""
-    return next((g for g in list_goals(main_root) if g.get("ref") == ref), None)
+    return next((g for g in list_goals(main_root) if g.get("ref") == ref and not g.get("parent")),
+                None)
+
+
+def create_part(main_root, parent, part, index, built):
+    """Write the goal for one part of `parent`, unless it is written already.
+    Returns its id; nothing runs yet."""
+    gid = part_id(parent["id"], part["name"])
+    goal = Goal(main_root, gid)
+    if goal.read():
+        return gid
+    goal.state.ensure()
+    goal.update(id=gid, parent=parent["id"], part=part["name"], part_index=index,
+                depth=parent.get("depth", 0) + 1, ref=parent.get("ref"), key=parent.get("key"),
+                name="part: %s" % part["name"], url=parent.get("url"), base=parent["branch"],
+                ask=part_ask(parent, part, built), threshold=parent.get("threshold"),
+                model=parent.get("model"), subagent_model=parent.get("subagent_model"),
+                check_model=parent.get("check_model"), check_effort=parent.get("check_effort"),
+                created=time.time(), status="new", round=0, phase="planning")
+    return gid
 
 
 def launch(main_root, gid):
@@ -882,7 +1043,14 @@ def list_goals(main_root):
             data["log"] = goal.log
             data["awaiting"] = goal.state.read("awaiting.json")
             out.append(data)
-    return sorted(out, key=lambda g: -(g.get("created") or 0))
+    # Each goal, newest first, with its parts after it in their order.
+    tops = sorted((g for g in out if not g.get("parent")), key=lambda g: -(g.get("created") or 0))
+    ordered = []
+    for top in tops:
+        ordered.append(top)
+        ordered += sorted((g for g in out if g.get("parent") == top["id"]),
+                          key=lambda g: g.get("part_index") or 0)
+    return ordered
 
 
 # --- the run -----------------------------------------------------------------
@@ -908,6 +1076,13 @@ class Runner(object):
                 os.killpg(self.child.pid, signal.SIGTERM)
             except OSError:
                 pass
+        for part in self.data.get("parts") or []:
+            pid = (Goal(self.main_root, part["id"]).read() or {}).get("pid")
+            if pid and st._pid_alive(pid):
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except OSError:
+                    pass
         raise Stopped()
 
     def set(self, **fields):
@@ -942,6 +1117,16 @@ class Runner(object):
         if self.data.get("worktree") and os.path.isdir(self.data["worktree"]):
             return
         st.step("Setting up")
+        if self.data.get("parent"):
+            parent = Goal(self.main_root, self.data["parent"]).read()
+            branch = "%s--%s" % (parent["branch"], st.slugify(self.data["part"], max_words=4))
+            worktree = st.worktree_path(self.main_root, self.goal.id)
+            with st.repo_lock(self.main_root):
+                st.git(["worktree", "add", worktree, "-b", branch, parent["branch"]],
+                       cwd=self.main_root)
+            st.info("created %s off %s in %s" % (branch, parent["branch"], worktree))
+            self.set(branch=branch, worktree=worktree, parent_worktree=parent["worktree"])
+            return
         key, name = self.data["key"], self.data["name"]
         base = st.resolve_base(self.main_root, self.data.get("base"))
         branch = "%s/goal-%s" % (key, st.slugify(name))
@@ -1216,7 +1401,7 @@ class Runner(object):
                         "your branch:\n\n```\n%s\n```\n\nCommit or remove what is in the "
                         "way, then report done again." % (base, (err or out).strip()[-2000:]))
             st.warn("the merge conflicts — back to the lead")
-            return "merge", conflict_prompt(base, files.split())
+            return "merge", conflict_prompt("origin/%s" % base, files.split())
         self.push()
         pr_url = self.data.get("pr_url")
         if not pr_url:
@@ -1315,6 +1500,104 @@ class Runner(object):
                 st.warn("the CI fixer committed nothing — over to the lead")
                 return kind, fix
 
+    def sync_part(self):
+        """Merge the goal's branch into a part's, to bring in the parts finished
+        before it. Returns None, or what the lead is to fix."""
+        worktree, base = self.data["worktree"], self.data["base"]
+        self.set(status="checking", doing="syncing with the goal's branch")
+        st.step("Syncing with %s" % base)
+        code, out, err = st.git(["merge", "--no-edit", base], cwd=worktree, check=False)
+        if code == 0:
+            return None
+        _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree, check=False)
+        if not files.strip():
+            return ("You reported done, but the runner could not merge `%s` into your branch:"
+                    "\n\n```\n%s\n```\n\nCommit or remove what is in the way, then report "
+                    "done again." % (base, (err or out).strip()[-2000:]))
+        st.warn("the merge conflicts — back to the lead")
+        return conflict_prompt(base, files.split())
+
+    def deliver(self):
+        """Merge a part into the goal's branch, one part at a time. Returns None,
+        or what the lead is to fix first."""
+        parent = Goal(self.main_root, self.data["parent"])
+        with open(parent.state.path("parts.lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            while True:
+                fix = self.sync_part()
+                if fix:
+                    return fix
+                code, _, err = st.git(["merge", "--ff-only", self.data["branch"]],
+                                      cwd=self.data["parent_worktree"], check=False)
+                if code == 0:
+                    st.info("merged into %s" % self.data["base"])
+                    return None
+                self.ask_problem("could not merge the part into %s" % self.data["base"], err)
+
+    def run_parts(self):
+        """Build the parts: each as a goal of its own, started once the parts it
+        builds on are done, a few at a time. Returns the lead's next prompt, once
+        every part is merged into the goal's branch."""
+        parts, first = self.data["parts"], True
+        while True:
+            goals = {p["name"]: Goal(self.main_root, p["id"]).read() or {} for p in parts}
+            done = [p for p in parts if goals[p["name"]].get("status") == "done"]
+            if len(done) == len(parts):
+                st.info("every part is done")
+                return parts_done_prompt([dict(p, summary=goals[p["name"]].get("summary"))
+                                          for p in parts])
+            running, ready = [], []
+            for p in parts:
+                g = goals[p["name"]]
+                if g.get("status") == "done":
+                    continue
+                if g.get("pid") and st._pid_alive(g["pid"]):
+                    running.append(p["name"])
+                elif not g or g.get("status") == "new" or first:
+                    ready.append(p)
+                else:
+                    reason = g.get("reason") if g.get("status") == "failed" else g.get("status")
+                    self.ask_problem("part \"%s\" %s" % (p["name"], "failed" if g.get(
+                        "status") == "failed" else "stopped"), reason)
+                    ready.append(p)
+            names = {p["name"] for p in done}
+            built = [{"name": p["name"], "summary": goals[p["name"]].get("summary")} for p in done]
+            for p in ready:
+                if len(running) >= PARALLEL_PARTS:
+                    break
+                if set(p["after"]) <= names:
+                    gid = create_part(self.main_root, self.data, p,
+                                      [x["name"] for x in parts].index(p["name"]), built)
+                    st.info("part \"%s\": starting" % p["name"])
+                    launch(self.main_root, gid)
+                    running.append(p["name"])
+            self.set(status="parts", doing="parts: %d of %d done%s" % (
+                len(done), len(parts), " · building %s" % ", ".join(running) if running else ""))
+            first = False
+            time.sleep(PARTS_CHECK)
+
+    def start_parts(self):
+        """After the review: when the lead split the work, the parts it wrote.
+        None when it did not."""
+        if self.data.get("depth", 0) >= MAX_DEPTH or not os.path.exists(
+                self.goal.state.path(PARTS_FILE)):
+            return None
+        with open(self.goal.state.path(PARTS_FILE)) as f:
+            parts = read_parts(f.read())
+        parts = [dict(p, id=part_id(self.goal.id, p["name"])) for p in parts]
+        order = part_order(parts)
+        parts.sort(key=lambda p: order.index(p["name"]))
+        _, dirty, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
+        if dirty.strip():
+            st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
+            st.git(["commit", "-m", "%s :: work before the parts" % self.data["key"]],
+                   cwd=self.data["worktree"], check=False)
+        st.step("Splitting into %d parts" % len(parts))
+        for p in parts:
+            st.info("- %s%s" % (p["name"], " (after %s)" % ", ".join(p["after"]) if p["after"] else ""))
+        self.set(parts=parts, phase="parts")
+        return parts
+
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""
         out = {}
@@ -1330,10 +1613,30 @@ class Runner(object):
         return out
 
     def fields(self):
+        part = bool(self.data.get("parent"))
+        branch, base = self.data["branch"], self.data["base"]
+        where = ("You are in a worktree on branch `%s`, made from the goal's branch `%s`. All "
+                 "of this part's work goes on this branch. The runner merges it into the "
+                 "goal's branch when the part is done." % (branch, base) if part else
+                 "You are in a worktree on branch `%s`, made from `%s`. All of the work goes "
+                 "on this branch. It becomes one PR into `%s`." % (branch, base, base))
+        delivery = ("When you report done, the runner merges the goal's branch `%s` into "
+                    "yours, to bring in the parts finished before yours. Nothing is pushed "
+                    "and no CI runs for a part: CI runs once, when the whole goal is done. If "
+                    "the merge conflicts, it tells you, and you fix it." % base if part else
+                    "When you report done, the runner merges `%s` into your branch, pushes it "
+                    "once, marks the PR ready, and waits for CI. If the merge conflicts or CI "
+                    "fails, it tells you what failed, and you fix it." % base)
+        split = (NO_SPLIT if self.data.get("depth", 0) >= MAX_DEPTH
+                 else SPLIT.replace("{{parts_file}}", self.goal.state.path(PARTS_FILE)))
         return {"ask": self.data["ask"], "branch": self.data["branch"],
+                "where": where, "delivery": delivery, "split": split,
+                "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
-                "checks": checks_text(self.data["base"], self.data.get("checks")),
+                "checks": ("This part has run no CI: CI runs once, when the whole goal is "
+                           "done. Judge the code, not test results." if part else
+                           checks_text(self.data["base"], self.data.get("checks"))),
                 "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
                 "subagent_alias": short_model(self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)}
 
@@ -1369,6 +1672,45 @@ class Runner(object):
             time.sleep(ANSWER_CHECK)
 
     def ask_questions(self, questions, label="lead"):
+        if self.data.get("parent"):
+            questions, answered = self.consult(questions)
+            if not questions:
+                return answered
+            return "\n\n".join(x for x in (answered, self.ask_person(questions, label)) if x)
+        return self.ask_person(questions, label)
+
+    def consult(self, questions):
+        """A part's questions, put to the goal's lead first: (the ones only the
+        person can answer, the lead's answers to the rest as text)."""
+        st.step("Asking the goal's lead")
+        parent = Goal(self.main_root, self.data["parent"])
+        try:
+            with open(parent.journal) as f:
+                journal = f.read()
+        except (IOError, OSError):
+            journal = ""
+        prompt = render(os.path.join(PROMPTS, "consult.md"), ask=parent.read().get("ask") or "",
+                        journal=journal or "(empty)", part=self.data["part"],
+                        questions="\n".join("- %s (%s)" % (q["q"], q.get("why") or "")
+                                             for q in questions))
+        for _ in range(3):
+            self.wait_for_usage()
+            block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "consult",
+                                           (parent.read() or {}).get("model"))
+            self.cut_off = None
+            if stop != "usage" and not error and isinstance(block, dict):
+                break
+        else:
+            return questions, ""
+        answers = [a for a in block.get("answers") or [] if isinstance(a, dict) and a.get("a")]
+        rest = st.parse_agent_questions({"questions": block.get("for_person") or []}) or []
+        for a in answers:
+            st.info("lead: %s → %s" % (a.get("q"), a["a"]))
+        text = ("The goal's lead answered:\n\n" + "\n".join(
+            "- %s\n  %s" % (a.get("q"), a["a"]) for a in answers)) if answers else ""
+        return rest, text
+
+    def ask_person(self, questions, label="lead"):
         st.step("Asking you")
         for q in questions:
             st.info("Q: %s" % q["q"])
@@ -1395,6 +1737,10 @@ class Runner(object):
 
     def finish(self, block):
         st.step("Finishing")
+        if self.data.get("parent"):
+            self.set(status="done", doing=block.get("summary") or "done",
+                     summary=block.get("summary"), finished=time.time())
+            return
         worktree, pr_url = self.data["worktree"], self.data.get("pr_url")
         self.push()
         if pr_url:
@@ -1421,6 +1767,9 @@ class Runner(object):
                                        self.wait_for_answer(pending))
             elif pending.get("kind") == "problem":
                 prompt = "The person says:\n\n%s\n\n%s" % (self.wait_for_answer(pending), CONTINUE)
+            elif self.data.get("phase") == "parts":
+                prompt = self.run_parts()
+                self.set(phase="building", status="working")
             else:
                 prompt = self.first_prompt() if not self.data.get("session_used") else CONTINUE
             unchanged, checks, before = 0, 0, self.head()
@@ -1445,13 +1794,33 @@ class Runner(object):
                     if self.data.get("phase") != "planning":
                         prompt = CONTINUE
                         continue
-                    problems = plan_problems(self.read_journal())
+                    journal = self.read_journal()
+                    problems = plan_problems(journal)
+                    split = self.data.get("depth", 0) < MAX_DEPTH and os.path.exists(
+                        self.goal.state.path(PARTS_FILE))
+                    if split:
+                        with open(self.goal.state.path(PARTS_FILE)) as f:
+                            problems += parts_problems(read_parts(f.read()),
+                                                       checklist(journal, "Acceptance criteria"))
                     if problems:
                         prompt = planning_prompt(problems)
                         continue
-                    gaps, questions = self.review()
+                    if self.data.get("parent") or (split and self.data.get("reviewed")):
+                        gaps, questions = [], []
+                    else:
+                        gaps, questions = self.review()
+                        self.set(reviewed=True)
                     answers = answers_text(questions, self.ask_questions(
                         questions, "review")) if questions else None
+                    if split and (gaps or answers):
+                        # The parts start from the criteria: those are put right first.
+                        prompt = review_prompt(gaps, answers, again=True)
+                        continue
+                    if split:
+                        self.start_parts()
+                        prompt = self.run_parts()
+                        self.set(phase="building", status="working")
+                        continue
                     self.set(phase="building")
                     prompt = review_prompt(gaps, answers)
                     continue
@@ -1461,7 +1830,10 @@ class Runner(object):
                         st.warn("done, but %d acceptance criteria are not ticked" % len(unmet))
                         prompt = unmet_prompt(unmet)
                         continue
-                    _, fix = self.sync_and_ci()
+                    if self.data.get("parent"):
+                        fix = self.sync_part()
+                    else:
+                        _, fix = self.sync_and_ci()
                     if fix:
                         checks += 1
                         if checks >= MAX_CHECKS:
@@ -1473,6 +1845,10 @@ class Runner(object):
                             prompt = fix
                         continue
                     done, gaps, questions = self.check()
+                    if done and self.data.get("parent"):
+                        prompt = self.deliver()
+                        if prompt:
+                            continue
                     if done:
                         self.finish(block)
                         return 0

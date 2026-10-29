@@ -475,6 +475,184 @@ class TestFlow(unittest.TestCase):
         self.assertIn("not ticked", prompts[3])
 
 
+PARTS = {"parts": [
+    {"name": "API", "after": [], "brief": "The tasks API.", "criteria": ["A task has a due day (one-pager §2)"]},
+    {"name": "Inbox", "after": ["API"], "brief": "The inbox screen.",
+     "criteria": ['An empty Inbox says "Nothing to do" (prototype: inbox)']},
+    {"name": "Dashboard", "after": ["API"], "brief": "The dashboard.", "criteria": ["Shows my tasks (prototype: dashboard)"]}]}
+CRITERIA = [(False, "A task has a due day (one-pager §2)"),
+            (False, 'An empty Inbox says "Nothing to do" (prototype: inbox)'),
+            (False, "Shows my tasks (prototype: dashboard)"), (False, "The parts fit together")]
+
+
+class TestParts(unittest.TestCase):
+    def test_a_good_split_and_its_order(self):
+        import json
+        parts = goal.read_parts(json.dumps(PARTS))
+        self.assertEqual(goal.parts_problems(parts, CRITERIA), [])
+        self.assertEqual(goal.part_order(parts), ["API", "Inbox", "Dashboard"])
+
+    def test_what_is_wrong_with_a_split(self):
+        import json
+        self.assertTrue(goal.parts_problems(goal.read_parts("not json"), CRITERIA))
+        bad = json.loads(json.dumps(PARTS))
+        bad["parts"][1]["criteria"].append("Something nobody listed")
+        bad["parts"][2]["criteria"] = bad["parts"][0]["criteria"][:]
+        bad["parts"][2]["after"] = ["Billing"]
+        problems = " | ".join(goal.parts_problems(goal.read_parts(json.dumps(bad)), CRITERIA))
+        self.assertIn("not in your list", problems)
+        self.assertIn('is in both "API" and "Dashboard"', problems)
+        self.assertIn('after "Billing", which is not a part', problems)
+        loop = json.loads(json.dumps(PARTS))
+        loop["parts"][0]["after"] = ["Inbox"]
+        self.assertIn("circle", " ".join(goal.parts_problems(goal.read_parts(json.dumps(loop)), CRITERIA)))
+        one = {"parts": PARTS["parts"][:1]}
+        self.assertIn("two parts", " ".join(goal.parts_problems(goal.read_parts(json.dumps(one)), CRITERIA)))
+
+    def test_a_part_s_ask(self):
+        parent = {"key": "A-1", "ask": "# A-1: Tasks\nThe whole thing."}
+        ask = goal.part_ask(parent, PARTS["parts"][1], [{"name": "API", "summary": "Tasks have an API."}])
+        self.assertTrue(ask.startswith("# A-1 part: Inbox"))
+        self.assertIn("The inbox screen.", ask)
+        self.assertIn('- An empty Inbox says "Nothing to do" (prototype: inbox)', ask)
+        self.assertIn("- API: Tasks have an API.", ask)
+        self.assertIn("The whole thing.", ask)
+
+    def test_only_a_goal_splits_and_a_part_does_not(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        gid = goal.create(d, "1", "A-1", "x", base="main")
+        g = goal.Goal(d, gid)
+        g.update(worktree=d, branch="A-1/goal-x", ask="# A-1")
+        self.assertIn("split it into parts", goal.Runner(d, gid).fields()["split"])
+        self.assertIn(g.state.path("parts.json"), goal.Runner(d, gid).fields()["split"])
+        pid = goal.create_part(d, g.read(), PARTS["parts"][0], 0, [])
+        goal.Goal(d, pid).update(worktree=d, branch="A-1/goal-x--api")
+        fields = goal.Runner(d, pid).fields()
+        self.assertIn("Do not split it", fields["split"])
+        self.assertIn("no CI runs for a part", fields["delivery"])
+        self.assertIn("has run no CI", fields["checks"])
+        self.assertEqual([x["id"] for x in goal.list_goals(d)], [gid, pid])
+        self.assertEqual(goal.find_goal(d, "1")["id"], gid)
+
+
+class TestSplitFlow(unittest.TestCase):
+    def setUp(self):
+        import json
+        self.dir = tempfile.mkdtemp()
+        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        self.goal = goal.Goal(self.dir, gid)
+        self.goal.update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1", session="s",
+                         session_used=True)
+        with open(self.goal.state.path("parts.json"), "w") as f:
+            json.dump(PARTS, f)
+        with open(self.goal.journal, "w") as f:
+            f.write("## References\n- prototype\n\n## Acceptance criteria\n"
+                    + "".join("- [ ] %s\n" % c for _, c in CRITERIA) + "\n## Plan\n- [ ] parts\n")
+        self.launched = []
+        launch, sleep = goal.launch, goal.time.sleep
+
+        def fake_launch(root, gid):
+            # Each part is done by the next look; the scheduler sees what ran together.
+            self.launched.append([goal.Goal(root, p["id"]).read().get("part")
+                                  for p in self.runner.data["parts"]
+                                  if goal.Goal(root, p["id"]).read().get("status") == "working"]
+                                 + [goal.Goal(root, gid).read()["part"]])
+            goal.Goal(root, gid).update(status="working", pid=None)
+        goal.launch = fake_launch
+        goal.time.sleep = lambda _: [goal.Goal(self.dir, p["id"]).update(status="done", summary="did " + p["name"])
+                                     for p in self.runner.data["parts"]
+                                     if goal.Goal(self.dir, p["id"]).read().get("status") == "working"]
+        self.addCleanup(setattr, goal, "launch", launch)
+        self.addCleanup(setattr, goal.time, "sleep", sleep)
+        self.runner = goal.Runner(self.dir, gid)
+        self.runner.set_up = lambda: None
+        self.runner.head = lambda: "same"
+        self.runner.wait_for_usage = lambda: None
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def test_the_goal_builds_its_parts_in_order_then_integrates(self):
+        prompts, events = [], []
+        rounds = ["planned", "planned", "done"]
+
+        def lead(prompt):
+            prompts.append(prompt)
+            return rounds.pop(0), {"summary": "s"}
+        self.runner.lead = lead
+        self.runner.review = lambda: events.append("review") or (["no due-day rule"], [])
+        read = goal.Runner.read_journal.__get__(self.runner)
+        self.runner.read_journal = lambda: read().replace("- [ ]", "- [x]") if not rounds else read()
+        self.runner.sync_and_ci = lambda: (None, None)
+        self.runner.check = lambda: (True, [], [])
+        self.runner.finish = lambda block: events.append("finish")
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(events, ["review", "finish"])
+        self.assertIn("Correct the criteria and the parts first", prompts[1])
+        self.assertEqual(self.launched, [["API"], ["Inbox"], ["Inbox", "Dashboard"]])
+        self.assertIn("- Inbox: did Inbox", prompts[2])
+        self.assertIn("Now integrate", prompts[2])
+        inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
+        self.assertIn("- API: did API", inbox["ask"])
+        self.assertEqual((inbox["depth"], inbox["base"]), (1, "A-1/goal-x"))
+
+
+class TestPartBranches(unittest.TestCase):
+    def git(self, *args, cwd=None):
+        import subprocess
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t"] + list(args),
+                              cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def setUp(self):
+        self.dir = os.path.realpath(tempfile.mkdtemp())
+        self.git("init", "-q", "-b", "main", cwd=self.dir)
+        with open(os.path.join(self.dir, "a.txt"), "w") as f:
+            f.write("base\n")
+        self.git("add", "a.txt", cwd=self.dir)
+        self.git("commit", "-q", "-m", "base", cwd=self.dir)
+        self.goal_tree = os.path.join(self.dir, "goal-tree")
+        self.git("worktree", "add", "-q", self.goal_tree, "-b", "A-1/goal-x", cwd=self.dir)
+        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        self.parent = goal.Goal(self.dir, gid)
+        self.parent.update(worktree=self.goal_tree, branch="A-1/goal-x", ask="# A-1")
+        os.environ["GIT_AUTHOR_NAME"] = os.environ["GIT_COMMITTER_NAME"] = "t"
+        os.environ["GIT_AUTHOR_EMAIL"] = os.environ["GIT_COMMITTER_EMAIL"] = "t@t"
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def part(self, index):
+        pid = goal.create_part(self.dir, self.parent.read(), PARTS["parts"][index], index, [])
+        runner = goal.Runner(self.dir, pid)
+        runner.set_up()
+        return runner
+
+    def commit(self, runner, name, text):
+        with open(os.path.join(runner.data["worktree"], name), "w") as f:
+            f.write(text)
+        self.git("add", name, cwd=runner.data["worktree"])
+        self.git("commit", "-q", "-m", name, cwd=runner.data["worktree"])
+
+    def test_parts_branch_off_the_goal_and_merge_back_one_at_a_time(self):
+        api, inbox = self.part(0), self.part(1)
+        self.assertEqual(api.data["branch"], "A-1/goal-x--api")
+        self.commit(api, "api.txt", "api\n")
+        self.commit(inbox, "inbox.txt", "inbox\n")
+        self.assertIsNone(api.deliver())
+        self.assertIsNone(inbox.deliver())
+        self.assertEqual(sorted(os.listdir(self.goal_tree)), [".git", "a.txt", "api.txt", "inbox.txt"])
+
+    def test_a_part_that_conflicts_with_one_merged_before_goes_back_to_its_lead(self):
+        api, inbox = self.part(0), self.part(1)
+        self.commit(api, "a.txt", "api\n")
+        self.commit(inbox, "a.txt", "inbox\n")
+        self.assertIsNone(api.deliver())
+        fix = inbox.deliver()
+        self.assertIn("conflicts in:\n\n- `a.txt`", fix)
+        self.assertIn("`A-1/goal-x`", fix)
+
+
 class TestWindDown(unittest.TestCase):
     def setUp(self):
         import subprocess

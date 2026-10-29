@@ -35,6 +35,16 @@ the most expensive in this work, so spend it only on that comparison.
      only the person can make.
 4. Check what the ask takes for granted against the code, such as a branch it
    builds on or earlier work it needs. Report what is not so.
+5. If `{{parts_file}}` exists, the lead split the work into parts, each built by
+   its own lead from its brief and its criteria alone. Check the split too:
+   - every criterion is in one part, or is about how the parts fit together and
+     stays with the lead;
+   - the boundaries are clear: two parts that run at the same time do not build
+     the same thing or change the same files;
+   - the shared layers, such as the data model and the API, come before the parts
+     that use them (`after`);
+   - each brief names the references that cover its part, and the contracts it
+     must follow: names, types, endpoints and files other parts depend on.
 
 ## Use cheaper sub-agents for the legwork
 

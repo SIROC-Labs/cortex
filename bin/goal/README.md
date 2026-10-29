@@ -39,6 +39,21 @@ This program is the harness around the lead:
 - **Criteria review.** The checker's model then compares the criteria with the references,
   before anything is built: criteria that are missing, wrong, or too broad, and questions
   only you can answer. The lead corrects the criteria, then builds.
+- **Parts, for large work.** When the work spans several areas, or more than about 25
+  criteria, the lead splits it instead of building it alone. It writes `parts.json` in the
+  goal's state: up to 8 parts, each with a brief (what it builds and must not touch, the
+  references that cover it, and the contracts other parts depend on), its criteria copied
+  from the lead's list, and the parts it comes `after`. The runner checks the split (every
+  criterion from the list, none in two parts, no circle), and the review checks its
+  boundaries too. Each part then runs as a goal of its own, with its own lead, analysis,
+  journal, sub-agents and checker, on a branch off the goal's (`<branch>--<part>`).
+  Shared layers come first; parts with nothing between them run two at a time. A part's
+  questions go to the goal's lead first, and only what it cannot settle comes to you. A
+  part is never pushed: when its check passes, it merges the goal's branch in and is
+  merged into it, one part at a time, and a conflict goes back to that part's lead. When
+  every part is in, the goal's lead integrates: it checks that the parts fit together,
+  builds what no part covers, and ticks the criteria. Then the goal goes on as below,
+  with one push and one CI run for all of it. A part does not split again.
 - **Rounds.** The lead is called on one session, in rounds of up to 200 turns; the next
   round continues the same conversation. If the session is lost, a new one starts from the
   journal and the branch. The lead ticks each criterion with the file that meets it, and a
@@ -105,7 +120,8 @@ A goal keeps its state in `.cortex/state/<id>/`:
 |---|---|
 | `goal.json` | the ticket, the ask, the branch, the PR, the status, the round, the last usage read |
 | `attachments/` | the ticket's attachments |
-| `journal.md` | the lead's plan, progress and decisions |
+| `journal.md` | the lead's references, acceptance criteria, plan, progress and decisions |
+| `parts.json` | the parts, when the lead split the work; each part's own state is `<id>--<part>/` |
 | `goal.log` | everything the harness did |
 | `awaiting.json` | the question waiting on you, while there is one |
 | `usage.json` | the tokens of every call |

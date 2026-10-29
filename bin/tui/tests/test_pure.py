@@ -336,6 +336,18 @@ class TestGoalRows(unittest.TestCase):
         self.assertEqual([r["goal"] for r in rows], ["b", "a"])
         self.assertIn("has questions for you: Which theme?", rows[0]["cols"][2])
 
+    def test_a_goal_s_parts_follow_it_indented_and_move_with_it(self):
+        goals = [self.goal(id="a"), self.goal(id="b", status="parts", doing="parts: 1 of 2 done · building Inbox"),
+                 self.goal(id="b--api", parent="b", part="API", status="done", alive=False),
+                 self.goal(id="b--inbox", parent="b", part="Inbox")]
+        waits = {"goal:b--inbox": {"kind": "questions", "questions": [{"q": "Which tab?"}]}}
+        rows = tui.goal_rows(goals, waits)
+        self.assertEqual([r["goal"] for r in rows], ["b", "b--api", "b--inbox", "a"])
+        self.assertEqual(rows[0]["cols"][2], "parts: 1 of 2 done · building Inbox · usage 61%")
+        self.assertEqual(rows[1]["cols"][:2], ["part", "  └ API"])
+        self.assertEqual(rows[1]["cols"][2], "done — merged into the goal's branch")
+        self.assertEqual([r["goal"] for r in tui.goal_rows(goals, hide_done=True)], ["a", "b", "b--inbox"])
+
     def test_a_goal_whose_process_died_can_carry_on(self):
         [row] = tui.goal_rows([self.goal(alive=False)])
         self.assertEqual((row["cols"][2], row["style"]), ("stopped unexpectedly — r carries on", "bad"))

@@ -458,10 +458,14 @@ def goal_status(g, wait=None):
     if status == "checking":
         return "%s · round %s%s" % (g.get("doing") or "checking the branch against the ask",
                                      g.get("round") or 1, use), "ok"
+    if status == "parts":
+        return "%s%s" % (g.get("doing") or "building its parts", use), "ok"
     if status == "setting-up":
-        return "setting up its branch and PR", "ok"
+        return "setting up its branch%s" % ("" if g.get("parent") else " and PR"), "ok"
     if status == "paused":
         return g.get("doing") or "paused for the usage limit", "normal"
+    if status == "done" and g.get("parent"):
+        return "done — merged into the goal's branch", "dim"
     if status == "done":
         return "done — its PR is ready for review", "dim"
     if status == "failed":
@@ -473,10 +477,12 @@ def goal_status(g, wait=None):
 
 def goal_rows(goals, waits=None, hide_done=False):
     """The Runs tab's goals, waiting on you first: an ask that runs by itself,
-    on its own branch, into one PR."""
+    on its own branch, into one PR. A goal's parts follow it, indented."""
     waits = waits or {}
     rows = []
     for g in goals or []:
+        if hide_done and g.get("parent") and g.get("status") == "done":
+            continue
         gid = "goal:%s" % g["id"]
         wait = waits.get(gid)
         done = g.get("status") == "done"
@@ -484,14 +490,18 @@ def goal_rows(goals, waits=None, hide_done=False):
             continue
         status, style = goal_status(g, wait)
         rows.append({"kind": "goal", "id": gid, "goal": g["id"], "style": style,
-                     "cols": ["goal", gl.title_of(g), status],
+                     "group": g.get("parent") or g["id"],
+                     "cols": ["part" if g.get("parent") else "goal",
+                              "  └ %s" % g.get("part") if g.get("parent") else gl.title_of(g),
+                              status],
                      "log": g.get("log"), "wait": wait, "pr_url": g.get("pr_url"),
                      "links": [u for u in (g.get("pr_url"),) if u],
                      "alive": g.get("alive"), "status": g.get("status"),
                      "finished": done or (g.get("status") in ("failed", "stopped")
                                           and not g.get("alive")),
                      "done": done})
-    rows.sort(key=lambda r: not r.get("wait"))
+    waiting = {r["group"] for r in rows if r.get("wait")}
+    rows.sort(key=lambda r: r["group"] not in waiting)
     return rows
 
 
@@ -1103,6 +1113,12 @@ class App(object):
             journal = gv.read_journal(gl.Goal(self.main_root, g["id"]).journal)
             g["plan"] = gv.plan(journal)
             g["criteria"] = gv.plan(journal, "acceptance criteria", anywhere=False)
+        for g in self.goals:
+            parts = [p for p in self.goals if p.get("parent") == g["id"]]
+            if parts:
+                g["cost"] = (g.get("cost") or 0) + sum(p.get("cost") or 0 for p in parts)
+                g["agents_running"] = (g.get("agents_running") or 0) + sum(
+                    p.get("agents_running") or 0 for p in parts)
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.waits.update(goal_waits(self.goals))
         self.activity = self.read_activity()

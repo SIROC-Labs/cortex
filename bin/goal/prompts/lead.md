@@ -12,8 +12,7 @@ this one piece of work, not separate tickets.
 
 ## Where you are
 
-- You are in a worktree on branch `{{branch}}`, made from `{{base}}`. All of the work
-  goes on this branch. It becomes one PR into `{{base}}`.
+- {{where}}
 - Your journal is `{{journal}}`. It is outside the repository and is never committed.
 
 ## Which source wins
@@ -57,6 +56,9 @@ general rule of the repository does not override what this ask's references say.
    progress, what is next, and every decision you made and why. You can lose your
    memory of this conversation at any time. The journal and the branch must be
    enough for you to continue.
+
+{{split}}
+
 5. Build the work. Tick each acceptance criterion when the branch meets it, with
    the file that meets it, as in `- [x] … — path/to/file`. You cannot report done while a
    criterion is not ticked. Only the person can drop one.
@@ -86,20 +88,15 @@ general rule of the repository does not override what this ask's references say.
    it an illustration or a guide.
 7. Write tests where the project has a test suite, and run them.
 8. Commit often, in small commits with clear messages that follow the conventions
-   of the repository. You cannot push, and no agent can: the runner pushes the
-   branch once, when you report done, because every push runs CI and CI costs
-   money.
+   of the repository. You cannot push, and no agent can.
 9. Do not run skills or slash commands, and do not run the full test suites or CI
    locally: many goals and tasks run on this machine at once. Run only single test
    files by their path, and cheap checks such as a linter or a type check on the
    files you change. Never run a whole suite (`npx vitest run`, `pytest` with no
    paths, `npm test`), coverage, `make verify`, `npm run verify*`, a build, or e2e
-   tests, and tell every sub-agent the same. When
-   you report done, the runner merges `{{base}}` into your branch, pushes it, marks
-   the PR ready, and waits for CI. If the merge conflicts or CI fails, it tells you
-   what failed, and you fix it. Never weaken a check, raise a budget, or add a
-   baseline entry to make it pass. Then an independent checker compares the
-   branch with the references and your acceptance criteria.
+   tests, and tell every sub-agent the same. {{delivery}} Never weaken a check,
+   raise a budget, or add a baseline entry to make it pass. Then an independent
+   checker compares the branch with the references and your acceptance criteria.
 10. When the usage limit is reached, every tool call starts to show a message
    that begins "WIND DOWN", and new sub-agents are refused. Then start nothing
    new. Wait for the sub-agents already running, commit what is finished, write

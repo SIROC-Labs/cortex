@@ -98,6 +98,11 @@ flagged ⚑, and `⏎`, `a` and `A` work as they do for a task. `x` stops a runn
 `r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
 Closing the TUI leaves a goal running.
 
+A goal split into parts has them on the rows below it, indented (`└ API`), each with its
+own state; the goal's row says how many parts are done and which are being built, and its
+cost includes theirs. A part's question waits on its own row. `⏎`, `x` and `r` work on a
+part as on a goal; stopping the goal stops its parts.
+
 `⏎` on a goal opens its live view, re-read every two seconds from Claude Code's own
 transcripts: the stage it is at (analysis ▸ review ▸ building ▸ syncing ▸ CI ▸ checking ▸
 done), how many of the lead's acceptance criteria are met and which are not yet, how far
