@@ -247,8 +247,11 @@ def ci_fix_due(view, ci, limit):
     ci = ci or {}
     rollup = view.get("statusCheckRollup") or []
     pending, failing = check_states(rollup)
+    if pending:
+        # A fix pushed now would start CI over while this run still bills.
+        return None
     if not failing:
-        return ("green", None) if rollup and not pending else None
+        return ("green", None) if rollup else None
     failed = {name for name, _ in failing}
     signature = sorted("%s@%s" % (c.get("name") or c.get("context"),
                                   c.get("completedAt") or c.get("startedAt") or "")
@@ -285,13 +288,15 @@ def merge_step(view, attempts, limits=None, required=()):
     # GitHub call a PR mergeable while its CI is still running, or failing.
     pending, failing = check_states(view.get("statusCheckRollup"))
     if status in ("CLEAN", "UNSTABLE", "HAS_HOOKS", "BLOCKED"):
+        if pending:
+            # Even with a check failed already: a fix pushed now would start CI over
+            # while this run still bills. All of its failures are fixed at once.
+            return "wait", "checks running: %s" % ", ".join(pending)
         if failing:
             if attempts.get("ci", 0) >= limits["ci"]:
                 return "blocked", "checks still failing after %d fix(es): %s" % (
                     attempts["ci"], ", ".join(n for n, _ in failing))
             return "fix_ci", failing
-        if pending:
-            return "wait", "checks running: %s" % ", ".join(pending)
         reported = {c.get("name") or c.get("context") for c in view.get("statusCheckRollup") or []}
         missing = [name for name in required if name not in reported]
         if missing:
@@ -332,6 +337,31 @@ _STRONG = re.compile(r"##\[error\]|^\s*(?:ERROR|FAIL(?:ED)?|FAILURE)\b|\b\w*(?:E
 _WEAK = re.compile(r"\berror\b|\bfail(?:ed|ure|s)?\b|expected|received|timed? ?out", re.IGNORECASE)
 _NOISE = re.compile(r"^(##\[(?:group|endgroup)\]|Post job cleanup|Cleaning up orphan|\s*[✓√]|"
                     r".*Expected Digest)", re.IGNORECASE)
+
+
+JOB_URL = re.compile(r"github\.com/([^/]+)/([^/]+)/actions/runs/(\d+)/job/(\d+)")
+_NOT_RUN = re.compile(r"not started because|spending limit|billing", re.I)
+
+
+def actions_refused(failing, cwd):
+    """GitHub's reason for not running the failed jobs at all, such as a spending
+    limit or a failed payment; None when they ran. No fix helps then, only the
+    person."""
+    for _, url in failing[:3]:
+        m = JOB_URL.search(url or "")
+        if not m:
+            continue
+        code, out, _ = run(["gh", "api", "repos/%s/%s/check-runs/%s/annotations"
+                            % (m.group(1), m.group(2), m.group(4)), "--jq", ".[].message"], cwd=cwd)
+        for line in out.splitlines() if code == 0 else []:
+            if _NOT_RUN.search(line):
+                return line.strip()
+    return None
+
+
+def failed_runs(failing):
+    """The ids of the workflow runs the failed checks belong to."""
+    return sorted({m.group(3) for m in (JOB_URL.search(url or "") for _, url in failing) if m})
 
 
 def failure_excerpt(log_text, max_lines=10):
@@ -455,6 +485,8 @@ def describe(gid, tasks, records, me_gid):
         return "merge blocked: %s" % merge["blocked"]
     if merge and phase in ("pr_open", "conflict", "revising"):
         return "merging — %s" % (merge.get("stage") or "starting")
+    if phase == "pr_open" and (record.get("ci") or {}).get("refused"):
+        return "PR open — GitHub did not run the checks (%s): needs you" % record["ci"]["refused"]
     if phase == "pr_open" and (record.get("ci") or {}).get("blocked"):
         return "PR open — checks still failing after %d fixes (%s): needs you" % (
             record["ci"].get("attempts", 0), ", ".join(record["ci"]["blocked"]))
@@ -1351,6 +1383,11 @@ class Engine(object):
         rules = self.branch_rules(owner, name, base)
         action, detail = merge_step(view, merge["attempts"], required=rules["required"])
         key = self.key_of(gid)
+        if action == "fix_ci":
+            refused = actions_refused(detail, self.repo)
+            if refused:
+                action, detail = "blocked", ("GitHub did not run the checks (%s); fix that, then "
+                                             "re-run them on GitHub" % refused)
         if action == "held":
             held_since = merge.setdefault("held_since", time.time())
             if time.time() - held_since < HOLD_GRACE:
@@ -1440,7 +1477,15 @@ class Engine(object):
             ci["blocked"] = due[1]
             return False
         _, failing, signature = due
-        ci.update(seen=signature, attempts=ci.get("attempts", 0) + 1, blocked=None)
+        refused = actions_refused(failing, self.repo)
+        if refused:
+            # Not a failure of the code: no fix is tried, and none is counted.
+            ci.update(seen=signature, refused=refused)
+            log("%s: GitHub did not run the checks (%s) — needs you" % (self.key_of(gid), refused))
+            self.note(gid, "GitHub did not run the checks — needs you",
+                      [refused, "Fix that, then re-run the checks on GitHub."])
+            return False
+        ci.update(seen=signature, attempts=ci.get("attempts", 0) + 1, blocked=None, refused=None)
         names = ", ".join(n for n, _ in failing)
         log("%s: checks failing (%s) — fixing (%d/%d)" % (self.key_of(gid), names,
                                                            ci["attempts"], MERGE_LIMITS["ci"]))

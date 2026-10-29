@@ -464,6 +464,11 @@ class TestMergeStep(unittest.TestCase):
         self.assertEqual(action, "wait")
         self.assertIn("e2e", why)
 
+    def test_a_failed_check_waits_for_the_rest_of_the_run(self):
+        checks = [run_check("verify", conclusion="FAILURE"),
+                  run_check("e2e", status="IN_PROGRESS", conclusion=None)]
+        self.assertEqual(merge_step(self.view("BLOCKED", checks=checks), {})[0], "wait")
+
     def test_failed_checks_are_fixed_until_the_limit(self):
         failed = self.view("BLOCKED", checks=[run_check("verify", conclusion="FAILURE")])
         self.assertEqual(merge_step(failed, {})[0], "fix_ci")
@@ -832,6 +837,29 @@ class TestOpenPrCi(unittest.TestCase):
         self.assertEqual(engine.ci_fix_due(again, {"seen": seen, "attempts": 1}, 2)[0], "fix")
         self.assertEqual(engine.ci_fix_due(again, {"seen": seen, "attempts": 2}, 2),
                          ("blocked", ["test"]))
+
+    def test_a_failure_waits_until_the_whole_run_is_over(self):
+        import engine
+        running = {"__typename": "CheckRun", "name": "e2e", "status": "IN_PROGRESS"}
+        view = {"statusCheckRollup": [self.run_("test", "FAILURE"), running]}
+        self.assertIsNone(engine.ci_fix_due(view, {}, 2))
+
+    def test_github_refusing_to_run_the_jobs_is_read_from_their_annotations(self):
+        import engine
+        run, seen = engine.run, []
+
+        def gh(cmd, cwd=None):
+            seen.append(cmd[2])
+            return 0, ("The ubuntu-latest label will migrate\nThe job was not started because "
+                       "your spending limit needs to be increased."), ""
+        engine.run = gh
+        self.addCleanup(setattr, engine, "run", run)
+        failing = [("test", "https://github.com/o/r/actions/runs/7/job/42"), ("lint", None)]
+        self.assertIn("spending limit", engine.actions_refused(failing, "."))
+        self.assertEqual(seen, ["repos/o/r/check-runs/42/annotations"])
+        self.assertEqual(engine.failed_runs(failing), ["7"])
+        engine.run = lambda cmd, cwd=None: (0, "Process completed with exit code 1.", "")
+        self.assertIsNone(engine.actions_refused(failing, "."))
 
     def test_running_or_green_checks_are_not_fixed(self):
         import engine

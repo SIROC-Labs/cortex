@@ -99,11 +99,14 @@ flagged ⚑, and `⏎`, `a` and `A` work as they do for a task. `x` stops a runn
 Closing the TUI leaves a goal running.
 
 `⏎` on a goal opens its live view, re-read every two seconds from Claude Code's own
-transcripts: the stage it is at (building ▸ syncing ▸ CI ▸ checking ▸ done), how far the
-lead's checklist under `## Plan` in its journal is, with the next step, what the lead (or the checker, or a CI fix) is doing now and last said, each
-sub-agent with its task, model and time, the running ones with what they are doing, and the
-end of the goal's journal. `l` opens its log and `u` what each agent cost. The row itself
-says what the goal is doing, how many sub-agents are running, and how far its plan is.
+transcripts: the stage it is at (analysis ▸ review ▸ building ▸ syncing ▸ CI ▸ checking ▸
+done), how many of the lead's acceptance criteria are met and which are not yet, how far
+the lead's checklist under `## Plan` in its journal is, with the next step, what the lead
+(or the reviewer, the checker, or a CI fix) is doing now and last said, each sub-agent with
+its task, model and time, the running ones with what they are doing, and the end of the
+goal's journal. `l` opens its log and `u` what each agent cost. The row itself says what
+the goal is doing, how many sub-agents are running, and how far its plan and its criteria
+are.
 
 ## Dependencies
 
@@ -279,6 +282,12 @@ on failing checks either. When CI fails, the task revises to fix it, or re-runs 
 flake, exactly as on the way to a merge. Each set of failures is acted on once, and after
 two fixes that leave checks failing it stops and says *checks still failing after 2 fixes
 (…): needs you*. Green checks reset the count. Review comments still come first.
+
+Nothing is fixed while any check still runs, here or on the way to a merge: a fix pushes,
+and a push starts CI over while the run before it still bills. The task waits for the
+whole run, then fixes all its failures at once. When GitHub did not run the jobs at all —
+a spending limit, or a failed payment — no fix is tried or counted: the task says *GitHub
+did not run the checks (…): needs you*. Fix that, then re-run the checks on GitHub.
 
 ## Asana data and its cache
 
