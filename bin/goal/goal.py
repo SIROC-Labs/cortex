@@ -4,13 +4,17 @@
 #
 # The ask is the ticket: its description, its subtasks, its comments and its
 # attachments, read once when the goal starts. Nothing is written back to Asana.
-# A lead agent gets the ask and nothing else: it plans, starts its own sub-agents,
-# reviewers and checkers as it sees fit, and keeps a journal so it can always pick
-# the thread back up. This program is the harness around it. It calls the lead in
-# rounds on the same session, pushes the branch after each, hands the person's
-# answers back when the lead has a question only they can answer, has an
-# independent checker confirm "done" against the ask, and pauses while the Claude
-# subscription is at or over its usage threshold. It never merges anything.
+# A lead agent gets the ask and nothing else. It first reads every reference the
+# ask names and writes the acceptance criteria and the plan into its journal; the
+# checker's model reviews those criteria against the references before anything
+# is built. Then the lead builds, starting its own sub-agents, and keeps the
+# journal so it can always pick the thread back up. This program is the harness
+# around it. It calls the lead in rounds on the same session, hands the person's
+# answers back when the lead has a question only they can answer, and pushes the
+# branch only when the lead reports done, because every push runs CI. It waits
+# for that CI, has an independent checker confirm "done" against the ask, and
+# pauses while the Claude subscription is at or over its usage threshold. It never
+# merges anything.
 #
 #   cortex goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
 #   cortex goal run <id>                                              # run or resume it
@@ -22,6 +26,7 @@
 import argparse
 import datetime
 import glob
+import html.parser
 import json
 import os
 import re
@@ -39,7 +44,9 @@ import start_task as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import CI_NOT_STARTED, check_states, failure_excerpt  # noqa: E402
+from engine import CI_NOT_STARTED, actions_refused, check_states, failed_runs, failure_excerpt  # noqa: E402
+
+HOOK = os.path.join(HERE, "hook.py")
 
 PROMPTS = os.path.join(HERE, "prompts")
 GOAL_FILE = "goal.json"
@@ -90,6 +97,11 @@ CI_TIMEOUT = 2 * 3600
 CI_FIXES = 2
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes"}
 
+PLANNING = ("This first round is the analysis: steps 1 to 4 of How to work. Do not "
+            "change code yet. When the journal has the references, the acceptance criteria "
+            "and the plan, end with the `planned` block.")
+BUILDING = ("The analysis is finished: the journal has the references, the acceptance "
+            "criteria and the plan. Build the work.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -138,10 +150,60 @@ def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
         out += ["## Attachments", ""]
         for a in attachments:
             out.append("- `%s`" % a["path"])
-            if a.get("inline"):
-                out += ["", "```", a["inline"].rstrip(), "```", ""]
+            inline = a.get("inline")
+            if inline and a["path"].lower().endswith((".html", ".htm")):
+                out += ["", "Its text is below, without the markup, styles and scripts. The file "
+                        "itself holds the prototype: read it for how each screen looks and "
+                        "behaves."]
+                inline = html_text(inline)
+            if inline:
+                out += ["", "```", inline.rstrip(), "```", ""]
         out.append("")
     return "\n".join(out).rstrip() + "\n"
+
+
+class _Text(html.parser.HTMLParser):
+    BLOCKS = {"p", "div", "section", "article", "header", "footer", "li", "tr", "br", "h1",
+              "h2", "h3", "h4", "h5", "h6", "table", "ul", "ol", "pre", "blockquote", "dt", "dd"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.skip = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "svg", "template"):
+            self.skip += 1
+        elif tag in self.BLOCKS:
+            self.parts.append("\n")
+        if tag in ("h1", "h2", "h3", "h4") and not self.skip:
+            self.parts.append("#" * int(tag[1]) + " ")
+        if tag == "li" and not self.skip:
+            self.parts.append("- ")
+        if tag in ("td", "th", "button", "span", "a") and not self.skip:
+            self.parts.append(" | " if tag in ("td", "th") else " ")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "svg", "template"):
+            self.skip = max(0, self.skip - 1)
+        elif tag in self.BLOCKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def html_text(markup):
+    """The readable text of an HTML page: no scripts, styles or markup, one block
+    to a line."""
+    parser = _Text()
+    parser.feed(markup)
+    lines = [re.sub(r"\s+", " ", l).strip() for l in "".join(parser.parts).splitlines()]
+    out = []
+    for line in lines:
+        if line or (out and out[-1]):
+            out.append(line)
+    return "\n".join(out).strip()
 
 
 _LIMIT_LINE = re.compile(r"^(?P<name>[^:\n]+):\s*(?P<used>\d+)%\s*used(?:\s*·\s*resets\s+(?P<resets>.+))?$")
@@ -202,31 +264,137 @@ def over_threshold(limits, threshold):
 
 
 def lead_report(structured):
-    """What the lead's result block says: ("progress" | "done" | "question", block).
-    A missing or unreadable block is progress — the lead stopped, not finished."""
+    """What the lead's result block says: ("progress" | "planned" | "done" |
+    "question", block). A missing or unreadable block is progress — the lead
+    stopped, not finished."""
     if not isinstance(structured, dict):
         return "progress", {}
     status = structured.get("status")
     if status == "question" and st.parse_agent_questions(structured):
         return "question", structured
-    if status == "done":
-        return "done", structured
+    if status in ("done", "planned"):
+        return status, structured
     return "progress", structured
 
 
 def check_verdict(structured):
-    """The checker's verdict: (done, gaps). An unreadable verdict is not done."""
-    if not isinstance(structured, dict):
-        return False, ["the checker gave no verdict"]
+    """The checker's verdict: (done, gaps, questions). None when it gave no verdict
+    to read, which is no verdict at all, not a gap."""
+    if not isinstance(structured, dict) or structured.get("verdict") not in ("done", "not_done"):
+        return None
     gaps = [str(g) for g in structured.get("gaps") or [] if str(g).strip()]
-    return structured.get("verdict") == "done" and not gaps, gaps
+    questions = st.parse_agent_questions(structured) or []
+    return structured["verdict"] == "done" and not gaps and not questions, gaps, questions
 
 
-def gaps_prompt(gaps):
-    return ("An independent checker compared the branch with the ask and found that it "
-            "is not finished:\n\n%s\n\nFix these, then report done again. If you think "
-            "a gap is wrong, write why in the journal and say so in your summary."
-            % "\n".join("- %s" % g for g in gaps))
+def review_verdict(structured):
+    """The criteria review: (gaps, questions), or None when it gave none to read."""
+    if not isinstance(structured, dict) or "gaps" not in structured:
+        return None
+    gaps = [str(g) for g in structured.get("gaps") or [] if str(g).strip()]
+    return gaps, st.parse_agent_questions(structured) or []
+
+
+def checklist(text, heading):
+    """The `- [ ]` / `- [x]` items under a journal's `## heading`, down to its next
+    heading of the same level or higher: [(ticked, text)]. None when there is no
+    such heading."""
+    items, inside = [], False
+    for line in (text or "").splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*?)\s*$", line)
+        if m:
+            if inside and len(m.group(1)) <= 2:
+                break
+            if len(m.group(1)) == 2 and m.group(2).lower() == heading.lower():
+                inside = True
+            continue
+        item = re.match(r"^\s*(?:[-*]|\d+\.)\s+\[([ xX])\]\s+(.*)$", line) if inside else None
+        if item:
+            items.append((item.group(1) != " ", item.group(2).strip()))
+    return items if inside else None
+
+
+def section_text(text, heading):
+    """The lines under a journal's `## heading`, down to its next `##` heading."""
+    out, inside = [], False
+    for line in (text or "").splitlines():
+        m = re.match(r"^(#{1,2})\s+(.*?)\s*$", line)
+        if m:
+            if inside:
+                break
+            inside = m.group(2).lower() == heading.lower()
+            continue
+        if inside and line.strip():
+            out.append(line)
+    return out
+
+
+def plan_problems(journal):
+    """What the journal still lacks after the analysis: [] when it has references,
+    acceptance criteria and a plan."""
+    problems = []
+    if not section_text(journal, "References"):
+        problems.append("a `## References` section that lists every reference the ask names")
+    if not checklist(journal, "Acceptance criteria"):
+        problems.append("a `## Acceptance criteria` checklist")
+    if not checklist(journal, "Plan"):
+        problems.append("a `## Plan` checklist")
+    return problems
+
+
+def unmet_criteria(journal):
+    """The acceptance criteria not ticked yet."""
+    return [text for ticked, text in checklist(journal, "Acceptance criteria") or [] if not ticked]
+
+
+def planning_prompt(problems):
+    return ("You reported the analysis finished, but your journal does not have:\n\n%s\n\n"
+            "Write them, then report planned again." % "\n".join("- %s" % p for p in problems))
+
+
+def unmet_prompt(unmet):
+    return ("You reported done, but these acceptance criteria in your journal are not "
+            "ticked:\n\n%s\n\nBuild them, and tick each one with the file that meets it. "
+            "If one should not be built, ask the person: only they can drop a criterion. "
+            "Then report done again." % "\n".join("- %s" % c for c in unmet))
+
+
+def review_prompt(gaps, answers):
+    """What the lead hears after the criteria review: what to change in the
+    criteria, and the person's answers. Then it builds."""
+    parts = []
+    if gaps:
+        parts += ["Before you build, a reviewer compared your acceptance criteria with the "
+                  "references the ask names, and found these problems:", ""]
+        parts += ["- %s" % g for g in gaps] + [""]
+        parts += ["Check each one against the references. Correct the criteria where it is "
+                  "right. Where it is wrong, write why in the journal. The prototype wins, "
+                  "then the one-pager.", ""]
+    if answers:
+        parts += [answers, ""]
+    parts += ["Then build the work, as the plan says. The analysis is finished.", "", CONTINUE]
+    return "\n".join(parts)
+
+
+def gaps_prompt(gaps, answers=None):
+    parts = ["An independent checker compared the branch with the ask and its references, "
+             "and found that it is not finished:", ""]
+    parts += ["- %s" % g for g in gaps] + [""]
+    if answers:
+        parts += [answers, ""]
+    parts += ["Before you fix a gap, check it against the references. The prototype wins, "
+              "then the one-pager. Do not change what the prototype shows to satisfy a gap. "
+              "If a gap is wrong, do not fix it: write why in the journal and say so in your "
+              "summary, and the checker reads that. If the prototype and the one-pager do "
+              "not settle a gap, ask the person. Then report done again."]
+    return "\n".join(parts)
+
+
+def answers_text(questions, answer):
+    """The person's answer to questions a reviewer or checker raised, for the lead."""
+    lines = ["The person was asked:", ""] + ["- %s" % q["q"] for q in questions]
+    lines += ["", "They answered:", "", answer.strip()]
+    return "\n".join(lines)
 
 
 def conflict_prompt(base, files):
@@ -285,14 +453,22 @@ def checks_section(checks):
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
-def hook_settings(flag):
-    """Claude Code settings whose hooks wind a call down while `flag` exists: a new
-    sub-agent is refused, and every other tool call says to stop at the next safe
-    point. They reach the lead and its sub-agents alike."""
+def hook_settings(flag, subagent=None):
+    """Claude Code settings whose hooks reach the call and its sub-agents alike.
+    While `flag` exists the call winds down: a new sub-agent is refused, and every
+    other tool call says to stop at the next safe point. A push, a CI run and a
+    change to the PR are always refused: only the runner pushes. A sub-agent
+    started without a model gets `subagent`."""
     check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
         shlex.quote(flag), shlex.quote(WIND_DOWN))
     hook = [{"type": "command", "command": check}]
-    return {"hooks": {"PreToolUse": [{"matcher": "Agent|Task", "hooks": hook}],
+
+    def guard(*args):
+        return {"type": "command", "command": " ".join(
+            shlex.quote(a) for a in (sys.executable, HOOK) + args)}
+    agent = hook + ([guard("agent", subagent)] if subagent else [])
+    return {"hooks": {"PreToolUse": [{"matcher": "Agent|Task", "hooks": agent},
+                                     {"matcher": "Bash", "hooks": [guard("bash")]}],
                       "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
 
 
@@ -416,6 +592,20 @@ def _cost(cost, estimated=False):
 RATES_FILE = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "model-rates.json")
 
 
+def normalise(calls):
+    """Calls as they are priced now. Before, a call's cost was what its result
+    reported, and a resumed session reports its running total: so the lead's own
+    cost in each call after its first is dropped, to be estimated from its tokens."""
+    out, leads = [], 0
+    for call in calls or []:
+        if not call.get("v") and call.get("label") == "lead":
+            leads += 1
+            if leads > 1:
+                call = dict(call, cost=None, main=dict(call["main"], cost=None))
+        out.append(call)
+    return out
+
+
 def learned_rates(calls):
     """{model: dollars per weighted token} from every agent entry with a cost."""
     totals = {}
@@ -472,7 +662,7 @@ def estimate(calls, rates):
 def write_report(goal, extra_rates=None, write=True):
     """A goal's calls priced as far as they can be, and their total cost; with
     `write`, its usage report is rewritten from them too."""
-    calls = goal.state.read(CALLS_FILE) or []
+    calls = normalise(goal.state.read(CALLS_FILE))
     rates = dict(load_rates())
     rates.update(extra_rates or {})
     rates.update(learned_rates(calls))
@@ -487,7 +677,7 @@ def repo_rates(main_root):
     """Rates learned from every goal's calls in a repo."""
     calls = []
     for g in list_goals(main_root):
-        calls += Goal(main_root, g["id"]).state.read(CALLS_FILE) or []
+        calls += normalise(Goal(main_root, g["id"]).state.read(CALLS_FILE))
     return learned_rates(calls)
 
 
@@ -590,12 +780,6 @@ def read_call(session, since, model_usage=None, claude_dir=None):
         agent = entry(path, description=meta.get("description"), depth=meta.get("spawnDepth"))
         if agent:
             agents.append(agent)
-    if main and costs:
-        # The call's own share is what its model cost, less its sub-agents on that model.
-        same = sum(a["cost"] or 0 for a in agents if a["model"] == main["model"])
-        own = (model_usage.get(main["model"]) or {}).get("costUSD")
-        if own is not None:
-            main["cost"] = max(0.0, own - same)
     agents.sort(key=lambda a: a.get("seconds") or 0, reverse=True)
     return main, agents
 
@@ -657,7 +841,7 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
                 threshold=threshold, model=model, subagent_model=subagent_model,
                 check_model=check_model or model, check_effort=check_effort,
                 created=now or time.time(), status="new",
-                round=0)
+                round=0, phase="planning")
     return gid
 
 
@@ -828,7 +1012,8 @@ class Runner(object):
         flag = self.goal.state.path(WIND_FILE)
         if os.path.exists(flag):
             os.remove(flag)
-        self.goal.state.write(SETTINGS_FILE, hook_settings(flag))
+        self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
+            self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
@@ -895,11 +1080,14 @@ class Runner(object):
         calls = self.goal.state.read(CALLS_FILE) or []
         rounds = self.data.get("round") if label == "lead" else len(
             [c for c in calls if c["label"] == label]) + 1
-        calls.append({"label": label, "round": rounds, "model": model, "effort": effort,
-                      "started": started, "cost": envelope.get("total_cost_usd"),
+        entries = [main] + agents
+        cost = (sum(e["cost"] for e in entries)
+                if all(e.get("cost") is not None for e in entries) else None)
+        calls.append({"v": 2, "label": label, "round": rounds, "model": model, "effort": effort,
+                      "started": started, "session": session, "cost": cost,
                       "main": dict(main, seconds=time.time() - started), "subagents": agents})
         self.goal.state.write(CALLS_FILE, calls)
-        save_rates(learned_rates(calls))
+        save_rates(learned_rates(normalise(calls)))
         _, total = write_report(self.goal)
         self.set(cost=total)
 
@@ -952,28 +1140,64 @@ class Runner(object):
                 return "progress", {}
             return lead_report(block)
 
-    def check(self):
-        """An independent check of the branch against the ask: (done, gaps)."""
-        self.wait_for_usage()
-        self.set(status="checking", doing="checking the branch against the ask")
-        st.step("Checking against the ask")
-        prompt = render(os.path.join(PROMPTS, "check.md"), **self.fields())
-        block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "check",
-                                       self.data.get("check_model"), self.data.get("check_effort"))
-        # Files the checks leave behind — caches, reports — are not changes to the work.
-        _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
-                             cwd=self.data["worktree"], check=False)
-        if dirty:
-            st.git(["stash", "push", "-m", "changes the checker made"],
-                   cwd=self.data["worktree"], check=False)
-            st.warn("the checker changed files — they are set aside in `git stash`")
-        if error or stop == "usage":
-            return False, ["the check did not finish: %s" % (error or "usage threshold")]
-        done, gaps = check_verdict(block)
-        st.info("verdict: %s" % ("done" if done else "%d gap(s)" % len(gaps)))
+    def judge(self, label, template, read):
+        """A call on the checker's model that must give a verdict: `read` makes it of
+        the call's block, None when there is none. One cut off by the usage limit,
+        or that failed, runs again, so only a real verdict comes back."""
+        failures = 0
+        while True:
+            self.wait_for_usage()
+            prompt = render(os.path.join(PROMPTS, template), **self.fields())
+            block, stop, error = self.call(prompt, str(uuid.uuid4()), False, label,
+                                           self.data.get("check_model"), self.data.get("check_effort"))
+            self.cut_off = None
+            # Files a check leaves behind — caches, reports — are not changes to the work.
+            _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
+                                 cwd=self.data["worktree"], check=False)
+            if dirty:
+                st.git(["stash", "push", "-m", "changes the %s made" % label],
+                       cwd=self.data["worktree"], check=False)
+                st.warn("the %s changed files — they are set aside in `git stash`" % label)
+            if stop == "usage":
+                st.info("the %s stopped at the usage limit — it runs again" % label)
+                continue
+            pause = st.limit_pause(error, time.time()) if error else None
+            if pause:
+                st.wait_out_limit(self.goal.state, label, *pause)
+                continue
+            verdict = None if error else read(block)
+            if verdict is not None:
+                return verdict
+            failures += 1
+            reason = error.splitlines()[0][:200] if error else "it gave no verdict"
+            if failures < 3:
+                st.warn("the %s did not finish (%s) — running it again" % (label, reason))
+                continue
+            self.ask_problem("the %s did not finish %d times" % (label, failures), error or reason)
+            self.set(status="checking")
+            failures = 0
+
+    def review(self):
+        """The acceptance criteria, reviewed against the references before anything
+        is built: (gaps, questions)."""
+        self.set(status="checking", doing="reviewing the acceptance criteria")
+        st.step("Reviewing the acceptance criteria")
+        gaps, questions = self.judge("review", "review.md", review_verdict)
+        st.info("review: %d problem(s), %d question(s)" % (len(gaps), len(questions)))
         for gap in gaps:
             st.info("- %s" % gap)
-        return done, gaps
+        return gaps, questions
+
+    def check(self):
+        """An independent check of the branch against the ask: (done, gaps, questions)."""
+        self.set(status="checking", doing="checking the branch against the ask")
+        st.step("Checking against the ask")
+        done, gaps, questions = self.judge("check", "check.md", check_verdict)
+        st.info("verdict: %s" % ("done" if done else "%d gap(s), %d question(s)"
+                                 % (len(gaps), len(questions))))
+        for gap in gaps:
+            st.info("- %s" % gap)
+        return done, gaps, questions
 
     def gate(self):
         """Sync the branch with its base, push it, mark the PR ready, and wait for
@@ -1022,9 +1246,29 @@ class Runner(object):
             waited = time.time() - started
             if view.get("headRefOid") == head.strip():
                 pending, failing = check_states(rollup)
-                if failing:
+                running = [p for p in pending if p != CI_NOT_STARTED]
+                if failing and not running:
+                    refused = actions_refused(failing, worktree)
+                    if refused:
+                        self.ask_problem("GitHub did not run CI: %s" % refused,
+                                         "Fix it on GitHub. When you answer, the runner "
+                                         "re-runs the failed jobs.")
+                        for run_id in failed_runs(failing):
+                            st.run(["gh", "run", "rerun", run_id, "--failed"], cwd=worktree,
+                                   check=False)
+                        self.set(status="checking")
+                        started = time.time()
+                        time.sleep(CI_CHECK)
+                        continue
                     st.warn("CI failed: %s" % ", ".join(n for n, _ in failing))
                     return "ci", failed_ci_prompt(failing, self.ci_excerpts(failing))
+                if failing:
+                    # A fix pushed now would start CI over while this run still bills:
+                    # wait for all of it, and fix every failure at once.
+                    self.set(doing="waiting for CI to finish: %s failed, %d still running"
+                             % (", ".join(n for n, _ in failing), len(running)))
+                    time.sleep(CI_CHECK)
+                    continue
                 if rollup and not pending:
                     names = sorted({c.get("name") or c.get("context") or "?" for c in rollup})
                     st.info("CI passed: %s" % ", ".join(names))
@@ -1053,6 +1297,7 @@ class Runner(object):
             attempt += 1
             model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
             prompt = ci_fix_prompt(self.data["branch"], fix.split("\n", 2)[2])
+            _, before, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
             while True:
                 st.step("Fixing CI (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
                 self.wait_for_usage()
@@ -1064,6 +1309,11 @@ class Runner(object):
                     break
             if error:
                 st.warn("the CI fixer failed: %s" % error.splitlines()[0][:200])
+            _, after, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
+            if after == before:
+                # Nothing new to push: CI would only say the same again.
+                st.warn("the CI fixer committed nothing — over to the lead")
+                return kind, fix
 
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""
@@ -1081,10 +1331,18 @@ class Runner(object):
 
     def fields(self):
         return {"ask": self.data["ask"], "branch": self.data["branch"],
+                "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
                 "checks": checks_text(self.data["base"], self.data.get("checks")),
                 "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
                 "subagent_alias": short_model(self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)}
+
+    def read_journal(self):
+        try:
+            with open(self.goal.journal) as f:
+                return f.read()
+        except (IOError, OSError):
+            return ""
 
     def first_prompt(self):
         return render(os.path.join(PROMPTS, "lead.md"), **self.fields())
@@ -1110,11 +1368,11 @@ class Runner(object):
                 return text
             time.sleep(ANSWER_CHECK)
 
-    def ask_questions(self, questions):
+    def ask_questions(self, questions, label="lead"):
         st.step("Asking you")
         for q in questions:
             st.info("Q: %s" % q["q"])
-        return self.wait_for_answer({"kind": "questions", "label": "lead", "questions": questions})
+        return self.wait_for_answer({"kind": "questions", "label": label, "questions": questions})
 
     def ask_problem(self, headline, detail=None):
         st.step("Stopped — %s" % headline)
@@ -1172,9 +1430,10 @@ class Runner(object):
                 report, block = self.lead(prompt)
                 if block.get("summary"):
                     st.info(block["summary"])
-                self.push()
+                # Nothing is pushed until the lead reports done: every push runs CI.
                 after = self.head()
-                unchanged = unchanged + 1 if after == before else 0
+                unchanged = unchanged + 1 if after == before and self.data.get(
+                    "phase") != "planning" else 0
                 before = after
                 if report == "question":
                     prompt = answer_prompt(block["questions"], self.ask_questions(block["questions"]))
@@ -1182,10 +1441,28 @@ class Runner(object):
                 if report == "cut":
                     prompt = self.cut_off_notice()
                     continue
+                if report == "planned" or report == "done" and self.data.get("phase") == "planning":
+                    if self.data.get("phase") != "planning":
+                        prompt = CONTINUE
+                        continue
+                    problems = plan_problems(self.read_journal())
+                    if problems:
+                        prompt = planning_prompt(problems)
+                        continue
+                    gaps, questions = self.review()
+                    answers = answers_text(questions, self.ask_questions(
+                        questions, "review")) if questions else None
+                    self.set(phase="building")
+                    prompt = review_prompt(gaps, answers)
+                    continue
                 if report == "done":
+                    unmet = unmet_criteria(self.read_journal())
+                    if unmet:
+                        st.warn("done, but %d acceptance criteria are not ticked" % len(unmet))
+                        prompt = unmet_prompt(unmet)
+                        continue
                     _, fix = self.sync_and_ci()
                     if fix:
-                        self.push()
                         checks += 1
                         if checks >= MAX_CHECKS:
                             answer = self.ask_problem(
@@ -1195,18 +1472,20 @@ class Runner(object):
                         else:
                             prompt = fix
                         continue
-                    self.push()
-                    done, gaps = self.check()
+                    done, gaps, questions = self.check()
                     if done:
                         self.finish(block)
                         return 0
+                    answers = answers_text(questions, self.ask_questions(
+                        questions, "check")) if questions else None
                     checks += 1
                     if checks >= MAX_CHECKS:
                         answer = self.ask_problem(
                             "the checker still finds gaps after %d tries" % checks, "\n".join(gaps))
-                        prompt, checks = "The person says:\n\n%s\n\n%s" % (answer, gaps_prompt(gaps)), 0
+                        prompt, checks = "The person says:\n\n%s\n\n%s" % (
+                            answer, gaps_prompt(gaps, answers)), 0
                     else:
-                        prompt = gaps_prompt(gaps)
+                        prompt = gaps_prompt(gaps, answers)
                     continue
                 if unchanged >= STALL_ROUNDS:
                     answer = self.ask_problem("%d rounds in a row changed nothing" % unchanged)

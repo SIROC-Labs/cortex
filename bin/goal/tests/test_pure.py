@@ -71,11 +71,68 @@ class TestReports(unittest.TestCase):
         self.assertEqual(goal.lead_report({"status": "question", "questions": []})[0], "progress")
 
     def test_the_checker_verdict(self):
-        self.assertEqual(goal.check_verdict({"verdict": "done", "gaps": []}), (True, []))
+        self.assertEqual(goal.check_verdict({"verdict": "done", "gaps": []}), (True, [], []))
         self.assertEqual(goal.check_verdict({"verdict": "not_done", "gaps": ["no tests"]}),
-                         (False, ["no tests"]))
-        self.assertEqual(goal.check_verdict({"verdict": "done", "gaps": ["x"]}), (False, ["x"]))
-        self.assertFalse(goal.check_verdict(None)[0])
+                         (False, ["no tests"], []))
+        self.assertEqual(goal.check_verdict({"verdict": "done", "gaps": ["x"]}), (False, ["x"], []))
+        asked = {"verdict": "done", "gaps": [], "questions": [{"q": "Six tiles or all?", "why": "w"}]}
+        self.assertFalse(goal.check_verdict(asked)[0])
+        self.assertEqual(goal.check_verdict(asked)[2][0]["q"], "Six tiles or all?")
+
+    def test_no_verdict_is_not_a_gap(self):
+        self.assertIsNone(goal.check_verdict(None))
+        self.assertIsNone(goal.check_verdict({"status": "progress"}))
+        self.assertIsNone(goal.review_verdict(None))
+        self.assertEqual(goal.review_verdict({"gaps": ["no empty state (prototype: inbox)"]}),
+                         (["no empty state (prototype: inbox)"], []))
+
+    def test_the_lead_reports_the_analysis_finished(self):
+        self.assertEqual(goal.lead_report({"status": "planned", "summary": "x"})[0], "planned")
+
+
+JOURNAL = """# Journal
+
+## References
+- prototype: apps/frontend/src/tasks (decides the screens)
+
+## Acceptance criteria
+### Inbox
+- [x] Inbox groups tasks by Late / Today / This week (prototype: inbox) — apps/inbox.tsx
+- [ ] An empty Inbox says "Nothing to do" (prototype: inbox)
+
+## Plan
+1. [x] API
+2. [ ] Inbox
+
+## Decisions
+- [ ] not a criterion
+"""
+
+
+class TestJournal(unittest.TestCase):
+    def test_the_criteria_are_the_checklist_under_their_heading(self):
+        self.assertEqual([t for _, t in goal.checklist(JOURNAL, "Acceptance criteria")],
+                         ["Inbox groups tasks by Late / Today / This week (prototype: inbox) — apps/inbox.tsx",
+                          'An empty Inbox says "Nothing to do" (prototype: inbox)'])
+        self.assertEqual(goal.unmet_criteria(JOURNAL), ['An empty Inbox says "Nothing to do" (prototype: inbox)'])
+        self.assertIsNone(goal.checklist(JOURNAL, "Risks"))
+
+    def test_the_analysis_needs_references_criteria_and_a_plan(self):
+        self.assertEqual(goal.plan_problems(JOURNAL), [])
+        problems = goal.plan_problems("## Plan\n- [ ] build it\n")
+        self.assertEqual(len(problems), 2)
+        self.assertIn("References", problems[0])
+        self.assertIn("Acceptance criteria", problems[1])
+
+    def test_a_journal_without_criteria_has_none_unmet(self):
+        self.assertEqual(goal.unmet_criteria("## Plan\n- [ ] x\n"), [])
+
+    def test_gaps_go_to_the_lead_with_the_rule_that_the_prototype_wins(self):
+        text = goal.gaps_prompt(["five extra tiles"], "The person was asked: …")
+        self.assertIn("- five extra tiles", text)
+        self.assertIn("The prototype wins", text)
+        self.assertIn("Do not change what the prototype shows", text)
+        self.assertIn("The person was asked", text)
 
 
 class TestGoals(unittest.TestCase):
@@ -119,6 +176,19 @@ class TestTheAsk(unittest.TestCase):
         self.assertIn("- Sam: Use the new table.", ask)
         self.assertNotIn("started", ask)
         self.assertIn("- `/s/attachments/spec.md`\n\n```\n# Spec\n```", ask)
+
+    def test_an_html_attachment_is_its_text_and_points_to_the_file(self):
+        page = ("<html><head><style>.a{color:red}</style><script>var x = 1;</script></head>"
+                "<body><h2>The rules</h2><table><tr><td>Due</td><td>A day</td></tr></table>"
+                "<ul><li>Tasks</li><li>Notes</li></ul></body></html>")
+        ask = goal.ask_from_ticket({"ref": "1", "name": "Q"}, "u", (), (),
+                                   [{"path": "/s/attachments/Plan.html", "inline": page}])
+        self.assertIn("The file itself holds the prototype", ask)
+        self.assertIn("## The rules", ask)
+        self.assertIn("| Due | A day", ask)
+        self.assertIn("- Tasks", ask)
+        self.assertNotIn("color:red", ask)
+        self.assertNotIn("var x", ask)
 
     def test_a_bare_ticket_is_just_its_name(self):
         self.assertEqual(goal.ask_from_ticket({"ref": "1", "name": "Queue"}, "u"), "# 1: Queue\nu\n")
@@ -276,6 +346,7 @@ class TestGate(unittest.TestCase):
 
         def call(prompt, session, resume, label, model=None, effort=None):
             calls.append((label, model, prompt))
+            self.commit("fix.py", "fixed", "fix")
             self.rollup = [self.check("test", "SUCCESS")]
             return None, None, None
         self.runner.call = call
@@ -293,6 +364,7 @@ class TestGate(unittest.TestCase):
             calls.append(label)
             if len(calls) == 1:
                 return None, "usage", None
+            self.commit("fix.py", "fixed", "fix")
             self.rollup = [self.check("test", "SUCCESS")]
             return None, None, None
         self.runner.call = call
@@ -302,13 +374,106 @@ class TestGate(unittest.TestCase):
     def test_ci_that_the_fixer_cannot_fix_goes_to_the_lead(self):
         self.rollup = [self.check("test", "FAILURE")]
         calls = []
-        self.runner.call = lambda *a, **k: calls.append(a) or (None, None, None)
+
+        def call(*a, **k):
+            calls.append(a)
+            self.commit("fix.py", "try %d" % len(calls), "fix")
+            return None, None, None
+        self.runner.call = call
         kind, fix = self.runner.sync_and_ci()
         self.assertEqual((kind, len(calls)), ("ci", goal.CI_FIXES))
         self.assertIn("You reported done. CI ran on the PR", fix)
 
+    def test_a_fixer_that_commits_nothing_hands_over_without_another_ci_run(self):
+        self.rollup = [self.check("test", "FAILURE")]
+        calls = []
+        self.runner.call = lambda *a, **k: calls.append(a) or (None, None, None)
+        kind, _ = self.runner.sync_and_ci()
+        self.assertEqual((kind, len(calls)), ("ci", 1))
+        self.assertEqual(self.gh.count(["pr", "view"]), 1)
+
+    def test_ci_is_judged_only_once_the_whole_run_is_over(self):
+        running = {"__typename": "CheckRun", "name": "e2e", "status": "IN_PROGRESS"}
+        polls = [[self.check("test", "FAILURE"), running], [self.check("test", "FAILURE"), running],
+                 [self.check("test", "FAILURE"), self.check("e2e", "FAILURE")]]
+        run = goal.st.run
+
+        def view(cmd, cwd=None, check=True):
+            if cmd[1:3] == ["pr", "view"] and polls:
+                self.rollup = polls.pop(0)
+            return run(cmd, cwd=cwd, check=check)
+        goal.st.run = view
+        kind, fix = self.runner.gate()
+        self.assertEqual((kind, polls), ("ci", []))
+        self.assertIn("- `e2e`", fix)
+        self.assertIn("- `test`", fix)
+
+    def test_ci_github_refused_to_run_goes_to_the_person_and_is_re_run(self):
+        self.rollup = [self.check("test", "FAILURE")]
+        asked, refused = [], goal.actions_refused
+        goal.actions_refused = lambda failing, cwd: "The job was not started because of billing"
+        self.addCleanup(setattr, goal, "actions_refused", refused)
+
+        def ask(headline, detail=None):
+            asked.append(headline)
+            self.rollup = [self.check("test", "SUCCESS")]
+            return "fixed"
+        self.runner.ask_problem = ask
+        self.runner.call = lambda *a, **k: self.fail("no fixer for a billing problem")
+        self.assertEqual(self.runner.sync_and_ci(), (None, None))
+        self.assertIn("GitHub did not run CI", asked[0])
+        self.assertIn(["run", "rerun"], self.gh)
+
     def test_the_checker_is_told_what_ci_passed(self):
         self.assertIn("CI passed on it: `test`", goal.checks_text("main", ["test"]))
+
+class TestFlow(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1: x",
+                                        session="s", session_used=True)
+        self.runner = goal.Runner(self.dir, gid)
+        self.runner.set_up = lambda: None
+        self.runner.head = lambda: "same"
+        self.events = []
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def journal(self, text):
+        with open(self.runner.goal.journal, "w") as f:
+            f.write(text)
+
+    def test_analysis_then_review_then_build_then_one_push_and_a_check(self):
+        rounds = [
+            ("planned", lambda: self.journal("## Plan\n- [ ] x\n")),
+            ("planned", lambda: self.journal(JOURNAL)),
+            ("done", lambda: None),
+            ("done", lambda: self.journal(JOURNAL.replace("- [ ] An empty", "- [x] An empty"))),
+        ]
+        prompts = []
+
+        def lead(prompt):
+            prompts.append(prompt)
+            report, write = rounds.pop(0)
+            write()
+            self.events.append("lead %s (%s)" % (report, self.runner.data["phase"]))
+            return report, {"summary": "s"}
+        self.runner.lead = lead
+        self.runner.review = lambda: self.events.append("review") or (["no error state"], [])
+        self.runner.sync_and_ci = lambda: self.events.append("push and CI") or (None, None)
+        self.runner.check = lambda: self.events.append("check") or (True, [], [])
+        self.runner.finish = lambda block: self.events.append("finish")
+        self.runner.push = lambda: self.fail("nothing is pushed outside the gate")
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(self.events, ["lead planned (planning)", "lead planned (planning)", "review",
+                                       "lead done (building)", "lead done (building)",
+                                       "push and CI", "check", "finish"])
+        self.assertIn("References", prompts[1])
+        self.assertIn("- no error state", prompts[2])
+        self.assertIn("not ticked", prompts[3])
+
 
 class TestWindDown(unittest.TestCase):
     def setUp(self):
@@ -388,6 +553,24 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(hooks["PostToolUse"][0]["matcher"], "*")
         self.assertIn("test -f /s/wind-down", hooks["PreToolUse"][0]["hooks"][0]["command"])
 
+    def test_the_hooks_guard_pushes_and_give_sub_agents_the_cheap_model(self):
+        hooks = goal.hook_settings("/s/wind-down", "sonnet")["hooks"]["PreToolUse"]
+        self.assertTrue(hooks[0]["hooks"][1]["command"].endswith("hook.py agent sonnet"))
+        self.assertEqual(hooks[1]["matcher"], "Bash")
+        self.assertTrue(hooks[1]["hooks"][0]["command"].endswith("hook.py bash"))
+
+    def test_the_bash_hook_refuses_pushes_and_ci_but_not_other_git(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        for command in ("git push", "git push -u origin x", "cd a && git -C b push --force",
+                        "gh pr ready 5", "gh pr merge 5", "gh workflow run ci", "gh run rerun 9"):
+            self.assertTrue(hook.blocked(command), command)
+        for command in ("git status", "git stash push -m x", "git commit -m 'push it'",
+                        "gh run view 9 --log-failed", "gh pr view 5", "npm run lint"):
+            self.assertFalse(hook.blocked(command), command)
+
     def test_after_a_cut_off_the_lead_is_told_what_was_left(self):
         text = goal.cut_off_prompt(0, ["Task panel"], ["apps/a.ts", "apps/b.ts"])
         self.assertIn("- Task panel", text)
@@ -419,6 +602,17 @@ class TestEstimates(unittest.TestCase):
         report = goal.usage_report([priced])
         self.assertIn("≈ $3.00 (some estimated)", report)
         self.assertIn("≈ $2.00 est.", report)
+
+    def test_a_resumed_lead_call_s_running_total_is_not_its_cost(self):
+        calls = [self.call(25.0, 1.0), self.call(30.0, 1.0), self.call(38.0, 1.0),
+                 dict(self.call(None, None), label="check")]
+        normal = goal.normalise(calls)
+        self.assertEqual(normal[0]["cost"], 25.0)
+        self.assertIsNone(normal[1]["cost"])
+        self.assertIsNone(normal[2]["main"]["cost"])
+        self.assertEqual(normal[2]["subagents"][0]["cost"], 1.0)
+        v2 = dict(self.call(2.0, 1.0), v=2)
+        self.assertEqual(goal.normalise([calls[0], v2])[1]["cost"], 2.0)
 
     def test_a_model_never_seen_stays_unknown(self):
         [priced] = goal.estimate([self.call(None, None, model="claude-haiku-4-5")], {})

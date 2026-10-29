@@ -207,7 +207,7 @@ def short_model(model):
 
 _HEADING = re.compile(r"^(#+)\s*(.*)$")
 _ITEM = re.compile(r"^\s*(?:[-*]|\d+[.)])\s*\[( |x|X)\]\s*(.*)$")
-STAGES = ("building", "syncing", "CI", "checking", "done")
+STAGES = ("analysis", "review", "building", "syncing", "CI", "checking", "done")
 
 
 def read_journal(path):
@@ -218,14 +218,14 @@ def read_journal(path):
         return []
 
 
-def plan(lines):
+def plan(lines, word="plan", anywhere=True):
     """The lead's checklist: the `- [ ]` / `- [x]` items under a heading that says
-    plan, or every item in the journal when no heading does. {done, total, next,
-    items: [(done, text)]}, or None when there is no checklist."""
+    `word`, or with `anywhere`, every item in the journal when no heading does.
+    {done, total, next, items: [(done, text)]}, or None when there is no checklist."""
     section, level = None, None
     for i, line in enumerate(lines):
         m = _HEADING.match(line)
-        if m and "plan" in m.group(2).lower():
+        if m and word in m.group(2).lower():
             section, level = [], len(m.group(1))
             for rest in lines[i + 1:]:
                 n = _HEADING.match(rest)
@@ -233,6 +233,8 @@ def plan(lines):
                     break
                 section.append(rest)
             break
+    if section is None and not anywhere:
+        return None
     items = [(m.group(1) != " ", m.group(2).strip())
              for m in (_ITEM.match(l) for l in (section if section is not None else lines)) if m]
     if not items:
@@ -248,6 +250,8 @@ def stage(goal):
     status, doing = goal.get("status"), (goal.get("doing") or "").lower()
     if status == "done":
         return "done"
+    if goal.get("phase") == "planning":
+        return "review" if "review" in doing else "analysis"
     if status == "checking":
         if "sync" in doing:
             return "syncing"
@@ -284,6 +288,10 @@ def lines_for(goal, snap, journal, width):
     out.append((doing if not rounds or rounds in doing else "%s · %s" % (doing, rounds), "bold"))
     out.append(("Stage: " + stage_line(goal), "ok"))
     steps = plan(journal)
+    criteria = plan(journal, "acceptance criteria", anywhere=False)
+    if criteria:
+        out.append(("Met:   %s %d of %d acceptance criteria" % (
+            bar(criteria["done"], criteria["total"]), criteria["done"], criteria["total"]), "ok"))
     if steps:
         out.append(("Plan:  %s %d of %d steps done%s" % (
             bar(steps["done"], steps["total"]), steps["done"], steps["total"],
@@ -324,6 +332,12 @@ def lines_for(goal, snap, journal, width):
         out += [("", "normal"), ("Plan", "bold")]
         out += [("  %s %s" % ("✓" if d else "·", t[:width - 6]), "dim" if d else "normal")
                 for d, t in steps["items"]]
+    if criteria and criteria["done"] < criteria["total"]:
+        unmet = [t for d, t in criteria["items"] if not d]
+        out += [("", "normal"), ("Acceptance criteria not met yet", "bold")]
+        out += [("  · %s" % t[:width - 6], "normal") for t in unmet[:30]]
+        if len(unmet) > 30:
+            out.append(("  … and %d more" % (len(unmet) - 30), "dim"))
     tail = [l for l in journal if l.strip()][-8:]
     if tail:
         out += [("", "normal"), ("Journal (latest lines)", "bold")]

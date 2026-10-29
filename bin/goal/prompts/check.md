@@ -10,13 +10,32 @@ what is met and what is not.
 
 {{ask}}
 
+## Which source wins
+
+The ask points to references: a prototype, one-pagers or specs, design records,
+attachments, branches. They define what the work must do. When they disagree:
+
+1. The prototype always wins: what is built, and how each screen looks and
+   behaves.
+2. Where the prototype does not answer a question, the one-pager or spec does.
+3. Where neither answers it, the person decides. That is a question, not a gap.
+
+A branch that matches the prototype where the one-pager says otherwise is right,
+not a gap.
+
 ## What to do
 
-1. Read the ask carefully, and list what it requires.
-2. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
-3. {{checks}}
-4. For each requirement, decide if the branch meets it. Look for things that are
-   missing, broken, or only partly done.
+1. Read the ask, and open every reference it names. For each screen the work
+   touches, read the prototype's source for it. List what they require.
+2. Read the lead's journal, `{{journal}}`: its references, its acceptance
+   criteria, and the decisions it wrote down. Use the criteria as a checklist, but
+   do not trust that they are complete or right: compare them with your own list.
+   Where the lead wrote why it did not fix an earlier gap, weigh that against the
+   references.
+3. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
+4. {{checks}}
+5. For each requirement, decide if the branch meets it. Look for things that are
+   missing, broken, only partly done, or different from the prototype.
 
 ## Use cheaper sub-agents for the legwork
 
@@ -24,6 +43,8 @@ Sub-agents run on `{{subagent_model}}`, which costs much less than you. When the
 diff is large, give them the legwork:
 
 - Find where the branch handles each requirement, and report the files and lines.
+- Read a part of the prototype, and report exactly what it shows: its parts, their
+  order, their text and their states.
 - Read large files or unchanged code for context, and report what matters.
 
 Start each one with `model: "{{subagent_alias}}"`, whatever its type, and tell it
@@ -52,9 +73,15 @@ End your response with a fenced JSON block:
 or, when something is missing or broken:
 
 ```json
-{"verdict": "not_done", "gaps": ["One thing that is missing or broken, and where."]}
+{"verdict": "not_done", "gaps": ["One thing that is missing or broken, where, and its source."], "questions": []}
 ```
 
-Each gap is one fact: the requirement that is not met, and the file where it
-shows. Report a gap only when the ask requires it. Do
-not report style preferences or improvements that the ask does not need.
+Each gap is one fact: the requirement that is not met, the file where it shows,
+and the reference it comes from, such as `(prototype: taskRow)` or `(one-pager §3)`.
+Report a gap only when the references require it. Do not report style preferences
+or improvements that they do not need.
+
+Put a conflict that the prototype and the one-pager do not settle, or a
+reference you could not open, in `questions`, not in `gaps`, as
+`{"q": "The question, answerable in a sentence.", "why": "What each answer would change."}`.
+The person answers them.

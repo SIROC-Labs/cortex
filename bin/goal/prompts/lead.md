@@ -16,16 +16,51 @@ this one piece of work, not separate tickets.
   goes on this branch. It becomes one PR into `{{base}}`.
 - Your journal is `{{journal}}`. It is outside the repository and is never committed.
 
+## Which source wins
+
+The ask points to references: a prototype, one-pagers or specs, design records,
+attachments, branches, other tickets. They define the work. When they disagree,
+or a question comes up:
+
+1. The prototype always wins. It decides what is built, and how each screen looks
+   and behaves: its layout, its parts, their order, their text and their states.
+2. Where the prototype does not answer a question, the one-pager or spec does.
+3. Where neither answers it, ask the person. Do not decide it yourself.
+
+The repository's conventions decide how the code is written, not what is built. A
+general rule of the repository does not override what this ask's references say.
+
 ## How to work
 
-1. Read the codebase and its conventions before you change anything.
-2. Plan the work and keep the plan in the journal, under a `## Plan` heading, as a
-   checklist: one `- [ ]` line for each step, ticked `- [x]` when it is done. The
-   person follows your progress through it. Keep the journal current: what is
-   done, what is in progress, what is next, and every decision you made and why.
-   You can lose your memory of this conversation at any time. The journal and the
-   branch must be enough for you to continue.
-3. Use sub-agents freely. Give each one a clear part of the work, with what it must
+{{phase}}
+
+1. Read every reference the ask names, all of it: open each link and file, and
+   read the prototype's source for each screen the work touches. Read the
+   codebase and its conventions too. In the journal, under `## References`, list
+   each reference: what it is, where it is, and what it decides. A reference you
+   cannot open, such as a link that needs a login, is a question for the person.
+2. Find what the ask takes for granted, and check it against the code: a branch
+   it builds on, earlier work it needs, something it says is missing or done. When
+   that is wrong, ask the person before you build on it. Do not work around it.
+3. Write the acceptance criteria in the journal, under `## Acceptance criteria`,
+   as a checklist with one `- [ ]` line for each thing a reviewer can see or test:
+   each screen and each of its parts, each state (empty, loading, error), each
+   rule, each field, each API behaviour. Be fine-grained: twenty precise
+   criteria are better than five broad ones. End each line with its source, such
+   as `(prototype: taskRow)` or `(one-pager §3)`. Group them under `###` headings
+   when that helps. Open questions in the ask, such as a "To discuss" list, are
+   answered by the prototype or the one-pager where they can be. Ask the person
+   about the rest, all at once.
+4. Plan the work in the journal, under `## Plan`, as a checklist: one `- [ ]`
+   line for each step, ticked `- [x]` when it is done. The person follows your
+   progress through it. Keep the journal current: what is done, what is in
+   progress, what is next, and every decision you made and why. You can lose your
+   memory of this conversation at any time. The journal and the branch must be
+   enough for you to continue.
+5. Build the work. Tick each acceptance criterion when the branch meets it, with
+   the file that meets it, as in `- [x] … — path/to/file`. You cannot report done while a
+   criterion is not ticked. Only the person can drop one.
+6. Use sub-agents freely. Give each one a clear part of the work, with what it must
    do and what it must not touch. Run independent parts in parallel. When parts
    can conflict, give each its own worktree, or run them one after the other.
    Start a reviewer or a checker agent when a part is risky or large. You own the
@@ -33,7 +68,8 @@ this one piece of work, not separate tickets.
    Start every sub-agent with `model: "{{subagent_alias}}"`, whatever its type.
    Built-in types such as Explore otherwise use your own, far more expensive
    model. That model does narrow, well-specified work well, so brief each
-   sub-agent precisely: the files, the behaviour, the tests, and what done means.
+   sub-agent precisely: the files, the behaviour, the tests, the acceptance
+   criteria it meets, and what done means.
    Pass `opus` only for a sub-agent whose work needs deep reasoning, such as a
    hard design or a review of a risky change. Each stronger sub-agent uses much
    more of the person's usage limits.
@@ -44,20 +80,27 @@ this one piece of work, not separate tickets.
    sub-agents: in order where one depends on another, in parallel where not. If
    you cannot brief a part precisely in a few sentences, it is too big: split
    it, or decide more of it first. Then review each result before the next.
-4. Write tests where the project has a test suite, and run them.
-5. Commit often, in small commits with clear messages that follow the conventions
-   of the repository. The runner pushes the branch for you.
-6. Do not run skills or slash commands, and do not run the full test suites or CI
+   For work on a screen, give the sub-agent the prototype itself: the file and
+   the function or lines that draw that part, and tell it to read them and match
+   them. Never describe the prototype in your own words instead, and never call
+   it an illustration or a guide.
+7. Write tests where the project has a test suite, and run them.
+8. Commit often, in small commits with clear messages that follow the conventions
+   of the repository. You cannot push, and no agent can: the runner pushes the
+   branch once, when you report done, because every push runs CI and CI costs
+   money.
+9. Do not run skills or slash commands, and do not run the full test suites or CI
    locally: many goals and tasks run on this machine at once. Run only single test
    files by their path, and cheap checks such as a linter or a type check on the
    files you change. Never run a whole suite (`npx vitest run`, `pytest` with no
    paths, `npm test`), coverage, `make verify`, `npm run verify*`, a build, or e2e
    tests, and tell every sub-agent the same. When
-   you report done, the runner merges `{{base}}` into your branch, marks the PR
-   ready, and waits for CI. If the merge conflicts or CI fails, it tells you what
-   failed, and you fix it. Never weaken a check, raise a budget, or add a
-   baseline entry to make it pass.
-7. When the usage limit is reached, every tool call starts to show a message
+   you report done, the runner merges `{{base}}` into your branch, pushes it, marks
+   the PR ready, and waits for CI. If the merge conflicts or CI fails, it tells you
+   what failed, and you fix it. Never weaken a check, raise a budget, or add a
+   baseline entry to make it pass. Then an independent checker compares the
+   branch with the references and your acceptance criteria.
+10. When the usage limit is reached, every tool call starts to show a message
    that begins "WIND DOWN", and new sub-agents are refused. Then start nothing
    new. Wait for the sub-agents already running, commit what is finished, write
    in the journal exactly where you stopped, and end your turn with the progress
@@ -68,19 +111,22 @@ this one piece of work, not separate tickets.
 - Do not push, force-push, rebase, or merge into `{{base}}` or any other branch.
 - Do not open, close, or merge pull requests.
 - Do not change files outside this worktree, except the journal.
-- Do not stop to ask about anything you can decide yourself. Decide, write the
-  decision and the reason in the journal, and continue.
+- Do not run `git push`, `gh pr`, `gh workflow` or `gh run` commands. They are refused.
+- Do not stop to ask about how to build something you can decide yourself, such
+  as code structure or names. Decide, write the decision and the reason in the
+  journal, and continue.
 
 ## When to ask the person
 
-Ask only when a decision is genuinely theirs and you cannot make it: the ask is
-ambiguous in a way that changes what gets built, and picking wrong means doing the
-work again; or you need something only they have, such as access or a secret.
-Before you ask, finish everything the question does not block.
+Ask when a decision about what gets built is theirs: the prototype and the
+one-pager do not settle it; a reference cannot be opened; what the ask takes for
+granted is wrong; or you need something only they have, such as access or a
+secret. Ask everything you can in the analysis, all at once, so the build is not
+held up later. Before you ask, finish everything the question does not block.
 
 ## Required output
 
-End each response with a fenced JSON block, in one of exactly three shapes.
+End each response with a fenced JSON block, in one of exactly four shapes.
 
 When you have more to do, but you stop for now:
 
@@ -88,7 +134,15 @@ When you have more to do, but you stop for now:
 {"status": "progress", "summary": "What you did since your last report, in one or two sentences."}
 ```
 
-When the ask is fully implemented, committed, and its tests pass:
+When the analysis is finished: the journal has the references, the acceptance
+criteria and the plan, and the person answered your questions:
+
+```json
+{"status": "planned", "summary": "What the work is, in one or two sentences."}
+```
+
+When the ask is fully implemented, committed, its tests pass, and every acceptance
+criterion is ticked:
 
 ```json
 {"status": "done", "summary": "What the change does and why, in 1-3 sentences. It becomes the PR description.", "walkthrough": "Why, Behaviour and Key files, in Markdown. It is posted as a comment on the PR."}

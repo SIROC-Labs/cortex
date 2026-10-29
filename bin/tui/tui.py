@@ -448,8 +448,11 @@ def goal_status(g, wait=None):
     use += " · ≈ $%.2f" % g["cost"] if g.get("cost") else ""
     agents = g.get("agents_running")
     use = (" · %d sub-agent%s running" % (agents, "" if agents == 1 else "s") if agents else "") + use
-    steps = g.get("plan")
-    use = (" · plan %d/%d" % (steps["done"], steps["total"]) if steps else "") + use
+    steps, met = g.get("plan"), g.get("criteria")
+    use = (" · plan %d/%d" % (steps["done"], steps["total"]) if steps else "") + (
+        " · criteria %d/%d" % (met["done"], met["total"]) if met else "") + use
+    if status == "working" and g.get("phase") == "planning":
+        return "analysing the ask · round %s%s" % (g.get("round") or 1, use), "ok"
     if status == "working":
         return "working · round %s%s" % (g.get("round") or 1, use), "ok"
     if status == "checking":
@@ -1097,7 +1100,9 @@ class App(object):
             g["agents_running"] = gv.running_count(g) if g.get("alive") else 0
             g["cost"] = gl.write_report(gl.Goal(self.main_root, g["id"]), rates, write=False)[1] \
                 or g.get("cost")
-            g["plan"] = gv.plan(gv.read_journal(gl.Goal(self.main_root, g["id"]).journal))
+            journal = gv.read_journal(gl.Goal(self.main_root, g["id"]).journal)
+            g["plan"] = gv.plan(journal)
+            g["criteria"] = gv.plan(journal, "acceptance criteria", anywhere=False)
         self.waits = read_waits(self.main_root, self.control, self.data)
         self.waits.update(goal_waits(self.goals))
         self.activity = self.read_activity()

@@ -116,7 +116,20 @@ class TestGoalView(unittest.TestCase):
                                         ("done", "", "done")):
             self.assertEqual(gv.stage({"status": status, "doing": doing}), expected)
         self.assertEqual(gv.stage_line({"status": "checking", "doing": "fixing CI, try 1"}),
-                         "building ▸ syncing ▸ [CI] ▸ checking ▸ done")
+                         "analysis ▸ review ▸ building ▸ syncing ▸ [CI] ▸ checking ▸ done")
+        self.assertEqual(gv.stage({"status": "working", "phase": "planning"}), "analysis")
+        self.assertEqual(gv.stage({"status": "checking", "phase": "planning",
+                                   "doing": "reviewing the acceptance criteria"}), "review")
+
+    def test_the_acceptance_criteria_met_so_far(self):
+        journal = ["## Acceptance criteria", "### Inbox", "- [x] Groups by day (prototype: inbox)",
+                   "- [ ] Empty state (prototype: inbox)", "## Plan", "- [ ] Inbox"]
+        met = gv.plan(journal, "acceptance criteria", anywhere=False)
+        self.assertEqual((met["done"], met["total"]), (1, 2))
+        self.assertIsNone(gv.plan(["## Plan", "- [ ] x"], "acceptance criteria", anywhere=False))
+        text = "\n".join(l for l, _ in gv.lines_for(self.goal, None, journal, 100))
+        self.assertIn("1 of 2 acceptance criteria", text)
+        self.assertIn("· Empty state (prototype: inbox)", text)
 
     def test_no_call_yet(self):
         self.assertIsNone(gv.snapshot(dict(self.goal, worktree="/nothing")))
