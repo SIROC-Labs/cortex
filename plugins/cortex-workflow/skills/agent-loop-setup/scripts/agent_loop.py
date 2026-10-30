@@ -14,6 +14,11 @@
 #   agent_loop.py rotate <key> --from-json <path|->      # list_boards() result
 #   agent_loop.py order [--user <ref>] --from-json <path|->   # {"tasks":[...],"priority_order":[...]}
 #   agent_loop.py gate --from-json <path|->              # {"blockers":[...],"board":…,"columns":…,"column_names":…}
+#   agent_loop.py marker --from-json <path|->            # get_comments() result
+#   agent_loop.py candidates --user <ref> --for build|orphan|review --from-json <path|->
+#                                                        # {"tasks":[...],"milestones":[...],"priority_order":[...]}
+#   agent_loop.py aggregate --from-json <path|->         # {"subtasks":[{completed,assignee,marker}]}
+#   agent_loop.py cards --from-json <path|->             # {"description":…,"row":{ref,title,repo,state,pr}}
 #   agent_loop.py last-run <key> start [--kind build|review]
 #   agent_loop.py last-run <key> write <outcome> [--kind build|review] [--task <ref>] [--detail <text>]
 #
@@ -42,6 +47,24 @@ DEFAULT_COLUMN_NAMES = {
 SATISFIED_ROLES = ("ready", "done")
 # One last-run record per kind of tick: the build tick and the review tick run independently.
 RUN_KINDS = ("build", "review")
+# The 🤖 comment first lines that name a step, longest prefix first, and the step
+# each names. A 🤖 comment matching none of them names no step and is skipped.
+MARKERS = (
+    ("🤖 [AGENT] rework started", "started"),
+    ("🤖 [AGENT] started", "started"),
+    ("🤖 [AGENT] previous run was interrupted", "started"),
+    ("🤖 [AGENT] Ready for review", "ready_for_review"),
+    ("🤖 [AGENT] Needs clarification", "needs_clarification"),
+    ("🤖 [AGENT] Blocked", "blocked"),
+    ("🤖 [REVIEW] started", "review_started"),
+    ("🤖 [REVIEW] Merged", "merged"),
+    ("🤖 [REVIEW] Changes requested", "changes_requested"),
+    ("🤖 [REVIEW] Blocked", "blocked"),
+)
+# Which milestone work items each kind of selection may take, by latest marker.
+ORPHAN_MARKERS = (None, "started")
+REVIEW_MARKERS = ("ready_for_review", "review_started")
+CARDS_HEADER = ("Ref", "Title", "Repo", "State", "PR")
 
 
 def err(msg):
@@ -299,6 +322,205 @@ def cmd_gate(args):
     sys.stdout.write(json.dumps({"pass": not blocking, "blocking": blocking}, indent=2) + "\n")
 
 
+# --- milestone work items ----------------------------------------------------
+# A milestone's work items are its subtasks; their state is read in place: open and
+# unassigned = waiting, open and assigned = held, completed = merged into the
+# milestone branch, and the latest 🤖 marker names the step of a held one.
+
+# Pure: the step the latest step-naming 🤖 comment names, or None. Comments are
+# taken in created_at order when they carry it, else in the order given.
+def latest_marker(comments):
+    items = [c for c in comments or [] if isinstance(c, dict)]
+    if all(c.get("created_at") for c in items):
+        items.sort(key=lambda c: c.get("created_at"))
+    step = None
+    for c in items:
+        first = (c.get("text") or "").strip().split("\n", 1)[0].strip()
+        for prefix, name in MARKERS:
+            if first.startswith(prefix):
+                step = name
+                break
+    return step
+
+
+def cmd_marker(args):
+    comments = _load_from_json(args, "--from-json")
+    if isinstance(comments, dict) and isinstance(comments.get("data"), list):
+        comments = comments["data"]
+    if not isinstance(comments, list):
+        die(1, "%s: marker: --from-json must be the get_comments() array" % PROG)
+    sys.stdout.write(json.dumps({"marker": latest_marker(comments)}) + "\n")
+
+
+def _held(st):
+    return st.get("completed") is not True and bool(st.get("assignee"))
+
+
+# Pure: one work item {completed, assignee, marker} -> its Cards-table state.
+def subtask_state(st):
+    if st.get("completed") is True:
+        return "merged"
+    if not _held(st):
+        return "waiting"
+    return {
+        "ready_for_review": "in review",
+        "review_started": "in review",
+        "merged": "in review",
+        "needs_clarification": "needs clarification",
+        "blocked": "blocked",
+    }.get(st.get("marker"), "in progress")
+
+
+# Pure: the role of the column a milestone belongs in. blocked while a held work
+# item's latest marker is Needs clarification or Blocked; ready once every one is
+# complete; queue while none is held (an empty milestone included); in_progress
+# otherwise. A milestone never belongs in in_review.
+def milestone_role(subtasks):
+    items = [s for s in subtasks or [] if isinstance(s, dict)]
+    if any(subtask_state(s) in ("needs clarification", "blocked") for s in items):
+        return "blocked"
+    if items and all(s.get("completed") is True for s in items):
+        return "ready"
+    if not any(_held(s) for s in items):
+        return "queue"
+    return "in_progress"
+
+
+def cmd_aggregate(args):
+    payload = _load_from_json(args, "--from-json")
+    if not isinstance(payload, dict) or not isinstance(payload.get("subtasks"), list):
+        die(1, "%s: aggregate: --from-json must be {\"subtasks\": [...]}" % PROG)
+    sys.stdout.write(json.dumps({"role": milestone_role(payload["subtasks"])}) + "\n")
+
+
+def _priority_rank(order):
+    order = [str(p).lower() for p in order or []]
+
+    def rank(item):
+        p = item.get("priority")
+        if p is None or str(p).strip() == "":
+            return len(order)
+        try:
+            return order.index(str(p).lower())
+        except ValueError:
+            return len(order)
+    return rank
+
+
+# Whether a work item is open to this kind of selection by `user`.
+def _selectable(st, user, kind):
+    if st.get("completed") is True:
+        return False
+    if kind == "build":
+        return not st.get("assignee")
+    if kind == "orphan":
+        return bool(st.get("assignee")) and claimable_by(st, user) and st.get("marker") in ORPHAN_MARKERS
+    return claimable_by(st, user) and st.get("marker") in REVIEW_MARKERS
+
+
+# Pure: the selection order across single tasks and milestones.
+#   tasks      : single top-level cards of one column, {ref,name,index,priority,assignee}
+#   milestones : Milestone-type cards, {ref,name,role,index,priority,executor,
+#                subtasks:[{ref,name,created_at,completed,assignee,marker}]}
+# A milestone takes part only with Executor Agent. Milestones whose role is
+# in_progress come first, by priority then native order, so started milestones
+# finish before new ones open. Then the column the single tasks come from: single
+# tasks and role-queue milestones together, by priority then native position. A
+# milestone expands in place to its selectable work items, oldest first — list
+# order carries no meaning, and authoring creates them in dependency order.
+# `kind`: build takes open unassigned work items; orphan takes open ones held by
+# `user` whose latest marker is none or started; review takes open ones unassigned
+# or held by `user` whose latest marker is Ready for review or a review start.
+# Single tasks are filtered by ownership only, as `order --user` does. Each
+# candidate is {ref, name, milestone: {ref,name}|null}.
+def milestone_candidates(payload, user, kind):
+    rank = _priority_rank(payload.get("priority_order"))
+
+    def expand(ms):
+        items = [st for st in ms.get("subtasks") or [] if isinstance(st, dict)]
+        items = sorted(enumerate(items), key=lambda p: (p[1].get("created_at") or "", p[0]))
+        return [{"ref": st.get("ref"), "name": st.get("name"),
+                 "milestone": {"ref": ms.get("ref"), "name": ms.get("name")}}
+                for _, st in items if _selectable(st, user, kind)]
+
+    milestones = [m for m in payload.get("milestones") or []
+                  if isinstance(m, dict) and str(m.get("executor") or "").lower() == "agent"]
+    started = sorted((m for m in milestones if m.get("role") == "in_progress"),
+                     key=lambda m: (rank(m), m.get("index", 0)))
+    column = [dict(t, _single=True) for t in payload.get("tasks") or []
+              if isinstance(t, dict) and claimable_by(t, user)]
+    column += [m for m in milestones if m.get("role") == "queue"]
+    column.sort(key=lambda t: (rank(t), t.get("index", 0)))
+    out = []
+    for m in started:
+        out.extend(expand(m))
+    for item in column:
+        if item.get("_single"):
+            out.append({"ref": item.get("ref"), "name": item.get("name"), "milestone": None})
+        else:
+            out.extend(expand(item))
+    return out
+
+
+def cmd_candidates(args):
+    payload = _load_from_json(args, "--from-json")
+    user = _flag_value(args, "--user")
+    kind = _flag_value(args, "--for")
+    if not isinstance(payload, dict) or user is None or kind not in ("build", "orphan", "review"):
+        die(1, "usage: %s candidates --user <ref> --for build|orphan|review --from-json <path|->" % PROG)
+    sys.stdout.write(json.dumps(milestone_candidates(payload, user, kind), indent=2) + "\n")
+
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _row(values):
+    return "| " + " | ".join(values) + " |"
+
+
+# Pure: the milestone description with the `## Cards` table row for row["ref"]
+# set. Keys the row omits keep their current value; an unknown ref appends a row;
+# a description without the section gains one at the end.
+def update_cards_table(description, row):
+    lines = (description or "").split("\n")
+    new = [str(row.get(k.lower()) or "") for k in CARDS_HEADER]
+    try:
+        head = next(i for i, l in enumerate(lines) if l.strip().lower() == "## cards")
+    except StopIteration:
+        body = (description or "").rstrip("\n")
+        block = ["## Cards", _row(CARDS_HEADER), "|" + "---|" * len(CARDS_HEADER), _row(new)]
+        return (body + "\n\n" if body else "") + "\n".join(block) + "\n"
+    i = head + 1
+    while i < len(lines) and not lines[i].strip().startswith("|"):
+        if lines[i].strip().startswith("#"):
+            break
+        i += 1
+    if i >= len(lines) or not lines[i].strip().startswith("|"):
+        lines[head + 1:head + 1] = [_row(CARDS_HEADER), "|" + "---|" * len(CARDS_HEADER), _row(new)]
+        return "\n".join(lines)
+    end = i
+    while end < len(lines) and lines[end].strip().startswith("|"):
+        end += 1
+    for j in range(i + 2, end):
+        cells = _cells(lines[j])
+        if cells and cells[0] == str(row.get("ref")):
+            cells += [""] * (len(CARDS_HEADER) - len(cells))
+            merged = [new[k] if row.get(CARDS_HEADER[k].lower()) is not None else cells[k]
+                      for k in range(len(CARDS_HEADER))]
+            lines[j] = _row(merged)
+            return "\n".join(lines)
+    lines.insert(end, _row(new))
+    return "\n".join(lines)
+
+
+def cmd_cards(args):
+    payload = _load_from_json(args, "--from-json")
+    if not isinstance(payload, dict) or not isinstance(payload.get("row"), dict) or not payload["row"].get("ref"):
+        die(1, "%s: cards: --from-json must be {\"description\": …, \"row\": {\"ref\": …}}" % PROG)
+    sys.stdout.write(update_cards_table(payload.get("description"), payload["row"]))
+
+
 # --- last run ----------------------------------------------------------------
 
 def cmd_last_run(args):
@@ -334,6 +556,10 @@ COMMANDS = {
     "rotate": cmd_rotate,
     "order": cmd_order,
     "gate": cmd_gate,
+    "marker": cmd_marker,
+    "candidates": cmd_candidates,
+    "aggregate": cmd_aggregate,
+    "cards": cmd_cards,
     "last-run": cmd_last_run,
 }
 
