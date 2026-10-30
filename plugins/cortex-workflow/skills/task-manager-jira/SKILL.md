@@ -67,6 +67,7 @@ The **primary transport is `acli`**. A **secondary transport is required** for f
 | `ensure_board(name, columns)` | **PARTIAL** — `acli` cannot create boards or columns. Exit non-zero with the operator prompt: create a board named `<name>` with columns `<columns>` in Jira, then re-run. |
 | `ensure_columns(board, names)` | **PARTIAL** — same operator prompt naming the missing columns. |
 | `move_task(task, board, column)` | Transition the issue to the column's status: list transitions, pick the one whose target status is the column, transition. |
+| `complete_task(task)` | Transition the issue to a status in the Done category: list transitions, pick the one whose target's `statusCategory` is Done, transition. **PARTIAL** — agent-run. |
 | `get_dependencies(task)` | Issue links of the configured blocking type (inward "is blocked by"): per linked issue `{ref: key, name, completed: statusCategory == Done, memberships: [{board: {ref: <board id>, name}, column: {ref: <status id>, name: <status>}}]}`. |
 
 For operations not in the table, use `references/spec-summary.md` directly — this is the provider-coupled long-tail path.

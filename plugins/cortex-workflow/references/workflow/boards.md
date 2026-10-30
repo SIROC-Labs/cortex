@@ -27,8 +27,18 @@ Roles are the contract because names collide: Product Status already uses `Ready
 
 **Ordering.** Cards in `queue` are taken by the neutral `Priority` field, highest first, unset last, then by the provider's native order within the column.
 
-**Dependencies.** A card waits while any card it depends on is neither completed nor merged. "Merged" means the `ready` or `done` column of the agent board, or a column with the same name as one of them on any other board the blocker sits on. `in_review` does not count: the blocker's PR is open and its work is not yet on the milestone branch a dependent builds from. Anything else, including an unknown column or no board at all, blocks.
+**Dependencies.** A card waits while any card it depends on is neither completed nor merged. A milestone's work item is merged exactly when it is completed. "Merged" means the `ready` or `done` column of the agent board, or a column with the same name as one of them on any other board the blocker sits on. `in_review` does not count: the blocker's PR is open and its work is not yet on the milestone branch a dependent builds from. Anything else, including an unknown column or no board at all, blocks.
 
-**Milestones.** Every authoring run creates one milestone in a project the operator names (never the agent board, whose sections are its role columns) and one `milestone/<slug>` branch per repository. Cards target that branch; the review run merges into it; merging it into its parent is the operator's.
+**Milestones.** Two kinds of card sit on the agent board: a single task, and a milestone — a milestone-kind card that travels the columns as one. A milestone's cards are its **work items**, created with `create_task(…, milestone=…)` and never members of the agent board: no `move_task`, no column. A work item may sit on its product board for its key and fields. Its state is read in place, and nothing else records it:
 
-Identification, caching and rotation mechanics live in the `agent-loop-setup` skill's script; the provider only realizes `list_boards`, `get_board`, `ensure_board`, `ensure_columns`, `list_tasks(board, column)`, `move_task` and `get_dependencies`.
+| State | Read from |
+|---|---|
+| waiting | open and unassigned |
+| held | open and assigned; the latest `🤖` comment names the step — `started`, `Ready for review` with its PR, `Needs clarification`, `Blocked` |
+| merged | completed: squash-merged into the milestone branch |
+
+The milestone's description keeps a `## Cards` table (Ref, Title, Repo, State, PR); whoever changes a work item's state updates its row in the same step. The milestone's column is the aggregate of its work items: `blocked` while a held one's latest marker is `Needs clarification` or `Blocked`, `ready` once all are complete, `queue` until the first claim (none held, none complete, none carrying a `🤖` marker), `in_progress` from then on — merged work with nothing in flight stays `in_progress`; never `in_review`, since review happens per work item. A milestone whose `Executor` is `Agent` opens its open, unassigned work items to the build run; one assigned to a person is out of the loop. Single tasks keep the column flow above.
+
+Every authoring run creates one milestone on the agent board and one `milestone/<slug>` branch per repository. Its work items target that branch; the review run merges into it; merging it into its parent is the operator's.
+
+Identification, caching, rotation, candidate order and the milestone aggregate live in the `agent-loop-setup` skill's script; the provider only realizes `list_boards`, `get_board`, `ensure_board`, `ensure_columns`, `list_tasks(board, column)`, `move_task`, `milestone_tasks`, `get_comments` and `get_dependencies`.

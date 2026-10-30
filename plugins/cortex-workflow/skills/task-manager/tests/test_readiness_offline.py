@@ -50,6 +50,28 @@ class ReadinessOfflineTest(unittest.TestCase):
         self.assertEqual(names["active_sprint"], "fail")
         self.assertEqual(names["estimate"], "fail")
 
+    def test_subtask_passes_active_sprint_through_its_parent(self):
+        task = self.write("task.json", {"ref": "1", "name": "t", "status": "Assigned", "board": [],
+                                        "fields": {"Estimate": "1h"}, "task_id": "PD1-1",
+                                        "parent": {"ref": "m", "name": "M", "kind": "milestone",
+                                                   "board": [{"project": "ENG | Sprint 26.16", "section": "In progress"}]}})
+        sprint = self.write("sprint.json", {"active_sprint": {"gid": "9", "name": "ENG | Sprint 26.16", "due_on": "2099-01-01"}})
+        code, out, err = run(["check", "--offline", "--provider", "asana", "--task-json", task, "--sprint-json", sprint], self.dir)
+        self.assertEqual(code, 0, err)
+        names = {c["name"]: c["result"] for c in json.loads(out)["checks"]}
+        self.assertEqual(names["active_sprint"], "pass")
+
+    def test_subtask_whose_parent_is_off_sprint_fails(self):
+        task = self.write("task.json", {"ref": "1", "name": "t", "status": "Assigned", "board": [],
+                                        "fields": {"Estimate": "1h"},
+                                        "parent": {"ref": "m", "name": "M", "kind": "milestone",
+                                                   "board": [{"project": "Elsewhere", "section": "Inbox"}]}})
+        sprint = self.write("sprint.json", {"active_sprint": {"gid": "9", "name": "ENG | Sprint 26.16", "due_on": "2099-01-01"}})
+        code, out, err = run(["check", "--offline", "--provider", "asana", "--task-json", task, "--sprint-json", sprint], self.dir)
+        self.assertEqual(code, 0, err)
+        names = {c["name"]: c["result"] for c in json.loads(out)["checks"]}
+        self.assertEqual(names["active_sprint"], "fail")
+
     def test_offline_without_task_json_exits_1(self):
         code, _, err = run(["check", "--offline"], self.dir)
         self.assertEqual(code, 1)

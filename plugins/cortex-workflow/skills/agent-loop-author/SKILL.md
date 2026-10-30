@@ -57,23 +57,25 @@ Every run of this skill produces exactly one milestone, even for a single card: 
 milestone branch hangs off, and what a later extension adds cards to. See `references/authoring.md` →
 "The milestone".
 
-- **Hosting project.** Ask the operator for the URL of the project that hosts milestones; there is no
-  default. Resolve it through the task-manager interface and confirm it is a board. Refuse the agent
-  board: a milestone there is a section, and the agent board's columns are its six roles.
-- **Anchor.** `ensure_milestone(project, <name>)`, the name proposed from the source in one line and
+- **Board.** The milestone lives on the agent board and travels its columns as one card:
+  `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run
+  agent-loop-setup" when there is none; stop and say so). Its cards are its **work items**, never
+  members of the agent board (`references/workflow/boards.md` → Milestones).
+- **Milestone.** `ensure_milestone(board, <name>)`, the name proposed from the source in one line and
   confirmed.
+- **Product boards.** Per repository, the board that gives its cards their key and fields
+  (`Category`) — ask the operator; a card joins it, never the agent board.
 - **Branches.** Per repository the cards touch, the parent is the branch this work extends: `main`, or
   an unmerged branch the work builds on. Cut `milestone/<slug>` from `origin/<parent>` and push it, so
   the readiness check finds it on `origin`. One `<slug>` across every repository. An existing
   `milestone/<slug>` is reused.
 - **Base branch.** Every card's base is `milestone/<slug>`; no card ever targets `main`. The review
   run merges each card's PR into that branch; merging the milestone branch into its parent stays the
-  operator's, and the anchor's description says so.
+  operator's, and the milestone's description says so.
 
 Set blockers as **task-manager dependencies** (`add_dependency`), not prose. The run's gate reads
-dependencies and lets a blocker through once it is completed or sits in the board's ready or done column
-— that is, merged into its milestone branch; "after the ledger task lands" in a description is invisible
-to it and the run will start anyway.
+dependencies and lets a blocker through once it is completed — that is, merged into its milestone
+branch; "after the ledger task lands" in a description is invisible to it and the run will start anyway.
 
 ## Card shape
 
@@ -91,7 +93,7 @@ Each card carries all of:
 | Verification | The non-live proof the agent must produce, its fixtures or seed data — **and** the live check left to the operator, named as theirs |
 | Scope boundary | The files, modules or surfaces the card may touch |
 | Dependencies | Task-manager dependency links (cross-repo only), plus their branch names |
-| `Priority` | The neutral Priority field, highest option first. This is the queue's running order; unset sorts last |
+| `Priority` | On the milestone, not the card: the queue runs milestones and single tasks by it, highest first, unset last. A milestone's cards run oldest first |
 | **Decisions taken** | 2–3 calls you made that the reader might overturn |
 | `Category` | A real value, so the run routes bug-fix versus feature work — `Bug` routes bug-fix, everything else routes feature. Never left at `To be Specified` |
 
@@ -128,11 +130,11 @@ case you scoped too narrowly.
 
 ## Creating the cards
 
-Show the milestone name, the per-repository branch table and the full card list in chat for approval first — titles plus the one-line goal, the repository, and the dependency order. Then state the hosting project, the target board and column before writing anything.
+Show the milestone name, the per-repository branch and product-board table and the full card list in chat for approval first — titles plus the one-line goal, the repository, and the dependency order. Then state the agent board, the milestone's ref when it already exists, and each product board before writing anything.
 
-Order of writes: the milestone anchor, the branches, then the cards. Cards meant for unattended execution go to the agent board's **queue**: `resolve_board("agent-queue")` gives the board and its role → column map (the interface says "run agent-loop-setup" when there is none; stop and say so). For each approved card, in dependency order: `create_task(title, description, board, milestone=<anchor ref>, fields={Priority, Category, …})`, then `move_task(card, board, columns.queue)` — a card created without a column may land outside every role and the run never sees it. Membership in the milestone places the card in the hosting project too; the agent board stays the queue. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs. Last, `set_description(anchor, …)` with the card list filled in.
+Order of writes: the milestone, the branches, then the cards. For each approved card, in dependency order: `create_task(title, description, <product board>, milestone=<milestone ref>, fields={Category, …})` — a work item of the milestone: no `move_task`, no column. Cards run oldest first, so creation order is the running order. Set dependencies with `add_dependency` after all the cards exist, since a link needs both refs. Then `set_description(milestone, …)` with the Cards table filled in, every row `waiting`. Last, name the milestone's ref and the queue column, then `set_fields(milestone, {Executor: Agent, Priority})` and `move_task(milestone, board, columns.queue)`: until then the loop does not see it.
 
-**There is one queue and it is ordered by priority.** Reworks and first implementations sit in the same column, so `Priority` decides what runs next — set it on every card, and put the card at the top of the column when it should be taken before its equals. Never assume a card will be picked up because it is a fix.
+**The queue is ordered by priority.** Milestones and single tasks share the queue column, so the milestone's `Priority` decides when its cards run — put it at the top of the column when it should be taken before its equals. A started milestone finishes before a new one opens, and a card waiting on a dependency is skipped, not waited on.
 
 Create nothing beyond the milestone and its cards: no section, no project, no second milestone.
 
