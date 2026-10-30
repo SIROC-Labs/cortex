@@ -23,6 +23,7 @@ Verified behaviour of audits this skill has used:
 | pnpm 10 | `pnpm audit --prod --audit-level high` | Follows both: non-zero only for advisories at or above the level, with dev dependencies dropped before the query. Reads the lock file without installing. |
 | npm | `npm audit --package-lock-only --omit=dev --audit-level=high` | Follows both. |
 | uv | `uv audit --frozen --no-dev --preview-features audit-command,json-output --output-format json` | Preview. Exits 1 on a finding of any severity, and the JSON carries no severity. Read the report, rate each advisory from OSV (`https://api.osv.dev/v1/vulns/<GHSA id>`, `.database_specific.severity`, preferring the GHSA alias), and fail on high, critical or unrated. An exit code above 1 means the audit did not run. A library audits every extra by default: add `--no-extra <name>` for extras that are not runtime (samples, docs). |
+| OSV-Scanner 2 | `osv-scanner --format=json --output=<file> --lockfile=<path>` (reads a SwiftPM `Package.resolved`, including one inside an Xcode project) | Non-zero on a finding of any severity, and also when the scan fails. Run it with `continue-on-error`, then fail the job when the JSON file is missing, or when any group's `max_severity` is 7.0 or above or empty (unrated). |
 
 ## Runtime check per version file
 
