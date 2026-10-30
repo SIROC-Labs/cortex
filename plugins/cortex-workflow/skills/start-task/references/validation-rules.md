@@ -16,7 +16,7 @@ When the Asana provider runs on its MCP transport (see the provider SKILL.md →
 ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/task-manager/scripts/readiness.py check --offline --provider asana --task-json <task.json> --sprint-json <sprint.json>
 ```
 
-The verdict JSON is identical.
+For a milestone member, also project the milestone and pass it with `--milestone-json <milestone.json>`. The verdict JSON is identical.
 
 It prints a verdict JSON and exits `0` whenever a verdict was produced (a non-`ready` verdict is **not** an error — it is the answer); non-zero only on a hard error (provider unresolved, fetch failed). The verdict shape:
 
@@ -24,13 +24,16 @@ It prints a verdict JSON and exits `0` whenever a verdict was produced (a non-`r
 { "ready": true,
   "checks": [
     {"name":"active_sprint","result":"pass|fail","blocking":true,"detail":"…"},
-    {"name":"estimate","result":"pass|fail","blocking":true,"detail":"…"},
+    {"name":"estimate","result":"pass|fail|skip","blocking":true,"detail":"…"},
     {"name":"status","result":"pass|fail","blocking":true,"detail":"…"},
     {"name":"task_key","result":"pass|fail|skip","blocking":false,"detail":"…"}
-  ] }
+  ],
+  "milestone": {"ref":"…","name":"…"} }
 ```
 
-`ready` is `true` only when **active_sprint passes, estimate passes, and the status is a not-yet-started state**. Present the verdict to the operator as the checklist below, then branch on it.
+`milestone` is present only for a milestone member.
+
+`ready` is `true` only when **active_sprint passes, estimate passes (or is skipped for a member), and the status is a not-yet-started state**. Present the verdict to the operator as the checklist below, then branch on it.
 
 ## Branching on the verdict
 
@@ -39,7 +42,16 @@ It prints a verdict JSON and exits `0` whenever a verdict was produced (a non-`r
 - **`active_sprint` fail** (blocking, non-negotiable) → the task is only in an old/completed sprint or no sprint; it must be pulled into the current active sprint **manually** — it cannot be set via the task-manager interface. There is no skip for this.
 - **`estimate` fail** (blocking) → offer to set the Estimate field via the task-manager interface:
   > No estimate set — how long do you estimate?
+- **`estimate` skip** → a milestone member; nothing to do.
 - **`task_key`** (non-blocking, provider-conditional) → `skip` when the provider supplies a native task key — nothing to do. `fail` (provider with no native key, and no `XXX-123` ID-pattern field set) → warn once about traceability, then proceed if the operator opts to skip. **Do not try to set the key through this gate** — the task key may be **provider-managed and read-only** (a provider can auto-assign it and reject writes); if it's genuinely needed it's resolved in the task manager out of band, not by the readiness step. (How a provider manages its key is the provider's concern.)
+
+## Milestone members
+
+A task with a `parent` is gated through its milestone (the verdict's `milestone`):
+
+- **`active_sprint`** checks the **milestone's** sprint membership. On fail, the milestone must be pulled into the active sprint manually, as for a standalone task; the member itself never goes on a sprint board.
+- **`estimate`** is `skip` (`blocking: false`). Members carry no estimate: never ask for one or offer to set one.
+- **`status`** reads Dev Status; only `To Do` is startable. On fail, offer `set_status(member, "To Do")` via the task-manager interface.
 
 The provider owns *how* each datum is realized — `readiness.py` composes the provider's `task get` / `board resolve` primitives, so the workflow stays provider-agnostic.
 
@@ -77,8 +89,16 @@ ID is missing. Skip and continue? (The key may be provider-managed — auto-assi
 
 Warn once about traceability risks, then proceed if skipped.
 
+**A milestone member** shows the milestone and no Estimate line:
+```
+Sprint-Readiness Checks (member of E3 — Checkout redesign):
+- [ ] Active sprint membership — milestone not in the active sprint (REQUIRED — add the milestone manually)
+- [x] Dev Status — To Do
+- [x] Has key: MT251-12
+```
+
 ## Skip Rules
 
-**Active sprint membership, Estimate, Not-yet-started status** — never skippable. Block the workflow. Offer to set Estimate via the task-manager interface and to set the status to the start state (e.g. `Assigned`), but do not proceed until all three are resolved.
+**Active sprint membership, Estimate, Not-yet-started status** — never skippable (a member has no Estimate check). Block the workflow. Offer to set Estimate via the task-manager interface and to set the status to the start state (e.g. `Assigned`), but do not proceed until all three are resolved.
 
 **Task key / ID field** — skipped entirely when the provider has an intrinsic key. Otherwise, if the intent is to skip ("just start", "I'll fix the task manager later"), warn once about traceability risks, then proceed.

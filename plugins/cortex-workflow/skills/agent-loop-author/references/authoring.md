@@ -57,7 +57,8 @@ git -C <repo> ls-remote --exit-code --heads origin milestone/<slug> \
   || git -C <repo> push origin origin/<parent>:refs/heads/milestone/<slug>
 ```
 
-`<slug>` is the milestone name lower-cased, non-alphanumerics collapsed to `-`, trimmed; the same in every
+The Branches table is the one `start-task` reads for a member's base: same columns, one row per
+repository. `<slug>` follows `../../../references/workflow/boards.md` → "Milestone branches" (prefix stripped, slugified); the same in every
 repository. `<parent>` is `main` unless the work extends an unmerged branch, and is recorded per
 repository. Nothing is committed to the milestone branch here; the review run's squash merges fill it.
 
@@ -68,7 +69,7 @@ repository. Nothing is committed to the milestone branch here; the review run's 
 <one paragraph: what the input asked for, and the exclusions with their reasons>
 
 ## Branches
-| Repository | Milestone branch | Parent |
+| Repository | Branch | Parent |
 |---|---|---|
 | <org/repo> | `milestone/<slug>` | `<parent>` |
 
@@ -76,8 +77,9 @@ repository. Nothing is committed to the milestone branch here; the review run's 
 - <ref> — <title> (<repo>)   ← in dependency order
 
 ## Closing
-When every card is in Ready, open `milestone/<slug> → <parent>` in each repository above and review the
-milestone as one change. Extending this milestone means authoring new cards under it with the same base.
+When every card is completed, the review run moves this milestone to To QA and opens
+`milestone/<slug> → <parent>` in each repository above. Human QA reviews the milestone as one change;
+merging is the owner's. Extending this milestone means authoring new cards under it with the same base.
 ```
 
 ## Common mistakes

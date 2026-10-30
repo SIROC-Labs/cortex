@@ -18,7 +18,11 @@
 #
 # Usage:
 #   readiness.py check [--url <task-url-or-ref>] <task-ref>
-#   readiness.py check --offline --task-json <path> [--sprint-json <path>] [--provider <name>]
+#   readiness.py check --offline --task-json <path> [--milestone-json <path>] [--sprint-json <path>] [--provider <name>]
+#
+# A milestone member (a task whose projection has a `parent`) is gated through its
+# milestone — the live check fetches it; offline, pass its projection with
+# --milestone-json.
 #
 # The verdict is emitted as JSON on stdout. Exit 0 when the verdict was produced
 # (whether or not the task is `ready`); non-zero only on a HARD error (could not
@@ -57,6 +61,8 @@ NOT_STARTED_NAMES = {
 }
 # The Jira statusCategory key that means not-yet-started.
 JIRA_NOT_STARTED_CATEGORY = "new"
+# A milestone member's not-yet-started Dev Status.
+DEV_STATUS_NOT_STARTED = "to do"
 
 
 def err(msg):
@@ -161,28 +167,41 @@ def _has_id_field(task):
 # verdict dict. No I/O — unit-testable on mocks.
 #
 # Verdict shape:
-#   {"ready": bool, "checks": [ {name,result,blocking,...}, ... ]}
+#   {"ready": bool, "checks": [ {name,result,blocking,...}, ... ], "milestone"?: {ref,name}}
 #
 # `ready` = active_sprint pass AND estimate pass AND status is not-yet-started.
 # The status check is binary (startable or not); the key check is non-blocking.
-def evaluate_readiness(task, active_sprint, provider_has_native_key):
+#
+# A milestone member (a task with a `parent`) is gated through its milestone: the
+# milestone must be in the active sprint (`milestone` is its projection), members
+# carry no estimate, and a member's Dev Status, when set, decides startability
+# (only "To Do" is startable).
+def evaluate_readiness(task, active_sprint, provider_has_native_key, milestone=None):
     if not isinstance(task, dict):
         task = {}
+    parent = task.get("parent") if isinstance(task.get("parent"), dict) else None
+    is_member = parent is not None
 
-    # Check 1: active sprint membership (blocking, non-negotiable).
+    # Check 1: active sprint membership (blocking, non-negotiable). A member is in
+    # the sprint through its milestone.
     sprint_name = _active_sprint_name(active_sprint)
-    memberships = _task_membership_names(task)
-    if sprint_name is None:
+    holder = milestone if is_member else task
+    memberships = _task_membership_names(holder) if isinstance(holder, dict) else []
+    if is_member and not isinstance(milestone, dict):
+        active_pass = False
+        active_detail = "milestone '%s' not fetched" % (parent.get("name") or parent.get("ref"))
+    elif sprint_name is None:
         active_pass = False
         active_detail = "no active sprint resolved"
     else:
         lowered = {m.strip().lower() for m in memberships}
         active_pass = sprint_name.strip().lower() in lowered
+        subject = "milestone '%s'" % holder.get("name") if is_member else "task"
         if active_pass:
-            active_detail = sprint_name
+            active_detail = sprint_name if not is_member else "%s is in %s" % (subject, sprint_name)
         else:
-            active_detail = "not in active sprint '%s' (memberships: %s)" % (
-                sprint_name, memberships or "none")
+            active_detail = "%s not in active sprint '%s' (memberships: %s)" % (
+                subject, sprint_name, memberships or "none")
     active_check = {
         "name": "active_sprint",
         "result": "pass" if active_pass else "fail",
@@ -190,20 +209,34 @@ def evaluate_readiness(task, active_sprint, provider_has_native_key):
         "detail": active_detail,
     }
 
-    # Check 2: estimate present (blocking).
+    # Check 2: estimate present (blocking; members carry none).
     fields = task.get("fields") if isinstance(task.get("fields"), dict) else {}
     estimate = fields.get("Estimate")
-    estimate_pass = estimate is not None and str(estimate).strip() != ""
-    estimate_check = {
-        "name": "estimate",
-        "result": "pass" if estimate_pass else "fail",
-        "blocking": True,
-        "detail": estimate if estimate_pass else "not set",
-    }
+    if is_member:
+        estimate_pass = True
+        estimate_check = {
+            "name": "estimate",
+            "result": "skip",
+            "blocking": False,
+            "detail": "milestone members carry no estimate",
+        }
+    else:
+        estimate_pass = estimate is not None and str(estimate).strip() != ""
+        estimate_check = {
+            "name": "estimate",
+            "result": "pass" if estimate_pass else "fail",
+            "blocking": True,
+            "detail": estimate if estimate_pass else "not set",
+        }
 
     # Check 3: status (blocking). Binary, like the original gate: a not-yet-started
     # status passes; anything else (active / near-complete / closed) is not startable.
-    not_started, status_detail = _is_not_started(task.get("status"))
+    dev_status = fields.get("Dev Status")
+    if is_member and isinstance(dev_status, str) and dev_status.strip():
+        not_started = dev_status.strip().lower() == DEV_STATUS_NOT_STARTED
+        status_detail = "Dev Status " + dev_status
+    else:
+        not_started, status_detail = _is_not_started(task.get("status"))
     status_check = {
         "name": "status",
         "result": "pass" if not_started else "fail",
@@ -231,10 +264,16 @@ def evaluate_readiness(task, active_sprint, provider_has_native_key):
 
     ready = active_pass and estimate_pass and not_started
 
-    return {
+    verdict = {
         "ready": ready,
         "checks": [active_check, estimate_check, status_check, key_check],
     }
+    if is_member:
+        verdict["milestone"] = {
+            "ref": (milestone or {}).get("ref") or parent.get("ref"),
+            "name": (milestone or {}).get("name") or parent.get("name"),
+        }
+    return verdict
 
 
 # --- live composition (network via the resolved provider's tm.py) -----------
@@ -320,7 +359,19 @@ def _active_sprint_from(obj):
 
 
 USAGE = ("usage: %s check [--url <task-url-or-ref>] <task-ref> | "
-         "check --offline --task-json <path> [--sprint-json <path>] [--provider <name>]" % PROG)
+         "check --offline --task-json <path> [--milestone-json <path>] [--sprint-json <path>] "
+         "[--provider <name>]" % PROG)
+
+
+# A member's milestone is its top-level ancestor (a member may itself be nested).
+def fetch_milestone(tm_path, task):
+    node = task
+    for _ in range(5):
+        parent = node.get("parent") if isinstance(node, dict) else None
+        if not isinstance(parent, dict) or not parent.get("ref"):
+            return node if node is not task else None
+        node = tm_json(tm_path, ["task", "get", parent["ref"]])
+    return node
 
 
 def cmd_check(argv):
@@ -328,6 +379,7 @@ def cmd_check(argv):
     ref = None
     offline = False
     task_json = None
+    milestone_json = None
     sprint_json = None
     provider_opt = None
     i = 0
@@ -341,11 +393,13 @@ def cmd_check(argv):
         elif a == "--offline":
             offline = True
             i += 1
-        elif a in ("--task-json", "--sprint-json", "--provider"):
+        elif a in ("--task-json", "--milestone-json", "--sprint-json", "--provider"):
             if i + 1 >= len(argv):
                 die(1, "%s: %s requires a value" % (PROG, a))
             if a == "--task-json":
                 task_json = argv[i + 1]
+            elif a == "--milestone-json":
+                milestone_json = argv[i + 1]
             elif a == "--sprint-json":
                 sprint_json = argv[i + 1]
             else:
@@ -372,7 +426,8 @@ def cmd_check(argv):
             die(1, "%s: provider '%s' has no tm.py" % (PROG, provider))
         task = _load_json_file(task_json, "task projection")
         active_sprint = _active_sprint_from(_load_json_file(sprint_json, "active sprint")) if sprint_json else None
-        verdict = evaluate_readiness(task, active_sprint, provider_has_native_key(tm_path))
+        milestone = _load_json_file(milestone_json, "milestone projection") if milestone_json else None
+        verdict = evaluate_readiness(task, active_sprint, provider_has_native_key(tm_path), milestone)
         sys.stdout.write(json.dumps(verdict, indent=2) + "\n")
         sys.exit(0)
 
@@ -389,12 +444,13 @@ def cmd_check(argv):
 
     # DATA from provider primitives (this script never re-implements fetching).
     task = tm_json(tm_path, ["task", "get", ref])
+    milestone = fetch_milestone(tm_path, task)
     key = cache_util.project_key()
     active_sprint = tm_json(tm_path, ["board", "resolve", key, "active-sprint"])
     has_native_key = provider_has_native_key(tm_path)
 
     # POLICY via the pure function.
-    verdict = evaluate_readiness(task, active_sprint, has_native_key)
+    verdict = evaluate_readiness(task, active_sprint, has_native_key, milestone)
     sys.stdout.write(json.dumps(verdict, indent=2) + "\n")
     sys.exit(0)
 

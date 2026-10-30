@@ -1,17 +1,18 @@
 # Validation Checklist
 
-Run validation after generating files in Phase 5 (`breakdown.md`) and Phase 6 (each `M{N}-milestone-spec.md`), and again before invoking `submit-breakdown` (Phase 8). Each rule below is a hard check — failures surface to the user inline, list each rule that failed with the offending line/section, and block Phase 5/6 file writes or Phase 8 submit until all failures are resolved. No silent skips.
+Run validation after generating files in Phase 5 (`breakdown.md`) and Phase 6 (each `E{N}-milestone-spec.md`), and again before invoking `submit-breakdown` (Phase 8). Each rule below is a hard check — failures surface to the user inline, list each rule that failed with the offending line/section, and block Phase 5/6 file writes or Phase 8 submit until all failures are resolved. No silent skips.
 
 ## On breakdown.md
 
-- Each `## M{N} ::` block has `**Purpose:**` and `**Description:**` (required).
+- Each `## E{N} ::` block has `**Goal:**`, `**Description:**` and `**Definition of done:**` (required).
+- `**Definition of done:**` has ≥1 bullet, each an outcome also listed in the milestone's `## Acceptance Criteria`.
 - `**Description:**` is product-language (no class names, endpoint paths, or framework patterns anywhere in the prose).
 - `**References:**` (if present) contains only codebase paths, public URLs, Figma URLs — no input-doc paths.
 - `**Attachments:**` lists existing files in the same folder (re-checked at bundle level — see below).
-- `**Depends on:**` M-labels all resolve to other `## M{N} ::` blocks in this file (no dangling refs, no cycles).
-- M-labels are sequential from M1, no gaps.
+- `**Depends on:**` E-labels all resolve to other `## E{N} ::` blocks in this file (no dangling refs, no cycles).
+- E-labels are sequential from E1, no gaps.
 
-## On each M{N}-milestone-spec.md
+## On each E{N}-milestone-spec.md
 
 - Has `## Product Requirements` with ≥1 bullet.
 - Has `## Acceptance Criteria` with ≥1 bullet.
@@ -24,7 +25,7 @@ Run validation after generating files in Phase 5 (`breakdown.md`) and Phase 6 (e
 ## On the bundle as a whole
 
 - Every `**Attachments:**` entry in `breakdown.md` points to an existing file in the folder.
-- Every `M{N}-milestone-spec.md` in the folder is referenced by exactly one milestone block.
+- Every `E{N}-milestone-spec.md` in the folder is referenced by exactly one milestone block.
 
 ## On failure
 
@@ -32,7 +33,7 @@ Surface failures to the user inline, listing each rule that failed with the offe
 
 ```
 Validation failed (3 issues):
-- breakdown.md / M2 :: Billing — missing **Purpose:** field (line 27)
-- breakdown.md / M3 :: Reporting — **Description:** uses framework language ("React component"); rewrite in product language (line 39)
-- M2-milestone-spec.md — no `## Acceptance Criteria` section
+- breakdown.md / E2 :: Billing — missing **Goal:** field (line 27)
+- breakdown.md / E3 :: Reporting — **Description:** uses framework language ("React component"); rewrite in product language (line 39)
+- E2-milestone-spec.md — no `## Acceptance Criteria` section
 ```

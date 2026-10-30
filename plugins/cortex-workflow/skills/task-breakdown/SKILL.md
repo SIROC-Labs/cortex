@@ -9,7 +9,7 @@ description: >
   Never authors milestone content: if the seam check detects multi-milestone scope, it
   redirects the user to `milestone-breakdown` (user always has final say). Use this skill
   whenever the user wants to break a single scope into tasks — "break this into tasks",
-  "task-breakdown", "/task-breakdown", "plan the tasks under M3", or provides a milestone
+  "task-breakdown", "/task-breakdown", "plan the tasks under E3", or provides a milestone
   task URL / project URL + milestone name / local spec / free text / current directory and
   wants implementation tasks. Reads source code + convention files only during discovery —
   never prior breakdowns, specs, PRDs, or planning docs.
@@ -25,7 +25,7 @@ Subdivide one coherent scope into implementation tasks. Output is a folder bundl
 
 A bundle produced here is push-ready: every task with a plan attachment lands `Unassigned`. Tasks without a plan land `Refinement`. No separate `refine-tasks` pass is needed for tasks created via this skill.
 
-All task-manager reads (resolving a milestone URL, reading existing tasks for context) go through the neutral `task-manager` seam. This skill never writes to the task manager — that is `submit-breakdown`.
+The target milestone is the epic: the bundle's tasks become its members, carry no estimate, and never go on a sprint board — the milestone does. All task-manager reads (resolving a milestone URL, reading its members with `milestone_tasks` for context) go through the neutral `task-manager` seam. This skill never writes to the task manager — that is `submit-breakdown`.
 
 ## Single Unified Flow
 
@@ -51,7 +51,7 @@ Drive via `superpowers:brainstorming`. Topic universe scoped to task-level decis
 - Verification path per task — "if this were the only task done, how would you confirm it works by running the app?" Surface this for every task, especially infrastructure-leaning ones.
 - Trade-offs the user hasn't named
 
-One question at a time. Treat the user as a technical expert. Capture any milestone reference the user names — it becomes the optional `**Target milestone:**` metadata.
+One question at a time. Treat the user as a technical expert. Capture any milestone reference the user names (`E3`, a milestone URL) — it becomes the optional `**Target milestone:**` metadata.
 
 ### Phase 3 — Task List Proposal & Approval
 
@@ -83,12 +83,12 @@ If yes, invoke `cortex-workflow:submit-breakdown` via the Skill tool with the fo
 
 ## What This Skill Does NOT Do
 
-- Author milestone content. Milestone blocks (Purpose, Product Requirements, milestone-level Acceptance Criteria, M-label DAG, milestone-spec attachments) belong exclusively to `milestone-breakdown`.
+- Author milestone content. Milestone blocks (Goal, Definition of done, Product Requirements, milestone-level Acceptance Criteria, E-label DAG, milestone-spec attachments) belong exclusively to `milestone-breakdown`.
 - Validate milestones, enforce milestone DAG rules, or touch any milestone task description.
 - Create or modify task-manager resources — that is `submit-breakdown`.
 - Read prior task-breakdowns, prior milestone-breakdowns, prior PRDs, prior specs, or any planning doc during discovery.
 - Write code, scaffold projects, or modify application sources.
-- Assign people, set priorities beyond the workflow default, or produce estimates.
+- Assign people, set priorities beyond the workflow default, or produce estimates (members carry none).
 
 ## Reference Files
 

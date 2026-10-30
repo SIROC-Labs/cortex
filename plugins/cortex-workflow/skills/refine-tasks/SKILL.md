@@ -2,12 +2,12 @@
 name: refine-tasks
 description: >
   Turns Refinement-status tasks into one-shotters. Given any input that
-  resolves to a deterministic set of tasks (task URLs, a milestone/grouping
+  resolves to a deterministic set of tasks (task URLs, a milestone's members
   in a project, a project URL, or a user-described filter), reads the codebase,
   resolves ambiguities, composes a detailed implementation plan per task,
   attaches it as implementation-plan.md, and transitions the task from
   Refinement to Unassigned. Triggers: "refine these tasks",
-  "/refine-tasks", "refine M1", "refine milestone X", or providing one or more
+  "/refine-tasks", "refine E1", "refine milestone X", or providing one or more
   task URLs alongside a request to detail / spec / plan them. Do NOT
   trigger to create new tasks, or to start implementing / executing
   a task.
@@ -33,9 +33,9 @@ The skill operates on tasks in **Refinement** status — typically produced upst
 Any input that resolves to a deterministic, ordered list of tasks. Accepted shapes:
 
 - One or more task URLs.
-- A project URL plus a milestone (grouping) name — e.g., "refine M1" or "refine the Core Data Layer milestone".
+- A project URL plus a milestone name — e.g., "refine E1" or "refine the Core Data Layer milestone" — meaning that milestone's members.
 - A project URL alone — implies "every task in Refinement status in this project".
-- A project URL plus a user-described filter — e.g., "all backend Refinement tasks in M2".
+- A project URL plus a user-described filter — e.g., "all backend Refinement tasks in E2".
 
 Read **`references/input-resolution.md`** for the resolution rules and the exact prompts to use when the input is ambiguous.
 
@@ -50,7 +50,7 @@ Whatever the input, **confirm the resolved set with the user before proceeding**
 
 ## Strict state filter
 
-A task is eligible for refinement **only if Product Status = Refinement**. Any task in another status is refused (logged and skipped, not silently passed through). This makes the lifecycle one-directional and avoids ambiguity about "re-refinement" or "downgrade from Unassigned."
+A task is eligible for refinement **only if Product Status = Refinement** and it is a milestone member or a standalone task — never a milestone itself (`kind == milestone`). A member's Dev Status is left untouched. Any task in another status is refused (logged and skipped, not silently passed through). This makes the lifecycle one-directional and avoids ambiguity about "re-refinement" or "downgrade from Unassigned."
 
 If the user wants to re-refine a task, they must first change its status back to Refinement manually. This skill does not perform that transition.
 

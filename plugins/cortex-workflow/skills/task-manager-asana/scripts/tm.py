@@ -68,12 +68,16 @@
 # field FIRST (resolve via the `fields` logic; if <status-name> matches an enum
 # option, PUT custom_fields), and falls back to a board SECTION move (discover the
 # task's project sections; if <status-name> matches a section name, POST
-# /sections/<gid>/addTask). Matches neither -> exit 1 with a clear message.
+# /sections/<gid>/addTask). Matches neither -> exit 1 with a clear message. A
+# milestone member (subtask) tries its Dev Status field, then Product Status, both
+# resolved through its parent's projects, and never moves on a board; "Done" also
+# marks it completed. set-field/set-fields resolve a
+# project-less subtask's fields the same way.
 #
 # `task get` fetches the task with the documented opt_fields and prints a COMPACT
-# neutral projection (NOT the raw API blob) — {ref,name,description,assignee,status,
-# board,fields,task_id?} — to save tokens. `task_id` is the human task key, surfaced
-# read-only from a custom_id field (by resource_subtype) or, failing that, a text
+# neutral projection (NOT the raw API blob) — {ref,name,kind,description,assignee,
+# status,completed,board,fields,parent?,task_id?} — to save tokens. `task_id` is the
+# human task key, surfaced read-only from a custom_id field (by resource_subtype) or, failing that, a text
 # field whose value matches the XXX-123 key shape (names vary per project). Custom-field
 # names are mapped to canonical names
 # via the same `fields` match logic; `status` is the Product Status field's value.
@@ -92,9 +96,12 @@
 #
 #   tm.py ref parse <url-or-ref>
 #
-# Milestone family — a milestone is a board SECTION + a kind=milestone anchor task
-# inside it; member tasks share the section. The anchor gid is the milestone's neutral
-# ref. `task create --milestone <anchor-gid>` drops a member into the milestone.
+# Milestone family — a milestone is an EPIC: a task in the board's "Epics" section;
+# its members are its native subtasks. The epic gid is the milestone's neutral ref.
+# `task create --milestone <epic-gid>` creates the member as a subtask (fields from
+# <project-ref>, Dev Status defaulting to To Do). Legacy milestones (a section + a
+# resource_subtype=milestone anchor, members sharing the section) are still read and
+# extended the legacy way.
 #
 #   tm.py milestone list   <project-ref>
 #   tm.py milestone tasks  <project-ref> <milestone-ref>
@@ -172,7 +179,14 @@ TASK_ID_POLL_ATTEMPTS = 8
 TASK_ID_POLL_INTERVAL = 0.5
 # Bump when build_fields_map's entry shape changes so stale caches re-discover.
 # v2 adds name/format/precision (needed for Estimate unit handling).
-FIELDS_SCHEMA_VERSION = 2
+# v3 adds the Dev Status canonical field.
+FIELDS_SCHEMA_VERSION = 3
+# A milestone (epic) is a task in a board section with this name; its members are
+# its native subtasks. Legacy milestones (a section + a resource_subtype=milestone
+# anchor, members sharing the section) are still read.
+EPIC_SECTION_RE = re.compile(r"^\s*epics?\s*$", re.IGNORECASE)
+# Dev Status option that also marks the member task completed.
+DEV_STATUS_DONE = "done"
 # Board classification patterns (regex strings). A project is a SPRINT if its name
 # matches any sprint pattern; a BACKLOG board if it matches any backlog pattern AND no
 # sprint pattern. Defaults cover the known siroc conventions; a workspace with a
@@ -858,8 +872,10 @@ def _capture_stdout(fn, args):
 # substring-matches wins. "Category" ("category"/"type") is listed before
 # "Product Status" so a "Product Status" field — whose own patterns include the
 # generic "status"/"state" — is not stolen, and so a bare "Type" field maps to
-# Category. Assignee is native (not a custom field) and is injected separately.
+# Category. "Dev Status" is listed first for the same reason. Assignee is native
+# (not a custom field) and is injected separately.
 CANONICAL_FIELD_PATTERNS = [
+    ("Dev Status", ["dev status", "development status"]),
     ("Platform", ["platform"]),
     ("Priority", ["priority", "urgency", "severity"]),
     ("Sizing", ["story points", "t-shirt", "sizing", "size", "points"]),
@@ -1218,8 +1234,24 @@ TASK_GET_OPT_FIELDS = (
     "custom_fields.name,custom_fields.display_value,custom_fields.type,"
     "custom_fields.resource_subtype,"
     "custom_fields.enum_value.name,"
-    "memberships.project.name,memberships.section.name"
+    "memberships.project.name,memberships.section.name,"
+    "parent.name"
 )
+
+
+# Pure: is this raw task a milestone? Either a legacy resource_subtype=milestone
+# anchor, or an epic — a task filed in an "Epics" section.
+def is_milestone_task(raw):
+    if not isinstance(raw, dict):
+        return False
+    if raw.get("resource_subtype") == "milestone":
+        return True
+    for m in raw.get("memberships") or []:
+        sect = m.get("section") if isinstance(m, dict) else None
+        name = sect.get("name") if isinstance(sect, dict) else None
+        if isinstance(name, str) and EPIC_SECTION_RE.match(name):
+            return True
+    return False
 
 
 # Pure projection: raw Asana task dict (the `data` object of GET /tasks/<gid>) ->
@@ -1239,6 +1271,10 @@ TASK_GET_OPT_FIELDS = (
 # - fields      : custom fields whose name maps to a canonical name, as
 #                 {<CanonicalName>: <value>} (display_value, falling back to the
 #                 enum option name). Product Status is also surfaced here.
+# - kind        : "milestone" for an epic or a legacy anchor (is_milestone_task)
+# - completed   : the task's completion flag
+# - parent      : {ref, name} when the task is a subtask (a milestone member);
+#                 omitted otherwise
 def project_task(raw):
     if not isinstance(raw, dict):
         raw = {}
@@ -1315,13 +1351,17 @@ def project_task(raw):
     out = {
         "ref": raw.get("gid"),
         "name": raw.get("name"),
-        "kind": "milestone" if raw.get("resource_subtype") == "milestone" else "task",
+        "kind": "milestone" if is_milestone_task(raw) else "task",
         "description": raw.get("notes"),
         "assignee": assignee,
         "status": status,
+        "completed": bool(raw.get("completed")),
         "board": board,
         "fields": fields,
     }
+    parent = raw.get("parent")
+    if isinstance(parent, dict) and parent.get("gid"):
+        out["parent"] = {"ref": parent.get("gid"), "name": parent.get("name")}
     if task_id is not None:
         out["task_id"] = task_id
     return out
@@ -1363,7 +1403,8 @@ def task_list(args):
     key = cache_util.project_key()
     token = resolve_token(key)
     opt = ("gid,name,completed,resource_subtype,assignee.name,custom_fields.name,"
-           "custom_fields.display_value,custom_fields.enum_value.name,custom_fields.resource_subtype")
+           "custom_fields.display_value,custom_fields.enum_value.name,custom_fields.resource_subtype,"
+           "memberships.section.name")
     if section:
         url = "%s/sections/%s/tasks?opt_fields=%s&limit=100" % (API_BASE, section, opt)
     else:
@@ -1411,7 +1452,7 @@ def task_project(args):
 # board membership is reflected), not the raw Asana blob.
 def task_create(args):
     if not args:
-        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--kind task|milestone] [--set Name=Value ...] [--wait-key]" % PROG)
+        die(1, "usage: %s task create <project-ref> --title T [--description D] [--assignee A] [--kind task|milestone] [--milestone <ref>] [--set Name=Value ...] [--wait-key]" % PROG)
     project_ref = args[0]
     opts = args[1:]
     title = None
@@ -1458,14 +1499,24 @@ def task_create(args):
         die(4, "%s: task create requires a cached workspace_gid — run bootstrap first (board write <key> <json> / board discover <key>)" % PROG)
     token = resolve_token(key)
 
-    data = {"name": title, "workspace": wgid}
+    data = {"name": title}
     if kind == "milestone":
         data["resource_subtype"] = "milestone"  # create a milestone-subtype task
     if description is not None:
         data["notes"] = description
     if assignee is not None:
         data["assignee"] = assignee
-    created = api_json("%s/tasks" % API_BASE, token, "POST", {"data": data})
+
+    # Milestone membership: an epic's member is its native subtask, with no project
+    # of its own; its fields come from <project-ref>, the epic's board. A legacy
+    # milestone (a resource_subtype=milestone anchor) keeps its section-member model.
+    legacy_milestone = milestone_ref is not None and is_legacy_anchor(milestone_ref, token)
+    as_subtask = milestone_ref is not None and not legacy_milestone
+    if as_subtask:
+        created = api_json("%s/tasks/%s/subtasks" % (API_BASE, milestone_ref), token, "POST", {"data": data})
+    else:
+        data["workspace"] = wgid
+        created = api_json("%s/tasks" % API_BASE, token, "POST", {"data": data})
     task = created.get("data") if isinstance(created, dict) else None
     gid = task.get("gid") if isinstance(task, dict) else None
     if not gid:
@@ -1473,14 +1524,15 @@ def task_create(args):
 
     # custom fields are rejected before the task belongs to a project, so add it first,
     # then apply any --set fields in ONE batched PUT.
-    api_json("%s/tasks/%s/addProject" % (API_BASE, gid), token, "POST", {"data": {"project": project_ref}})
-    # Milestone membership: on Asana a milestone is realized as a board SECTION (its
-    # anchor is a kind=milestone task); a member task joins that anchor's section.
-    if milestone_ref:
+    if not as_subtask:
+        api_json("%s/tasks/%s/addProject" % (API_BASE, gid), token, "POST", {"data": {"project": project_ref}})
+    if legacy_milestone:
         section_gid = resolve_milestone_section(milestone_ref, project_ref, token)
         if not section_gid:
             die(1, "%s: task create: could not resolve the section for milestone %s in project %s" % (PROG, milestone_ref, project_ref))
         api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": gid}})
+    if as_subtask:
+        set_pairs = with_default_dev_status(key, project_ref, set_pairs)
     if set_pairs:
         fdata, skipped = build_field_writes(key, token, [project_ref], parse_field_pairs(set_pairs))
         if skipped:
@@ -1506,6 +1558,27 @@ def task_create(args):
             time.sleep(TASK_ID_POLL_INTERVAL)
     sys.stdout.write(json.dumps(proj, indent=2) + "\n")
     sys.exit(0)
+
+
+# Is <task-gid> a legacy milestone anchor (resource_subtype=milestone)?
+def is_legacy_anchor(task_gid, token):
+    payload = api_get("%s/tasks/%s?opt_fields=resource_subtype" % (API_BASE, task_gid), token)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return isinstance(data, dict) and data.get("resource_subtype") == "milestone"
+
+
+# A new milestone member starts at Dev Status "To Do" unless the caller set one, when
+# the board has a Dev Status field with that option.
+def with_default_dev_status(key, project_gid, set_pairs):
+    if any(p.split("=", 1)[0].strip() == "Dev Status" for p in set_pairs):
+        return set_pairs
+    entry = _resolve_field_entry(key, project_gid, "Dev Status")
+    if not isinstance(entry, dict):
+        return set_pairs
+    for opt in entry.get("enum_options") or []:
+        if isinstance(opt, dict) and isinstance(opt.get("name"), str) and opt["name"].lower() == "to do":
+            return list(set_pairs) + ["Dev Status=%s" % opt["name"]]
+    return set_pairs
 
 
 def task_delete(args):
@@ -1536,6 +1609,31 @@ def task_project_gids(task_gid, token):
                 if isinstance(p, dict) and p.get("gid"):
                     out.append(p.get("gid"))
     return out
+
+
+# Resolve the projects whose custom fields apply to a task, and whether the task is
+# a member (a subtask). A subtask usually belongs to no project, but Asana accepts
+# its parent's project fields on it, so a project-less subtask resolves fields
+# through its nearest ancestor that has projects. Returns (project_gids, is_member).
+def field_project_gids(task_gid, token):
+    is_member = False
+    gid = task_gid
+    for _ in range(5):
+        url = "%s/tasks/%s?opt_fields=projects.gid,parent.gid" % (API_BASE, gid)
+        payload = api_get(url, token)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            break
+        projects = [p.get("gid") for p in (data.get("projects") or [])
+                    if isinstance(p, dict) and p.get("gid")]
+        parent = data.get("parent")
+        parent_gid = parent.get("gid") if isinstance(parent, dict) else None
+        if gid == task_gid and parent_gid:
+            is_member = True
+        if projects or not parent_gid:
+            return projects, is_member
+        gid = parent_gid
+    return [], is_member
 
 
 # Print a task-returning write response as the same compact projection as `task get`
@@ -1644,9 +1742,9 @@ def task_set_field(args):
         print_task_projection(updated)
         sys.exit(0)
 
-    project_gids = task_project_gids(task_gid, token)
+    project_gids, _ = field_project_gids(task_gid, token)
     if not project_gids:
-        die(1, "%s: task set-field: task %s belongs to no project — cannot resolve custom fields" % (PROG, task_gid))
+        die(1, "%s: task set-field: neither task %s nor its parents belong to a project — cannot resolve custom fields" % (PROG, task_gid))
 
     try:
         r = resolve_field_write(key, token, project_gids, name, value)
@@ -1675,9 +1773,9 @@ def task_set_fields(args):
     pairs = parse_field_pairs(args[1:])
     key = cache_util.project_key()
     token = resolve_token(key)
-    project_gids = task_project_gids(task_gid, token)
+    project_gids, _ = field_project_gids(task_gid, token)
     if not project_gids:
-        die(1, "%s: task set-fields: task %s belongs to no project — cannot resolve custom fields" % (PROG, task_gid))
+        die(1, "%s: task set-fields: neither task %s nor its parents belong to a project — cannot resolve custom fields" % (PROG, task_gid))
     data, skipped = build_field_writes(key, token, project_gids, pairs)
     if skipped:
         err("%s: task set-fields: skipped fields not on the task's project(s): %s" % (PROG, ", ".join(skipped)))
@@ -1834,13 +1932,27 @@ def decide_set_status(status_name, ps_field, sections):
             ):
                 return ("field", opt.get("id"))
     if isinstance(sections, list):
-        for sect in sections:
-            if not isinstance(sect, dict):
-                continue
-            sname = sect.get("name")
-            if isinstance(sname, str) and status_name.lower() == sname.lower():
+        named = [s for s in sections if isinstance(s, dict) and isinstance(s.get("name"), str)]
+        for sect in named:
+            if status_name.lower() == sect["name"].lower():
+                return ("section", sect.get("gid"))
+        # A qualified column ("To QA (local)") realizes its bare status ("To QA").
+        for sect in named:
+            sname = sect["name"].lower()
+            if sname.startswith(status_name.lower() + " ("):
                 return ("section", sect.get("gid"))
     return ("none", None)
+
+
+# Pure decision for a milestone member (subtask): its execution status is the Dev
+# Status field, not a board column. Returns (<option-gid>, <completes>) when
+# <status-name> matches a Dev Status option — <completes> is True for "Done", which
+# also marks the task completed — or None when it matches no option.
+def decide_member_status(status_name, dev_field):
+    axis, option = decide_set_status(status_name, dev_field, [])
+    if axis != "field" or not option:
+        return None
+    return option, status_name.strip().lower() == DEV_STATUS_DONE
 
 
 # Fetch a project's board sections as a list of {gid,name}.
@@ -1856,8 +1968,11 @@ def fetch_project_sections(project_gid, token):
     return out
 
 
-# Set a task's status (two-axis, per ../../../references/workflow/lifecycle.md).
-# <task-ref> is a task GID; <status-name> is a neutral lifecycle name. Order:
+# Set a task's status (per ../../../references/workflow/lifecycle.md).
+# <task-ref> is a task GID; <status-name> is a neutral lifecycle name. A milestone
+# member (subtask) tries its Dev Status field, then Product Status, resolved through
+# its own or its parent's projects, and never takes a section move; "Done" also
+# marks it completed. Otherwise, two axes:
 # (1) Product Status custom field — resolve via the `fields` logic against the
 #     task's project(s); if <status-name> matches an enum option, PUT the option.
 # (2) Board section move — discover the task's project sections; if <status-name>
@@ -1872,9 +1987,27 @@ def task_set_status(args):
     key = cache_util.project_key()
     token = resolve_token(key)
 
-    project_gids = task_project_gids(task_gid, token)
+    field_gids, is_member = field_project_gids(task_gid, token)
+    if is_member:
+        for pgid in field_gids:
+            dev_field = _resolve_field_entry(key, pgid, "Dev Status")
+            decision = decide_member_status(status_name, dev_field)
+            if decision is None:
+                continue
+            option, completes = decision
+            data = {"custom_fields": {dev_field.get("id"): option}}
+            if completes:
+                data["completed"] = True
+            api_json("%s/tasks/%s" % (API_BASE, task_gid), token, "PUT", {"data": data})
+            sys.stdout.write(json.dumps({"axis": "field", "field": "Dev Status", "option": option,
+                                         "completed": completes, "task": task_gid}, indent=2) + "\n")
+            sys.exit(0)
+
+    # A member still carries a Product Status (resolved like its Dev Status), but never
+    # moves on a board: a section move would place it there.
+    project_gids = field_gids if is_member else task_project_gids(task_gid, token)
     if not project_gids:
-        die(1, "%s: task set-status: task %s belongs to no project — cannot resolve status" % (PROG, task_gid))
+        die(1, "%s: task set-status: neither task %s nor its parents belong to a project — cannot resolve status" % (PROG, task_gid))
 
     # Axis 1: Product Status custom field — try each of the task's projects.
     for pgid in project_gids:
@@ -1888,6 +2021,9 @@ def task_set_status(args):
             sys.stdout.write(json.dumps({"axis": "field", "field": "Product Status",
                                          "option": target, "task": out.get("gid") if isinstance(out, dict) else None}, indent=2) + "\n")
             sys.exit(0)
+
+    if is_member:
+        die(1, "%s: task set-status: '%s' is not a Dev Status or Product Status option for member task %s" % (PROG, status_name, task_gid))
 
     # Axis 2: board section move — try each of the task's projects.
     for pgid in project_gids:
@@ -1912,10 +2048,24 @@ def task_set_status(args):
 #   {"axis":"section","section_gid":…}             -> update_tasks add_projects
 # Neither -> exit 1. No cached fields -> exit 2 (ingest first), because the field
 # axis must be tried before the section axis and cannot be tried blind.
+# --member plans a milestone member's Dev Status instead (<project-gid> = the
+# parent's project; no sections):
+#   {"axis":"field","field_gid":…,"option_gid":…,"completed":bool}
 def status_plan(args):
     if len(args) < 2:
-        die(1, "usage: %s status plan <project-gid> <status-name> --sections-from-json <path|->" % PROG)
+        die(1, "usage: %s status plan <project-gid> <status-name> (--sections-from-json <path|-> | --member)" % PROG)
     project_gid, status_name = args[0], args[1]
+    if "--member" in args[2:]:
+        fields_map = cached_fields_map(cache_util.project_key(), project_gid)
+        if fields_map is None:
+            die(2, "%s: status plan: no cached fields for project %s — run '%s fields ingest' first" % (PROG, project_gid, PROG))
+        dev_field = fields_map.get("Dev Status")
+        decision = decide_member_status(status_name, dev_field if isinstance(dev_field, dict) else None)
+        if decision is None:
+            die(1, "%s: status plan: '%s' is not a Dev Status option of project %s" % (PROG, status_name, project_gid))
+        sys.stdout.write(json.dumps({"axis": "field", "field_gid": dev_field.get("id"),
+                                     "option_gid": decision[0], "completed": decision[1]}, indent=2) + "\n")
+        sys.exit(0)
     sections = _unwrap_data(_load_from_json(args[2:], "--sections-from-json"))
     if isinstance(sections, dict) and isinstance(sections.get("sections"), list):
         sections = sections["sections"]
@@ -1976,14 +2126,14 @@ def task_set_notes(args):
 
 
 # --- milestone family -------------------------------------------------------
-# A milestone is realized on Asana as a board SECTION plus a kind=milestone anchor
-# task inside it; member (implementation) tasks live in the same section. The neutral
-# seam only knows "a task belongs to a milestone" — the anchor task gid is the
-# milestone's neutral ref; sections stay an Asana-internal detail here.
+# A milestone is realized on Asana as an EPIC: a task filed in an "Epics" section
+# (EPIC_SECTION_RE) whose members are its native subtasks. The epic task gid is the
+# milestone's neutral ref. Legacy milestones — a section plus a resource_subtype=
+# milestone anchor, members sharing the section — are still read and extended.
 
-# Fetch a section's tasks as [{gid,name,kind}] (paginated).
+# Fetch a section's tasks as [{gid,name,kind,subtasks}] (paginated).
 def fetch_section_tasks(section_gid, token):
-    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype&limit=100" % (API_BASE, section_gid)
+    url = "%s/sections/%s/tasks?opt_fields=name,resource_subtype,num_subtasks&limit=100" % (API_BASE, section_gid)
     out = []
     while url:
         payload = api_get(url, token)
@@ -1992,10 +2142,25 @@ def fetch_section_tasks(section_gid, token):
             for t in data:
                 if isinstance(t, dict):
                     out.append({"gid": t.get("gid"), "name": t.get("name"),
-                                "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task"})
+                                "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task",
+                                "subtasks": t.get("num_subtasks") or 0})
         nxt = payload.get("next_page") if isinstance(payload, dict) else None
         url = nxt.get("uri") if isinstance(nxt, dict) else None
     return out
+
+
+# Pure: one section's tasks -> its milestones as [{name, ref, expanded}]. In an Epics
+# section every task is an epic, expanded once it has subtasks; elsewhere a legacy
+# anchor makes the section one milestone, expanded once it has non-anchor tasks.
+def classify_section(section_name, tasks):
+    if isinstance(section_name, str) and EPIC_SECTION_RE.match(section_name):
+        return [{"name": t.get("name"), "ref": t.get("gid"), "expanded": (t.get("subtasks") or 0) > 0}
+                for t in tasks]
+    anchor = next((t for t in tasks if t.get("kind") == "milestone"), None)
+    if anchor is None:
+        return []
+    return [{"name": section_name, "ref": anchor.get("gid"),
+             "expanded": any(t.get("kind") != "milestone" for t in tasks)}]
 
 
 # Given a milestone anchor task gid, return the gid of the section it occupies in the
@@ -2015,8 +2180,7 @@ def resolve_milestone_section(anchor_gid, project_gid, token):
     return None
 
 
-# `milestone list <project>`: milestones on the board — one per section that carries a
-# kind=milestone anchor — each {name, ref (anchor gid), expanded (has >=1 member task)}.
+# `milestone list <project>`: the board's milestones, each {name, ref, expanded}.
 def milestone_list(args):
     if not args:
         die(1, "usage: %s milestone list <project-ref>" % PROG)
@@ -2025,38 +2189,48 @@ def milestone_list(args):
     token = resolve_token(key)
     out = []
     for sect in fetch_project_sections(project_gid, token):
-        tasks = fetch_section_tasks(sect.get("gid"), token)
-        anchor = next((t for t in tasks if t["kind"] == "milestone"), None)
-        if anchor is None:
-            continue
-        out.append({
-            "name": sect.get("name"),
-            "ref": anchor.get("gid"),
-            "expanded": any(t["kind"] != "milestone" for t in tasks),
-        })
+        out.extend(classify_section(sect.get("name"), fetch_section_tasks(sect.get("gid"), token)))
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
-# `milestone tasks <project> <milestone-ref>`: the milestone's member tasks (its
-# section's non-anchor tasks) as [{gid,name,kind}].
+# `milestone tasks <project> <milestone-ref>`: the milestone's member tasks as
+# [{gid,name,kind,completed,fields}] — an epic's subtasks, or a legacy anchor's
+# section-mates.
 def milestone_tasks(args):
     if len(args) < 2:
         die(1, "usage: %s milestone tasks <project-ref> <milestone-ref>" % PROG)
-    project_gid, anchor_gid = args[0], args[1]
+    project_gid, ref = args[0], args[1]
     key = cache_util.project_key()
     token = resolve_token(key)
-    sgid = resolve_milestone_section(anchor_gid, project_gid, token)
-    if not sgid:
-        die(1, "%s: milestone tasks: milestone %s not found in project %s" % (PROG, anchor_gid, project_gid))
-    members = [t for t in fetch_section_tasks(sgid, token) if t["kind"] != "milestone"]
+    if is_legacy_anchor(ref, token):
+        sgid = resolve_milestone_section(ref, project_gid, token)
+        if not sgid:
+            die(1, "%s: milestone tasks: milestone %s not found in project %s" % (PROG, ref, project_gid))
+        members = [t for t in fetch_section_tasks(sgid, token) if t["kind"] != "milestone"]
+        sys.stdout.write(json.dumps(members, indent=2) + "\n")
+        sys.exit(0)
+    opt = ("name,completed,resource_subtype,custom_fields.name,custom_fields.display_value,"
+           "custom_fields.enum_value.name,custom_fields.resource_subtype")
+    url = "%s/tasks/%s/subtasks?opt_fields=%s&limit=100" % (API_BASE, ref, opt)
+    members = []
+    while url:
+        payload = api_get(url, token)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        for item in data if isinstance(data, list) else []:
+            if isinstance(item, dict):
+                p = project_task(item)
+                members.append({"gid": item.get("gid"), "name": item.get("name"), "kind": "task",
+                                "completed": p["completed"], "fields": p["fields"]})
+        nxt = payload.get("next_page") if isinstance(payload, dict) else None
+        url = nxt.get("uri") if isinstance(nxt, dict) else None
     sys.stdout.write(json.dumps(members, indent=2) + "\n")
     sys.exit(0)
 
 
 # Offline half of `milestone list`: the agent fetched each section's tasks over the
 # MCP transport and hands in [{"section":{gid,name},"tasks":[{gid,name,
-# resource_subtype}]}]; print the same [{name, ref, expanded}] shape.
+# resource_subtype,num_subtasks}]}]; print the same [{name, ref, expanded}] shape.
 def milestone_classify(args):
     groups = _unwrap_data(_load_from_json(args, "--from-json"))
     if not isinstance(groups, list):
@@ -2066,21 +2240,19 @@ def milestone_classify(args):
         if not isinstance(g, dict):
             continue
         sect = g.get("section") if isinstance(g.get("section"), dict) else {}
-        tasks = [t for t in (g.get("tasks") or []) if isinstance(t, dict)]
-        kinds = [("milestone" if t.get("resource_subtype") == "milestone" else "task", t) for t in tasks]
-        anchor = next((t for k, t in kinds if k == "milestone"), None)
-        if anchor is None:
-            continue
-        out.append({"name": sect.get("name"), "ref": anchor.get("gid"),
-                    "expanded": any(k != "milestone" for k, _ in kinds)})
+        tasks = [{"gid": t.get("gid"), "name": t.get("name"),
+                  "kind": "milestone" if t.get("resource_subtype") == "milestone" else "task",
+                  "subtasks": t.get("num_subtasks") or 0}
+                 for t in (g.get("tasks") or []) if isinstance(t, dict)]
+        out.extend(classify_section(sect.get("name"), tasks))
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
 
 
-# `milestone ensure <project> <name>`: idempotently ensure a milestone <name> exists —
-# a section named <name> plus a kind=milestone anchor task in it. Prints
-# {name, ref, created}. Reuses an existing section/anchor; never touches its
-# description (set that via `task set-notes <ref>`).
+# `milestone ensure <project> <name>`: idempotently ensure an epic <name> exists — a
+# task named <name> in the board's Epics section (created when missing). Prints
+# {name, ref, created}. Reuses an existing epic; never touches its description (set
+# that via `task set-notes <ref>`).
 def milestone_ensure(args):
     if len(args) < 2:
         die(1, "usage: %s milestone ensure <project-ref> <name>" % PROG)
@@ -2091,29 +2263,27 @@ def milestone_ensure(args):
         die(4, "%s: milestone ensure requires a cached workspace_gid — bootstrap first" % PROG)
     token = resolve_token(key)
     created = False
-    sect = next((s for s in fetch_project_sections(project_gid, token) if s.get("name") == name), None)
+    sect = next((s for s in fetch_project_sections(project_gid, token)
+                 if isinstance(s.get("name"), str) and EPIC_SECTION_RE.match(s["name"])), None)
     if sect is None:
-        r = api_json("%s/projects/%s/sections" % (API_BASE, project_gid), token, "POST", {"data": {"name": name}})
+        r = api_json("%s/projects/%s/sections" % (API_BASE, project_gid), token, "POST", {"data": {"name": "Epics"}})
         d = r.get("data") if isinstance(r, dict) else None
         section_gid = d.get("gid") if isinstance(d, dict) else None
-        created = True
     else:
         section_gid = sect.get("gid")
     if not section_gid:
-        die(1, "%s: milestone ensure: failed to resolve/create section '%s'" % (PROG, name))
-    anchor = next((t for t in fetch_section_tasks(section_gid, token)
-                   if t["kind"] == "milestone" and t["name"] == name), None)
-    if anchor is not None:
-        ref = anchor.get("gid")
+        die(1, "%s: milestone ensure: failed to resolve/create the Epics section" % PROG)
+    epic = next((t for t in fetch_section_tasks(section_gid, token) if t["name"] == name), None)
+    if epic is not None:
+        ref = epic.get("gid")
     else:
-        cr = api_json("%s/tasks" % API_BASE, token, "POST",
-                      {"data": {"name": name, "workspace": wgid, "resource_subtype": "milestone"}})
+        cr = api_json("%s/tasks" % API_BASE, token, "POST", {"data": {"name": name, "workspace": wgid}})
         cd = cr.get("data") if isinstance(cr, dict) else None
         ref = cd.get("gid") if isinstance(cd, dict) else None
         if not ref:
-            die(1, "%s: milestone ensure: anchor create returned no gid" % PROG)
-        api_json("%s/tasks/%s/addProject" % (API_BASE, ref), token, "POST", {"data": {"project": project_gid}})
-        api_json("%s/sections/%s/addTask" % (API_BASE, section_gid), token, "POST", {"data": {"task": ref}})
+            die(1, "%s: milestone ensure: epic create returned no gid" % PROG)
+        api_json("%s/tasks/%s/addProject" % (API_BASE, ref), token, "POST",
+                 {"data": {"project": project_gid, "section": section_gid}})
         created = True
     sys.stdout.write(json.dumps({"name": name, "ref": ref, "created": created}, indent=2) + "\n")
     sys.exit(0)

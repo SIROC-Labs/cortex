@@ -17,7 +17,7 @@ description: >
 
 # Submit Breakdown
 
-Replicate a task breakdown (output of `task-breakdown` / `milestone-breakdown`) into the task manager. Implementation tasks land at **Refinement** product status by default; milestones are created as anchors. The skill performs no codebase analysis, resolves no ambiguities, and writes no implementation plans — those happen later during refinement, after the codebase has been read.
+Replicate a task breakdown (output of `task-breakdown` / `milestone-breakdown`) into the task manager. Milestones (epics) are created on the board; implementation tasks become their **members** — never placed on a board or sprint, no estimate, Dev Status `To Do` — and land at **Refinement** product status by default. The skill performs no codebase analysis, resolves no ambiguities, and writes no implementation plans — those happen later during refinement, after the codebase has been read.
 
 The goal: a faithful, low-friction, **idempotent** upload so the breakdown is visible in the task manager and ready for refinement. Re-running never re-creates or overwrites what already exists.
 
@@ -34,12 +34,12 @@ The goal: a faithful, low-friction, **idempotent** upload so the breakdown is vi
 1. **Breakdown input** — either:
    - a markdown file produced by `task-breakdown` (single-file legacy input), or
    - a folder bundle containing `breakdown.md` plus one or more attachment files. Bundle shapes (may be mixed):
-     - **Milestone bundle** (from `milestone-breakdown`) — M-blocks only, with per-milestone `milestone-spec.md` attachments.
+     - **Milestone bundle** (from `milestone-breakdown`) — E-blocks only (legacy `## M{N} ::` blocks read the same), with per-milestone `milestone-spec.md` attachments.
      - **Task bundle** (from `task-breakdown`) — T-blocks only, with per-task `implementation-plan.md` attachments, and an optional top-level `**Target milestone:**` line pointing at an existing milestone.
 
    Detection: if the input path resolves to a file, treat as single-file legacy input; if it resolves to a directory, look for `breakdown.md` inside — if present, parse it; otherwise error with: "No `breakdown.md` found in `<path>`. Expected a folder bundle."
 
-   The parser is **polymorphic** — it accepts M-only bundles, T-only bundles (with or without `**Target milestone:**`), or mixed M+T content. The block types present in `breakdown.md` determine which Phase 3 steps run; see `references/breakdown-parser.md`.
+   The parser is **polymorphic** — it accepts E-only bundles, T-only bundles (with or without `**Target milestone:**`), or mixed E+T content. The block types present in `breakdown.md` determine which Phase 3 steps run; see `references/breakdown-parser.md`.
 2. **Project URL** — the target board in the task manager.
 
 If either input is missing, ask for it before proceeding.
@@ -50,7 +50,7 @@ If either input is missing, ask for it before proceeding.
 
 ### 1a. Inspect the project
 
-1. **Resolve the board** from the URL via `resolve_board` (or by passing the URL through the seam). Read its milestones with `list_milestones(board)` — each returns `{ref, name, expanded}`, where `expanded` means the milestone already has ≥1 member task. This is the landscape used for idempotency and expanded-milestone protection.
+1. **Resolve the board** from the URL via `resolve_board` (or by passing the URL through the seam). Read its milestones with `list_milestones(board)` — each returns `{ref, name, expanded}`, where `expanded` means the milestone already has ≥1 member. This is the landscape used for idempotency and expanded-milestone protection.
 2. **Learn which fields the board carries** via `list_fields(board)`. The canonical workflow fields (see `plugins/cortex-workflow/references/workflow/fields.md`) this skill sets on implementation tasks are:
    - **Platform** — Backend, Frontend, Design, iOS, Android
    - **Category** — Feature Request, Technical Request, Bug, Customer Support, Documentation
@@ -61,7 +61,7 @@ If either input is missing, ask for it before proceeding.
    > This project does not support the `Refinement` lifecycle state. Add it in the task manager, then re-run submit-breakdown.
 
    `set_status(task, <name>)` addresses lifecycle states by name; the provider resolves the underlying representation, so the skill never handles status identifiers itself. Likewise `set_fields` resolves field names and option values by name — the skill never discovers or resolves any provider identifiers by hand.
-4. **Read existing tasks per milestone** with `milestone_tasks(<milestone>)` for the milestones that matter, to understand current state — what exists, what the breakdown says to reuse or remove. This drives the idempotency checks in Phase 3.
+4. **Read existing members per milestone** with `milestone_tasks(<milestone>)` for the milestones that matter — members are not on the board, so never look for them with `list_tasks(board)` — to understand current state — what exists, what the breakdown says to reuse or remove. This drives the idempotency checks in Phase 3.
 
 ### 1b. Resolve the optional `**Target milestone:**` line
 
@@ -74,7 +74,7 @@ If `breakdown.md` starts with a top-level `**Target milestone:** <task-url>` lin
 
    > These tasks will be slotted under '<milestone name>' in project <project name>. Proceed? [Y/n]
 
-5. On confirmation, store `target_milestone` (its ref) — every T-block in the bundle joins that milestone.
+5. On confirmation, store `target_milestone` (its ref) — every T-block in the bundle becomes a member of that milestone.
 
 If the line is absent, do not error here — the T-block fallback prompt in Phase 3 Step 3 covers the no-context case.
 
@@ -84,7 +84,7 @@ This skill does **no codebase discovery**. The references embedded in each task 
 
 ## Phase 2: Render Descriptions
 
-For each block in the breakdown, render its description by aggregating fields from the breakdown. A bundle's `breakdown.md` may contain a top-level metadata line, M-blocks, T-blocks, or any mix — the parser handles each independently (see `references/breakdown-parser.md`).
+For each block in the breakdown, render its description by aggregating fields from the breakdown. A bundle's `breakdown.md` may contain a top-level metadata line, E-blocks, T-blocks, or any mix — the parser handles each independently (see `references/breakdown-parser.md`).
 
 Read `references/description-template.md` for the full structure, content rules, and formatting rules.
 
@@ -93,7 +93,7 @@ Key principles:
 - Author descriptions in **Markdown**; the provider renders them. Do not hand-write provider markup or embed images inline.
 - References aggregate from three levels (task entry, milestone block, file header) and are deduplicated by URL/path.
 - No implementation-plan content. No file paths inferred. No analysis. If the breakdown didn't say it, the description doesn't say it.
-- **No T-labels or M-labels in the description.** They are breakdown-internal identifiers, used only so the markdown can express dependencies before the task manager assigns handles. If a label appears in prose (e.g., "extends the schema introduced in T1"), replace it with the corresponding task link + title. The `Depends on:` field is **not** rendered into the description — dependencies are wired natively via `add_dependency` in Phase 3, where they show as blocking relationships. Never write a literal `T1`/`M2` into the task manager.
+- **No T-labels or E-labels in the description.** They are breakdown-internal identifiers, used only so the markdown can express dependencies before the task manager assigns handles. If a label appears in prose (e.g., "extends the schema introduced in T1"), replace it with the corresponding task link + title. The `Depends on:` field is **not** rendered into the description — dependencies are wired natively via `add_dependency` in Phase 3, where they show as blocking relationships. Never write a literal `T1`/`E2` into a description; board ordinals in names are assigned in Phase 3.
 - No questions asked of the user during this phase. Any ambiguity is handled later, during the refinement step that reads the codebase.
 
 ---
@@ -106,15 +106,15 @@ Create objects in **dependency order** — milestones first, then implementation
 
 Each step is gated on the block types present in `breakdown.md`:
 
-- **M-only bundle:** Steps 1 and 4 run; Steps 3 and 5 are no-ops.
-- **T-only bundle:** Step 1 is a no-op (no M-blocks to create/wire); Step 3 (with Phase 1b / interactive parent-milestone resolution) and Step 5 run.
+- **E-only bundle:** Steps 1 and 4 run; Steps 3 and 5 are no-ops.
+- **T-only bundle:** Step 1 is a no-op (no E-blocks to create/wire); Step 3 (with Phase 1b / interactive parent-milestone resolution) and Step 5 run.
 - **Mixed bundle** (incl. legacy single-file): all steps run.
 
 Legacy single-file input is treated as a mixed bundle — implementation tasks sit under each milestone block.
 
-### Step 0: Name-collision check (M-blocks only)
+### Step 0: Name-collision check (E-blocks only)
 
-Before creating any milestone, compare each M-block's name against the `list_milestones(board)` result **by plain name** — strip a leading `M{n}: ` ordinal prefix from each landscape name (and from the block name if it carries one) before comparing, case-insensitive, so a block named "Zeta" matches an existing "M1: Zeta" (see `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping"). On a match, surface to the user:
+Before creating any milestone, compare each E-block's name against the `list_milestones(board)` result **by plain name** — strip a leading `E{n} — ` (or legacy `M{n}: `) ordinal prefix from each landscape name (and from the block name if it carries one) before comparing, case-insensitive, so a block named "Zeta" matches an existing "E1 — Zeta" or "M1: Zeta" (see `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping"). On a match, surface to the user:
 
 > "Milestone '<name>' already exists in this project (<expanded|unexpanded>). Reuse / Rename / Abort?"
 
@@ -122,38 +122,34 @@ Before creating any milestone, compare each M-block's name against the `list_mil
 - **Rename** → prompt for a new name; retry the check.
 - **Abort** → cancel the whole run.
 
-Runs before any writes, so no partial state is left. After collision decisions, re-verify that every M-block `**Depends on:**` label still resolves to a milestone in the batch; if any points to a dropped one, ask whether to drop the dependent milestone too, drop the dependency, or abort.
+Runs before any writes, so no partial state is left. After collision decisions, re-verify that every E-block `**Depends on:**` label still resolves to a milestone in the batch; if any points to a dropped one, ask whether to drop the dependent milestone too, drop the dependency, or abort.
 
-### Step 1: Ensure each milestone (M-blocks only)
+### Step 1: Ensure each milestone (E-blocks only)
 
-**Board naming — `M{n}:` ordinal prefix.** Milestones are named on the board as `M{n}: <Name>`, where `n` is a **board-assigned ordinal**, not the block's local M-label. Before creating anything, read the existing ordinals from the Phase 1 `list_milestones(board)` landscape (parse a leading `M{n}: ` from each name; unprefixed names count as no ordinal). The next ordinal is `max(existing ordinals) + 1` — new milestones continue the board's numbering rather than restarting at M1. Assign ordinals to the M-blocks that need creating in breakdown order, incrementing once per new milestone: a board already holding `M1:`–`M3:` names the first new block `M4:`. Reused milestones keep their existing name and ordinal. See `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping".
+**Board naming — `E{n} — ` ordinal prefix.** Milestones are named on the board as `E{n} — <Name>`, where `n` is a **board-assigned ordinal**, not the block's local E-label. Before creating anything, read the existing ordinals from the Phase 1 `list_milestones(board)` landscape (parse a leading `E{n} — ` or legacy `M{n}: ` from each name; unprefixed names count as no ordinal). The next ordinal is `max(existing ordinals) + 1` — new milestones continue the board's numbering rather than restarting at E1. Assign ordinals to the E-blocks that need creating in breakdown order, incrementing once per new milestone: a board already holding `E1`–`E3` names the first new block `E4 — <Name>`. Reused milestones keep their existing name and ordinal. See `references/breakdown-parser.md` → "Milestone matching, ordinal assignment, and label remapping".
 
-For each M-block, in breakdown order:
+For each E-block, in breakdown order:
 
-1. Decide reuse-vs-create by matching the block's **plain name** against the landscape (leading `M{n}: ` stripped from both sides, case-insensitive — Step 0). `ensure_milestone(board, <board name>)` — idempotent: for a **new** milestone pass the ordinal-prefixed `M{n}: <Name>`; for a **reused** one pass its existing board name so the same milestone is matched. It creates the milestone if missing, reuses it if present, returns its ref, and never overwrites an existing milestone's description.
-2. **New milestone** (was just created — not present in the Phase 1 `list_milestones` landscape): set its description with `set_description(<milestone>, <rendered body>)` (see `references/description-template.md` → milestone body). Set **Priority** only via `set_field` (default `P3`; override only if the block specifies one). Do not set Platform, Category, or Product Status on a milestone.
+1. Decide reuse-vs-create by matching the block's **plain name** against the landscape (ordinal prefix stripped from both sides, case-insensitive — Step 0). `ensure_milestone(board, <board name>)` — idempotent: for a **new** milestone pass the ordinal-prefixed `E{n} — <Name>`; for a **reused** one pass its existing board name so the same milestone is matched. It creates the milestone if missing, reuses it if present, returns its ref, and never overwrites an existing milestone's description.
+2. **New milestone** (was just created — not present in the Phase 1 `list_milestones` landscape): set its description with `set_description(<milestone>, <rendered body>)` (Goal / Definition of done / … — see `references/description-template.md` → milestone body). Leave out any Branches table; it is written when the first member starts. Set **Priority** only via `set_field` (default `P3`; override only if the block specifies one). Do not set Platform, Category, or Product Status on a milestone.
 3. **Existing milestone** (matched by plain name to the landscape, or via Step 0 Reuse):
-   - If it is `expanded` (has member tasks per `list_milestones` / `milestone_tasks`), it is **protected**: do not touch its description or attachments. Log a divergence notice if the block body differs, and continue.
+   - If it is `expanded` (has members per `list_milestones` / `milestone_tasks`), it is **protected**: do not touch its description or attachments. Log a divergence notice if the block body differs, and continue.
    - If it is unexpanded, still **do not overwrite** its description (frozen-on-rerun) — **unless** this block carries a `**Source:**` URL targeting it, which is a deliberate refine (see the Source path below). Log a notice if it has diverged.
 4. Upload the block's `**Attachments:**` (renamed to `milestone-spec.md`) per the attachment procedure below — **skip entirely for expanded/protected milestones**.
 
-**`**Source:**` refine path.** When an M-block carries `**Source:** <url>` (from `milestone-breakdown`'s refine mode), resolve the URL via `find_task` and verify `kind == milestone`; it is the explicit reuse target for that block — do not create a new milestone, and keep its existing board name/ordinal (no renumbering). Then:
+**`**Source:**` refine path.** When an E-block carries `**Source:** <url>` (from `milestone-breakdown`'s refine mode), resolve the URL via `find_task` and verify `kind == milestone`; it is the explicit reuse target for that block — do not create a new milestone, and keep its existing board name/ordinal (no renumbering). Then:
 - If the Source milestone is **expanded**, refuse: "Milestone '<name>' at <url> is expanded; bundle input cannot modify an expanded milestone." Never overwrite a milestone that already has work under it.
 - If it is **unexpanded**, refresh its description with `set_description(<milestone>, <rendered body>)`. This is the one reuse case that overwrites a description — `**Source:**` is a deliberate refine request, unlike an incidental name-match on re-run (which stays frozen). Its spec attachment is replaced as usual (point 4).
 
-Build a `local M-label → milestone ref` map for Step 4 — keyed by each block's **local** M-label (M1, M2, … in file order), valued by the resolved ref (whose board ordinal may differ). Always wire dependencies through this map; never assume a local M-label equals a board ordinal.
-
-### Step 2: (reserved — merged into Step 1)
-
-Milestone creation and its description/attachments are handled together in Step 1 via `ensure_milestone` + `set_description`. There is no separate "create section then milestone task" step — that provider-structural detail is internal to the seam.
+Build a `local E-label → milestone ref` map for Step 4 — keyed by each block's **local** E-label (E1, E2, … in file order), valued by the resolved ref and board ordinal (which may differ). Always wire dependencies through this map; never assume a local E-label equals a board ordinal.
 
 ### Step 3: Create implementation tasks (T-blocks only)
 
 Resolve each T-block's parent milestone first:
 
-- **T-block sits inside a wrapping `## M{N} ::` block in the same `breakdown.md`** → use that milestone's ref (from Step 1).
-- **No wrapping M-block, but Phase 1b resolved a `**Target milestone:**`** → use the stored `target_milestone` ref.
-- **No wrapping M-block AND no `**Target milestone:**`** → prompt the user once, before any T-task is created:
+- **T-block sits inside a wrapping `## E{N} ::` block in the same `breakdown.md`** → use that milestone's ref (from Step 1).
+- **No wrapping E-block, but Phase 1b resolved a `**Target milestone:**`** → use the stored `target_milestone` ref.
+- **No wrapping E-block AND no `**Target milestone:**`** → prompt the user once, before any T-task is created:
 
   > "Which milestone should these N tasks go under?"
   >
@@ -164,13 +160,13 @@ Resolve each T-block's parent milestone first:
 
   Build the list from the Phase 1 `list_milestones(board)` result. If the board has no milestones, ask for the project URL first, then re-read. Store the choice as `target_milestone` for the rest of the run.
 
-For each T-block, resolve idempotency by matching its name within `milestone_tasks(<parent milestone>)`:
+**Member naming — `E{n}.{m} — `.** A member is named `E{n}.{m} — <title>`: `n` is its milestone's board ordinal, `m` continues the milestone's member numbering (`max(existing m in milestone_tasks) + 1`, once per new member in breakdown order); a milestone without an ordinal gets plain titles. For each T-block, resolve idempotency by matching its plain name (leading `E{n}.{m} — ` stripped) within `milestone_tasks(<parent milestone>)`:
 
-- **If a task with that name already exists in the milestone** → reuse its ref. **Never overwrite its description.** Still re-run the per-block attachment upload below (attachments are replaced on every submit — see Re-run behavior).
+- **If a member with that name already exists in the milestone** → reuse its ref. **Never overwrite its description.** Still re-run the per-block attachment upload below (attachments are replaced on every submit — see Re-run behavior).
 - **If missing** → `create_task(title, description, board, kind=task, milestone=<parent milestone ref>, fields={Platform, Category, Priority})`:
-  - `title` — from the breakdown task title (no platform prefix; Platform is a field).
+  - `title` — `E{n}.{m} — <breakdown task title>` (no platform prefix; Platform is a field).
   - `description` — rendered in Phase 2 (Markdown; the provider renders it).
-  - `kind=task` and `milestone=<ref>` so the task joins the milestone natively.
+  - `board` — the milestone's board, where the fields resolve. `milestone=<ref>` makes the task a member: never `add_to_board` it, never add it to a sprint, never set an Estimate or Dev Status (it starts at `To Do`).
   - `fields` — `Platform` and `Category` from the block, `Priority` default `P3`. Prefer this one-shot `fields` map over separate `set_field` calls. (If a board omits a field, the seam skips it gracefully.)
 
 After the task ref is known (created or reused), upload the T-block's `**Attachments:**` (renamed to `implementation-plan.md`) per the attachment procedure below.
@@ -185,9 +181,11 @@ Set Product Status *after* the attachment upload so the decision can observe the
 
 Build a `T-label → task ref` map for Step 5.
 
-### Step 4: Wire milestone-level dependencies (M-blocks only)
+**Execution order.** For each milestone that gained members this run, rewrite only the **Execution order** section of its description (`get_task`, then `set_description`): every member name in order, existing entries first, new members appended in breakdown order. This is the one section written on an existing milestone, expanded or not; the rest stays frozen.
 
-For each M-block whose `**Depends on:**` lists other **local** M-labels: resolve each label to a ref via the `local M-label → milestone ref` map from Step 1 (the map absorbs any renumbering — a block's local `M1` may be `M4:` on the board), then `add_dependency(<this milestone>, <depended-on milestone>)`. Wire by ref, never by the literal label.
+### Step 4: Wire milestone-level dependencies (E-blocks only)
+
+For each E-block whose `**Depends on:**` lists other **local** E-labels: resolve each label to a ref via the `local E-label → milestone ref` map from Step 1 (the map absorbs any renumbering — a block's local `E1` may be `E4 — ` on the board), then `add_dependency(<this milestone>, <depended-on milestone>)`. Wire by ref, never by the literal label.
 
 ### Step 5: Wire task-level dependencies (T-blocks only)
 
@@ -200,7 +198,7 @@ For each T-block whose `**Depends on:**` lists T-labels: for each dependency, `a
 For each file path in a block's `**Attachments:**` list:
 
 1. Resolve the path relative to `breakdown.md`'s folder; verify it exists.
-2. Rename on upload — `milestone-spec.md` for M-blocks, `implementation-plan.md` for T-blocks (strip any local `M{N}-` / `T{N}-<slug>-` ordering prefix).
+2. Rename on upload — `milestone-spec.md` for E-blocks, `implementation-plan.md` for T-blocks (strip any local `E{N}-` / legacy `M{N}-` / `T{N}-<slug>-` ordering prefix).
 3. **On re-runs (replace, not duplicate):** if an attachment with that target name already exists on the task (`get_attachments`), `remove_attachment(task, <it>)` first, then `upload_attachment(task, <path>)`.
 
 A provider transport that cannot upload files realizes `upload_attachment` of `implementation-plan.md` as the task's `## Implementation plan` description section and reports that; treat the report as the attachment being present for the "Plan attached" status decision. For any other file it stops with an operator prompt naming the file and the task; record that in the progress line and continue with the next block.
@@ -209,8 +207,8 @@ A provider transport that cannot upload files realizes `upload_attachment` of `i
 
 submit-breakdown is **idempotent and non-destructive on re-run**:
 
-- Existing milestones and existing implementation tasks are detected (by the match keys below) and reused — never re-created, and their **descriptions are never overwritten** (frozen-on-rerun). The one exception: an unexpanded milestone targeted by a `**Source:**` refine has its description refreshed (Step 1).
-- **Expanded milestones are protected** — an expanded milestone's description and attachments are never touched.
+- Existing milestones and existing implementation tasks are detected (by the match keys below) and reused — never re-created, and their **descriptions are never overwritten** (frozen-on-rerun). The exceptions: an unexpanded milestone targeted by a `**Source:**` refine has its description refreshed (Step 1), and a milestone that gained members has its Execution order section rewritten (Step 3).
+- **Expanded milestones are protected** — an expanded milestone's description (beyond Execution order) and attachments are never touched.
 - Dependency wiring is re-applied; `add_dependency` is non-destructive for the same set.
 - **Attachments are replaced on every re-run** (remove old by name, upload new) — the local spec/plan file is the source of truth. This is intentionally asymmetric with descriptions (frozen) — attachments track the local file. To also update a frozen description, delete the task and re-run.
 - If a block's body has diverged from an existing task's/milestone's description, log a one-time notice (e.g. `Milestone "Billing" already exists; body has diverged (skipping)`) and continue. Do not prompt mid-run.
@@ -219,19 +217,19 @@ submit-breakdown is **idempotent and non-destructive on re-run**:
 
 | Object | Match key |
 |---|---|
-| Milestone | plain `name` on the board — leading `M{n}: ` ordinal prefix stripped (via `list_milestones` / Step 0) |
-| Implementation task | `name` within its parent milestone (via `milestone_tasks`) |
+| Milestone | plain `name` on the board — leading `E{n} — ` / legacy `M{n}: ` prefix stripped (via `list_milestones` / Step 0) |
+| Implementation task (member) | plain `name` within its milestone — leading `E{n}.{m} — ` stripped (via `milestone_tasks`) |
 
 ### Progress reporting
 
 Report per object as it is created or reused:
 
 ```
-Created milestone: "Employee Management"
-Reused milestone: "Data Layer" (already present)
-Created: "Setup employee entity" (Employee Management) — Backend · Refinement
-Reused: "Employee list page" (Employee Management) — already present
-Wired milestone deps: "Employee Management" depends on "Data Layer"
+Created milestone: "E2 — Employee Management"
+Reused milestone: "E1 — Data Layer" (already present)
+Created: "E2.1 — Setup employee entity" (E2 — Employee Management) — Backend · Refinement
+Reused: "E2.2 — Employee list page" (E2 — Employee Management) — already present
+Wired milestone deps: "E2 — Employee Management" depends on "E1 — Data Layer"
 Wired task deps: "Employee list page" depends on "Employee CRUD API"
 ```
 
@@ -239,8 +237,8 @@ After all objects + dependencies are wired, summarize (adapt to actual counts; o
 
 > All milestones + tasks reconciled with the task manager.
 >   • <K_new> new milestones, <K_existing> reused
->   • <M_new> new tasks at Refinement, <U_new> at Unassigned (Design or plan-attached)
->   • <M_existing> tasks reused
+>   • <M_new> new members at Refinement, <U_new> at Unassigned (Design or plan-attached)
+>   • <M_existing> members reused
 > [Project URL]
 
 ---
@@ -340,6 +338,6 @@ If the breakdown specifies additional tasks to remove (via Source field pointing
 
 - `task-manager` — all task operations route through this interface (resolve board / milestones / fields, create tasks, ensure milestones, set fields and status, wire dependencies, upload attachments, post comments, delete tasks).
 - `task-breakdown` — produces task bundles this skill consumes: a folder of `breakdown.md` (T-blocks, optional `**Target milestone:**`) + per-task `implementation-plan.md` attachments. submit-breakdown replicates them, uploads the attachments, and drives each T-task's Product Status from attachment presence.
-- `milestone-breakdown` — produces milestone bundles this skill consumes: a folder of `breakdown.md` (M-blocks) + per-milestone spec files. submit-breakdown replicates them with milestone reuse and attachment upload.
+- `milestone-breakdown` — produces milestone bundles this skill consumes: a folder of `breakdown.md` (E-blocks) + per-milestone spec files. submit-breakdown replicates them with milestone reuse and attachment upload.
 
 This skill has no other skill dependencies. Whatever happens to the tasks after submission (refinement, staffing, implementation) is outside this skill's contract.

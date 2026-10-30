@@ -22,7 +22,22 @@ A **separate axis** from Product Status. A task can carry a Product Status (e.g.
 
 - **In Progress** — actively being worked on.
 - **In Review** — implementation complete, under review.
+- **To QA** — a milestone whose members are all completed, awaiting human QA on its milestone branch.
 - **Completed** (a.k.a. **Done**) — finished.
+
+Execution columns apply to the units on a sprint board: milestones and standalone tasks.
+
+## Dev Status — a milestone member's execution state
+
+A milestone member (see `boards.md`) never sits on a sprint board, so its execution state is the **Dev Status** field instead of a column:
+
+- **To Do** — not started; the default for a new member.
+- **In Progress** — branch and draft PR against the milestone branch exist.
+- **Owner Review** — set by the owner: the PR waits for the owner's approval instead of merging on its own.
+- **Blocked** — work cannot proceed.
+- **Done** — merged into the milestone branch. Setting it also marks the member completed.
+
+`set_status(member, <name>)` with a Dev Status name writes this field. A member still carries a Product Status.
 
 ## How providers realize the two axes
 

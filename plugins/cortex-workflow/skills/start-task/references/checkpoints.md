@@ -28,7 +28,8 @@ A checkpoint has frontmatter, a `## Steps` table, and a `## Notes` section.
 | `task_id` | Project ID field (e.g., `MT251-47`) — filled in after Step 2 |
 | `task_url` | Full task URL |
 | `branch` | Feature branch name — filled in after Step 7 |
-| `base_branch` | Branch the feature branch was created from — filled in after Step 7 |
+| `milestone_ref` | The milestone's ref when the task is a milestone member; empty for a standalone task — filled in after Step 2 |
+| `base_branch` | Branch the feature branch was created from — filled in after Step 7 (a member: after Step 6b, the milestone branch) |
 | `workflow` | `fix-bug`, `brainstorm`, `feature-dev`, or `fast`, or `unattended` / `unattended-rework` — filled in after Step 10 |
 | `created_at` | ISO 8601 timestamp — set once on initialization |
 | `last_updated` | ISO 8601 timestamp — updated after every step |
@@ -54,6 +55,7 @@ task_ref: ""
 task_id: ""
 task_url: ""
 branch: ""
+milestone_ref: ""
 base_branch: ""
 workflow: ""
 created_at: "<iso8601>"
@@ -159,16 +161,16 @@ The `<step>` argument is the exact label from the Steps table (e.g., `"3. Valida
 |------|---------|
 | 0. Dependency Check | `All present` or `Missing: <skill-list>` |
 | 1. Get Task URL | `Ref: <task-ref>` |
-| 2. Fetch Task Details | `<task-id> — <task-name>` |
+| 2. Fetch Task Details | `<task-id> — <task-name>`, plus `(member of <milestone-name>)` for a member |
 | 3. Validate Sprint-Readiness | `All checks passed` or `Fixed: <what was set via the task-manager interface>` |
 | 4. Fetch Subtasks | `<N> subtasks (<M> complete, <K> remaining)` |
 | 5. Fetch Comments & Attachments | `<N> comments, <M> attachments` |
 | 6. Check Existing Work | `No existing branch` or `Resumed: <branch-name>` |
 | 6a. Ask About Worktree | `worktree` or `current directory` |
-| 6b. Confirm Base Branch | `<base-branch>` |
+| 6b. Confirm Base Branch | `<base-branch>`; a member: `milestone/<slug> (existing)` or `milestone/<slug> (created)` |
 | 7. Create Feature Branch | `<branch-name> off <base>` |
 | 8. Create Draft PR | `<pr-url>` |
-| 9a. Move to In Progress | `Moved`, `Already in progress`, or `Failed: <reason>` |
+| 9a. Move to In Progress | `Moved`, `Already in progress`, or `Failed: <reason>`; a member adds the milestone's outcome (`milestone moved` / `milestone already in progress`) |
 | 9b. Post Start Comment | `Posted` or `Skipped (duplicate)` |
 | 10. Route to Workflow | `fix-bug`, `brainstorm`, `feature-dev`, or `fast` |
 | QA: Resolve | `web-qa`, `mobile-qa`, `backend-qa`, `none`, or skipped reason |
@@ -188,7 +190,8 @@ Use the `set` subcommand — it updates the field and refreshes `last_updated`:
 ${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/start-task/scripts/checkpoint.sh set <task-ref> <field> "<value>"
 ```
 
-- After Step 2: set `task_id`
+- After Step 2: set `task_id`, and `milestone_ref` for a member
+- After Step 6b (member): set `base_branch`
 - After Step 7: set `branch` and `base_branch`
 - After Step 10: set `workflow`
 
@@ -262,7 +265,7 @@ Triggered automatically during Initialization when a checkpoint file is found. A
 
 **3. Check for blocked state** — if the resuming row has `State = blocked`, fetch comments posted after `last_updated` via `get_comments(task)` (see `task-patterns.md` → "Checking for Answers on Resume"). Show new comments as potential answers to the blocking question. If no new comments: offer to resume anyway or keep waiting.
 
-**4. Verify branch exists** — check the branch exists locally or on remote. If deleted: offer to recreate from `base_branch` or start fresh. Starting fresh deletes the checkpoint.
+**4. Verify branch exists** — check the branch exists locally or on remote. If deleted: offer to recreate from `base_branch` or start fresh. Starting fresh deletes the checkpoint. When `milestone_ref` is set, the task is a member: `base_branch` is its milestone branch — fetch it and use it as the base for any recreate, never `main`.
 
 **5. Check task status** — if the task has been completed, reassigned, or moved elsewhere since `last_updated`, warn before proceeding.
 

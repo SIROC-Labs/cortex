@@ -1,6 +1,6 @@
 # Output Format
 
-This file defines the canonical layout of the milestone-breakdown folder bundle: `breakdown.md` (one rich block per milestone, body fields pushed verbatim as milestone descriptions) and one `M{N}-milestone-spec.md` per milestone (uploaded as a milestone attachment). It includes the `breakdown.md` file template, the parsing contract that `submit-breakdown` reads against, the per-milestone spec template, and the rules on which references are allowed.
+This file defines the canonical layout of the milestone-breakdown folder bundle: `breakdown.md` (one rich block per milestone, body fields pushed verbatim as milestone descriptions) and one `E{N}-milestone-spec.md` per milestone (uploaded as a milestone attachment). It includes the `breakdown.md` file template, the parsing contract that `submit-breakdown` reads against, the per-milestone spec template, and the rules on which references are allowed.
 
 ## File Location
 
@@ -25,20 +25,23 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 
 <file-level references — codebase paths, public URLs, Figma URLs only. Md-only header, ignored by submit-breakdown.>
 
-## M1 :: <Milestone Name>
+## E1 :: <Milestone Name>
 
 <rationale paragraph — md-only, ignored by submit-breakdown>
 
-**Purpose:** <one sentence>
+**Goal:** <one sentence — what this milestone delivers>
 **Description:** <2–4 sentences, product language>
+**Definition of done:**
+- <observable outcome 1>
+- <observable outcome 2>
 **Out of scope:** <optional>
 **References:** <optional — milestone-specific, allowed-list only>
-**Depends on:** <M-labels or "None">
+**Depends on:** <E-labels or "None">
 **Source:** <optional — existing milestone URL when refining>
 **Attachments:**
-- M1-milestone-spec.md
+- E1-milestone-spec.md
 
-## M2 :: <Milestone Name>
+## E2 :: <Milestone Name>
 ...
 
 ## Originating Task
@@ -48,38 +51,39 @@ Create the folder if it doesn't exist. The folder is a local working artifact �
 - **Action:** Delete | Complete
 ```
 
-Each `## M{N} :: <Name>` block represents one milestone. M-labels in this file are sequential from M1 and local-only (see "## M-label Conventions" below).
+Each `## E{N} :: <Name>` block represents one milestone (epic): the unit of planning and delivery, whose implementation tasks become its members later. E-labels in this file are sequential from E1 and local-only (see "## E-label Conventions" below).
 
 ## Parsing Contract
 
 | Field | Role | Pushed to milestone description? |
 |---|---|---|
-| `**Purpose:**` | Body | Yes |
+| `**Goal:**` | Body | Yes |
 | `**Description:**` | Body | Yes |
+| `**Definition of done:**` | Body | Yes |
 | `**Out of scope:**` (optional) | Body | Yes |
 | `**References:**` (optional) | Body | Yes |
-| `**Depends on:**` | Dependency metadata | No — parsed for M-labels, used to wire native task dependencies |
+| `**Depends on:**` | Dependency metadata | No — parsed for E-labels, used to wire native task dependencies |
 | `**Source:**` (optional) | Refine-path metadata | No — parsed to detect "update existing milestone" instead of "create new" |
 | `**Attachments:**` | Attachment metadata | No — file list uploaded as attachments |
 
 Parsing rules:
 
-- For each `## M{N} :: <Name>` header → one milestone.
+- For each `## E{N} :: <Name>` header → one milestone.
 - Skip any free-text prose paragraph immediately after the header (rationale, md-only).
-- Collect body fields → render them as the milestone description, verbatim, in the canonical order: **Purpose → Description → Out of scope → References**.
+- Collect body fields → render them as the milestone description, verbatim, in the canonical order: **Goal → Description → Definition of done → Out of scope → References**. `submit-breakdown` adds the **Execution order** once the milestone has members.
 - Collect metadata fields → route per the table above.
 - Content under top-level headers `## References` and `## Originating Task` is handled separately and not associated with any milestone block.
 
 Authoring convention is body fields first, then metadata fields, with `**Attachments:**` last. `submit-breakdown` picks fields by name, so order in the file is not load-bearing — but the convention keeps the file human-readable.
 
-## M{N}-milestone-spec.md template
+## E{N}-milestone-spec.md template
 
 ```markdown
 # <Milestone Name>
 
 **Status:** Draft
 **Date:** YYYY-MM-DD
-**Milestone:** M{N}    ← local label only, for ordering
+**Milestone:** E{N}    ← local label only, for ordering
 
 ## Product Requirements
 - <use case / scenario 1>
@@ -130,13 +134,13 @@ The Technical Spec section nests the create-spec 7-section structure as `###`-le
 
 Cross-task references are represented natively as task dependencies — no need to restate them in markdown prose unless strictly necessary.
 
-## M-label Conventions
+## E-label Conventions
 
-M-labels in `breakdown.md` are sequential from M1 and local-only — they are this file's namespace, not global identifiers.
+E-labels in `breakdown.md` are sequential from E1 and local-only — they are this file's namespace, not global identifiers.
 
-They are **not** the task manager's M-labels. `submit-breakdown` does discovery and remapping at push time: it reads the markdown M-labels, resolves the corresponding milestones (by name or `**Source:**` URL), and wires native task dependencies. Markdown M-labels are renumbered at push if existing milestones use overlapping labels.
+They are **not** the task manager's ordinals. On the board a milestone is named `E{n} — <Name>` and its members `E{n}.{m} — <name>`; `submit-breakdown` assigns `n` at push time, continuing the board's numbering, resolves existing milestones (by name or `**Source:**` URL), and wires native task dependencies. A local `E1` may land as `E4 — <Name>`.
 
-Locally, `**Depends on:**` uses markdown M-labels — for example: `**Depends on:** M1, M2`.
+Locally, `**Depends on:**` uses markdown E-labels — for example: `**Depends on:** E1, E2`.
 
 ## Originating Task
 
