@@ -46,11 +46,12 @@ The connected account is the account. `ASANA_TOKEN_<NAME>` switching does not ap
 | `get_attachments(task)` | `get_attachments(parent=<task>)`, paged; fetch `download_url` to read a file | — |
 | `create_task(title, description, board, assignee?, fields?, kind?, milestone?)` | `render body --for notes` → `fields plan <board> Name=Value …` → `create_tasks([{name, html_notes\|notes, project_id: <board>, assignee?, resource_subtype: "milestone"?, custom_fields?}])`. With `milestone`: `parent: <milestone>`, and `project_id` only for a product board — first `get_task(milestone, opt_fields="projects.gid")`, and a `board` among those projects stops the operation before any write (a work item is never a member of its milestone's board); with no board, omit `project_id` and `custom_fields`. The human key is assigned asynchronously by an Asana rule; re-read the task when it is needed | `render body`, `fields plan` |
 | `delete_task(task)` | `delete_task(task_id)` | — |
+| `complete_task(task)` | `update_tasks([{task, completed: true}])` | — |
 | `add_to_board(task, board)` | `update_tasks([{task, add_projects: [{project_id: <board>}]}])` | — |
 | `add_dependency(task, depends_on)` | `update_tasks([{task, add_dependencies: [<depends_on>]}])` | — |
 | `set_parent(task, parent)` | `update_tasks([{task, parent}])` | — |
 | `set_status(task, status)` | for the task's project: `get_project(project_id, include_sections=true)`; ensure fields are cached (`list_fields`); `status plan <project> <status> --sections-from-json <project.json>`; axis `field` → `update_tasks([{task, custom_fields: {field_gid: option_gid}}])`; axis `section` → `update_tasks([{task, add_projects: [{project_id, section_id}]}])` | `status plan` |
-| `set_field(task, name, value)` / `set_fields(task, {…})` | ensure fields are cached for the task's project; `fields plan <project> Name=Value …`; `update_tasks([{task, custom_fields?, assignee?}])`; report `skipped` names | `fields plan` |
+| `set_field(task, name, value)` / `set_fields(task, {…})` | ensure fields are cached for the task's project; `fields plan <project> Name=Value …`; `update_tasks([{task, custom_fields?, assignee?}])` — an empty `Assignee` plans `assignee: null`, which unassigns; report `skipped` names | `fields plan` |
 | `set_description(task, body)` | `render body --for notes (--body-file)` → `update_tasks([{task, html_notes\|notes}])` | `render body` |
 | `add_comment(task, body)` | `render body --for comment (--body-file)` → `add_comment(task_id, html_text\|text)` | `render body` |
 | `upload_attachment(task, file)` | **no MCP tool** — see Partial support | — |

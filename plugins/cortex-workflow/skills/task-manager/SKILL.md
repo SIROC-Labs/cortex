@@ -38,11 +38,12 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `get_task(task)` — name, kind (`task`/`milestone`), description, completed, assignee, fields, status, board membership; a milestone's work item also carries `parent: {ref, name, kind, board}`, the milestone and its board memberships.
 - `create_task(title, description, board?, assignee?, fields?, kind?, milestone?)` — `fields` is an optional map of `field_name → value` (from `references/workflow/fields.md`) applied at creation in one shot. `kind` ∈ `task` (default) | `milestone` — a milestone is a first-class anchor task; the provider realizes the kind natively (Asana milestone subtype, Jira issue type). `milestone` (a milestone ref) creates the task as a **work item** of that milestone, realized natively (Asana: a subtask of the milestone; Jira: epic link). A work item is never a member of its milestone's board: `board` is then optional and names a product board for its key and fields, never the milestone's own board.
 - `delete_task(task)` — permanently remove a task.
+- `complete_task(task)` — mark the task completed. For a milestone's work item this records that it is merged into the milestone branch.
 - `add_to_board(task, board)`
 - `add_dependency(task, depends_on)` — mark `task` as blocked by / dependent on another task. The native relationship/link **type** (e.g. Jira "Blocks") may be provider-configured.
 - `set_parent(task, parent)` — set the task's parent / add it to an epic (hierarchy write).
 - `set_status(task, status)` — `status` is a name from `references/workflow/lifecycle.md`.
-- `set_field(task, field_name, value)` — `field_name` from `references/workflow/fields.md`.
+- `set_field(task, field_name, value)` — `field_name` from `references/workflow/fields.md`. `Assignee` with an empty value unassigns.
 - `set_fields(task, {field_name: value, …})` — set multiple fields at once; **prefer over repeated `set_field` when setting 2+ fields** (providers apply them in a single write). Fields a provider can't address are skipped/surfaced, never silently wrong.
 - `set_description(task, body)` — replace the task's description; author `body` as Markdown (the provider converts). The editing counterpart to `create_task`'s `description`.
 - `add_comment(task, body)` — author `body` as Markdown; the provider converts.

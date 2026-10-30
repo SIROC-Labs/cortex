@@ -52,6 +52,7 @@
 #                            [--kind task|milestone] [--milestone <milestone-ref>]
 #                            [--set Name=Value ...] [--wait-key]
 #   tm.py task delete        <task-ref>
+#   tm.py task complete      <task-ref>
 #   tm.py task set-field     <task-ref> <CanonicalName> <value>
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
 #   tm.py task set-notes     <task-ref> (<body> | --body-file <path>)
@@ -1094,7 +1095,7 @@ def fields_plan(args):
     skipped = []
     for name, value in pairs:
         if name == "Assignee":
-            data["assignee"] = value
+            data["assignee"] = assignee_value(value)
             continue
         entry = fields_map.get(name)
         if not isinstance(entry, dict):
@@ -1565,6 +1566,22 @@ def task_create(args):
     sys.exit(0)
 
 
+# complete_task(task): mark the task completed (PUT completed:true). Prints the
+# compact projection.
+def task_complete(args):
+    if len(args) != 1 or not re.fullmatch(r"[0-9]+", args[0]):
+        die(1, "usage: %s task complete <task-gid>" % PROG)
+    key = cache_util.project_key()
+    token = resolve_token(key)
+    print_task_projection(api_json("%s/tasks/%s" % (API_BASE, args[0]), token, "PUT", {"data": {"completed": True}}))
+    sys.exit(0)
+
+
+# An empty Assignee value unassigns: Asana takes null, never "".
+def assignee_value(value):
+    return None if value is None or str(value).strip().lower() in ("", "null", "none") else value
+
+
 def task_delete(args):
     if not args:
         die(1, "usage: %s task delete <task-ref>" % PROG)
@@ -1632,7 +1649,7 @@ def field_write_from_entry(entry, name, value):
 #   None                             -> field not on any of the projects (skip)
 def resolve_field_write(key, token, project_gids, name, value):
     if name == "Assignee":
-        return ("assignee", value)
+        return ("assignee", assignee_value(value))
     entry = None
     for pgid in project_gids:
         entry = _resolve_field_entry(key, pgid, name)
@@ -1697,7 +1714,7 @@ def task_set_field(args):
     # Assignee is native — no per-project field resolution needed.
     if name == "Assignee":
         updated = api_json("%s/tasks/%s" % (API_BASE, task_gid), token, "PUT",
-                           {"data": {"assignee": value}})
+                           {"data": {"assignee": assignee_value(value)}})
         print_task_projection(updated)
         sys.exit(0)
 
@@ -2515,6 +2532,7 @@ TASK_VERBS = {
     "list": task_list,
     "create": task_create,
     "delete": task_delete,
+    "complete": task_complete,
     "set-field": task_set_field,
     "set-fields": task_set_fields,
     "set-notes": task_set_notes,

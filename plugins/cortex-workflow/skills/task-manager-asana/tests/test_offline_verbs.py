@@ -456,6 +456,36 @@ class MilestoneEnsureTest(InProcessCase):
         ])
 
 
+class TaskCompleteTest(InProcessCase):
+    def test_complete_puts_completed_true(self):
+        tm = _import_tm()
+        fake = FakeAsana([])
+        code, out = self.run_verb(tm.task_complete, ["123"], fake)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.writes(), [("PUT", "/tasks/123", {"data": {"completed": True}})])
+
+    def test_non_numeric_ref_is_refused_without_a_call(self):
+        tm = _import_tm()
+        fake = FakeAsana([])
+        code, _ = self.run_verb(tm.task_complete, ["abc"], fake)
+        self.assertEqual(code, 1)
+        self.assertEqual(fake.calls, [])
+
+
+class UnassignTest(InProcessCase):
+    def test_empty_assignee_sends_null(self):
+        tm = _import_tm()
+        fake = FakeAsana([])
+        code, _ = self.run_verb(tm.task_set_field, ["123", "Assignee", ""], fake)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.writes(), [("PUT", "/tasks/123", {"data": {"assignee": None}})])
+
+    def test_named_assignee_is_kept(self):
+        tm = _import_tm()
+        self.assertEqual(tm.assignee_value("me"), "me")
+        self.assertIsNone(tm.assignee_value("null"))
+
+
 class MilestonePureTest(unittest.TestCase):
     def test_project_subtask_shape(self):
         tm = _import_tm()
