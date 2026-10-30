@@ -11,7 +11,7 @@ Walked per card in `$AL order --user <me>` order. The first card passing every c
 | `🤖 [AGENT] Ready for review` marker with a `PR: <url>` line | `get_comments(card)` | skip, print `stray — <name> (<ref>): no PR` |
 | No live review: a `🤖 [REVIEW] started` newer than the last `🤖 [AGENT]` comment with no `🤖 [REVIEW]` verdict after it, and younger than **3 hours** | comments | skip, print `in flight — <name> (<ref>)`; older than 3 h → adopt (print `adopting — <name> (<ref>)`) |
 | PR `state == OPEN` | `gh pr view` | skip, print `stray — <name> (<ref>): PR <state>` |
-| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **recover**: read the card's milestone anchor (`get_task(card)` → milestone → its description's Branches table); it names a branch for this repository that exists on `origin` → `gh pr edit <n> --base <branch>` and continue. No milestone, or no branch for this repository → **blocked**: `No way forward — PR targets <base> and no milestone branch is named for <repo>` |
+| `baseRefName` is not `main` and not the default branch | `gh pr view`, `gh repo view` | **recover**: read the card's milestone (`get_task(card).parent` for a work item → `get_task(<parent>)` → its description's Branches table); it names a branch for this repository that exists on `origin` → `gh pr edit <n> --base <branch>` and continue. No milestone, or no branch for this repository → **blocked**: `No way forward — PR targets <base> and no milestone branch is named for <repo>` |
 | No armed `autoMergeRequest` on any open PR of the head | `gh pr list --head` | **recover**: `gh pr merge <n> --disable-auto`, note it in the review report, continue |
 | `statusCheckRollup` has no `PENDING`/`IN_PROGRESS`/`QUEUED` entries | `gh pr view` | skip, print `checks pending — <name> (<ref>)` |
 
@@ -35,9 +35,23 @@ Author as Markdown, post with `add_comment`. The first line is exact: the build 
 - **Pass**: one review, `event: COMMENT`, body = the review report: per pass found / validated / fixed, the validator verdicts, each fix with its red → green evidence, the per-fix SOUND verdicts, every gate with its command and result, the identity-diff result and base SHA when a gate was red on the base, CI state, rebase pairing when one ran. When fixes changed what the branch contains, refresh the PR body first (`gh pr edit <url> --body-file -`) so the squash records the shipped state.
 - `APPROVE` and `REQUEST_CHANGES` are never used: the PR is under the same account, and GitHub rejects them with a 422.
 
+## Work items
+
+A milestone's work items reach this run without a column. Candidates: for each milestone in `list_tasks(board, in_progress)` whose `fields.Executor` is `Agent`, `milestone_tasks(milestone)`, and for each open one `get_comments(item)` → `agent_loop.py marker --from-json -`. Pass them with the in-review single tasks to `agent_loop.py candidates --user <me> --for review --from-json -` (input shape in the build tick's `references/claiming.md` → Milestones); it keeps open work items unassigned or held by this user whose latest marker is `Ready for review` or a review start, and the candidate checks above then apply to each.
+
+Routing uses the comment shapes above, with the column replaced:
+
+| Outcome | Work item | Cards row `state` |
+|---|---|---|
+| pass | `complete_task(item)` — completed is merged | `merged` |
+| hand back | `set_field(item, "Assignee", "")` — open and unassigned is waiting, so the build run takes it as rework; the comment's last line reads `The build run takes this card as rework.` | `waiting` |
+| no way forward | stays assigned — held, its latest marker `Blocked`; the comment's last line reads `Once resolved, answer here and unassign this card; the build run takes it as rework.` | `blocked` |
+
+In the same step: the Cards row (`get_task(milestone)` → `agent_loop.py cards` → `set_description`, with `pr` on every row this run touches), then the milestone's column — `milestone_tasks` with each held item's latest marker → `agent_loop.py aggregate` → `move_task(milestone, board, columns[<role>])` when it differs. The last merge moves the milestone to `ready`; a block moves it to `blocked`.
+
 ## Mirror rule
 
-For every other board the card is on (`get_task(card).board` memberships), `get_board(that board)`; if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on.
+For every other board the card is on (`get_task(card).board` memberships — a work item's product board), `get_board(that board)`; if it has a column whose name equals the agent board's cached name for the target role, `move_task(card, that board, that column)`. Otherwise skip silently. Never add a card to a board it is not on.
 
 ## Every terminal path
 

@@ -50,7 +50,7 @@ Describe intent; the provider fills the specifics. This list is the **common pat
 - `upload_attachment(task, file_path)` / `remove_attachment(task, attachment)`
 - `get_subtasks(task)` / `get_comments(task)` / `get_attachments(task)` — list a task's subtasks / comments / attachments.
 - `list_fields(board)` — canonical fields available on a board.
-- `list_tasks(board, column?)` — enumerate the tasks on a board, or on one of its columns, in the provider's native order; each is `{ref, name, kind, completed, assignee, fields}` with `fields` holding canonical names from `references/workflow/fields.md` so callers can find milestone anchors or read `Priority`/`Category` without provider terms.
+- `list_tasks(board, column?)` — enumerate the tasks on a board, or on one of its columns, in the provider's native order; each is `{ref, name, kind, completed, assignee, fields}` with `fields` holding canonical names from `references/workflow/fields.md` so callers can find milestones or read `Priority`/`Category` without provider terms.
 - `list_milestones(board)` — the board's milestone-kind members, each `{ref, name, expanded}` (`expanded` = has ≥1 work item). For the landscape: which milestones exist, which are already broken into tasks.
 - `milestone_tasks(milestone)` — the milestone's work items, each `{ref, name, created_at, completed, assignee}`. Their order carries no meaning. A work item's state is read in place (completion, assignee, its latest `🤖` comment) — `references/workflow/boards.md` → Milestones.
 - `ensure_milestone(board, name)` — idempotently create a milestone-kind member of `board` named `name` if missing; return its ref. Reuses an existing one; never overwrites its description (set that with `set_description`).
