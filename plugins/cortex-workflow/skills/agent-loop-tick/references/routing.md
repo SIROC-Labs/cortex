@@ -19,7 +19,7 @@ Author comments as Markdown and post with `add_comment`; the provider renders.
 A milestone's work item has no column. Each verdict posts the same comment as the table above, and the work item **stays assigned**: held, with its latest marker naming the step. The operator releases a `Needs clarification` or `Blocked` one by answering and unassigning it, which puts it back in front of the build run; replace the comment's last line with `Answer here, then unassign this card.` In the same step:
 
 1. **Cards row.** `get_task(milestone)` → `agent_loop.py cards --from-json -` with `{"description": <its description>, "row": {"ref": <item>, "state": <state>, "pr": <url or omit>}}` → `set_description(milestone, <output>)`. `state` is `in progress` on claim, `in review` on `shipped`, `needs clarification` or `blocked` on a stop.
-2. **Milestone column.** `milestone_tasks(milestone)` with each held item's latest marker → `agent_loop.py aggregate --from-json -` (`{"subtasks": [...]}`) → `move_task(milestone, board, columns[<role>])` when the milestone is not already there. The first claim moves it from `queue` to `in_progress`; a stop moves it to `blocked`.
+2. **Milestone column.** `milestone_tasks(milestone)` with each open item's latest marker → `agent_loop.py aggregate --from-json -` (`{"subtasks": [...]}`) → `move_task(milestone, board, columns[<role>])` when the milestone is not already there. The first claim moves it from `queue` to `in_progress`, and it never returns to `queue`; a stop moves it to `blocked`.
 
 ## Mirror rule
 

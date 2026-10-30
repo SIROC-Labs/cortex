@@ -336,7 +336,7 @@ class CandidatesTest(AgentLoopCase):
         self.assertIsNone(single["milestone"])
 
     def test_unknown_kind_exits_1(self):
-        code, _, _ = self.run_cmd(["candidates", "--user", "u1", "--for", "lane", "--from-json", "-"], stdin="{}")
+        code, _, _ = self.run_cmd(["candidates", "--user", "u1", "--for", "bogus", "--from-json", "-"], stdin="{}")
         self.assertEqual(code, 1)
 
 
@@ -346,10 +346,15 @@ class AggregateTest(AgentLoopCase):
         self.assertEqual(code, 0, err)
         return json.loads(out)["role"]
 
-    def test_none_held_is_ready_to_execute(self):
+    def test_untouched_is_ready_to_execute(self):
         self.assertEqual(self.role([item("a", "1"), item("b", "2")]), "queue")
         self.assertEqual(self.role([]), "queue")
-        self.assertEqual(self.role([item("a", "1", completed=True), item("b", "2", marker="changes_requested")]), "queue")
+
+    def test_merged_work_with_nothing_in_flight_stays_in_progress(self):
+        self.assertEqual(self.role([item("a", "1", completed=True), item("b", "2")]), "in_progress")
+
+    def test_released_work_item_with_a_marker_stays_in_progress(self):
+        self.assertEqual(self.role([item("a", "1", marker="changes_requested"), item("b", "2")]), "in_progress")
 
     def test_any_held_is_in_progress(self):
         self.assertEqual(self.role([item("a", "1", assignee=ME, marker="ready_for_review"), item("b", "2")]),

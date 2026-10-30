@@ -373,15 +373,17 @@ def subtask_state(st):
 
 # Pure: the role of the column a milestone belongs in. blocked while a held work
 # item's latest marker is Needs clarification or Blocked; ready once every one is
-# complete; queue while none is held (an empty milestone included); in_progress
-# otherwise. A milestone never belongs in in_review.
+# complete; queue until the first claim — no work item held, completed or carrying
+# a 🤖 marker (an empty milestone included); in_progress otherwise, so merged work
+# with nothing in flight never returns a milestone to the queue. A milestone never
+# belongs in in_review.
 def milestone_role(subtasks):
     items = [s for s in subtasks or [] if isinstance(s, dict)]
     if any(subtask_state(s) in ("needs clarification", "blocked") for s in items):
         return "blocked"
     if items and all(s.get("completed") is True for s in items):
         return "ready"
-    if not any(_held(s) for s in items):
+    if not any(_held(s) or s.get("completed") is True or s.get("marker") for s in items):
         return "queue"
     return "in_progress"
 

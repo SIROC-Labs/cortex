@@ -47,7 +47,7 @@ Routing uses the comment shapes above, with the column replaced:
 | hand back | `set_field(item, "Assignee", "")` — open and unassigned is waiting, so the build run takes it as rework; the comment's last line reads `The build run takes this card as rework.` | `waiting` |
 | no way forward | stays assigned — held, its latest marker `Blocked`; the comment's last line reads `Once resolved, answer here and unassign this card; the build run takes it as rework.` | `blocked` |
 
-In the same step: the Cards row (`get_task(milestone)` → `agent_loop.py cards` → `set_description`, with `pr` on every row this run touches), then the milestone's column — `milestone_tasks` with each held item's latest marker → `agent_loop.py aggregate` → `move_task(milestone, board, columns[<role>])` when it differs. The last merge moves the milestone to `ready`; a block moves it to `blocked`.
+In the same step: the Cards row (`get_task(milestone)` → `agent_loop.py cards` → `set_description`, with `pr` on every row this run touches), then the milestone's column — `milestone_tasks` with each open item's latest marker → `agent_loop.py aggregate` → `move_task(milestone, board, columns[<role>])` when it differs. The last merge moves the milestone to `ready`; a block moves it to `blocked`; a hand-back leaves it `in_progress`.
 
 ## Mirror rule
 
