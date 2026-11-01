@@ -61,7 +61,7 @@ git -C <repo> ls-remote --exit-code --heads origin milestone/<slug> \
 repository. `<parent>` is `main` unless the work extends an unmerged branch, and is recorded per
 repository. Nothing is committed to the milestone branch here; the review run's squash merges fill it.
 
-**Anchor description** (`set_description`), in this order:
+**Milestone description** (`set_description`), in this order:
 
 ```markdown
 ## Source
@@ -73,12 +73,18 @@ repository. Nothing is committed to the milestone branch here; the review run's 
 | <org/repo> | `milestone/<slug>` | `<parent>` |
 
 ## Cards
-- <ref> — <title> (<repo>)   ← in dependency order
+| Ref | Title | Repo | State | PR |
+|---|---|---|---|---|
+| <ref> | <title> | <org/repo> | waiting |  |
 
 ## Closing
-When every card is in Ready, open `milestone/<slug> → <parent>` in each repository above and review the
+When every card is merged, open `milestone/<slug> → <parent>` in each repository above and review the
 milestone as one change. Extending this milestone means authoring new cards under it with the same base.
 ```
+
+Rows go in dependency order. `State` is `waiting`, `in progress`, `in review`, `needs clarification`,
+`blocked` or `merged`; whoever changes a card's state rewrites its row in the same step (the runs do it
+with `agent_loop.py cards`).
 
 ## Common mistakes
 

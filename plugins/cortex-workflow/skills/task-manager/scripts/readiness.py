@@ -86,9 +86,14 @@ def _active_sprint_name(active_sprint):
 # Collect the sprint/board names a task belongs to, tolerant of both projections:
 #   Asana board: [{"project","section"}, ...]  -> project names
 #   Jira board:  {"project","sprint"}          -> the sprint name
+# A milestone's work item is never on its milestone's board, so a subtask also
+# belongs to the boards of its parent (`parent.board`, same shape).
 # Returns a list of non-empty membership names (lowercased for comparison upstream).
 def _task_membership_names(task):
     out = []
+    parent = task.get("parent") if isinstance(task, dict) else None
+    if isinstance(parent, dict):
+        out.extend(_task_membership_names(parent))
     board = task.get("board") if isinstance(task, dict) else None
     if isinstance(board, list):
         # Asana shape: each membership is a {project, section}.

@@ -14,6 +14,7 @@ The canonical fields the siroc workflow uses, by meaning. Provider-agnostic: thi
 | Labels | Free-form tags on a task. |
 | Parent / Epic | The task's parent or epic membership (hierarchy). |
 | Product Status | Where the task sits in the lifecycle (see `lifecycle.md`). |
+| Executor | Who executes a card on the agent board: `Agent` (the agent loop) or `Human`. On a milestone it opens or closes all of its work items to the loop (`boards.md`). |
 
 Not every board carries every field. A missing field is skipped gracefully, never invented.
 

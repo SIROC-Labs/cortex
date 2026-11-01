@@ -15,12 +15,12 @@ cortex-workflow/
     ├── task-manager/      ← neutral task-manager interface / seam (bundled)
     ├── task-manager-asana/ ← Asana provider implementation (bundled)
     ├── task-manager-jira/ ← Jira provider implementation (bundled)
-    ├── agent-loop-author/ ← Any input → one milestone + milestone branches + one-shot cards on the agent board's queue, gated by readiness (bundled)
+    ├── agent-loop-author/ ← Any input → one milestone on the agent board + milestone branches + one-shot cards as its work items, gated by readiness (bundled)
     │   └── references/    ← any-input enumeration, four verifications, the milestone recipe, common mistakes
     ├── agent-loop-readiness/ ← The ten one-shot-executability checks, audit and author modes (bundled)
     │   └── references/    ← decide-or-stop, vague-word gate, rationalizations
     ├── agent-loop-setup/  ← Guided setup: agent board (find/create, role mapping, rotation, repos root → ~/.cortex/agent-loop/<provider>.json), pre-flight, first cards, how to run the loops (bundled)
-    │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate (no network)
+    │   ├── scripts/       ← agent_loop.py — cache, rotation, ordering, dependency gate, milestone markers, candidates, aggregate and Cards table (no network)
     │   └── tests/
     ├── agent-loop-tick/   ← One unattended build run: claim an own/unassigned card, gate, start-task unattended, route the card (bundled)
     │   └── references/    ← claiming (ownership, ordering, gate, rework), routing, running (both ticks per runtime)
@@ -130,21 +130,21 @@ agent-loop-setup           (attended, four stages: board → pre-flight → firs
   ├── task-manager       (list_boards, get_board, ensure_board, ensure_columns, list_fields, get_current_user)
   └── agent-loop-author  (stage 3, when the operator authors the first cards now)
 
-agent-loop-tick            (unattended build run: one own or unassigned card per run)
-  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, column), move_task, get_dependencies, get_comments, add_comment, set_field)
+agent-loop-tick            (unattended build run: one own or unassigned card — a single task or a milestone's work item — per run)
+  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, column), milestone_tasks, get_task, move_task (single tasks and milestones), get_dependencies, get_comments, add_comment, set_field, set_description)
   ├── agent-loop-readiness (audit mode gate)
   ├── start-task         (unattended [rework] — returns an UNATTENDED VERDICT block)
   └── → routes the card by verdict; never asks, never merges
 
-agent-loop-review-tick     (unattended review run: one own or unassigned in-review card per run)
-  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, in_review), get_comments, add_comment, set_field, move_task)
+agent-loop-review-tick     (unattended review run: one own or unassigned in-review card — a single task or a milestone's work item — per run)
+  ├── task-manager       (resolve_board("agent-queue"), get_current_user, list_tasks(board, in_review | in_progress), milestone_tasks, get_task, get_comments, add_comment, set_field, complete_task, set_description, move_task (single tasks and milestones))
   ├── (reviewer agents)  (completeness, security, simplify passes in parallel; one validator; one per-fix validator)
   ├── (gh, git)          (rebase with range-diff, declared gates, CI wait, squash merge into the milestone branch, worktree and branch cleanup)
-  └── → ready (merged) | queue (changes requested, rework) | blocked (refused or stuck); never asks, never merges into main
+  └── → ready (merged; a work item is completed) | queue (changes requested, rework; a work item is unassigned) | blocked (refused or stuck); never asks, never merges into main
 
 agent-loop-author          (attended: input → one milestone, milestone branches, cards)
   ├── agent-loop-readiness (author mode gate, loop until READY)
-  ├── task-manager       (resolve_board("agent-queue"), ensure_milestone, set_description, create_task(milestone=…), move_task, add_dependency, set_field)
+  ├── task-manager       (resolve_board("agent-queue"), ensure_milestone, set_description, create_task(milestone=…), add_dependency, set_fields, move_task (the milestone only))
   ├── (git)              (push milestone/<slug> from its parent in every repository the cards touch)
   └── [external] CREATE_PLAN binding for thin inputs
 
@@ -228,6 +228,7 @@ To add a provider, see `skills/task-manager/references/provider-guide.md`. For t
 - **Field/status/board vocabulary is neutral.** Use the names in `references/workflow/{fields,lifecycle,boards}.md`; never provider terms (Asana "section", Jira "statusCategory") in an orchestrator.
 - **Extending the contract:** add an operation by editing `skills/task-manager/SKILL.md` (it's an open/semantic contract); then every provider must map it or degrade per the provider-guide's partial-support rule. Rare provider-specific needs use the documented escape hatch — don't push provider mechanics up into orchestrators.
 - **Agent-board moves use `move_task`, never `set_status`** — columns are addressed by role from the agent-loop cache; `set_status`'s field-first rule would land on Product Status values.
+- **A milestone's work items never move.** They are subtasks of the milestone, never members of the agent board; their state is read in place (completion, assignee, latest `🤖` marker) and the milestone's column is their aggregate — `references/workflow/boards.md` → Milestones.
 - **`references/workflow/*` encodes siroc's workflow profile** (status pipeline, field set) — neutral in form but org-shaped; a different org adapts these, not the orchestrators.
 
 ## Naming Conventions for Interface Tokens
