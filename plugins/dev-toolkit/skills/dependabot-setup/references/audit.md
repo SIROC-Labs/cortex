@@ -3,7 +3,7 @@
 Dependabot alerts cover manifests it can parse. This workflow covers two gaps:
 
 1. **Lock files between PRs.** PR CI usually audits only the trees a PR touches. An advisory published against an unchanged lock file waits until someone edits that tree.
-2. **Runtimes.** A version in a version file (`.nvmrc`, `.python-version`, `.tool-versions`, `mise.toml`, `engines`, and the like) has no lock file and no Dependabot alert.
+2. **Runtimes.** A version in a version file (`.nvmrc`, `.python-version`, `.tool-versions`, `mise.toml`, `engines`, and the like) has no lock file and no Dependabot alert. Neither has the engine version an infrastructure input pins for a managed service (`pg_version`, a Redis or Valkey version, a Kubernetes version prefix in Terraform, Terragrunt or Pulumi): it is the runtime production runs, so it gets the same check, read from that input.
 
 ## Audit command per lock file
 
@@ -33,7 +33,9 @@ Derive the product from endoflife.date's catalog, not a list. `https://endoflife
 - If the product publishes a per-release security flag (Node's `https://nodejs.org/dist/index.json` has `security` on each release): fail when any release newer than the full pin on the same cycle has the flag set to true. Check every release between the pin and the latest, not only the latest; a routine release with `security: false` must not fail the job.
 - Without such a flag, warn when `latest.name` is newer, don't fail: a newer patch isn't always a security fix.
 
-A floating pin (`24`, `lts/*`, `3.13`) can only be checked for end of life. Say so, and suggest a full pin.
+The pinned cycle is the longest cycle name the pin equals or starts with (`1.16.6` → `1.16`). A bare major under a product whose cycles are `major.minor` matches none (Valkey `8` against `8.0`, `8.1`): check the newest cycle under that major, which is what a managed service on that major runs.
+
+A floating pin (`24`, `lts/*`, `3.13`, `8`) can only be checked for end of life. Say so, and suggest a full pin.
 
 ## Policy (fixed)
 
