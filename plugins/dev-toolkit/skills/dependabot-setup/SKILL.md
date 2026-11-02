@@ -26,7 +26,7 @@ The policy (schedule, limits, cooldowns, grouping, audit threshold) is fixed and
 - **Conventions:** commit types and scopes from `git log`, the default branch and any integration branch, runner labels, and how actions are pinned.
 - **Private dependencies:** private registries and private Git dependencies, and whether Dependabot secrets exist for them. Without access, every update fails to resolve.
 - **History:** if Dependabot ran before, its open, merged and failed PRs. They show which groups and ignores the repository needs.
-- **Version files:** any file that pins a runtime or tool version. Dependabot neither updates nor alerts on these.
+- **Version files:** any file that pins a runtime or tool version, and the engine versions infrastructure code pins for a managed service (a database, a cache, a Kubernetes cluster). Dependabot neither updates nor alerts on these.
 - **Constraint style and peer ranges:** floors or exact pins in manifests, and peer dependencies in lock files. These decide `versioning-strategy`, coupled groups and ignores.
 
 ### 2. Repository settings
