@@ -3,7 +3,7 @@
 Dependabot alerts cover manifests it can parse. This workflow covers two gaps:
 
 1. **Lock files between PRs.** PR CI usually audits only the trees a PR touches. An advisory published against an unchanged lock file waits until someone edits that tree.
-2. **Runtimes.** A version in a version file (`.nvmrc`, `.python-version`, `.tool-versions`, `mise.toml`, `engines`, and the like) has no lock file and no Dependabot alert. Neither has the engine version an infrastructure input pins for a managed service (`pg_version`, a Redis or Valkey version, a Kubernetes version prefix in Terraform, Terragrunt or Pulumi): it is the runtime production runs, so it gets the same check, read from that input.
+2. **Runtimes.** A version in a version file (`.nvmrc`, `.python-version`, `.tool-versions`, `mise.toml`, `engines`, and the like) has no lock file and no Dependabot alert. Neither has the engine version an infrastructure input pins for a managed service (`pg_version`, a Redis or Valkey version, a Kubernetes version prefix in Terraform, Terragrunt or Pulumi): it is the runtime production runs, so it gets the same check, read from that input. When the code uses a managed service (a client library, a local service image, a connection string) but no file in the repository pins its engine version, report it as an uncovered runtime: say where the version should be pinned (this repository's infrastructure code, or the repository that owns the infrastructure) and don't add the pin yourself.
 
 ## Audit command per lock file
 
