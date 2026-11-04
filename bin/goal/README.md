@@ -158,6 +158,12 @@ deletes every subtask it made on the ticket, answered questions too. A subtask o
 that it used as a step and ticked is reopened. It is *Undo the goal* in the TUI's palette
 on the goal's row, `cortex queue undo <ticket>`, or `cortex goal undo <id>`.
 
+**Discuss** opens a Claude session to talk a goal through, with its journal, its open
+questions, its log and its parts' in its context, in the goal's worktree. It runs in plan
+mode, without the tools that edit files or write to Asana, and it is told to change
+nothing: answers and approvals still go through the ticket or the TUI. It is *Discuss the
+goal* in the TUI's palette, or `cortex goal discuss <id>`.
+
 ## Files
 
 A goal keeps its state in `.cortex/state/<id>/`:

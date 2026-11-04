@@ -911,6 +911,8 @@ HELP = [
         ("checkpoint", "Make HCI-8 a checkpoint (◆) · again: no longer a checkpoint · "
                        "on Boards also before it is queued (◇)"),
         ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
+        ("discuss", "Discuss the goal X — talk it through with Claude, which reads its "
+                    "journal and code and changes nothing; you come back when it ends"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
         ("clear", "Clear the finished tasks from the list"),
         ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
@@ -1115,6 +1117,7 @@ class App(object):
         self.question = None
         self.compose = None
         self.edit_request = None
+        self.discuss_request = None
         self.posting = {}
         self.sent = []
         self.creating = None
@@ -1625,6 +1628,9 @@ class App(object):
                         "words": "revert discard throw away back out cancel reset",
                         "run": lambda: self.undo(row)})
         if TABS[self.tab] == "Runs" and row and row["kind"] == "goal" and row["cols"][0] == "goal":
+            out.append({"title": "Discuss the goal %s" % row["cols"][1],
+                        "words": "talk chat brainstorm ask claude think through read only",
+                        "run": lambda: setattr(self, "discuss_request", row["goal"])})
             out.append({"title": "Undo the goal %s" % row["cols"][1],
                         "words": "revert discard throw away back out cancel reset goal",
                         "run": lambda: self.undo_goal(row)})
@@ -2408,7 +2414,7 @@ def run_ui(main_root, forward):
                 for key in keys:
                     if not app.key(key, app.view() if not app.log_path else []):
                         return
-                    if app.edit_request:
+                    if app.edit_request or app.discuss_request:
                         break
             except Stop as e:
                 app.message = str(e)
@@ -2420,7 +2426,26 @@ def run_ui(main_root, forward):
                     app.answer(gid, text)
                 else:
                     app.message = "nothing sent"
+            if app.discuss_request:
+                gid, app.discuss_request = app.discuss_request, None
+                discuss(scr, main_root, gid)
+                app.message = "back from the discussion — it changed nothing"
     curses.wrapper(loop)
+
+
+def discuss(scr, main_root, gid):
+    """Leave the screen to a read-only Claude session about the goal, the way
+    $EDITOR is opened, and come back when it ends."""
+    argv, cwd = gl.discuss_command(main_root, gid)
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        subprocess.call(argv, cwd=cwd)
+    except OSError as e:
+        sys.stderr.write("could not start claude: %s\n" % e)
+        time.sleep(2)
+    curses.reset_prog_mode()
+    scr.clear()
 
 
 def edit_answer(scr, template):

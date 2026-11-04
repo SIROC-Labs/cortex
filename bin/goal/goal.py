@@ -1153,6 +1153,63 @@ def goal_and_parts(main_root, gid):
     return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
 
 
+# Tools a discussion may not use: it reads, and changes nothing.
+DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "mcp__claude_ai_Asana__add_comment",
+                "mcp__claude_ai_Asana__create_tasks", "mcp__claude_ai_Asana__update_tasks",
+                "mcp__claude_ai_Asana__delete_task", "mcp__claude_ai_Asana__create_project",
+                "mcp__claude_ai_Asana__update_project",
+                "mcp__claude_ai_Asana__create_project_status_update",
+                "mcp__claude_ai_Asana__create_task_from_template",
+                "mcp__claude_ai_Asana__create_project_from_template"]
+
+DISCUSS = """You discuss a cortex goal with the person who runs it, to brainstorm and
+think it through. A cortex goal is an autonomous run that implements an Asana ticket.
+Other agents do its work. You change nothing.
+
+Read these files first. Read them again when the person asks for the latest:
+
+%s
+
+- `journal.md` is the lead's journal: its references, decisions, acceptance
+  criteria and plan.
+- `awaiting.json`, when it exists, holds what the goal waits on the person for.
+- `goal.log` is what the runner did. `parts.json`, when it exists, is the split.
+
+The goal's branch is checked out in `%s`. Read its code as you need.
+
+Do not change any file. Do not run commands that write, such as `git commit`,
+`git checkout`, `git stash`, or any write to Asana. Do not answer the goal's
+questions or approve its plan. When the talk changes an answer, tell the person
+to give it on the question's subtask in Asana, or on the TUI.
+"""
+
+
+def discuss_command(main_root, gid):
+    """The argv and the folder of a read-only Claude session about a goal and its
+    parts, for the person to talk it through."""
+    goals = goal_and_parts(main_root, gid)
+    top = goals[-1]
+    worktree = top.read().get("worktree")
+    cwd = worktree if worktree and os.path.isdir(worktree) else main_root
+    lines, dirs = [], []
+    for g in [top] + goals[:-1]:
+        dirs.append(g.state.dir)
+        names = [n for n in ("journal.md", "awaiting.json", "parts.json", "goal.log")
+                 if os.path.exists(os.path.join(g.state.dir, n))]
+        lines.append("- %s: %s" % ("the goal" if g is top else "part %s" % g.id.split("--", 1)[1],
+                                    ", ".join("`%s`" % os.path.join(g.state.dir, n) for n in names)
+                                    or "nothing written yet"))
+        tree = g.read().get("worktree")
+        if g is not top and tree and os.path.isdir(tree):
+            dirs.append(tree)
+    argv = ["claude", "--permission-mode", "plan"]
+    for d in dirs:
+        argv += ["--add-dir", d]
+    argv += ["--disallowedTools"] + DISCUSS_DENY
+    argv += ["--", DISCUSS % ("\n".join(lines), cwd)]
+    return argv, cwd
+
+
 def undo_plan(main_root, gid):
     """What undoing a goal does, a line a step, before anything is done."""
     goals = goal_and_parts(main_root, gid)
@@ -2273,8 +2330,14 @@ def main(argv):
                                        "state and the subtasks it made")
     back.add_argument("id")
     back.add_argument("--repo", default=".")
+    talk = sub.add_parser("discuss", help="talk a goal through with Claude, which changes nothing")
+    talk.add_argument("id")
+    talk.add_argument("--repo", default=".")
     args = parser.parse_args(argv)
     main_root = st.main_repo_root(os.path.abspath(args.repo))
+    if args.cmd == "discuss":
+        argv, cwd = discuss_command(main_root, args.id)
+        return subprocess.call(argv, cwd=cwd)
     if args.cmd == "undo":
         for line in undo(main_root, args.id):
             print(line)

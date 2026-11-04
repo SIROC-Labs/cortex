@@ -101,7 +101,10 @@ until you approve it: `c` approves it, `a` says what to change, or complete *Rev
 plan* in Asana. `x` stops a running goal and
 `r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
 *Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
-worktrees and state, and every subtask it made on the ticket.
+worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
+Claude session in its worktree that has read its journal, its open questions and its log,
+to talk it through: plan mode, no file edits and no Asana writes, so it changes nothing.
+The TUI comes back when you leave it.
 Closing the TUI leaves a goal running.
 
 A goal split into parts has them on the rows below it, indented (`└ API`), each with its

@@ -1747,7 +1747,8 @@ class TestHelpPage(unittest.TestCase):
 
     def test_palette_commands_and_checkpoints_are_explained(self):
         text = " ".join(t for _, t, _ in tui.help_lines(100, "Runs"))
-        for words in ("Checkpoints", "Make HCI-8 a checkpoint", "Undo HCI-8", "Queue into"):
+        for words in ("Checkpoints", "Make HCI-8 a checkpoint", "Undo HCI-8", "Discuss the goal",
+                      "Queue into"):
             self.assertIn(words, text)
 
     def test_keys_and_text_are_separate_columns_and_long_text_wraps_under_itself(self):

@@ -1196,6 +1196,29 @@ class TestPartsPlanEarly(unittest.TestCase):
         json.dumps(built)
 
 
+class TestDiscuss(unittest.TestCase):
+    def test_a_read_only_session_with_the_goal_and_its_parts(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        gid = goal.create(d, "1", "A-1", "x", base="main")
+        g = goal.Goal(d, gid)
+        tree = os.path.join(d, "tree")
+        os.makedirs(tree)
+        g.update(worktree=tree, branch="A-1/goal-x")
+        with open(g.state.path("journal.md"), "w") as f:
+            f.write("# x")
+        pid = goal.create_part(d, g.read(), dict(PARTS["parts"][0], subtask=None), 0, [])
+        argv, cwd = goal.discuss_command(d, gid)
+        self.assertEqual(cwd, tree)
+        self.assertEqual(argv[:3], ["claude", "--permission-mode", "plan"])
+        self.assertIn(g.state.dir, argv)
+        self.assertIn(goal.Goal(d, pid).state.dir, argv)
+        for tool in ("Edit", "Write", "mcp__claude_ai_Asana__update_tasks"):
+            self.assertIn(tool, argv[argv.index("--disallowedTools"):argv.index("--")])
+        self.assertIn(g.state.path("journal.md"), argv[-1])
+        self.assertIn("part ", argv[-1])
+
+
 class TestUndo(unittest.TestCase):
     def git(self, *args, cwd=None):
         import subprocess
