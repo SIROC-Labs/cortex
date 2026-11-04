@@ -1214,9 +1214,11 @@ class TestDiscuss(unittest.TestCase):
         self.assertIn(g.state.dir, argv)
         self.assertIn(goal.Goal(d, pid).state.dir, argv)
         for tool in ("Edit", "Write", "mcp__claude_ai_Asana__update_tasks"):
-            self.assertIn(tool, argv[argv.index("--disallowedTools"):argv.index("--")])
-        self.assertIn(g.state.path("journal.md"), argv[-1])
-        self.assertIn("part ", argv[-1])
+            self.assertIn(tool, argv[argv.index("--disallowedTools"):])
+        prompt = argv[argv.index("--append-system-prompt") + 1]
+        self.assertIn("# x", prompt)
+        self.assertIn(g.state.path("journal.md"), prompt)
+        self.assertNotIn("--", argv[argv.index("--disallowedTools"):])
 
 
 class TestUndo(unittest.TestCase):

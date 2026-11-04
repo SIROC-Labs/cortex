@@ -1166,9 +1166,8 @@ DISCUSS = """You discuss a cortex goal with the person who runs it, to brainstor
 think it through. A cortex goal is an autonomous run that implements an Asana ticket.
 Other agents do its work. You change nothing.
 
-Read these files first. Read them again when the person asks for the latest:
-
-%s
+The goal's files, as they were when this session started, are below. Read them
+again from their paths when the person asks for the latest.
 
 - `journal.md` is the lead's journal: its references, decisions, acceptance
   criteria and plan.
@@ -1181,32 +1180,53 @@ Do not change any file. Do not run commands that write, such as `git commit`,
 `git checkout`, `git stash`, or any write to Asana. Do not answer the goal's
 questions or approve its plan. When the talk changes an answer, tell the person
 to give it on the question's subtask in Asana, or on the TUI.
+
+%s
 """
+
+DISCUSS_FILES = ("journal.md", "awaiting.json", "parts.json", "goal.log")
+DISCUSS_LOG_LINES = 200
+
+
+def discuss_files(goals):
+    """The goal's files, then each part's, as text for the session's prompt."""
+    out = []
+    for g in goals:
+        who = "the goal" if "--" not in g.id else "part %s" % g.id.split("--", 1)[1]
+        for name in DISCUSS_FILES:
+            path = os.path.join(g.state.dir, name)
+            if not os.path.exists(path):
+                continue
+            with open(path, errors="replace") as f:
+                text = f.read()
+            if name == "goal.log":
+                lines = text.splitlines()
+                text = "\n".join(lines[-DISCUSS_LOG_LINES:])
+                if len(lines) > DISCUSS_LOG_LINES:
+                    name = "goal.log, its last %d lines" % DISCUSS_LOG_LINES
+            out.append("## %s: %s (`%s`)\n\n````\n%s\n````" % (who, name, path, text.strip()))
+    return "\n\n".join(out) or "Nothing is written yet."
 
 
 def discuss_command(main_root, gid):
     """The argv and the folder of a read-only Claude session about a goal and its
-    parts, for the person to talk it through."""
+    parts, for the person to talk it through. The goal's files are in its prompt,
+    so it starts knowing them, and waits for the person."""
     goals = goal_and_parts(main_root, gid)
     top = goals[-1]
     worktree = top.read().get("worktree")
     cwd = worktree if worktree and os.path.isdir(worktree) else main_root
-    lines, dirs = [], []
+    dirs = []
     for g in [top] + goals[:-1]:
         dirs.append(g.state.dir)
-        names = [n for n in ("journal.md", "awaiting.json", "parts.json", "goal.log")
-                 if os.path.exists(os.path.join(g.state.dir, n))]
-        lines.append("- %s: %s" % ("the goal" if g is top else "part %s" % g.id.split("--", 1)[1],
-                                    ", ".join("`%s`" % os.path.join(g.state.dir, n) for n in names)
-                                    or "nothing written yet"))
         tree = g.read().get("worktree")
         if g is not top and tree and os.path.isdir(tree):
             dirs.append(tree)
     argv = ["claude", "--permission-mode", "plan"]
     for d in dirs:
         argv += ["--add-dir", d]
+    argv += ["--append-system-prompt", DISCUSS % (cwd, discuss_files([top] + goals[:-1]))]
     argv += ["--disallowedTools"] + DISCUSS_DENY
-    argv += ["--", DISCUSS % ("\n".join(lines), cwd)]
     return argv, cwd
 
 
