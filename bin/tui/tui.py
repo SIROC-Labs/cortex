@@ -912,7 +912,7 @@ HELP = [
                        "on Boards also before it is queued (◇)"),
         ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
         ("discuss", "Discuss the goal X — talk it through with Claude, which reads its "
-                    "journal and code and changes nothing; you come back when it ends"),
+                    "journal and code and changes nothing; a new tab in Ghostty"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
         ("clear", "Clear the finished tasks from the list"),
         ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
@@ -2428,9 +2428,49 @@ def run_ui(main_root, forward):
                     app.message = "nothing sent"
             if app.discuss_request:
                 gid, app.discuss_request = app.discuss_request, None
-                discuss(scr, main_root, gid)
-                app.message = "back from the discussion — it changed nothing"
+                if discuss_in_tab(main_root, gid):
+                    app.message = "the discussion is in a new tab — it changes nothing"
+                else:
+                    discuss(scr, main_root, gid)
+                    app.message = "back from the discussion — it changed nothing"
     curses.wrapper(loop)
+
+
+GHOSTTY_TAB = """tell application "Ghostty"
+  set cfg to new surface configuration
+  set initial working directory of cfg to "%s"
+  set initial input of cfg to "%s" & linefeed
+  if (count of windows) > 0 then
+    new tab in front window with configuration cfg
+  else
+    new window with configuration cfg
+  end if
+  activate
+end tell"""
+
+
+def applescript_text(text):
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def discuss_command_line(main_root, gid):
+    """The shell line that opens the discussion, for a tab of its own."""
+    return " ".join(shlex.quote(a) for a in (os.path.join(os.path.dirname(HERE), "cortex"), "goal",
+                                             "discuss", gid, "--repo", main_root))
+
+
+def discuss_in_tab(main_root, gid):
+    """Open the discussion in a new tab of the terminal the TUI runs in, when that
+    terminal can be told to: Ghostty, on macOS. False when it cannot."""
+    if sys.platform != "darwin" or os.environ.get("TERM_PROGRAM") != "ghostty":
+        return False
+    script = GHOSTTY_TAB % (applescript_text(main_root),
+                            applescript_text(discuss_command_line(main_root, gid)))
+    try:
+        return subprocess.run(["osascript", "-e", script], capture_output=True,
+                              timeout=15).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def discuss(scr, main_root, gid):

@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1758,6 +1759,24 @@ class TestHelpPage(unittest.TestCase):
         self.assertEqual(lines[merge + 1][0], "")          # the wrap has no key of its own
         self.assertTrue(all(len(t) <= 60 - tui.HELP_KEYS_WIDTH - 6
                             for _, t, style in lines if style != "bold"))
+
+
+class TestDiscussTab(unittest.TestCase):
+    def test_ghostty_on_macos_gets_a_tab_that_runs_the_discussion(self):
+        calls = []
+        run = tui.subprocess.run
+        tui.subprocess.run = lambda argv, **kw: calls.append(argv) or tui.subprocess.CompletedProcess(argv, 0)
+        self.addCleanup(setattr, tui.subprocess, "run", run)
+        env = dict(os.environ, TERM_PROGRAM="ghostty")
+        with mock.patch.dict(os.environ, env), mock.patch.object(tui.sys, "platform", "darwin"):
+            self.assertTrue(tui.discuss_in_tab('/r/my "repo"', "goal-a-1"))
+        script = calls[0][2]
+        self.assertIn("new tab in front window", script)
+        self.assertIn('goal discuss goal-a-1 --repo \'/r/my \\"repo\\"\'', script)
+
+    def test_another_terminal_gets_no_tab(self):
+        with mock.patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal"}):
+            self.assertFalse(tui.discuss_in_tab("/r", "goal-a-1"))
 
 
 class TestLogLine(unittest.TestCase):

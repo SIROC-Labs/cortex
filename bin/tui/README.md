@@ -104,7 +104,8 @@ plan* in Asana. `x` stops a running goal and
 worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
 Claude session in its worktree that has read its journal, its open questions and its log,
 to talk it through: plan mode, no file edits and no Asana writes, so it changes nothing.
-The TUI comes back when you leave it.
+In Ghostty on macOS it opens in a new tab; in another terminal it takes the TUI's screen,
+and the TUI comes back when you leave it.
 Closing the TUI leaves a goal running.
 
 A goal split into parts has them on the rows below it, indented (`└ API`), each with its
