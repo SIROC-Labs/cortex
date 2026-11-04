@@ -1213,7 +1213,7 @@ class TestDiscuss(unittest.TestCase):
         self.assertEqual(argv[:3], ["claude", "--permission-mode", "plan"])
         self.assertIn(g.state.dir, argv)
         self.assertIn(goal.Goal(d, pid).state.dir, argv)
-        for tool in ("Edit", "Write", "mcp__claude_ai_Asana__update_tasks"):
+        for tool in ("Edit", "Write", "AskUserQuestion", "mcp__claude_ai_Asana__update_tasks"):
             self.assertIn(tool, argv[argv.index("--disallowedTools"):])
         prompt = argv[argv.index("--append-system-prompt") + 1]
         self.assertIn("# x", prompt)

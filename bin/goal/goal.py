@@ -1154,7 +1154,7 @@ def goal_and_parts(main_root, gid):
 
 
 # Tools a discussion may not use: it reads, and changes nothing.
-DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "mcp__claude_ai_Asana__add_comment",
+DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
                 "mcp__claude_ai_Asana__create_tasks", "mcp__claude_ai_Asana__update_tasks",
                 "mcp__claude_ai_Asana__delete_task", "mcp__claude_ai_Asana__create_project",
                 "mcp__claude_ai_Asana__update_project",
@@ -1162,9 +1162,19 @@ DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "mcp__claude_ai_Asana__add_comm
                 "mcp__claude_ai_Asana__create_task_from_template",
                 "mcp__claude_ai_Asana__create_project_from_template"]
 
-DISCUSS = """You discuss a cortex goal with the person who runs it, to brainstorm and
-think it through. A cortex goal is an autonomous run that implements an Asana ticket.
-Other agents do its work. You change nothing.
+DISCUSS = """You help the person who runs a cortex goal talk it through. A cortex goal
+is an autonomous run that implements an Asana ticket. Other agents analyse it, plan
+it, review the plan and build it. You change nothing.
+
+How you talk:
+
+- Answer what the person asks, and only that. Do not add opinions, assessments,
+  risks, recommendations or scope advice they did not ask for: the goal's own
+  agents do that work.
+- Give your view only when they ask for it, on what they ask about.
+- Do not ask them questions, and do not offer menus of topics. Ask only when you
+  cannot understand what they want.
+- Be short. State facts from the files and the code, and say where they come from.
 
 The goal's files, as they were when this session started, are below. Read them
 again from their paths when the person asks for the latest.
