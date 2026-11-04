@@ -2393,6 +2393,9 @@ def main(argv):
         if not gid:
             return 1
         argv, cwd = discuss_command(main_root, gid)
+        data = Goal(main_root, gid).read()
+        print("Discussing %s. Its journal, its questions and its log are loaded, so ask away. "
+              "It changes nothing." % (data.get("key") or gid))
         return subprocess.call(argv, cwd=cwd)
     if args.cmd == "undo":
         for line in undo(main_root, args.id):

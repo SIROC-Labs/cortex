@@ -2495,6 +2495,8 @@ def discuss(scr, main_root, gid):
     argv, cwd = gl.discuss_command(main_root, gid)
     curses.def_prog_mode()
     curses.endwin()
+    print("Discussing %s. Its journal, its questions and its log are loaded, so ask away. "
+          "It changes nothing." % (gl.Goal(main_root, gid).read().get("key") or gid))
     try:
         subprocess.call(argv, cwd=cwd)
     except OSError as e:
