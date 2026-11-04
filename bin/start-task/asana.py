@@ -1565,12 +1565,17 @@ def task_set_parent(args):
     sys.exit(0)
 
 
-# Create a subtask under <parent-ref>, with a title and a Markdown description.
+# Create a subtask under <parent-ref>, with a title and a Markdown description; with
+# --section, a section header in the subtask list instead (is_rendered_as_separator).
 # POST /tasks/<gid>/subtasks. Prints the compact projection (its `ref` is the gid).
 def task_add_subtask(args):
+    section = "--section" in args
+    args = [a for a in args if a != "--section"]
     if len(args) < 3 or args[1] != "--title":
-        die(1, "usage: %s task add-subtask <parent-ref> --title T [--body-file <path>]" % PROG)
+        die(1, "usage: %s task add-subtask <parent-ref> --title T [--body-file <path>] [--section]" % PROG)
     data = {"name": args[2]}
+    if section:
+        data["is_rendered_as_separator"] = True
     if args[3:4] == ["--body-file"] and len(args) > 4:
         with open(args[4], "r", encoding="utf-8") as f:
             body = f.read()

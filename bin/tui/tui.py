@@ -262,7 +262,7 @@ def wait_lines(wait, width):
         para("The plan is ready for your review", "bold")
         out.append(("", "normal"))
         para("Nothing is built until you approve it. The plan is on the ticket in Asana, "
-             "under Plan:, and the acceptance criteria are in the goal's journal. To change "
+             "under Plan, and the acceptance criteria are in the goal's journal. To change "
              "it, edit, add or delete those subtasks, or say what to change in a comment on "
              "“Review the plan” or with a here. Then approve it: complete “Review the plan”, "
              "or press c.", "normal")

@@ -2,12 +2,11 @@
 # board.py — a goal's questions and plan on its Asana ticket, kept by the runner.
 #
 # Under the task that stands for the goal — the ticket, or a part's subtask — are
-# three sections of subtasks. Asana shows a subtask whose name ends in a colon as a
-# section.
+# two sections of subtasks, after any subtasks already there:
 #
-#   Questions:  one subtask for each question only the person can answer
-#   Review:     "Review the plan": completing it approves the plan
-#   Plan:       the plan's steps, or the goal's parts, in order
+#   Questions  one subtask for each question only the person can answer
+#   Plan       "Review the plan", whose completing approves the plan, then the
+#              plan's steps, or the goal's parts, in order
 #
 # The person answers a question in a comment on its subtask and completes it, and
 # approves the plan by completing its review. Subtasks the goal made start with 🤖
@@ -23,7 +22,7 @@ import time
 import start_task as st
 
 BOARD_FILE = "asana.json"
-QUESTIONS, REVIEW, PLAN = "Questions:", "Review:", "Plan:"
+QUESTIONS, PLAN = "Questions", "Plan"
 REVIEW_NAME = "Review the plan"
 INTEGRATION = "Integration: the parts together"
 APPROVED = "continue"
@@ -66,7 +65,7 @@ def made(lines):
 def question_body(q):
     lines = [q["why"], ""] if q.get("why") else []
     return made(lines + ["Answer in a comment on this subtask, then complete it. The goal goes "
-                         "on when every question under Questions: is complete. You can "
+                         "on when every question under Questions is complete. You can "
                          "answer on the cortex TUI instead."])
 
 
@@ -74,9 +73,9 @@ def review_body(split):
     what = "parts" if split else "steps"
     return made(["Complete this subtask to approve the plan and start building. Until then the "
                  "goal waits.", "",
-                 "To change the plan first: edit, add or delete the %s under Plan:, or say "
-                 "what to change in a comment here. The goal reads them once, when you "
-                 "complete this subtask." % what])
+                 "To change the plan first: edit, add or delete the %s below, or say what "
+                 "to change in a comment here. The goal reads them once, when you complete "
+                 "this subtask." % what])
 
 
 def part_body(part):
@@ -90,7 +89,7 @@ def part_body(part):
 
 
 def plan_changes(snapshot, rows, known):
-    """What the person changed under Plan: since it was written: lines for the
+    """What the person changed in the plan since it was written: lines for the
     lead. `snapshot` is {gid: {name, description, completed}} as written; `rows`
     the subtasks now; `known` the gids of the goal's other subtasks."""
     now = {r["ref"]: r for r in rows}
@@ -109,7 +108,7 @@ def plan_changes(snapshot, rows, known):
             out.append("- Marked \"%s\" complete, before anything was built" % row.get("name"))
     for row in rows:
         if row["ref"] not in snapshot and row["ref"] not in known and not row.get("completed") \
-                and not (row.get("name") or "").endswith(":") and not st.made_by_goal(row):
+                and not st.made_by_goal(row):
             text = (row.get("description") or "").strip()
             out.append("- Added: \"%s\"%s" % (row.get("name"), ", which says:\n\n%s\n" % _quote(text)
                                              if text else ""))
@@ -176,8 +175,9 @@ class Board(object):
             st.warn("Asana: could not %s: %s" % (what, str(e).splitlines()[0][:200] if str(e) else e))
             return None
 
-    def add(self, data, name, body, after=None):
-        gid = str((self.asana(["task", "add-subtask", self.task, "--title", st.GOAL_NAME + name], body)
+    def add(self, data, name, body, after=None, section=False):
+        args = ["task", "add-subtask", self.task, "--title", st.GOAL_NAME + name]
+        gid = str((self.asana(args + (["--section"] if section else []), body)
                    or {}).get("ref") or "")
         if not gid:
             raise st.Failure("Asana gave no id for the subtask \"%s\"" % name)
@@ -188,27 +188,27 @@ class Board(object):
         return gid
 
     def sections(self, data):
-        """The three sections, made once, in order, after any subtasks already there.
+        """The two sections, made once, in order, after the subtasks already there.
         Asana puts a new subtask at the top, so each is placed after the one before."""
         if data.get("section_plan"):
             return data
         rows = self.asana(["task", "subtasks", self.task]) or []
         after = rows[-1]["ref"] if rows else None
-        for key, name in (("questions", QUESTIONS), ("review", REVIEW), ("plan", PLAN)):
-            data["section_" + key] = self.add(data, name, made([]), after)
+        for key, name in (("questions", QUESTIONS), ("plan", PLAN)):
+            data["section_" + key] = self.add(data, name, "", after, section=True)
             after = data["section_" + key]
         return data
 
     def last_under(self, data, key):
-        """The subtask the next one under a section goes after."""
-        items = {"questions": data.get("asked") or [], "review": [data.get("review")],
-                 "plan": [i["gid"] for i in data.get("items") or []]}[key]
-        return ([g for g in items if g] or [data["section_" + key]])[-1]
+        """The subtask the next one in a section goes after."""
+        gids = data.get("asked") or [] if key == "questions" else \
+            [data.get("review")] + [i["gid"] for i in data.get("items") or []]
+        return ([g for g in gids if g] or [data["section_" + key]])[-1]
 
     # questions
 
     def ask(self, questions):
-        """A subtask for each question, under Questions:. Returns their ids."""
+        """A subtask for each question, under Questions. Returns their ids."""
         return self.safely("add the questions", self._ask, questions) or []
 
     def _ask(self, questions):
@@ -245,7 +245,7 @@ class Board(object):
     # the plan
 
     def publish(self, items, split, before_build=True):
-        """The plan under Plan:, and its review under Review:. `items` are
+        """The plan under Plan, after its review. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
         longer has is deleted; after it, nothing is."""
@@ -254,12 +254,12 @@ class Board(object):
     def _publish(self, items, split, before_build):
         data = self.sections(self.load())
         if not data.get("review"):
-            data["review"] = self.add(data, REVIEW_NAME, review_body(split), data["section_review"])
+            data["review"] = self.add(data, REVIEW_NAME, review_body(split), data["section_plan"])
         old = {i["key"]: i for i in data.get("items") or []}
         theirs = {r["name"].strip().lower(): r["ref"]
                   for r in self.asana(["task", "subtasks", self.task]) or []
                   if r["ref"] not in data.get("made", []) and not st.made_by_goal(r)}
-        out, after = [], data["section_plan"]
+        out, after = [], data["review"]
         for key, name, body in items:
             item = old.pop(key, None) or old.pop(next((k for k in old if same_step(k, key)), None), None)
             if not item and name.strip().lower() in theirs:
@@ -308,7 +308,7 @@ class Board(object):
             self.safely("complete the review", self.asana, ["task", "complete", data["review"]])
 
     def changes(self):
-        """What the person changed under Plan: before approving it: lines for the lead."""
+        """What the person changed in the plan before approving it: lines for the lead."""
         return self.safely("read the plan back", self._changes) or []
 
     def _changes(self):

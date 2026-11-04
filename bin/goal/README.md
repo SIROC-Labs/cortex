@@ -20,18 +20,18 @@ kept for its prototype). A milestone works well: its subtasks become
 parts of one piece of work.
 
 **On the ticket.** The runner, never an agent, shows the goal's questions and its plan on
-the ticket, as subtasks in three sections (a subtask whose name ends in a colon shows as a
-section in Asana):
+the ticket, as subtasks in two sections, after any subtasks already there (each section is
+a subtask Asana shows as a section header):
 
 ```
-Questions:        one subtask for each question only you can answer
-Review:           Review the plan
-Plan:             the plan's steps, or the parts, in order; then "Integration"
+🤖 Questions       one subtask for each question only you can answer
+🤖 Plan            🤖 Review the plan, then the plan's steps, or the parts, in order;
+                   then 🤖 Integration
 ```
 
 A part does the same under its own subtask, so each part has its own questions, review
 and steps. A subtask of yours with the same name as a step or a part is used as it is,
-and moved under Plan:. The steps and parts are ticked as they are done. The goal's own
+and moved into the Plan section. The steps and parts are ticked as they are done. The goal's own
 subtasks carry "Planned by a cortex goal" in their description, and the queue, the boards
 and the goal's ask leave them out. The description of a subtask of yours is never
 changed.
@@ -61,7 +61,7 @@ This program is the harness around the lead:
   only you can answer. The lead corrects the criteria and the plan.
 - **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
   approve it: complete *Review the plan* in Asana, or press `c` on the goal's row on the
-  TUI. To change it first, edit, add or delete the subtasks under Plan:, or say what to
+  TUI. To change it first, edit, add or delete the subtasks under Plan, or say what to
   change in a comment on the review (or with `a` on the TUI). The runner reads them once,
   when you approve, and the lead applies them to its journal before it builds. *Plan
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
@@ -91,7 +91,7 @@ This program is the harness around the lead:
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and the one-pager do not settle, and what
   only you have, all at once in the analysis where it can. Each question is a subtask under
-  Questions:. Answer it in a comment and complete the subtask; the goal goes on when every
+  Questions. Answer it in a comment and complete the subtask; the goal goes on when every
   question in the batch is complete, and the plan is approved only after its questions
   are answered. The questions also wait on the TUI's Runs tab, and an answer there is
   written onto each question's subtask, which it completes.

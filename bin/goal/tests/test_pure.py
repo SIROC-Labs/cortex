@@ -839,11 +839,15 @@ class FakeAsana(object):
     def __call__(self, args, cwd=None):
         family, verb, rest = args[0], args[1], args[2:]
         if verb == "add-subtask":
+            section = "--section" in rest
+            rest = [r for r in rest if r != "--section"]
             body = ""
             if "--body-file" in rest:
                 with open(rest[rest.index("--body-file") + 1]) as f:
                     body = f.read()
-            return {"ref": self.new(rest[0], rest[2], body)}
+            gid = self.new(rest[0], rest[2], body)
+            self.tasks[gid]["section"] = section
+            return {"ref": gid}
         if verb == "set-parent":
             gid, parent = rest[0], rest[1]
             self.tasks[self.tasks[gid]["parent"]]["subtasks"].remove(gid)
@@ -961,20 +965,22 @@ class TestBoard(unittest.TestCase):
     def test_sections_questions_review_then_plan(self):
         self.board.ask([{"q": "Which colour?", "why": "The two disagree."}])
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions:", "Which colour?", "Review:",
-                                             "Review the plan", "Plan:", "API", "Inbox"])
+        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Plan",
+                                             "Review the plan", "API", "Inbox"])
         inbox = self.fake.tasks[self.fake.gid("Inbox")]
         self.assertEqual(inbox["description"], "Theirs.")
         self.assertIn(goal.st.GOAL_MADE, self.fake.tasks[self.fake.gid("Review the plan")]["description"])
-        self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Plan:"))))
-        self.assertTrue(self.fake.tasks[self.fake.gid("Plan:")]["name"].startswith("\U0001f916 "))
+        self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Plan"))))
+        self.assertEqual([n for n in self.fake.names() if self.fake.tasks[self.fake.gid(n)].get("section")],
+                         ["Questions", "Plan"])
+        self.assertTrue(self.fake.tasks[self.fake.gid("Plan")]["name"].startswith("\U0001f916 "))
         self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
         self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
 
     def test_a_step_gone_before_the_build_is_deleted_but_never_one_of_theirs(self):
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b"), ("x", "Export", "b")], False)
         self.board.publish([("api", "API", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions:", "Review:", "Review the plan", "Plan:",
+        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
                                              "API", "Inbox"])
         self.assertEqual([i["key"] for i in self.board.load()["items"]], ["api"])
 
@@ -1060,7 +1066,7 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: "continue")
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead done", "finish"])
         self.assertIn("The plan is approved", self.prompts[1])
-        self.assertEqual(self.fake.names(), ["Questions:", "Review:", "Review the plan", "Plan:",
+        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
                                              "API", "Inbox"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Review the plan")]["completed"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
@@ -1102,7 +1108,7 @@ class TestPlanFlow(unittest.TestCase):
         goal.time.sleep = answer_in_asana
         text = self.runner.ask_person([{"q": "Which colour?", "why": "They disagree."}])
         self.assertEqual(text, "- Which colour?\n  Blue, as in the prototype.")
-        self.assertEqual(self.fake.names(), ["Questions:", "Which colour?", "Review:", "Plan:"])
+        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Plan"])
         self.assertIsNone(self.runner.goal.state.read("awaiting.json"))
         self.assertIn("Do not read or change Asana", self.runner.first_prompt())
         self.assertIn("approves the plan there", self.runner.first_prompt())
@@ -1160,7 +1166,7 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.assertEqual(self.launched[3], ["Dashboard"])
         inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
         self.assertEqual(inbox["asana_task"], self.fake.gid("Inbox"))
-        self.assertEqual(self.fake.names(), ["Questions:", "Review:", "Review the plan", "Plan:",
+        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
                                              "API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
         self.assertTrue(all(self.fake.tasks[self.fake.gid(n)]["completed"]
                             for n in ("API", "Inbox", "Dashboard")))
