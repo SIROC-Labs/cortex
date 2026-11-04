@@ -1212,15 +1212,7 @@ def undo(main_root, gid, wait=20):
             deleted, ", %d of yours reopened" % reopened if reopened else ""))
     data = goals[-1].read()
     pr, branch = data.get("pr_url"), data.get("branch")
-    if pr:
-        code, _, err = st.run(["gh", "pr", "close", pr, "--delete-branch", "--comment",
-                               st.mark("Undone from cortex — this goal's work is discarded.")],
-                              cwd=main_root, check=False)
-        done.append("PR closed, branch deleted" if code == 0 else "PR not closed: %s" % err.strip())
-        if code != 0 and branch:
-            st.run(["git", "push", "origin", "--delete", branch], cwd=main_root, check=False)
-    elif branch:
-        st.run(["git", "push", "origin", "--delete", branch], cwd=main_root, check=False)
+    # The worktrees go first: a branch a worktree still uses cannot be deleted.
     with st.repo_lock(main_root):
         for g in goals:
             d = g.read()
@@ -1230,6 +1222,14 @@ def undo(main_root, gid, wait=20):
                 st.git(["branch", "-D", d["branch"]], cwd=main_root, check=False)
         st.git(["worktree", "prune"], cwd=main_root, check=False)
     done.append("worktrees and branches removed here")
+    if pr:
+        code, _, err = st.run(["gh", "pr", "close", pr, "--comment",
+                               st.mark("Undone from cortex — this goal's work is discarded.")],
+                              cwd=main_root, check=False)
+        done.append("PR closed" if code == 0 else "PR not closed: %s" % err.strip())
+    if branch:
+        code, _, _ = st.run(["git", "push", "origin", "--delete", branch], cwd=main_root, check=False)
+        done.append("branch deleted on GitHub" if code == 0 else "no branch on GitHub to delete")
     import shutil
     for g in goals:
         shutil.rmtree(g.state.dir, ignore_errors=True)

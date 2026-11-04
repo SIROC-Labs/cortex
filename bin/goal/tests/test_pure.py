@@ -1212,7 +1212,7 @@ class TestUndo(unittest.TestCase):
         g = goal.Goal(d, gid)
         tree = os.path.join(d, "tree")
         self.git("worktree", "add", "-q", tree, "-b", "A-1/goal-x", cwd=d)
-        g.update(worktree=tree, branch="A-1/goal-x")
+        g.update(worktree=tree, branch="A-1/goal-x", pr_url="https://github.com/o/r/pull/9")
         board = goal.bd.Board(d, g.state, "1")
         board.ask([{"q": "Colour?"}])
         board.publish([("inbox", "Inbox", "b"), ("api", "API", "b")], True)
@@ -1222,7 +1222,7 @@ class TestUndo(unittest.TestCase):
         self.assertIn("delete the 10 subtasks it made", " ".join(goal.undo_plan(d, gid)))
         run = goal.st.run
         calls = []
-        goal.st.run = lambda cmd, **kw: (calls.append(cmd) or (0, "", "")) if (
+        goal.st.run = lambda cmd, **kw: (calls.append((cmd[:3], os.path.exists(tree))) or (0, "", "")) if (
             cmd[0] == "gh" or "push" in cmd) else run(cmd, **kw)
         self.addCleanup(setattr, goal.st, "run", run)
         done = goal.undo(d, gid)
@@ -1233,7 +1233,9 @@ class TestUndo(unittest.TestCase):
         self.assertFalse(os.path.exists(tree))
         self.assertNotIn("A-1/goal-x", self.git("branch", cwd=d))
         self.assertEqual(goal.list_goals(d), [])
-        self.assertEqual(calls, [["git", "push", "origin", "--delete", "A-1/goal-x"]])
+        # The worktree is gone before the PR closes, so its branch can go too.
+        self.assertEqual(calls, [(["gh", "pr", "close"], False), (["git", "push", "origin"], False)])
+        self.assertIn("PR closed", done)
 
 
 if __name__ == "__main__":
