@@ -10,8 +10,9 @@
 #   Plan:       the plan's steps, or the goal's parts, in order
 #
 # The person answers a question in a comment on its subtask and completes it, and
-# approves the plan by completing its review. Subtasks the goal made carry
-# st.GOAL_MADE in their description, so the queue and the boards leave them out.
+# approves the plan by completing its review. Subtasks the goal made start with 🤖
+# and carry st.GOAL_MADE in their description, so the queue and the boards leave
+# them out.
 # No agent reads or writes Asana: only the runner, through this file.
 
 import os
@@ -108,7 +109,7 @@ def plan_changes(snapshot, rows, known):
             out.append("- Marked \"%s\" complete, before anything was built" % row.get("name"))
     for row in rows:
         if row["ref"] not in snapshot and row["ref"] not in known and not row.get("completed") \
-                and not (row.get("name") or "").endswith(":"):
+                and not (row.get("name") or "").endswith(":") and not st.made_by_goal(row):
             text = (row.get("description") or "").strip()
             out.append("- Added: \"%s\"%s" % (row.get("name"), ", which says:\n\n%s\n" % _quote(text)
                                              if text else ""))
@@ -176,7 +177,7 @@ class Board(object):
             return None
 
     def add(self, data, name, body, after=None):
-        gid = str((self.asana(["task", "add-subtask", self.task, "--title", name], body)
+        gid = str((self.asana(["task", "add-subtask", self.task, "--title", st.GOAL_NAME + name], body)
                    or {}).get("ref") or "")
         if not gid:
             raise st.Failure("Asana gave no id for the subtask \"%s\"" % name)
@@ -187,10 +188,15 @@ class Board(object):
         return gid
 
     def sections(self, data):
-        """The three sections, made once, in order, after any subtasks already there."""
+        """The three sections, made once, in order, after any subtasks already there.
+        Asana puts a new subtask at the top, so each is placed after the one before."""
+        if data.get("section_plan"):
+            return data
+        rows = self.asana(["task", "subtasks", self.task]) or []
+        after = rows[-1]["ref"] if rows else None
         for key, name in (("questions", QUESTIONS), ("review", REVIEW), ("plan", PLAN)):
-            if not data.get("section_" + key):
-                data["section_" + key] = self.add(data, name, made([]))
+            data["section_" + key] = self.add(data, name, made([]), after)
+            after = data["section_" + key]
         return data
 
     def last_under(self, data, key):

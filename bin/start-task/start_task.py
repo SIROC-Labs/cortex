@@ -95,15 +95,17 @@ INLINE_ATTACHMENT_MAX_BYTES = 256 * 1024
 # its own posts from the operator's replies; the mark can.
 BOT_MARK = "\U0001f916 cortex \u00b7"
 
-# A goal shows its plan on its ticket: a section at the end of a description, under
-# this heading, and subtasks of its own, whose description has the mark. The queue
-# and the boards leave those subtasks out: they are the goal's, not work to queue.
-GOAL_SECTION = "Cortex goal"
+# A goal shows its questions and plan on its ticket, as subtasks of its own: their
+# name starts with the robot and their description has the mark. The queue and the
+# boards leave those subtasks out: they are the goal's, not work to queue.
+GOAL_NAME = "\U0001f916 "
 GOAL_MADE = "Planned by a cortex goal"
 
 
 def made_by_goal(task):
-    return GOAL_MADE in ((task or {}).get("description") or "")
+    task = task or {}
+    return (task.get("name") or "").startswith(GOAL_NAME.strip()) \
+        or GOAL_MADE in (task.get("description") or "")
 
 # How a run ended, for whatever launched it. The same word is in `outcome.json`.
 EXIT_OK = 0

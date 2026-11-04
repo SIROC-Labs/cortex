@@ -813,7 +813,7 @@ class FakeAsana(object):
         self.tasks = {ticket: {"ref": ticket, "name": "ticket", "description": "",
                                "completed": False, "subtasks": [], "parent": None}}
         self.comments, self.n = {}, 1000
-        for name in subtasks:
+        for name in reversed(subtasks):
             self.new(ticket, name, "Theirs.")
 
     def new(self, parent, name, description):
@@ -821,7 +821,7 @@ class FakeAsana(object):
         gid = str(self.n)
         self.tasks[gid] = {"ref": gid, "name": name, "description": description,
                            "completed": False, "subtasks": [], "parent": parent}
-        self.tasks[parent]["subtasks"].append(gid)
+        self.tasks[parent]["subtasks"].insert(0, gid)
         return gid
 
     def row(self, gid):
@@ -829,10 +829,12 @@ class FakeAsana(object):
         return {k: t[k] for k in ("ref", "name", "description", "completed")}
 
     def names(self, parent="1"):
-        return [self.tasks[g]["name"] for g in self.tasks[parent]["subtasks"]]
+        return [self.tasks[g]["name"].replace(goal.st.GOAL_NAME, "", 1)
+                for g in self.tasks[parent]["subtasks"]]
 
     def gid(self, name):
-        return next(g for g, t in self.tasks.items() if t["name"] == name)
+        return next(g for g, t in self.tasks.items()
+                    if t["name"] in (name, goal.st.GOAL_NAME + name))
 
     def __call__(self, args, cwd=None):
         family, verb, rest = args[0], args[1], args[2:]
@@ -965,6 +967,8 @@ class TestBoard(unittest.TestCase):
         self.assertEqual(inbox["description"], "Theirs.")
         self.assertIn(goal.st.GOAL_MADE, self.fake.tasks[self.fake.gid("Review the plan")]["description"])
         self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Plan:"))))
+        self.assertTrue(self.fake.tasks[self.fake.gid("Plan:")]["name"].startswith("\U0001f916 "))
+        self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
         self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
 
     def test_a_step_gone_before_the_build_is_deleted_but_never_one_of_theirs(self):
@@ -994,8 +998,8 @@ class TestBoard(unittest.TestCase):
         self.assertEqual(self.board.approval(), goal.bd.APPROVED)
         self.fake.say(review, "Drop the export.")
         self.assertEqual(self.board.approval(), "Drop the export.")
-        self.fake.tasks[self.fake.gid("API")]["name"] = "Tasks API"
-        self.assertEqual(self.board.changes(), ['- Renamed: "API" is now "Tasks API"'])
+        self.fake.tasks[self.fake.gid("API")]["name"] = "\U0001f916 Tasks API"
+        self.assertEqual(self.board.changes(), ['- Renamed: "\U0001f916 API" is now "\U0001f916 Tasks API"'])
 
     def test_steps_done_are_ticked_once(self):
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
@@ -1063,7 +1067,7 @@ class TestPlanFlow(unittest.TestCase):
 
     def test_the_person_s_changes_go_back_to_the_lead_before_the_build(self):
         def answer(record):
-            self.fake.tasks[self.fake.gid("Inbox")]["name"] = "Inbox, without badges"
+            self.fake.tasks[self.fake.gid("Inbox")]["name"] = "\U0001f916 Inbox, without badges"
             return "Also drop the export."
         done = PLANNED.replace("- [ ]", "- [x]")
         self.run_with([("planned", lambda: self.journal(PLANNED)),
@@ -1071,7 +1075,7 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], answer)
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead planned",
                                        "lead done", "finish"])
-        self.assertIn('Renamed: "Inbox" is now "Inbox, without badges"', self.prompts[1])
+        self.assertIn('Renamed: "\U0001f916 Inbox" is now "\U0001f916 Inbox, without badges"', self.prompts[1])
         self.assertIn("Also drop the export.", self.prompts[1])
         self.assertIn("Do not build yet", self.prompts[1])
         self.assertIn("The plan is approved", self.prompts[2])
