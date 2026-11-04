@@ -1143,6 +1143,97 @@ def list_goals(main_root):
     return ordered
 
 
+def goal_and_parts(main_root, gid):
+    """A goal and its parts, each as a Goal, the parts first; cleared ones too."""
+    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
+    names = sorted(n for n in os.listdir(root) if n.startswith(gid + "--")) if os.path.isdir(root) else []
+    return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
+
+
+def undo_plan(main_root, gid):
+    """What undoing a goal does, a line a step, before anything is done."""
+    goals = goal_and_parts(main_root, gid)
+    data = goals[-1].read()
+    steps = []
+    if any(g.read().get("pid") and st._pid_alive(g.read()["pid"]) for g in goals):
+        steps.append("stop the goal and its parts")
+    steps.append("close its PR and delete its branch, on GitHub and here" if data.get("pr_url")
+                 else "delete its branch %s" % (data.get("branch") or "?"))
+    if len(goals) > 1:
+        steps.append("delete its %s" % ("part's branch" if len(goals) == 2 else
+                                         "%d parts' branches" % (len(goals) - 1)))
+    made = sum(len(g.state.read(bd.BOARD_FILE, {}).get("made") or []) for g in goals)
+    if made:
+        steps.append("delete the %d subtasks it made on the ticket, answered questions too, and "
+                     "reopen any of yours it ticked" % made)
+    steps.append("remove its worktrees and saved state")
+    return steps
+
+
+def undo(main_root, gid, wait=20):
+    """Take a goal's work back out, all of it: its runs, its PR and branches, its
+    worktrees and state, and what it wrote on the ticket. Returns what was done."""
+    goals = goal_and_parts(main_root, gid)
+    done = []
+    pids = [g.read().get("pid") for g in goals]
+    for pid in [p for p in pids if p and st._pid_alive(p)]:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.time() + wait
+    while any(p and st._pid_alive(p) for p in pids) and time.time() < deadline:
+        time.sleep(1)
+    if any(p and st._pid_alive(p) for p in pids):
+        raise st.Failure("the goal did not stop within %d seconds — try again" % wait)
+    if any(pids):
+        done.append("stopped")
+    deleted = reopened = 0
+    for g in goals:
+        board = g.state.read(bd.BOARD_FILE, {}) or {}
+        for item in board.get("items") or []:
+            if not item.get("made") and item.get("done"):
+                try:
+                    st.asana(["task", "reopen", item["gid"]], cwd=main_root)
+                    reopened += 1
+                except st.Failure:
+                    pass
+        for task in reversed(board.get("made") or []):
+            try:
+                st.asana(["task", "delete", task], cwd=main_root)
+                deleted += 1
+            except st.Failure:
+                pass  # gone already, with the part's subtask it was under
+    if deleted or reopened:
+        done.append("%d subtasks deleted on the ticket%s" % (
+            deleted, ", %d of yours reopened" % reopened if reopened else ""))
+    data = goals[-1].read()
+    pr, branch = data.get("pr_url"), data.get("branch")
+    if pr:
+        code, _, err = st.run(["gh", "pr", "close", pr, "--delete-branch", "--comment",
+                               st.mark("Undone from cortex — this goal's work is discarded.")],
+                              cwd=main_root, check=False)
+        done.append("PR closed, branch deleted" if code == 0 else "PR not closed: %s" % err.strip())
+        if code != 0 and branch:
+            st.run(["git", "push", "origin", "--delete", branch], cwd=main_root, check=False)
+    elif branch:
+        st.run(["git", "push", "origin", "--delete", branch], cwd=main_root, check=False)
+    with st.repo_lock(main_root):
+        for g in goals:
+            d = g.read()
+            if d.get("worktree") and os.path.isdir(d["worktree"]):
+                st.git(["worktree", "remove", "--force", d["worktree"]], cwd=main_root, check=False)
+            if d.get("branch"):
+                st.git(["branch", "-D", d["branch"]], cwd=main_root, check=False)
+        st.git(["worktree", "prune"], cwd=main_root, check=False)
+    done.append("worktrees and branches removed here")
+    import shutil
+    for g in goals:
+        shutil.rmtree(g.state.dir, ignore_errors=True)
+    done.append("saved state removed")
+    return done
+
+
 # --- the run -----------------------------------------------------------------
 
 class Stopped(Exception):
@@ -2170,8 +2261,16 @@ def main(argv):
     run = sub.add_parser("run", help="run or resume a goal in the foreground")
     run.add_argument("id")
     run.add_argument("--repo", default=".")
+    back = sub.add_parser("undo", help="take a goal's work back out: its PR, branches, worktrees, "
+                                       "state and the subtasks it made")
+    back.add_argument("id")
+    back.add_argument("--repo", default=".")
     args = parser.parse_args(argv)
     main_root = st.main_repo_root(os.path.abspath(args.repo))
+    if args.cmd == "undo":
+        for line in undo(main_root, args.id):
+            print(line)
+        return 0
     if args.cmd == "new":
         ref = st.asana(["ref", "parse", args.task], cwd=main_root)
         if not ref:

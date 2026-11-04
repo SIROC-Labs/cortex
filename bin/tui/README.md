@@ -88,8 +88,8 @@ A goal is a ticket that runs by itself, with no breakdown and no queue. On a boa
 a task or a milestone and pick *Run … as a goal* in the palette (`:`). It starts at once,
 on its own branch made from **Queue into**, and ends as one PR into that branch. It reads
 the ticket, its open subtasks, its comments and its attachments once, when it starts. It
-puts its questions and its plan on the ticket as subtasks, in two sections,
-*Questions* and *Plan* (its review first), and does not merge anything. See [the goal tool](../goal/README.md) for how it
+puts its questions and its plan on the ticket as subtasks, in three sections,
+*Questions*, *Review* and *Execution*, and does not merge anything. See [the goal tool](../goal/README.md) for how it
 works.
 
 A goal is the first row on the Runs tab: what it is doing, its round, and the highest
@@ -100,6 +100,8 @@ on each question's subtask. When its plan is ready, the row says so and nothing 
 until you approve it: `c` approves it, `a` says what to change, or complete *Review the
 plan* in Asana. `x` stops a running goal and
 `r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
+*Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
+worktrees and state, and every subtask it made on the ticket.
 Closing the TUI leaves a goal running.
 
 A goal split into parts has them on the rows below it, indented (`└ API`), each with its

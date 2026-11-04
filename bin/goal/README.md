@@ -6,6 +6,7 @@ An Asana ticket, implemented by itself, on one branch, into one PR.
 cortex goal new https://app.asana.com/0/0/1218985136116349 --base feature/m6 --start
 cortex goal new 1218985136116349               # build on the default branch; start it later
 cortex goal run goal-hrt1-519-recruiter-s-queue  # run or resume one in the foreground
+cortex goal undo goal-hrt1-519-recruiter-s-queue # take all of it back out
 ```
 
 The usual way in is the TUI: on a board, select a task or a milestone and pick *Run … as
@@ -20,18 +21,18 @@ kept for its prototype). A milestone works well: its subtasks become
 parts of one piece of work.
 
 **On the ticket.** The runner, never an agent, shows the goal's questions and its plan on
-the ticket, as subtasks in two sections, after any subtasks already there (each section is
-a subtask Asana shows as a section header):
+the ticket, as subtasks in three sections, after any subtasks already there (each section
+is a subtask Asana shows as a section header):
 
 ```
 🤖 Questions       one subtask for each question only you can answer
-🤖 Plan            🤖 Review the plan, then the plan's steps, or the parts, in order;
-                   then 🤖 Integration
+🤖 Review          🤖 Review the plan
+🤖 Execution       the plan's steps, or the parts, in order; then 🤖 Integration
 ```
 
 A part does the same under its own subtask, so each part has its own questions, review
 and steps. A subtask of yours with the same name as a step or a part is used as it is,
-and moved into the Plan section. The steps and parts are ticked as they are done. The goal's own
+and moved into the Execution section. The steps and parts are ticked as they are done. The goal's own
 subtasks carry "Planned by a cortex goal" in their description, and the queue, the boards
 and the goal's ask leave them out. The description of a subtask of yours is never
 changed.
@@ -61,7 +62,7 @@ This program is the harness around the lead:
   only you can answer. The lead corrects the criteria and the plan.
 - **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
   approve it: complete *Review the plan* in Asana, or press `c` on the goal's row on the
-  TUI. To change it first, edit, add or delete the subtasks under Plan, or say what to
+  TUI. To change it first, edit, add or delete the subtasks under Execution, or say what to
   change in a comment on the review (or with `a` on the TUI). The runner reads them once,
   when you approve, and the lead applies them to its journal before it builds. *Plan
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
@@ -145,6 +146,12 @@ This program is the harness around the lead:
   not an end.
 
 The goal never merges, rebases or force-pushes, and never touches another branch.
+
+**Undo** takes all of a goal back out: it stops the goal and its parts, closes its PR and
+deletes its branches, here and on GitHub, removes its worktrees and its saved state, and
+deletes every subtask it made on the ticket, answered questions too. A subtask of yours
+that it used as a step and ticked is reopened. It is *Undo the goal* in the TUI's palette
+on the goal's row, `cortex queue undo <ticket>`, or `cortex goal undo <id>`.
 
 ## Files
 

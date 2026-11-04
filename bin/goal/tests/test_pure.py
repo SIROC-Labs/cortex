@@ -859,8 +859,8 @@ class FakeAsana(object):
             return [self.row(g) for g in self.tasks[rest[0]]["subtasks"]]
         if family == "task" and verb == "get":
             return self.row(rest[0])
-        if verb == "complete":
-            self.tasks[rest[0]]["completed"] = True
+        if verb in ("complete", "reopen"):
+            self.tasks[rest[0]]["completed"] = verb == "complete"
             return {}
         if verb == "delete":
             t = self.tasks.pop(rest[0])
@@ -965,22 +965,22 @@ class TestBoard(unittest.TestCase):
     def test_sections_questions_review_then_plan(self):
         self.board.ask([{"q": "Which colour?", "why": "The two disagree."}])
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Plan",
-                                             "Review the plan", "API", "Inbox"])
+        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Review",
+                                             "Review the plan", "Execution", "API", "Inbox"])
         inbox = self.fake.tasks[self.fake.gid("Inbox")]
         self.assertEqual(inbox["description"], "Theirs.")
         self.assertIn(goal.st.GOAL_MADE, self.fake.tasks[self.fake.gid("Review the plan")]["description"])
-        self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Plan"))))
+        self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Execution"))))
         self.assertEqual([n for n in self.fake.names() if self.fake.tasks[self.fake.gid(n)].get("section")],
-                         ["Questions", "Plan"])
-        self.assertTrue(self.fake.tasks[self.fake.gid("Plan")]["name"].startswith("\U0001f916 "))
+                         ["Questions", "Review", "Execution"])
+        self.assertTrue(self.fake.tasks[self.fake.gid("Execution")]["name"].startswith("\U0001f916 "))
         self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
         self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
 
     def test_a_step_gone_before_the_build_is_deleted_but_never_one_of_theirs(self):
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b"), ("x", "Export", "b")], False)
         self.board.publish([("api", "API", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
+        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
                                              "API", "Inbox"])
         self.assertEqual([i["key"] for i in self.board.load()["items"]], ["api"])
 
@@ -1066,7 +1066,7 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: "continue")
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead done", "finish"])
         self.assertIn("The plan is approved", self.prompts[1])
-        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
+        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
                                              "API", "Inbox"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Review the plan")]["completed"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
@@ -1108,7 +1108,7 @@ class TestPlanFlow(unittest.TestCase):
         goal.time.sleep = answer_in_asana
         text = self.runner.ask_person([{"q": "Which colour?", "why": "They disagree."}])
         self.assertEqual(text, "- Which colour?\n  Blue, as in the prototype.")
-        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Plan"])
+        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Review", "Execution"])
         self.assertIsNone(self.runner.goal.state.read("awaiting.json"))
         self.assertIn("Do not read or change Asana", self.runner.first_prompt())
         self.assertIn("approves the plan there", self.runner.first_prompt())
@@ -1166,7 +1166,7 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.assertEqual(self.launched[3], ["Dashboard"])
         inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
         self.assertEqual(inbox["asana_task"], self.fake.gid("Inbox"))
-        self.assertEqual(self.fake.names(), ["Questions", "Plan", "Review the plan",
+        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
                                              "API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
         self.assertTrue(all(self.fake.tasks[self.fake.gid(n)]["completed"]
                             for n in ("API", "Inbox", "Dashboard")))
@@ -1190,6 +1190,46 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.assertEqual(built, [{"name": "API", "summary": "did API"}])
         self.assertEqual(inbox.data["phase"], "building")
         json.dumps(built)
+
+
+class TestUndo(unittest.TestCase):
+    def git(self, *args, cwd=None):
+        import subprocess
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t"] + list(args),
+                              cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def test_undo_takes_everything_back_out(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        self.git("init", "-q", "-b", "main", cwd=d)
+        self.git("commit", "-q", "--allow-empty", "-m", "base", cwd=d)
+        fake = fake_asana(self, FakeAsana(subtasks=["Inbox"]))
+        gid = goal.create(d, "1", "A-1", "x", base="main")
+        g = goal.Goal(d, gid)
+        tree = os.path.join(d, "tree")
+        self.git("worktree", "add", "-q", tree, "-b", "A-1/goal-x", cwd=d)
+        g.update(worktree=tree, branch="A-1/goal-x")
+        board = goal.bd.Board(d, g.state, "1")
+        board.ask([{"q": "Colour?"}])
+        board.publish([("inbox", "Inbox", "b"), ("api", "API", "b")], True)
+        board.tick({"inbox"})
+        pid = goal.create_part(d, g.read(), dict(PARTS["parts"][0], subtask=board.gid_of("api")), 0, [])
+        goal.bd.Board(d, goal.Goal(d, pid).state, board.gid_of("api")).ask([{"q": "Paging?"}])
+        self.assertIn("delete the 10 subtasks it made", " ".join(goal.undo_plan(d, gid)))
+        run = goal.st.run
+        calls = []
+        goal.st.run = lambda cmd, **kw: (calls.append(cmd) or (0, "", "")) if (
+            cmd[0] == "gh" or "push" in cmd) else run(cmd, **kw)
+        self.addCleanup(setattr, goal.st, "run", run)
+        done = goal.undo(d, gid)
+        self.assertEqual(fake.names(), ["Inbox"])
+        self.assertFalse(fake.tasks[fake.gid("Inbox")]["completed"])
+        self.assertIn("worktrees and branches removed here", done)
+        self.assertFalse(os.path.exists(g.state.dir) or os.path.exists(goal.Goal(d, pid).state.dir))
+        self.assertFalse(os.path.exists(tree))
+        self.assertNotIn("A-1/goal-x", self.git("branch", cwd=d))
+        self.assertEqual(goal.list_goals(d), [])
+        self.assertEqual(calls, [["git", "push", "origin", "--delete", "A-1/goal-x"]])
 
 
 if __name__ == "__main__":

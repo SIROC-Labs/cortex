@@ -159,12 +159,17 @@ def remove(main_root, refs):
 
 
 def undo(main_root, refs, wait=600):
-    """Have the daemon undo tasks, as the TUI's Undo does, and wait for it."""
-    if not dm.daemon_info(main_root)[1]:
-        raise st.Failure("this repo's daemon is not running, and only it can undo a task")
+    """Have the daemon undo tasks, as the TUI's Undo does, and wait for it. A
+    goal's ticket undoes the goal, all of it, here."""
     out = []
     for ref in refs:
         gid = str(st.asana(["ref", "parse", ref], cwd=main_root) or ref).strip()
+        existing = gl.find_goal(main_root, gid)
+        if existing:
+            out.append("%s: undone — %s" % (existing["id"], "; ".join(gl.undo(main_root, existing["id"]))))
+            continue
+        if not dm.daemon_info(main_root)[1]:
+            raise st.Failure("this repo's daemon is not running, and only it can undo a task")
         data = daemon_state(main_root)
         key = ((data.get("tasks") or {}).get(gid) or {}).get("key") or gid
         if gid not in (data.get("records") or {}):
@@ -219,7 +224,7 @@ def main(argv):
                    help="hold the work that follows until these are merged")
     p = sub.add_parser("remove", help="take tasks off the queue")
     p.add_argument("tasks", nargs="+")
-    p = sub.add_parser("undo", help="discard tasks' runs, PRs, branches and worktrees, so "
+    p = sub.add_parser("undo", help="discard tasks' runs, PRs, branches and worktrees — or a goal's, with the subtasks it made — so "
                                     "they can be queued again; a merged task gets a revert PR")
     p.add_argument("tasks", nargs="+")
     p = sub.add_parser("goal", help="run a task or milestone as a goal, by itself, into one PR")

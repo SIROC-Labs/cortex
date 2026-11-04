@@ -262,7 +262,7 @@ def wait_lines(wait, width):
         para("The plan is ready for your review", "bold")
         out.append(("", "normal"))
         para("Nothing is built until you approve it. The plan is on the ticket in Asana, "
-             "under Plan, and the acceptance criteria are in the goal's journal. To change "
+             "under Execution, and the acceptance criteria are in the goal's journal. To change "
              "it, edit, add or delete those subtasks, or say what to change in a comment on "
              "“Review the plan” or with a here. Then approve it: complete “Review the plan”, "
              "or press c.", "normal")
@@ -1624,6 +1624,10 @@ class App(object):
             out.append({"title": "Undo %s" % row["cols"][0],
                         "words": "revert discard throw away back out cancel reset",
                         "run": lambda: self.undo(row)})
+        if TABS[self.tab] == "Runs" and row and row["kind"] == "goal" and row["cols"][0] == "goal":
+            out.append({"title": "Undo the goal %s" % row["cols"][1],
+                        "words": "revert discard throw away back out cancel reset goal",
+                        "run": lambda: self.undo_goal(row)})
         if (TABS[self.tab] == "Boards" and self.board and row and row["kind"] == "task"
                 and not row.get("completed")):
             into = self.control.get("base") or self.default_branch or "the default branch"
@@ -1712,6 +1716,22 @@ class App(object):
                         else "%s is a checkpoint (◇) — it gates the queue once it is queued"
                         % label if on
                         else "%s is no longer a checkpoint" % label)
+
+    def undo_goal(self, row):
+        """Ask before undoing a goal, saying all it will do; then undo it in a
+        process of its own, so the TUI does not wait on GitHub and Asana."""
+        steps = gl.undo_plan(self.main_root, row["goal"])
+
+        def go():
+            goal = gl.Goal(self.main_root, row["goal"])
+            log = open(os.path.join(os.path.dirname(goal.state.dir), "%s-undo.log" % row["goal"]), "a")
+            subprocess.Popen([sys.executable, os.path.join(os.path.dirname(HERE), "goal", "goal.py"), "undo", row["goal"],
+                              "--repo", self.main_root], cwd=self.main_root, stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            log.close()
+            self.message = "undoing the goal — it leaves the list when it is done"
+        self.ask("undo the goal \"%s\": %s? This cannot be undone (y/n)"
+                 % (row["cols"][1], ", ".join(steps)), go)
 
     def undo(self, row):
         """Ask before undoing a task — saying exactly what will be done, and

@@ -2,11 +2,11 @@
 # board.py — a goal's questions and plan on its Asana ticket, kept by the runner.
 #
 # Under the task that stands for the goal — the ticket, or a part's subtask — are
-# two sections of subtasks, after any subtasks already there:
+# three sections of subtasks, after any subtasks already there:
 #
 #   Questions  one subtask for each question only the person can answer
-#   Plan       "Review the plan", whose completing approves the plan, then the
-#              plan's steps, or the goal's parts, in order
+#   Review     "Review the plan": completing it approves the plan
+#   Execution  the plan's steps, or the goal's parts, in order: the work
 #
 # The person answers a question in a comment on its subtask and completes it, and
 # approves the plan by completing its review. Subtasks the goal made start with 🤖
@@ -22,7 +22,7 @@ import time
 import start_task as st
 
 BOARD_FILE = "asana.json"
-QUESTIONS, PLAN = "Questions", "Plan"
+QUESTIONS, REVIEW, EXECUTION = "Questions", "Review", "Execution"
 REVIEW_NAME = "Review the plan"
 INTEGRATION = "Integration: the parts together"
 APPROVED = "continue"
@@ -73,9 +73,9 @@ def review_body(split):
     what = "parts" if split else "steps"
     return made(["Complete this subtask to approve the plan and start building. Until then the "
                  "goal waits.", "",
-                 "To change the plan first: edit, add or delete the %s below, or say what "
-                 "to change in a comment here. The goal reads them once, when you complete "
-                 "this subtask." % what])
+                 "To change the plan first: edit, add or delete the %s under Execution, or "
+                 "say what to change in a comment here. The goal reads them once, when you "
+                 "complete this subtask." % what])
 
 
 def part_body(part):
@@ -188,21 +188,21 @@ class Board(object):
         return gid
 
     def sections(self, data):
-        """The two sections, made once, in order, after the subtasks already there.
+        """The three sections, made once, in order, after the subtasks already there.
         Asana puts a new subtask at the top, so each is placed after the one before."""
-        if data.get("section_plan"):
+        if data.get("section_execution"):
             return data
         rows = self.asana(["task", "subtasks", self.task]) or []
         after = rows[-1]["ref"] if rows else None
-        for key, name in (("questions", QUESTIONS), ("plan", PLAN)):
+        for key, name in (("questions", QUESTIONS), ("review", REVIEW), ("execution", EXECUTION)):
             data["section_" + key] = self.add(data, name, "", after, section=True)
             after = data["section_" + key]
         return data
 
     def last_under(self, data, key):
         """The subtask the next one in a section goes after."""
-        gids = data.get("asked") or [] if key == "questions" else \
-            [data.get("review")] + [i["gid"] for i in data.get("items") or []]
+        gids = {"questions": data.get("asked") or [], "review": [data.get("review")],
+                "execution": [i["gid"] for i in data.get("items") or []]}[key]
         return ([g for g in gids if g] or [data["section_" + key]])[-1]
 
     # questions
@@ -245,7 +245,7 @@ class Board(object):
     # the plan
 
     def publish(self, items, split, before_build=True):
-        """The plan under Plan, after its review. `items` are
+        """The plan's review under Review, and the plan under Execution. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
         longer has is deleted; after it, nothing is."""
@@ -254,12 +254,12 @@ class Board(object):
     def _publish(self, items, split, before_build):
         data = self.sections(self.load())
         if not data.get("review"):
-            data["review"] = self.add(data, REVIEW_NAME, review_body(split), data["section_plan"])
+            data["review"] = self.add(data, REVIEW_NAME, review_body(split), data["section_review"])
         old = {i["key"]: i for i in data.get("items") or []}
         theirs = {r["name"].strip().lower(): r["ref"]
                   for r in self.asana(["task", "subtasks", self.task]) or []
                   if r["ref"] not in data.get("made", []) and not st.made_by_goal(r)}
-        out, after = [], data["review"]
+        out, after = [], data["section_execution"]
         for key, name, body in items:
             item = old.pop(key, None) or old.pop(next((k for k in old if same_step(k, key)), None), None)
             if not item and name.strip().lower() in theirs:
