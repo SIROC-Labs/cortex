@@ -914,7 +914,7 @@ HELP = [
         ("discuss", "Discuss the goal X — talk it through with Claude, which reads its "
                     "journal and code and changes nothing; a new tab in Ghostty"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
-        ("clear", "Clear the finished tasks from the list"),
+        ("clear", "Clear the finished tasks from the list · Clear the done goals, shown or not"),
         ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
         ("daemon", "start or stop this repo's daemon"),
     ]),
@@ -1584,6 +1584,15 @@ class App(object):
         self.message = ("removed %s from the list" % rows[0]["cols"][0] if len(rows) == 1
                         else "removed %d finished tasks from the list" % len(rows))
 
+    def clear_goals(self, goals):
+        """Take done goals and their parts off the list. Their branches and PRs stay."""
+        for g in goals:
+            for one in gl.goal_and_parts(self.main_root, g["id"]):
+                if one.read():
+                    one.update(cleared=True)
+        self.snapshot()
+        self.message = "removed %d done goal%s from the list" % (len(goals), "" if len(goals) == 1 else "s")
+
     def palette_commands(self, row):
         """What the palette offers: only commands that are not already in plain
         sight — none with a key shown in the line at the bottom — and only ones
@@ -1606,6 +1615,13 @@ class App(object):
                                      % (len(finished), "" if len(finished) == 1 else "s"),
                             "words": "remove merged done acknowledge tidy clean",
                             "run": lambda: self.clear(finished)})
+            done = [g for g in self.goals if not g.get("parent") and g.get("status") == "done"
+                    and not g.get("awaiting")]
+            if done:
+                out.append({"title": "Clear %d done goal%s from the list"
+                                     % (len(done), "" if len(done) == 1 else "s"),
+                            "words": "remove merged finished acknowledge tidy clean goals",
+                            "run": lambda: self.clear_goals(done)})
         if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
                 and (not row.get("finished") or row.get("phase") in ("stopped", "failed"))):
             on = any(q["gid"] == row["id"] and q.get("checkpoint")

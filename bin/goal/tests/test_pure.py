@@ -1233,6 +1233,8 @@ class TestPickGoal(unittest.TestCase):
         self.assertIn(goal.pick_goal(d, ask=lambda _: "1", say=said.append), (first, second))
         self.assertEqual(goal.pick_goal(d, ask=lambda _: "A-2", say=said.append), second)
         self.assertIsNone(goal.pick_goal(d, ask=lambda _: "9", say=said.append))
+        goal.Goal(d, first).update(status="done")
+        self.assertEqual(goal.pick_goal(d, ask=lambda _: self.fail("asked"), say=said.append), second)
         self.assertTrue(any("api" in line for line in said))
 
 

@@ -1761,6 +1761,21 @@ class TestHelpPage(unittest.TestCase):
                             for _, t, style in lines if style != "bold"))
 
 
+class TestClearGoals(unittest.TestCase):
+    def test_done_goals_and_their_parts_leave_the_list(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        tui.gl.Goal(d, gid).update(status="done", branch="A-1/goal-x", worktree=d)
+        part = tui.gl.create_part(d, tui.gl.Goal(d, gid).read(), {"name": "API", "brief": "b",
+                                                                  "criteria": [], "after": []}, 0, [])
+        other = tui.gl.create(d, "2", "A-2", "y", base="main")
+        app = type("App", (), {"main_root": d, "snapshot": lambda self: None})()
+        tui.App.clear_goals(app, [g for g in tui.gl.list_goals(d) if g["id"] == gid])
+        self.assertEqual([g["id"] for g in tui.gl.list_goals(d)], [other])
+        self.assertTrue(tui.gl.Goal(d, part).read().get("cleared"))
+
+
 class TestDiscussTab(unittest.TestCase):
     def test_ghostty_on_macos_gets_a_tab_that_runs_the_discussion(self):
         calls = []

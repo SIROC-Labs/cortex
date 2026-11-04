@@ -1221,9 +1221,9 @@ def discuss_files(goals):
 def pick_goal(main_root, ask=input, say=print):
     """The goal to discuss, picked from the repo's goals by number; the only one
     without asking. None when there is none, or nothing is picked."""
-    goals = [g for g in list_goals(main_root) if not g.get("parent")]
+    goals = [g for g in list_goals(main_root) if not g.get("parent") and g.get("status") != "done"]
     if not goals:
-        say("there are no goals in this repo")
+        say("there are no goals in this repo that are not done")
         return None
     if len(goals) == 1:
         say("discussing %s" % goals[0]["id"])
