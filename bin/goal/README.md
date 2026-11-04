@@ -163,7 +163,8 @@ journal, its open questions, the end of its log and its parts' are in the sessio
 so it starts knowing them and waits for you. It runs in plan
 mode, without the tools that edit files or write to Asana, and it is told to change
 nothing: answers and approvals still go through the ticket or the TUI. It is *Discuss the
-goal* in the TUI's palette, or `cortex goal discuss <id>`.
+goal* in the TUI's palette, or `cortex goal discuss [<id>]`: without an id, it lists the
+repo's goals to pick from, by number or key.
 
 ## Files
 

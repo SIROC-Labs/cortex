@@ -1221,6 +1221,21 @@ class TestDiscuss(unittest.TestCase):
         self.assertNotIn("--", argv[argv.index("--disallowedTools"):])
 
 
+class TestPickGoal(unittest.TestCase):
+    def test_a_goal_is_picked_by_number_or_key_and_the_only_one_without_asking(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        said = []
+        self.assertIsNone(goal.pick_goal(d, say=said.append))
+        first = goal.create(d, "1", "A-1", "inbox", base="main")
+        self.assertEqual(goal.pick_goal(d, ask=lambda _: self.fail("asked"), say=said.append), first)
+        second = goal.create(d, "2", "A-2", "api", base="main")
+        self.assertIn(goal.pick_goal(d, ask=lambda _: "1", say=said.append), (first, second))
+        self.assertEqual(goal.pick_goal(d, ask=lambda _: "A-2", say=said.append), second)
+        self.assertIsNone(goal.pick_goal(d, ask=lambda _: "9", say=said.append))
+        self.assertTrue(any("api" in line for line in said))
+
+
 class TestUndo(unittest.TestCase):
     def git(self, *args, cwd=None):
         import subprocess

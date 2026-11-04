@@ -1218,6 +1218,29 @@ def discuss_files(goals):
     return "\n\n".join(out) or "Nothing is written yet."
 
 
+def pick_goal(main_root, ask=input, say=print):
+    """The goal to discuss, picked from the repo's goals by number; the only one
+    without asking. None when there is none, or nothing is picked."""
+    goals = [g for g in list_goals(main_root) if not g.get("parent")]
+    if not goals:
+        say("there are no goals in this repo")
+        return None
+    if len(goals) == 1:
+        say("discussing %s" % goals[0]["id"])
+        return goals[0]["id"]
+    width = max(len(g.get("key") or "") for g in goals)
+    for i, g in enumerate(goals, 1):
+        state = "waiting on you" if g.get("awaiting") else g.get("status") or "?"
+        say("%2d  %-*s  %s — %s" % (i, width, g.get("key") or "", g.get("name") or g["id"], state))
+    try:
+        pick = ask("which goal? ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if pick.isdigit() and 1 <= int(pick) <= len(goals):
+        return goals[int(pick) - 1]["id"]
+    return next((g["id"] for g in goals if pick and pick in (g["id"], g.get("key"))), None)
+
+
 def discuss_command(main_root, gid):
     """The argv and the folder of a read-only Claude session about a goal and its
     parts, for the person to talk it through. The goal's files are in its prompt,
@@ -2361,12 +2384,15 @@ def main(argv):
     back.add_argument("id")
     back.add_argument("--repo", default=".")
     talk = sub.add_parser("discuss", help="talk a goal through with Claude, which changes nothing")
-    talk.add_argument("id")
+    talk.add_argument("id", nargs="?", help="the goal; without it, pick one from a list")
     talk.add_argument("--repo", default=".")
     args = parser.parse_args(argv)
     main_root = st.main_repo_root(os.path.abspath(args.repo))
     if args.cmd == "discuss":
-        argv, cwd = discuss_command(main_root, args.id)
+        gid = args.id or pick_goal(main_root)
+        if not gid:
+            return 1
+        argv, cwd = discuss_command(main_root, gid)
         return subprocess.call(argv, cwd=cwd)
     if args.cmd == "undo":
         for line in undo(main_root, args.id):
