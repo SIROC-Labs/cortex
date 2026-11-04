@@ -43,8 +43,10 @@ the most expensive in this work, so spend it only on that comparison.
      the same thing or change the same files;
    - the shared layers, such as the data model and the API, come before the parts
      that use them (`after`);
-   - each brief names the references that cover its part, and the contracts it
-     must follow: names, types, endpoints and files other parts depend on.
+   - each brief names the references that cover its part, and where it meets
+     other parts when that is known: an endpoint, a shared type, a function;
+   - `plan_after`, when a part has it, names only parts this part truly cannot
+     be planned before: most parts plan at once.
 
 ## Use cheaper sub-agents for the legwork
 

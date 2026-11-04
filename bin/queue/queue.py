@@ -50,10 +50,11 @@ def board_of(task, url=None):
 
 
 def queue_items(task, board, subtasks=()):
-    """What queueing a task adds: the task itself, or a milestone's open subtasks."""
+    """What queueing a task adds: the task itself, or a milestone's open subtasks,
+    but not those a goal made for its questions and its plan."""
     if task.get("kind") == "milestone":
         return [{"gid": t["ref"], "board": board, "name": t.get("name")}
-                for t in subtasks if not t.get("completed")]
+                for t in subtasks if not t.get("completed") and not st.made_by_goal(t)]
     if task.get("completed"):
         return []
     return [{"gid": task["ref"], "board": board, "name": task.get("name")}]

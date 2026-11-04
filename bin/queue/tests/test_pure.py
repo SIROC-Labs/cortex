@@ -33,6 +33,10 @@ class TestPure(unittest.TestCase):
                          [{"gid": "10", "board": "77", "name": "ten"}])
         self.assertEqual(q.queue_items(TASKS["1"], "77"), [{"gid": "1", "board": "77", "name": "one"}])
         self.assertEqual(q.queue_items(TASKS["2"], "77"), [])
+        goals = [{"ref": "11", "name": "Plan:", "description": "_%s._" % q.st.GOAL_MADE},
+                 {"ref": "12", "name": "twelve", "description": "Theirs."}]
+        self.assertEqual(q.queue_items(TASKS["9"], "77", goals),
+                         [{"gid": "12", "board": "77", "name": "twelve"}])
 
 
 class TestEarlierWork(unittest.TestCase):

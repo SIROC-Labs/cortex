@@ -207,7 +207,7 @@ def short_model(model):
 
 _HEADING = re.compile(r"^(#+)\s*(.*)$")
 _ITEM = re.compile(r"^\s*(?:[-*]|\d+[.)])\s*\[( |x|X)\]\s*(.*)$")
-STAGES = ("analysis", "review", "building", "syncing", "CI", "checking", "done")
+STAGES = ("analysis", "review", "approval", "building", "syncing", "CI", "checking", "done")
 
 
 def read_journal(path):
@@ -250,6 +250,8 @@ def stage(goal):
     status, doing = goal.get("status"), (goal.get("doing") or "").lower()
     if status == "done":
         return "done"
+    if (goal.get("awaiting") or {}).get("kind") == "plan":
+        return "approval"
     if goal.get("phase") == "planning":
         return "review" if "review" in doing else "analysis"
     if status == "checking":

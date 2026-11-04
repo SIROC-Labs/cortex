@@ -17,7 +17,24 @@ stop it and carry it on.
 The ask is the ticket: its description, its open subtasks, its comments and its
 attachments, read once when the goal starts (an HTML attachment as its text, with the file
 kept for its prototype). A milestone works well: its subtasks become
-parts of one piece of work. Nothing is written back to Asana.
+parts of one piece of work.
+
+**On the ticket.** The runner, never an agent, shows the goal's questions and its plan on
+the ticket, as subtasks in three sections (a subtask whose name ends in a colon shows as a
+section in Asana):
+
+```
+Questions:        one subtask for each question only you can answer
+Review:           Review the plan
+Plan:             the plan's steps, or the parts, in order; then "Integration"
+```
+
+A part does the same under its own subtask, so each part has its own questions, review
+and steps. A subtask of yours with the same name as a step or a part is used as it is,
+and moved under Plan:. The steps and parts are ticked as they are done. The goal's own
+subtasks carry "Planned by a cortex goal" in their description, and the queue, the boards
+and the goal's ask leave them out. The description of a subtask of yours is never
+changed.
 
 A **lead agent** gets the ask and nothing more. It plans the work, keeps a journal, and
 starts its own sub-agents, reviewers and checkers as it sees fit. It commits on the goal's
@@ -36,18 +53,32 @@ This program is the harness around the lead:
   `## Acceptance criteria` (one line for each screen part, state, rule or field, each with
   its source), and a `## Plan`. Its questions come to you together. The runner sends the
   lead back until the journal has all three.
+- **Testing guide.** When the repository has `TESTING.md` files, the lead is told to read
+  them in the analysis, plan and write its tests by them, and give them to every sub-agent
+  that writes tests; the checker judges the tests against them.
 - **Criteria review.** The checker's model then compares the criteria with the references,
   before anything is built: criteria that are missing, wrong, or too broad, and questions
-  only you can answer. The lead corrects the criteria, then builds.
+  only you can answer. The lead corrects the criteria and the plan.
+- **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
+  approve it: complete *Review the plan* in Asana, or press `c` on the goal's row on the
+  TUI. To change it first, edit, add or delete the subtasks under Plan:, or say what to
+  change in a comment on the review (or with `a` on the TUI). The runner reads them once,
+  when you approve, and the lead applies them to its journal before it builds. *Plan
+  approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
+  part (`wait`, the default); you for the goal and the reviewer for its parts (`top`); or
+  the reviewer only (`auto`). A goal keeps the setting it started with.
 - **Parts, for large work.** When the work spans several areas, or more than about 25
   criteria, the lead splits it instead of building it alone. It writes `parts.json` in the
   goal's state: up to 8 parts, each with a brief (what it builds and must not touch, the
-  references that cover it, and the contracts other parts depend on), its criteria copied
+  references that cover it, and where it meets other parts when that is known), its criteria copied
   from the lead's list, and the parts it comes `after`. The runner checks the split (every
   criterion from the list, none in two parts, no circle), and the review checks its
   boundaries too. Each part then runs as a goal of its own, with its own lead, analysis,
   journal, sub-agents and checker, on a branch off the goal's (`<branch>--<part>`).
-  Shared layers come first; parts with nothing between them run two at a time. A part's
+  Every part plans as soon as you approve the split; `after` holds back only its build,
+  until those parts are merged, and two parts build at a time. A part that cannot sensibly
+  be planned before another is built names it in `plan_after`, and starts once that one
+  is merged. A part's
   questions go to the goal's lead first, and only what it cannot settle comes to you. A
   part is never pushed: when its check passes, it merges the goal's branch in and is
   merged into it, one part at a time, and a conflict goes back to that part's lead. When
@@ -59,8 +90,11 @@ This program is the harness around the lead:
   journal and the branch. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and the one-pager do not settle, and what
-  only you have. The question waits on the TUI's Runs tab; your answer goes back to the
-  lead, and it continues.
+  only you have, all at once in the analysis where it can. Each question is a subtask under
+  Questions:. Answer it in a comment and complete the subtask; the goal goes on when every
+  question in the batch is complete, and the plan is approved only after its questions
+  are answered. The questions also wait on the TUI's Runs tab, and an answer there is
+  written onto each question's subtask, which it completes.
 - **One push, at the end.** Every push runs CI, and CI costs money. So nothing is pushed
   while the lead works: the runner pushes once the lead reports done. Through a Claude Code
   hook, every agent's `git push`, `gh pr ready|merge|create`, `gh workflow run` and
@@ -123,7 +157,8 @@ A goal keeps its state in `.cortex/state/<id>/`:
 | `journal.md` | the lead's references, acceptance criteria, plan, progress and decisions |
 | `parts.json` | the parts, when the lead split the work; each part's own state is `<id>--<part>/` |
 | `goal.log` | everything the harness did |
-| `awaiting.json` | the question waiting on you, while there is one |
+| `awaiting.json` | the question, or the plan, waiting on you, while there is one |
+| `asana.json` | the goal's subtasks on the ticket: its sections, questions, review and steps |
 | `usage.json` | the tokens of every call |
 | `calls.json`, `usage.txt` | each call's time, tokens and cost, by agent, and the report `u` shows |
 

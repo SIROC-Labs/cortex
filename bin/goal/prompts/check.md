@@ -35,7 +35,7 @@ not a gap.
 3. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
 4. {{checks}}
 5. For each requirement, decide if the branch meets it. Look for things that are
-   missing, broken, only partly done, or different from the prototype.
+   missing, broken, only partly done, or different from the prototype.{{testing_check}}
 
 ## Use cheaper sub-agents for the legwork
 

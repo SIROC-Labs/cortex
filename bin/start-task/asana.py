@@ -1147,9 +1147,9 @@ def custom_key(custom_fields):
 def task_subtasks(args):
     if not args:
         die(1, "usage: %s task subtasks <task-ref>" % PROG)
-    rows = _task_subresource(args[0], "subtasks", "name,completed,gid," + KEY_FIELDS)
+    rows = _task_subresource(args[0], "subtasks", "name,notes,completed,gid," + KEY_FIELDS)
     out = [{"ref": r.get("gid"), "name": r.get("name"), "key": custom_key(r.get("custom_fields")),
-            "completed": bool(r.get("completed"))}
+            "completed": bool(r.get("completed")), "description": r.get("notes") or ""}
            for r in rows if isinstance(r, dict)]
     sys.stdout.write(json.dumps(out, indent=2) + "\n")
     sys.exit(0)
@@ -1550,17 +1550,38 @@ def task_add_dependency(args):
 # are task GIDs. POST /tasks/<gid>/setParent (per ../references/rest.md → Set
 # Parent). Prints the response JSON on success.
 def task_set_parent(args):
-    if len(args) < 2:
-        die(1, "usage: %s task set-parent <task-ref> <parent-ref>" % PROG)
+    if len(args) not in (2, 4) or (len(args) == 4 and args[2] not in ("--before", "--after")):
+        die(1, "usage: %s task set-parent <task-ref> <parent-ref> [--before|--after <subtask-ref>]" % PROG)
     task_gid = args[0]
-    parent = args[1]
+    data = {"parent": args[1]}
+    if len(args) == 4:
+        data["insert_before" if args[2] == "--before" else "insert_after"] = args[3]
     key = cache_util.project_key()
     token = resolve_token(key)
     result = api_json(
         "%s/tasks/%s/setParent" % (API_BASE, task_gid),
-        token, "POST", {"data": {"parent": parent}})
+        token, "POST", {"data": data})
     print_task_projection(result)
     sys.exit(0)
+
+
+# Create a subtask under <parent-ref>, with a title and a Markdown description.
+# POST /tasks/<gid>/subtasks. Prints the compact projection (its `ref` is the gid).
+def task_add_subtask(args):
+    if len(args) < 3 or args[1] != "--title":
+        die(1, "usage: %s task add-subtask <parent-ref> --title T [--body-file <path>]" % PROG)
+    data = {"name": args[2]}
+    if args[3:4] == ["--body-file"] and len(args) > 4:
+        with open(args[4], "r", encoding="utf-8") as f:
+            body = f.read()
+        if body.strip():
+            is_html, wrapped = render_body(md_to_html(body))
+            data["html_notes" if is_html else "notes"] = wrapped
+    token = resolve_token(cache_util.project_key())
+    print_task_projection(api_json("%s/tasks/%s/subtasks" % (API_BASE, args[0]), token, "POST",
+                                   {"data": data}))
+    sys.exit(0)
+
 
 
 # Add a task to a board/project. <task-ref> is a task GID; <board-ref> is a
@@ -2243,6 +2264,7 @@ TASK_VERBS = {
     "attach": task_attach,
     "add-dependency": task_add_dependency,
     "set-parent": task_set_parent,
+    "add-subtask": task_add_subtask,
     "add-to-board": task_add_to_board,
     "set-status": task_set_status,
     "complete": task_complete,

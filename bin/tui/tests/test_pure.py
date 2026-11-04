@@ -910,7 +910,11 @@ class TestAppKeys(unittest.TestCase):
         settings = tui.gl.settings_from(self.app.control)
         self.assertEqual(settings, {"model": "claude-opus-5-5", "subagent_model": "claude-sonnet-5-5",
                                     "check_model": "claude-haiku-4-5-20251001", "check_effort": "max",
-                                    "threshold": 82})
+                                    "threshold": 82, "gate": "wait"})
+        self.press("down", "enter")
+        self.assertEqual([r["id"] for r in self.app.view()], ["wait", "top", "auto"])
+        self.press("down", "enter")
+        self.assertEqual(tui.gl.settings_from(self.app.control)["gate"], "top")
 
     def test_merging_is_picked_from_its_three_modes(self):
         self.press("3", "down", "down", "enter")
@@ -945,6 +949,12 @@ class TestWaits(unittest.TestCase):
                          "has questions for you: Which VPC — nonprod or shared? (+1 more)")
         self.assertEqual(wait_summary(PROBLEM), "QA gate still failing at 'backend' — ⏎ to read, a to reply")
         self.assertIn("a to have it resolved", wait_summary({"kind": "conflict"}))
+        self.assertIn("c approves it", wait_summary({"kind": "plan"}))
+        lines = " ".join(t for t, _ in wait_lines({"kind": "plan", "split": True,
+                                                   "detail": "- API\n- Inbox"}, 80))
+        self.assertIn("Nothing is built until you approve it", lines)
+        self.assertIn("The parts:", lines)
+        self.assertIn("- Inbox", lines)
 
     def test_the_whole_wait_is_shown(self):
         text = [t for t, _ in wait_lines(QUESTION, 80)]
@@ -1584,9 +1594,10 @@ class TestSetup(unittest.TestCase):
                           "main")
         self.assertEqual([r["cols"][0] for r in rows],
                          ["Sprint", "Queue into", "Merging", "Done tasks", "Usage limit", "Task model", "Goal lead",
-                          "Goal sub-agents", "Goal checker", "Checker effort"])
+                          "Goal sub-agents", "Goal checker", "Checker effort", "Plan approval"])
         self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[4:]],
-                         ["75%", "sonnet", "opus", "sonnet", "fable", "xhigh"])
+                         ["75%", "sonnet", "opus", "sonnet", "fable", "xhigh",
+                          "you, for the goal and each of its parts (recommended)"])
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])
         self.assertEqual(setup_rows({}, None)[0]["style"], "warn")

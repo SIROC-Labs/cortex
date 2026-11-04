@@ -38,7 +38,7 @@ general rule of the repository does not override what this ask's references say.
    codebase and its conventions too. In the journal, under `## References`, list
    each reference: what it is, where it is, and what it decides. A reference you
    cannot open, such as a link that needs a login, is a question for the person.
-2. Find what the ask takes for granted, and check it against the code: a branch
+{{testing}}2. Find what the ask takes for granted, and check it against the code: a branch
    it builds on, earlier work it needs, something it says is missing or done. When
    that is wrong, ask the person before you build on it. Do not work around it.
 3. Write the acceptance criteria in the journal, under `## Acceptance criteria`,
@@ -56,7 +56,7 @@ general rule of the repository does not override what this ask's references say.
    progress, what is next, and every decision you made and why. You can lose your
    memory of this conversation at any time. The journal and the branch must be
    enough for you to continue.
-
+{{plan_note}}
 {{split}}
 
 5. Build the work. Tick each acceptance criterion when the branch meets it, with

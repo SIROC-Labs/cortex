@@ -3,8 +3,10 @@
 # goal.py — an Asana ticket, implemented autonomously on one branch, into one PR.
 #
 # The ask is the ticket: its description, its subtasks, its comments and its
-# attachments, read once when the goal starts. Nothing is written back to Asana.
-# A lead agent gets the ask and nothing else. It first reads every reference the
+# attachments, read once when the goal starts. The runner shows the goal's
+# questions and its plan on the ticket, as subtasks (board.py), and the person
+# answers and approves them there; no agent reads or writes Asana. A lead agent
+# gets the ask and nothing else. It first reads every reference the
 # ask names and writes the acceptance criteria and the plan into its journal; the
 # checker's model reviews those criteria against the references before anything
 # is built. Then the lead builds, starting its own sub-agents, and keeps the
@@ -46,6 +48,8 @@ from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
 from engine import CI_NOT_STARTED, actions_refused, check_states, failed_runs, failure_excerpt  # noqa: E402
+sys.path.insert(0, HERE)
+import board as bd  # noqa: E402
 
 HOOK = os.path.join(HERE, "hook.py")
 
@@ -65,6 +69,13 @@ DEFAULT_SUBAGENT_MODEL = "claude-sonnet-5-5"
 DEFAULT_CHECK_MODEL = "claude-fable-5-1"
 DEFAULT_CHECK_EFFORT = "xhigh"
 DEFAULT_THRESHOLD = 75
+# Goals made from now on run this flow: the plan is approved before it is built,
+# and parts plan before the parts they build on are done. Older goals keep theirs.
+FLOW = 2
+# Who approves a plan: the person at every level ("wait"), the person for the
+# goal and the reviewer for its parts ("top"), or the reviewer only ("auto").
+GATES = ("wait", "top", "auto")
+DEFAULT_GATE = "wait"
 # Turns in one call before the runner takes the wheel back: to push, to read the
 # usage, to see the lead is still getting somewhere. The session carries on.
 MAX_TURNS = 200
@@ -123,22 +134,42 @@ SPLIT = """   When the work is large, split it into parts: do not build it alone
    - `criteria`: the acceptance criteria the part must meet, copied word for word
      from your list. Each criterion goes to one part at most. Keep the criteria
      about how the parts fit together for yourself.
-   - `after`: the names of the parts it builds on. Put the shared layers first,
-     such as the data model and the API contracts, and the parts that use them
-     after. Parts with nothing between them run at the same time, so give them
-     work that does not touch the same files.
+   - `after`: the names of the parts it builds on. They are merged into your
+     branch before this part starts to build. Put the shared layers first, such
+     as the data model and the API, and the parts that use them after. Parts with
+     nothing between them run at the same time, so give them work that does not
+     touch the same files.
    - `brief`: what the part builds, and what it must not touch; the references
-     and their sections that cover it, such as the prototype's functions; and the
-     contracts it must follow: the names, types, endpoints and files that other
-     parts depend on. Decide those contracts yourself, before the parts start. A
-     part's lead gets its brief, its criteria and the whole ask, and nothing else
-     from you.
-
+     and their sections that cover it, such as the prototype's functions; and
+     where it meets other parts, when that is known now: an endpoint, a shared
+     type, a function another part calls. Write those the same in each part that
+     uses them. A part's lead gets its brief, its criteria and the whole ask, and
+     nothing else from you.
+{{plan_after}}
    Two to %d parts is usual. For small work, do not split, and do not write the
    file. When every part is merged into your branch, you integrate: check that the
    parts fit together, build what no part covers, and tick the criteria.""" % MAX_PARTS
 NO_SPLIT = ("   This is one part of a larger goal. Do not split it: build it yourself, with "
             "sub-agents.")
+PLAN_AFTER = """   - `plan_after`: usually left out. Every part plans as soon as the person
+     approves the split, while the parts before it are still built. Name a part
+     here only when this part cannot sensibly be planned until that one is built,
+     such as when it builds on something whose shape only building it settles.
+"""
+PLAN_NOTE = """   The person sees your questions and your plan in Asana, as subtasks of the
+   ticket, and approves the plan there before anything is built. So write each
+   step of the plan, and each part, as one line a person can follow. When the
+   ask's subtasks already break the work down, follow that breakdown: give each
+   step or part the exact name of its subtask, and add, merge or split only where
+   the work needs it, with the reason in the journal.
+"""
+TESTING = """   The repository's testing guide is %s. Read it in the analysis and list it
+   under `## References`. Plan the tests by it, write them as it says, and give
+   it to every sub-agent that writes or runs tests. Where it says to run more
+   tests than step 9 allows, step 9 wins: many agents share this machine.
+"""
+BUILD_NOW = ("The plan is approved. Build the work, as the plan says. The analysis is "
+             "finished.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -146,7 +177,7 @@ CONTINUE = ("Continue the work. Read your journal if you need to remind yourself
 # zombies that still look alive.
 _CHILDREN = []
 
-LIVE = ("setting-up", "working", "checking", "waiting", "paused", "parts")
+LIVE = ("setting-up", "working", "checking", "waiting", "paused", "parts", "queued")
 FINISHED = ("done", "failed", "stopped")
 
 
@@ -170,7 +201,7 @@ def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
     out = ["# %s: %s" % (st.task_key(task), task.get("name") or ""), url, ""]
     if (task.get("description") or "").strip():
         out += [task["description"].strip(), ""]
-    open_subtasks = [t for t in subtasks if not t.get("completed")]
+    open_subtasks = [t for t in subtasks if not t.get("completed") and not st.made_by_goal(t)]
     if open_subtasks:
         out += ["## Subtasks", "", "All of them are part of the ask.", ""]
         for t in open_subtasks:
@@ -411,8 +442,8 @@ def review_prompt(gaps, answers, again=False):
     if answers:
         parts += [answers, ""]
     if again:
-        parts += ["Correct the criteria and the parts first: each part starts from them. "
-                  "Then report planned again, and the parts start."]
+        parts += ["Correct the criteria, the plan and the parts first: everything is "
+                  "built from them. Then report planned again."]
     else:
         parts += ["Then build the work, as the plan says. The analysis is finished.", "", CONTINUE]
     return "\n".join(parts)
@@ -434,6 +465,7 @@ def read_parts(text):
             return None
         out.append({"name": str(p.get("name") or "").strip(),
                     "after": [str(a).strip() for a in p.get("after") or []],
+                    "plan_after": [str(a).strip() for a in p.get("plan_after") or []],
                     "brief": str(p.get("brief") or "").strip(),
                     "criteria": [str(c).strip() for c in p.get("criteria") or [] if str(c).strip()]})
     return out
@@ -458,7 +490,7 @@ def parts_problems(parts, criteria):
             problems.append("part \"%s\" has no brief" % p["name"])
         if not p["criteria"]:
             problems.append("part \"%s\" has no criteria" % p["name"])
-        for a in p["after"]:
+        for a in p["after"] + p.get("plan_after", []):
             if a not in names:
                 problems.append("part \"%s\" is after \"%s\", which is not a part" % (p["name"], a))
         for c in p["criteria"]:
@@ -476,7 +508,7 @@ def parts_problems(parts, criteria):
 def part_order(parts):
     """The part names in an order where each comes after what it builds on; None
     when that cannot be."""
-    left, out = {p["name"]: set(p["after"]) for p in parts}, []
+    left, out = {p["name"]: set(p["after"]) | set(p.get("plan_after") or []) for p in parts}, []
     while left:
         ready = [n for n, after in left.items() if after <= set(out)]
         if not ready:
@@ -593,6 +625,56 @@ def checks_section(checks):
     if not checks:
         return "## Checks\n\nThe PR has no CI checks."
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
+
+
+SKIP_DIRS = {".git", "node_modules", ".cortex", "dist", "build", ".venv", "venv", "vendor"}
+
+
+def testing_guides(root, depth=3):
+    """The repository's TESTING.md files, relative to `root`, the top one first."""
+    out = []
+    for path, dirs, files in os.walk(root):
+        rel = os.path.relpath(path, root)
+        level = 0 if rel == "." else rel.count(os.sep) + 1
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")) \
+            if level < depth else []
+        out += [os.path.normpath(os.path.join(rel, f)) for f in files if f.lower() == "testing.md"]
+    return sorted(out, key=lambda f: (f.count(os.sep), f))
+
+
+def plan_items(journal, parts=None):
+    """What the plan shows on the ticket: [(key, name, body)], the parts when the
+    work is split, else the steps of the journal's `## Plan`."""
+    if parts:
+        return [(p["name"], p["name"], bd.part_body(p)) for p in parts] + [
+            (bd.INTEGRATION, bd.INTEGRATION, bd.made(["The goal's lead puts the parts together "
+                                                      "and checks them end to end."]))]
+    return [(bd.step_key(text), bd.title(text), bd.made([]))
+            for _, text in checklist(journal, "Plan") or [] if bd.step_key(text)]
+
+
+def ticked_steps(journal):
+    return {bd.step_key(text) for ticked, text in checklist(journal, "Plan") or [] if ticked}
+
+
+def replan_prompt(changes, notes):
+    """What the lead hears when the person approved the plan with changes."""
+    lines = ["The person reviewed your plan in Asana and approved it, with changes."]
+    if changes:
+        lines += ["", "They changed these subtasks:", ""] + changes
+    if notes:
+        lines += ["", "They said:", "", notes.strip()]
+    lines += ["", "Apply the changes to your journal: the acceptance criteria and the plan, "
+              "and the parts file if you split the work. Where a change is unclear or "
+              "conflicts with the prototype, ask. Do not build yet: report planned again."]
+    return "\n".join(lines)
+
+
+def built_text(built):
+    if not built:
+        return ""
+    return "\n".join(["These parts are done, and merged into your branch now:", ""] + [
+        "- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""])
 
 
 def hook_settings(flag, subagent=None, fence=()):
@@ -968,12 +1050,15 @@ def settings_from(control):
             "subagent_model": models.get("subagent") or DEFAULT_SUBAGENT_MODEL,
             "check_model": models.get("check") or DEFAULT_CHECK_MODEL,
             "check_effort": models.get("check_effort") or DEFAULT_CHECK_EFFORT,
-            "threshold": (control or {}).get("usage_threshold") or DEFAULT_THRESHOLD}
+            "threshold": (control or {}).get("usage_threshold") or DEFAULT_THRESHOLD,
+            "gate": (control or {}).get("goal_gate") if (control or {}).get("goal_gate") in GATES
+            else DEFAULT_GATE}
 
 
 def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
            model=DEFAULT_MODEL, subagent_model=DEFAULT_SUBAGENT_MODEL,
-           check_model=DEFAULT_CHECK_MODEL, check_effort=DEFAULT_CHECK_EFFORT, now=None):
+           check_model=DEFAULT_CHECK_MODEL, check_effort=DEFAULT_CHECK_EFFORT, gate=DEFAULT_GATE,
+           now=None):
     """Write a new goal for the ticket `ref`. Returns its id; nothing runs yet, and the
     ticket itself is read when it starts."""
     gid, n = goal_id(key, name), 1
@@ -985,7 +1070,7 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
     goal.update(id=gid, ref=ref, key=key, name=name, url=url or task_url(ref), base=base,
                 threshold=threshold, model=model, subagent_model=subagent_model,
                 check_model=check_model or model, check_effort=check_effort,
-                created=now or time.time(), status="new",
+                created=now or time.time(), status="new", flow=FLOW, gate=gate,
                 round=0, phase="planning")
     return gid
 
@@ -1011,7 +1096,8 @@ def create_part(main_root, parent, part, index, built):
                 model=parent.get("model"), subagent_model=parent.get("subagent_model"),
                 check_model=parent.get("check_model"), check_effort=parent.get("check_effort"),
                 fence=parent.get("fence"), created=time.time(), status="new", round=0,
-                phase="planning")
+                phase="planning", flow=parent.get("flow"), gate=parent.get("gate"),
+                asana_task=part.get("subtask"))
     return gid
 
 
@@ -1091,6 +1177,29 @@ class Runner(object):
 
     def set(self, **fields):
         self.data = self.goal.update(**fields)
+
+    def flow2(self):
+        return (self.data.get("flow") or 0) >= FLOW
+
+    @property
+    def board(self):
+        """The goal's subtasks on Asana: under the ticket, or under a part's own
+        subtask. Off for goals of the older flow."""
+        task = self.data.get("asana_task") if self.data.get("parent") else self.data.get("ref")
+        return bd.Board(self.main_root, self.goal.state, task if self.flow2() else None)
+
+    def waits_for_person(self):
+        """Whether this goal's plan waits for the person's approval."""
+        gate = self.data.get("gate") or DEFAULT_GATE
+        return gate == "wait" or (gate == "top" and not self.data.get("parent"))
+
+    def split_now(self):
+        return self.data.get("depth", 0) < MAX_DEPTH and os.path.exists(
+            self.goal.state.path(PARTS_FILE))
+
+    def written_parts(self):
+        with open(self.goal.state.path(PARTS_FILE)) as f:
+            return read_parts(f.read())
 
     # setup
 
@@ -1221,6 +1330,7 @@ class Runner(object):
                 out, err = self.child.communicate(timeout=WIND_CHECK if winding else USAGE_CHECK)
                 break
             except subprocess.TimeoutExpired:
+                self.progress()
                 limits = self.usage()
                 threshold = self.threshold()
                 hard = over_threshold(limits, threshold + HARD_MARGIN)
@@ -1546,6 +1656,9 @@ class Runner(object):
         while True:
             goals = {p["name"]: Goal(self.main_root, p["id"]).read() or {} for p in parts}
             done = [p for p in parts if goals[p["name"]].get("status") == "done"]
+            flow2 = self.flow2()
+            if flow2:
+                self.board.tick({p["name"] for p in done})
             if len(done) == len(parts):
                 st.info("every part is done")
                 return parts_done_prompt([dict(p, summary=goals[p["name"]].get("summary"))
@@ -1567,16 +1680,17 @@ class Runner(object):
             names = {p["name"] for p in done}
             built = [{"name": p["name"], "summary": goals[p["name"]].get("summary")} for p in done]
             for p in ready:
-                if len(running) >= PARALLEL_PARTS:
+                # In flow 2 a part plans at once, and waits by itself before it builds.
+                if not flow2 and len(running) >= PARALLEL_PARTS:
                     break
-                if set(p["after"]) <= names:
+                if set((p.get("plan_after") or []) if flow2 else p["after"]) <= names:
                     gid = create_part(self.main_root, self.data, p,
                                       [x["name"] for x in parts].index(p["name"]), built)
                     st.info("part \"%s\": starting" % p["name"])
                     launch(self.main_root, gid)
                     running.append(p["name"])
             self.set(status="parts", doing="parts: %d of %d done%s" % (
-                len(done), len(parts), " · building %s" % ", ".join(running) if running else ""))
+                len(done), len(parts), " · running %s" % ", ".join(running) if running else ""))
             first = False
             time.sleep(PARTS_CHECK)
 
@@ -1588,7 +1702,8 @@ class Runner(object):
             return None
         with open(self.goal.state.path(PARTS_FILE)) as f:
             parts = read_parts(f.read())
-        parts = [dict(p, id=part_id(self.goal.id, p["name"])) for p in parts]
+        parts = [dict(p, id=part_id(self.goal.id, p["name"]), subtask=self.board.gid_of(p["name"]))
+                 for p in parts]
         order = part_order(parts)
         parts.sort(key=lambda p: order.index(p["name"]))
         _, dirty, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
@@ -1601,6 +1716,109 @@ class Runner(object):
             st.info("- %s%s" % (p["name"], " (after %s)" % ", ".join(p["after"]) if p["after"] else ""))
         self.set(parts=parts, phase="parts")
         return parts
+
+    # the plan, on the ticket
+
+    def planned(self):
+        """The lead's plan is complete: reviewed, corrected, then put to the
+        person. Returns the lead's next prompt."""
+        if self.data.get("replanning"):
+            # The person's changes, applied: they approved the plan already.
+            self.publish_plan()
+            return self.after_plan()
+        gaps, questions = [], []
+        if not self.data.get("reviewed") and not (self.data.get("parent") and self.waits_for_person()):
+            gaps, questions = self.review()
+        self.set(reviewed=True)
+        answers = answers_text(questions, self.ask_questions(questions, "review")) if questions else None
+        if gaps or answers:
+            return review_prompt(gaps, answers, again=True)
+        return self.plan_gate()
+
+    def publish_plan(self, before_build=True):
+        parts = self.written_parts() if self.split_now() else None
+        self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build)
+        return parts
+
+    def plan_gate(self):
+        """After the review: the plan on the ticket, approved by the person when the
+        goal waits for them. Returns the lead's next prompt."""
+        parts = self.publish_plan()
+        if not self.waits_for_person():
+            self.board.approve()
+            return self.after_plan()
+        st.step("The plan is ready for your review")
+        names = [name for _, name, _ in plan_items(self.read_journal(), parts)]
+        return self.await_plan({"kind": "plan", "headline": "plan ready for your review",
+                                "split": bool(parts),
+                                "detail": "\n".join("- %s" % n for n in names) or None})
+
+    def await_plan(self, record):
+        text = self.wait_for_answer(record)
+        self.board.approve()
+        changes = self.board.changes()
+        notes = "" if bd.approves(text) else text
+        if changes or notes:
+            st.info("approved, with %d change(s) to the subtasks%s" % (
+                len(changes), " and a note" if notes else ""))
+            self.set(replanning=True, phase="planning")
+            return replan_prompt(changes, notes)
+        st.info("the plan is approved")
+        return self.after_plan()
+
+    def after_plan(self):
+        """The plan is approved: start the parts, or build. Returns the lead's
+        next prompt."""
+        self.set(approved=True, replanning=False)
+        if self.split_now():
+            if not self.data.get("parts"):
+                self.start_parts()
+            prompt = self.run_parts()
+            self.set(phase="building", status="working")
+            return prompt
+        prompt = BUILD_NOW
+        if self.data.get("parent"):
+            built = self.wait_to_build()
+            fix = self.sync_part()
+            prompt = "\n\n".join(x for x in (built_text(built), prompt, fix) if x)
+        self.set(phase="building", status="working")
+        return prompt + "\n\n" + CONTINUE
+
+    def wait_to_build(self):
+        """A part's plan is approved: wait until the parts it builds on are merged,
+        and fewer than PARALLEL_PARTS others are building. Returns the parts done."""
+        parent = Goal(self.main_root, self.data["parent"])
+        while True:
+            parts = parent.read().get("parts") or []
+            me = next((p for p in parts if p["name"] == self.data["part"]), {})
+            needs = set(me.get("after") or []) | set(me.get("plan_after") or [])
+            with open(parent.state.path("parts.lock"), "w") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                goals = {p["name"]: Goal(self.main_root, p["id"]).read() or {} for p in parts}
+                done = [p["name"] for p in parts if goals[p["name"]].get("status") == "done"]
+                building = [n for n, g in goals.items() if n != self.data["part"]
+                            and g.get("phase") == "building" and g.get("status") != "done"
+                            and g.get("pid") and st._pid_alive(g["pid"])]
+                if needs <= set(done) and len(building) < PARALLEL_PARTS:
+                    self.set(phase="building", status="working")
+                    return [{"name": n, "summary": goals[n].get("summary")} for n in done]
+            waiting = sorted(needs - set(done))
+            self.set(status="queued", doing="plan approved — %s" % (
+                "builds after %s" % ", ".join(waiting) if waiting else
+                "waits for a free slot: %d parts build at a time" % PARALLEL_PARTS))
+            time.sleep(PARTS_CHECK)
+
+    def progress(self):
+        """The plan's ticks, onto the ticket. A step the lead added after the
+        approval gets a subtask of its own."""
+        if not (self.flow2() and self.data.get("approved") and self.board.on):
+            return
+        journal = self.read_journal()
+        if not self.split_now():
+            known = [i["key"] for i in self.board.load().get("items") or []]
+            if any(not any(bd.same_step(k, old) for old in known) for k, _, _ in plan_items(journal)):
+                self.publish_plan(before_build=False)
+        self.board.tick(ticked_steps(journal))
 
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""
@@ -1632,9 +1850,16 @@ class Runner(object):
                     "once, marks the PR ready, and waits for CI. If the merge conflicts or CI "
                     "fails, it tells you what failed, and you fix it." % base)
         split = (NO_SPLIT if self.data.get("depth", 0) >= MAX_DEPTH
-                 else SPLIT.replace("{{parts_file}}", self.goal.state.path(PARTS_FILE)))
+                 else SPLIT.replace("{{parts_file}}", self.goal.state.path(PARTS_FILE)).replace(
+                     "{{plan_after}}", PLAN_AFTER if self.flow2() else ""))
+        guides = ", ".join("`%s`" % g for g in testing_guides(self.data["worktree"]))
         return {"ask": self.data["ask"], "branch": self.data["branch"],
                 "where": where, "delivery": delivery, "split": split,
+                "testing": TESTING % guides if guides else "",
+                "testing_check": (" Judge the tests against the repository's testing guide, "
+                                  "%s: a test it requires that is missing, or one written "
+                                  "against it, is a gap." % guides) if guides else "",
+                "plan_note": PLAN_NOTE if self.board.on else "",
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
@@ -1665,14 +1890,31 @@ class Runner(object):
         else:
             self.goal.state.write("awaiting.json", dict(record, asked_at=asked_at))
         self.set(status="waiting", doing="waiting on you")
-        st.info("waiting on you — the question is on the TUI's Runs tab")
+        board = self.board
+        poll = None
+        if board.on and record["kind"] == "plan":
+            poll = board.approval
+        elif board.on and record.get("asana"):
+            poll = lambda: board.answers(record["questions"], record["asana"], asked_at)  # noqa: E731
+        st.info("waiting on you — %s" % ("in Asana, or on the TUI's Runs tab" if poll
+                                         else "the question is on the TUI's Runs tab"))
+        polled = 0
         while True:
             text = st.local_answer(self.goal.state.read(st.ANSWER_FILE), asked_at)
             if text:
                 self.goal.state.remove(st.ANSWER_FILE)
                 self.goal.state.remove("awaiting.json")
+                if record.get("asana"):
+                    board.answered(record["asana"], text)
                 st.info("answered")
                 return text
+            if poll and time.time() - polled >= bd.POLL:
+                polled = time.time()
+                text = poll()
+                if text:
+                    self.goal.state.remove("awaiting.json")
+                    st.info("answered in Asana")
+                    return text
             time.sleep(ANSWER_CHECK)
 
     def ask_questions(self, questions, label="lead"):
@@ -1718,7 +1960,9 @@ class Runner(object):
         st.step("Asking you")
         for q in questions:
             st.info("Q: %s" % q["q"])
-        return self.wait_for_answer({"kind": "questions", "label": label, "questions": questions})
+        gids = self.board.ask(questions) if self.board.on else []
+        return self.wait_for_answer({"kind": "questions", "label": label, "questions": questions,
+                                     "asana": gids})
 
     def ask_problem(self, headline, detail=None):
         st.step("Stopped — %s" % headline)
@@ -1741,6 +1985,9 @@ class Runner(object):
 
     def finish(self, block):
         st.step("Finishing")
+        self.progress()
+        if self.flow2() and self.split_now():
+            self.board.tick({bd.INTEGRATION})
         if self.data.get("parent"):
             self.set(status="done", doing=block.get("summary") or "done",
                      summary=block.get("summary"), finished=time.time())
@@ -1771,6 +2018,10 @@ class Runner(object):
                                        self.wait_for_answer(pending))
             elif pending.get("kind") == "problem":
                 prompt = "The person says:\n\n%s\n\n%s" % (self.wait_for_answer(pending), CONTINUE)
+            elif pending.get("kind") == "plan":
+                prompt = self.await_plan(pending)
+            elif self.flow2() and self.data.get("approved") and self.data.get("phase") == "planning":
+                prompt = self.after_plan()
             elif self.data.get("phase") == "parts":
                 prompt = self.run_parts()
                 self.set(phase="building", status="working")
@@ -1783,6 +2034,7 @@ class Runner(object):
                 report, block = self.lead(prompt)
                 if block.get("summary"):
                     st.info(block["summary"])
+                self.progress()
                 # Nothing is pushed until the lead reports done: every push runs CI.
                 after = self.head()
                 unchanged = unchanged + 1 if after == before and self.data.get(
@@ -1808,6 +2060,9 @@ class Runner(object):
                                                        checklist(journal, "Acceptance criteria"))
                     if problems:
                         prompt = planning_prompt(problems)
+                        continue
+                    if self.flow2():
+                        prompt = self.planned()
                         continue
                     if self.data.get("parent") or (split and self.data.get("reviewed")):
                         gaps, questions = [], []
@@ -1907,6 +2162,9 @@ def main(argv):
     new.add_argument("--check-model", default=DEFAULT_CHECK_MODEL, help="the checker's model")
     new.add_argument("--check-effort", default=DEFAULT_CHECK_EFFORT,
                      choices=("low", "medium", "high", "xhigh", "max"), help="the checker's effort")
+    new.add_argument("--gate", default=DEFAULT_GATE, choices=GATES,
+                     help="who approves the plan: you at every level, you for the goal only, "
+                          "or the reviewer agent")
     new.add_argument("--start", action="store_true", help="start it in the background")
     new.add_argument("--repo", default=".")
     run = sub.add_parser("run", help="run or resume a goal in the foreground")
@@ -1926,7 +2184,7 @@ def main(argv):
         gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
                      threshold=args.threshold, model=args.model,
                      subagent_model=args.subagent_model, check_model=args.check_model,
-                     check_effort=args.check_effort)
+                     check_effort=args.check_effort, gate=args.gate)
         if args.start:
             launch(main_root, gid)
         print(gid)

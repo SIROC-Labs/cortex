@@ -116,7 +116,9 @@ class TestGoalView(unittest.TestCase):
                                         ("done", "", "done")):
             self.assertEqual(gv.stage({"status": status, "doing": doing}), expected)
         self.assertEqual(gv.stage_line({"status": "checking", "doing": "fixing CI, try 1"}),
-                         "analysis ▸ review ▸ building ▸ syncing ▸ [CI] ▸ checking ▸ done")
+                         "analysis ▸ review ▸ approval ▸ building ▸ syncing ▸ [CI] ▸ checking ▸ done")
+        self.assertEqual(gv.stage({"status": "waiting", "phase": "planning",
+                                   "awaiting": {"kind": "plan"}}), "approval")
         self.assertEqual(gv.stage({"status": "working", "phase": "planning"}), "analysis")
         self.assertEqual(gv.stage({"status": "checking", "phase": "planning",
                                    "doing": "reviewing the acceptance criteria"}), "review")

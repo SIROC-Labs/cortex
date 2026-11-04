@@ -49,6 +49,12 @@ MERGE_LABELS = {
     "always": "always automatically, the default branch included",
     "asked": "only when asked — m on a task",
 }
+# Who approves a goal's plan before it is built.
+GATE_LABELS = {
+    "wait": "you, for the goal and each of its parts (recommended)",
+    "top": "you for the goal; the reviewer agent for its parts",
+    "auto": "the reviewer agent only — goals never wait for you to approve",
+}
 # The models the Setup tab offers, strongest last but one, and the effort levels.
 MODELS = [("claude-haiku-4-5-20251001", "haiku"), ("claude-sonnet-5-5", "sonnet"),
           ("claude-opus-5-5", "opus"), ("claude-fable-5-1", "fable")]
@@ -124,6 +130,9 @@ def wait_summary(wait):
         return wait["headline"] + " — a to say what to do, m to just try again"
     if kind == "checkpoint":
         return "checkpoint reached — c continues the queue"
+    if kind == "plan":
+        return ("plan ready for your review — c approves it, a says what to change; or "
+                "complete “Review the plan” in Asana")
     questions = wait.get("questions") or []
     if questions:
         more = len(questions) - 1
@@ -248,6 +257,20 @@ def wait_lines(wait, width):
         para("This task is a checkpoint and has merged. Everything queued after it is held "
              "back until you continue — nothing past it has started. Check what you need to, "
              "then press c.", "normal")
+        return out
+    if wait.get("kind") == "plan":
+        para("The plan is ready for your review", "bold")
+        out.append(("", "normal"))
+        para("Nothing is built until you approve it. The plan is on the ticket in Asana, "
+             "under Plan:, and the acceptance criteria are in the goal's journal. To change "
+             "it, edit, add or delete those subtasks, or say what to change in a comment on "
+             "“Review the plan” or with a here. Then approve it: complete “Review the plan”, "
+             "or press c.", "normal")
+        if wait.get("detail"):
+            out.append(("", "normal"))
+            para("The %s:" % ("parts" if wait.get("split") else "steps"), "normal")
+            for line in wait["detail"].splitlines():
+                para(line, "dim", "  ")
         return out
     if wait.get("kind") == "merge":
         para(wait.get("headline") or "", "bold")
@@ -460,6 +483,8 @@ def goal_status(g, wait=None):
                                      g.get("round") or 1, use), "ok"
     if status == "parts":
         return "%s%s" % (g.get("doing") or "building its parts", use), "ok"
+    if status == "queued":
+        return "%s%s" % (g.get("doing") or "plan approved — waits to build", use), "normal"
     if status == "setting-up":
         return "setting up its branch%s" % ("" if g.get("parent") else " and PR"), "ok"
     if status == "paused":
@@ -537,7 +562,15 @@ def setup_rows(control, default_branch=None):
                                                            or gl.DEFAULT_THRESHOLD)]},
     ] + [{"kind": "setting", "id": sid, "style": "normal",
           "cols": [label, "%s — %s" % (model_label(models_of(control).get(key) or default), what)]}
-         for sid, label, key, default, what in MODEL_SETTINGS]
+         for sid, label, key, default, what in MODEL_SETTINGS] + [
+        {"kind": "setting", "id": "gate", "style": "normal",
+         "cols": ["Plan approval", "%s — who approves a goal's plan before it is built"
+                  % GATE_LABELS[gate_of(control)]]}]
+
+
+def gate_of(control):
+    gate = (control or {}).get("goal_gate")
+    return gate if gate in GATE_LABELS else gl.DEFAULT_GATE
 
 
 def models_of(control):
@@ -552,6 +585,8 @@ def setting_choices(sid):
     """[(value, label, what it means)] for a Setup row picked from a list."""
     if sid == "merge":
         return [(mode, label, "") for mode, label in MERGE_LABELS.items()]
+    if sid == "gate":
+        return [(g, label, "") for g, label in GATE_LABELS.items()]
     if sid.startswith("effort-"):
         return [(e, e, EFFORT_NOTES[e]) for e in EFFORTS]
     return [(m, label, MODEL_NOTES[label]) for m, label in MODELS]
@@ -562,6 +597,8 @@ def setting_value(sid, control):
     if sid == "merge":
         mode = control.get("merge_mode")
         return mode if mode in MERGE_LABELS else "branches"
+    if sid == "gate":
+        return gate_of(control)
     _, _, key, default, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
     return models_of(control).get(key) or default
 
@@ -574,7 +611,7 @@ def choice_rows(sid, control):
             for value, label, note in setting_choices(sid)]
 
 
-PICKED = ("merge",) + tuple(m[0] for m in MODEL_SETTINGS)
+PICKED = ("merge", "gate") + tuple(m[0] for m in MODEL_SETTINGS)
 
 
 def parse_ls_remote(text):
@@ -1256,7 +1293,8 @@ class App(object):
                     self.message = "could not read the subtasks: %s" % done[1]
                 else:
                     self.subtasks[gid] = [{"gid": t["ref"], "name": t["name"], "key": t.get("key"),
-                                           "completed": t.get("completed")} for t in done[0] or []]
+                                           "completed": t.get("completed")} for t in done[0] or []
+                                          if not st.made_by_goal(t)]
         if self.sent:
             self.follow_commands()
         for gid in list(self.posting):
@@ -1630,8 +1668,12 @@ class App(object):
         """c: continue past the selected reached checkpoint, or the only one.
         On a task held back by a checkpoint that has not merged yet — or on that
         checkpoint — offer to drop the checkpoint instead."""
-        gates, held, reached = gate_state(self.control, self.data)
         row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
+        if row and row["kind"] == "goal" and (row.get("wait") or {}).get("kind") == "plan":
+            self.ask("approve the plan of \"%s\", so it starts building? (y/n)" % row["cols"][1].strip(" └"),
+                     lambda: self.answer(row["id"], "continue"))
+            return
+        gates, held, reached = gate_state(self.control, self.data)
         row = row if row and row["kind"] == "task" else None
         gate = next((g for g in reached if row and g["gid"] == row["id"]), None)
         if gate is None and len(reached) == 1 and not (row and row["id"] in held):
@@ -1828,6 +1870,9 @@ class App(object):
             if sid == "merge":
                 self.change_control(lambda c: c.update(merge_mode=value))
                 self.message = "merging: %s" % MERGE_LABELS[value]
+            elif sid == "gate":
+                self.change_control(lambda c: c.update(goal_gate=value))
+                self.message = "plan approval: %s — for goals started from now on" % GATE_LABELS[value]
             else:
                 _, label, mkey, _, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
                 self.change_control(lambda c: c.setdefault("models", {}).update({mkey: value}))
