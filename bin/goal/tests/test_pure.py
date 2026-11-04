@@ -699,6 +699,10 @@ class TestWindDown(unittest.TestCase):
         self.assertTrue(os.path.exists(self.flag))
         self.assertEqual(self.timeouts, [goal.USAGE_CHECK, goal.USAGE_CHECK, goal.WIND_CHECK])
         self.assertIn("--settings", self.cmd)
+        self.assertEqual(self.cmd[self.cmd.index("--permission-mode") + 1], "auto")
+        allow = self.runner.goal.state.read(goal.SETTINGS_FILE)["permissions"]["allow"]
+        self.assertIn("Write(/%s/**)" % os.path.abspath(self.runner.goal.state.dir), allow)
+        self.assertIn("Agent", allow)
 
     def test_the_limit_on_the_setup_tab_reaches_a_running_goal(self):
         import json

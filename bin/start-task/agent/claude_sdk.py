@@ -26,11 +26,11 @@ TOOL_MAP = {
 
 # Neutral autonomy -> the SDK's PermissionMode.
 #   acceptEdits       auto-approves file edits; other tools follow settings
-#   bypassPermissions skips checks entirely
+#   full              auto or dontAsk with allow rules, as the CLI backend: a repo
+#                     may turn bypass off
 AUTONOMY_MAP = {
     "read-only": "plan",
     "edit": "acceptEdits",
-    "full": "bypassPermissions",
 }
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
@@ -91,10 +91,14 @@ class ClaudeSDKBackend(AgentBackend):
             unsupported += ["tool:%s" % t for t in request.allowed_tools
                             if t not in TOOL_MAP]
 
+        mode = AUTONOMY_MAP.get(request.autonomy, "acceptEdits")
+        if request.autonomy == "full":
+            from agent.claude_cli import unattended
+            mode, allowed = unattended(request.model or DEFAULT_MODEL, [request.cwd])
         options_kwargs = {
             "cwd": request.cwd,
             "model": request.model or DEFAULT_MODEL,
-            "permission_mode": AUTONOMY_MAP.get(request.autonomy, "acceptEdits"),
+            "permission_mode": mode,
             # "project" loads the repo's CLAUDE.md without dragging in user-level
             # settings; an empty list loads nothing at all.
             "setting_sources": ["project"] if request.load_project_context else [],

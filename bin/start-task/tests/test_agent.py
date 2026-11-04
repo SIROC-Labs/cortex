@@ -223,6 +223,20 @@ class TestCLICommand(unittest.TestCase):
         cmd, _ = build_command(AgentRequest(prompt="x", cwd="/tmp", resume="abc123"))
         self.assertEqual(cmd[cmd.index("--resume") + 1], "abc123")
 
+    def test_a_full_run_uses_auto_mode_and_allow_rules_never_bypass(self):
+        cmd, _ = build_command(AgentRequest(prompt="x", cwd="/w", autonomy="full",
+                                            model="claude-sonnet-5-5"))
+        self.assertNotIn("bypassPermissions", cmd)
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "auto")
+        allow = json.loads(cmd[cmd.index("--settings") + 1])["permissions"]["allow"]
+        self.assertIn("Edit(//w/**)", allow)
+        self.assertIn("WebFetch", allow)
+        self.assertNotIn("Bash", allow)
+        cmd, _ = build_command(AgentRequest(prompt="x", cwd="/w", autonomy="full",
+                                            model="claude-haiku-4-5-20251001"))
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "dontAsk")
+        self.assertIn("Bash", json.loads(cmd[cmd.index("--settings") + 1])["permissions"]["allow"])
+
     def test_argv_override_reports_resume_as_superseded(self):
         _, unsupported = build_command(
             AgentRequest(prompt="x", cwd="/tmp", resume="abc123",

@@ -45,7 +45,7 @@ START_TASK_DIR = os.path.join(os.path.dirname(HERE), "start-task")
 sys.path.insert(0, START_TASK_DIR)
 import start_task as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
-from agent.claude_cli import parse_envelope  # noqa: E402
+from agent.claude_cli import parse_envelope, unattended  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
 from engine import CI_NOT_STARTED, actions_refused, check_states, failed_runs, failure_excerpt  # noqa: E402
 sys.path.insert(0, HERE)
@@ -677,7 +677,7 @@ def built_text(built):
         "- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""])
 
 
-def hook_settings(flag, subagent=None, fence=()):
+def hook_settings(flag, subagent=None, fence=(), allow=None):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -695,8 +695,11 @@ def hook_settings(flag, subagent=None, fence=()):
     pre = [{"matcher": "Agent|Task", "hooks": agent}, {"matcher": "Bash", "hooks": [guard("bash")]}]
     if fence:
         pre.append({"matcher": "*", "hooks": [guard("fence", *fence)]})
-    return {"hooks": {"PreToolUse": pre,
-                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
+    out = {"hooks": {"PreToolUse": pre,
+                     "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
+    if allow:
+        out["permissions"] = {"allow": allow}
+    return out
 
 
 def cut_off_prompt(at, agents, dirty):
@@ -1401,10 +1404,15 @@ class Runner(object):
         flag = self.goal.state.path(WIND_FILE)
         if os.path.exists(flag):
             os.remove(flag)
+        # Bypass is not used: a repo may turn it off. Auto mode, with the goal's usual
+        # work allowed: reading, edits in its worktree and state, sub-agents, the web.
+        mode, allow = unattended(model, [self.data["worktree"], self.goal.state.dir],
+                                 ["Agent", "Task"])
         self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
-            self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or ()))
+            self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or (),
+            allow))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
-               "--permission-mode", "bypassPermissions", "--max-turns", str(MAX_TURNS),
+               "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
         cmd += ["--resume", session] if resume else ["--session-id", session]

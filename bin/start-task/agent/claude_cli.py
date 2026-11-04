@@ -9,6 +9,7 @@ so anything missing is left None rather than guessed at.
 """
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -28,8 +29,21 @@ TOOL_MAP = {
 AUTONOMY_MAP = {
     "read-only": "plan",
     "edit": "acceptEdits",
-    "full": "bypassPermissions",
 }
+
+
+def unattended(model, dirs, tools=()):
+    """(permission mode, allow rules) for a run nobody watches. A repo may turn
+    bypass off (`disableBypassPermissionsMode`), so none is used. In auto mode a
+    classifier judges each action no rule allows; reading, edits inside `dirs`,
+    the web and `tools` are allowed and skip it. A model with no auto mode
+    (Haiku 4.5) runs in dontAsk, which refuses what no rule allows, with the shell
+    allowed too."""
+    auto = "haiku-4" not in (model or "")
+    rules = ["Read", "Glob", "Grep", "TodoWrite", "WebFetch", "WebSearch"] + list(tools)
+    for d in dirs:
+        rules += ["Edit(/%s/**)" % os.path.abspath(d), "Write(/%s/**)" % os.path.abspath(d)]
+    return ("auto", rules) if auto else ("dontAsk", rules + ["Bash"])
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
 
@@ -122,17 +136,22 @@ def build_command(request):
         return cmd, unsupported
 
     unsupported = []
+    mode, rules = (unattended(request.model or DEFAULT_MODEL, [request.cwd])
+                   if request.autonomy == "full" else
+                   (AUTONOMY_MAP.get(request.autonomy, "acceptEdits"), None))
     cmd = [
         "claude", "-p",
         "--output-format", "json",
         "--model", request.model or DEFAULT_MODEL,
-        "--permission-mode", AUTONOMY_MAP.get(request.autonomy, "acceptEdits"),
+        "--permission-mode", mode,
         # Skills and MCP servers are noise for a single prepared prompt.
         "--disable-slash-commands",
         "--strict-mcp-config",
         "--add-dir", request.cwd,
     ]
-    if request.allowed_tools is not None:
+    if rules:
+        cmd += ["--settings", json.dumps({"permissions": {"allow": rules}})]
+    elif request.allowed_tools is not None:
         mapped = [TOOL_MAP[t] for t in request.allowed_tools if t in TOOL_MAP]
         unsupported += ["tool:%s" % t for t in request.allowed_tools
                         if t not in TOOL_MAP]

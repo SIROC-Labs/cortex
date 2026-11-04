@@ -133,6 +133,11 @@ This program is the harness around the lead:
   strongest model costs little there. All four are on the TUI's Setup tab, and on
   `cortex goal new` as `--model`, `--subagent-model`, `--check-model` and `--check-effort`.
   A goal keeps the models it started with.
+- **Permissions.** No run uses bypass mode, which a repo may turn off (Humanus does). Each
+  call runs in auto mode: reading, edits in the goal's worktree and state, sub-agents and
+  the web are allowed outright, and a classifier judges every other action, such as a
+  shell command. A model with no auto mode (Haiku 4.5) runs in dontAsk instead, with the
+  shell allowed too. Task runs work the same way.
 - **Usage.** Your Claude subscription's limits (`/usage`) are read before each call and
   every 5 minutes during one. At 75% of any limit (`--threshold`) the call winds down
   rather than stopping: through Claude Code hooks, new sub-agents are refused and every
