@@ -23,7 +23,8 @@ marketplace so you can choose plugins yourself. When installing, it runs
 `cortex-workflow` and `dev-toolkit` from the `siroc-cortex` marketplace, and the
 required `superpowers` dependency from the official `openai-curated` catalog
 (its single canonical source — Codex does not dedupe identically named plugins
-across marketplaces, so it is not shipped in `siroc-cortex`). It does not add
+across marketplaces, so it is not shipped in `siroc-cortex`), plus the
+[design skills](../README.md#design-skills). It does not add
 `cortex-qa-web` or `cortex-qa-mobile`, the plugins with the QA MCP servers; see
 [MCP servers for browser and mobile QA](#mcp-servers-for-browser-and-mobile-qa).
 
@@ -60,6 +61,14 @@ codex plugin add superpowers@openai-curated
 `superpowers` is sourced from the official `openai-curated` catalog, not from
 `siroc-cortex`. It is required for brainstorming, systematic debugging, TDD, and
 non-Claude feature implementation routing.
+
+Then install the design skills that all visual work has to use (see
+[Design skills](../README.md#design-skills)):
+
+```bash
+npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a codex -y
+npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a codex -y
+```
 
 The marketplace manifest is:
 

@@ -34,6 +34,8 @@ Two pieces:
 
 Each phase has a gate, so work only moves forward once it has produced what the next phase needs: the problem validated, the PRD written, the plan estimated, the evidence collected.
 
+Development has one more gate: any change to what a user sees has to follow the [design skills](#design-skills).
+
 ## Installation
 
 ### Claude Code
@@ -60,7 +62,7 @@ See [.opencode/INSTALL.md](.opencode/INSTALL.md) for manual install and detailed
 bash setup.sh --codex
 ```
 
-This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default, no clone needed; pass `--dev` to use your local working copy), and installs `cortex-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`. Restart Codex afterwards; no `/plugins` step needed.
+This validates prerequisites, adds the `SIROC-Labs/cortex` marketplace (remote by default, no clone needed; pass `--dev` to use your local working copy), and installs `cortex-workflow` (from `siroc-cortex`) and its required `superpowers` dependency (from the official `openai-curated` catalog) with `codex plugin add`, plus the [design skills](#design-skills). Restart Codex afterwards; no `/plugins` step needed.
 
 See [.codex/INSTALL.md](.codex/INSTALL.md) for manual install and detailed instructions.
 
@@ -71,6 +73,25 @@ bash setup.sh --all
 ```
 
 Installs for every supported agent in one run. Each agent is installed independently. If one fails (or its CLI isn't installed) the others still proceed, and a per-agent success/failure summary is printed at the end. Add `--dev` to source from your local clone.
+
+### Design skills
+
+Any work that changes what a user sees (pages, screens, components, layout, styling, motion) has to load three external design skills before UI code is written. This applies to `implement-feature`, `fix-bug` and `start-task` (fast mode included), whether a person is present or not. Backend-only work isn't affected.
+
+| Skill | Source | Purpose |
+|---|---|---|
+| `design-taste-frontend` | [Leonxlnx/taste-skill](https://www.tasteskill.dev/) | Art direction that avoids template-looking interfaces: infers the right design direction from the brief and runs a strict pre-flight check |
+| `apple-design` | [emilkowalski/skills](https://github.com/emilkowalski/skills) | Apple's interface and fluid-motion principles, adapted from WWDC talks for the web |
+| `emil-design-eng` | [emilkowalski/skills](https://github.com/emilkowalski/skills) | Design-engineering craft, mostly animation: easing, duration, and when motion helps |
+
+When they disagree, the project's own design system wins, then the most specific skill: `emil-design-eng` for motion, `apple-design` for interface behavior, `design-taste-frontend` for visual direction.
+
+`setup.sh` installs them for every agent it configures (Node.js is required for `npx`). If one is missing, the agent stops before doing visual work and prints the install command. To install them by hand, set `-a` to `claude-code`, `opencode` or `codex`:
+
+```bash
+npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a claude-code -y
+npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a claude-code -y
+```
 
 ### Browser and mobile QA tools (per project)
 
@@ -117,6 +138,12 @@ codex plugin add cortex-qa-mobile@siroc-cortex   # if you use it
 ```
 
 Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-run the `codex plugin add` commands instead; `marketplace upgrade` only applies to the remote Git marketplace.
+
+### Design skills
+
+```bash
+npx skills@latest update -g -y
+```
 
 ## Contributing
 
