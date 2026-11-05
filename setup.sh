@@ -408,6 +408,31 @@ fi
 # Step 5: OpenCode configuration
 # ─────────────────────────────────────────────
 
+# Design skills every visual change must apply (APPLY_DESIGN_STANDARDS in
+# plugins/cortex-workflow/references/runtime-bindings.md). They are not plugins, so
+# they install through the `skills` CLI into the agent's global skills directory.
+# Non-fatal: the design standards gate blocks visual work until they are present.
+install_design_skills() {
+  local agent="$1"
+  if ! command -v npx &>/dev/null; then
+    warn "npx not found — install Node.js, then install the design skills manually:"
+    warn "  npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a ${agent} -y"
+    warn "  npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a ${agent} -y"
+    return 0
+  fi
+  info "Installing design skills for ${agent}..."
+  if npx -y skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a "$agent" -y >/dev/null 2>&1; then
+    pass "Design skill installed: design-taste-frontend"
+  else
+    warn "Could not install design-taste-frontend — run: npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a ${agent} -y"
+  fi
+  if npx -y skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a "$agent" -y >/dev/null 2>&1; then
+    pass "Design skills installed: apple-design, emil-design-eng"
+  else
+    warn "Could not install apple-design / emil-design-eng — run: npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a ${agent} -y"
+  fi
+}
+
 configure_opencode() {
   local CONFIG_DIR="${HOME}/.config/opencode"
   local CACHE_DIR="${HOME}/.cache/opencode/node_modules"
@@ -514,6 +539,7 @@ PYEOF
     info "Plugin cache cleared"
   fi
 
+  install_design_skills opencode
   return 0
 }
 
@@ -617,6 +643,7 @@ PYEOF
     warn "  codex plugin add superpowers@openai-curated"
   fi
 
+  install_design_skills codex
   return 0
 }
 
@@ -665,6 +692,7 @@ configure_claude() {
     fi
   done
 
+  install_design_skills claude-code
   return 0
 }
 

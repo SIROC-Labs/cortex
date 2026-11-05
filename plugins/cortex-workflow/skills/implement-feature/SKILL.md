@@ -18,6 +18,8 @@ Thin routing orchestrator for implementation work. Contains no development logic
 - `EXECUTE_PLAN` — execute an already-in-place plan (operator can still guide)
 - `EXECUTE_INLINE` — implement directly from the available info, no new plan
 
+When the work touches anything a user sees, `APPLY_DESIGN_STANDARDS` is mandatory on every path below (see "Design Standards Gate" in the bindings reference).
+
 ## Inputs
 
 From the invoking workflow, when there is one:
@@ -61,6 +63,8 @@ Resolve the chosen capability for the current runtime from the bindings table:
 **Chaining:** when `CREATE_PLAN` returns, judge by outcome: if a plan was produced but not yet implemented, enter `EXECUTE_PLAN` with the freshly produced plan — re-applying the resolution rules above. If the binding already carried through to implementation, do not chain.
 
 When invoking `EXECUTE_PLAN`, pass the plan content (plus spec excerpts from the task notes) explicitly in the handoff — that capability executes plans, it does not write them.
+
+**Design standards:** if the work changes visual output, load every `APPLY_DESIGN_STANDARDS` binding before any UI code is written — before `EXECUTE_INLINE` starts, and as part of the handoff to `CREATE_PLAN` / `EXECUTE_PLAN` so the plan and its execution follow the guidance. A missing binding stops here; it is never skipped.
 
 ## Step 4: Handoff Instruction
 

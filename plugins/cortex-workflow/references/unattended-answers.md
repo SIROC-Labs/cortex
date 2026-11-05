@@ -14,6 +14,7 @@ The invoker is whatever workflow passed `unattended: true`. This file does not n
 | `implement-feature` entry when no plan is present | `workflow_choice` default `feature-dev` where the runtime binds it, else `EXECUTE_INLINE` |
 | `implement-feature` entry when a plan is present | `EXECUTE_PLAN` with the first binding listed in the bindings cell |
 | A bound skill asks a design or scope question | decide it from the card, the repository and its conventions, and record it in the PR body under "Decisions taken"; stop (`clarification`) only on a stop condition of the readiness skill in this plugin — no clear solution, or a contradiction with the card |
+| Apply `APPLY_DESIGN_STANDARDS` to visual work | yes, always; a missing binding → stop (`failed`) naming it |
 | Run QA verification (non-bug) | yes |
 | `QA: Investigate Bug` cannot reproduce | stop (`clarification`) quoting what was tried |
 | QA or the test ladder found gaps; close which | all, in this run; never list them for someone to pick |

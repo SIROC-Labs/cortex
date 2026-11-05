@@ -14,7 +14,8 @@ bash setup.sh --opencode
 ```
 
 This validates prerequisites (gh, ssh, tokens) and merges the required plugin
-and dependency configuration into your `opencode.json`. Restart OpenCode after.
+and dependency configuration into your `opencode.json`, and installs the
+[design skills](../README.md#design-skills). Restart OpenCode after.
 
 ## Manual Install
 
@@ -28,6 +29,14 @@ Add `cortex-workflow` and its required `superpowers` dependency to your
     "superpowers@git+https://github.com/obra/superpowers.git"
   ]
 }
+```
+
+Then install the design skills that all visual work has to use (see
+[Design skills](../README.md#design-skills)):
+
+```bash
+npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a opencode -y
+npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a opencode -y
 ```
 
 The `dev-toolkit` plugin ships in the same repo package — the adapter registers

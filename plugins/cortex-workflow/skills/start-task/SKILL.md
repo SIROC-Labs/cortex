@@ -48,7 +48,7 @@ Set when `fast_mode` flag is active (see Argument Parsing above).
 
 Fast mode runs the full lifecycle (Steps 0–9 and Step 12) unchanged but replaces Step 10 skill routing with direct inline implementation, and skips Step 11 (QA sub-flow) entirely. No `implement-feature` (or its downstream development skills), `fix-bug`, or QA skill is invoked — implement the solution immediately using the agent's native file, shell, and edit tools, and reason about it directly in this conversation.
 
-**What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — dependency checks, sprint validation, branch creation, draft PR, task status move/comment, and the ship-it handoff — runs as normal.
+**What is skipped:** only the sub-skill routing in Step 10 and the entire Step 11 QA sub-flow. Everything else — the design standards gate for visual work, dependency checks, sprint validation, branch creation, draft PR, task status move/comment, and the ship-it handoff — runs as normal.
 
 ## Unattended Mode
 
@@ -222,7 +222,7 @@ Post a start comment on the task with the branch name and draft PR URL via `add_
 
 Compile full task context (name, notes, custom fields, task ID, subtasks, comments, attachment names, **downloaded contents of non-image attachments**, **the description's `## Implementation plan` section when present**, **fetched external resource content from Step 5**, branch name) and route based on **Category** custom field:
 
-**If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `implement-feature`, `fix-bug`, or any QA skill. Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
+**If `fast_mode`** — skip all skill routing regardless of category. Implement the solution directly in this conversation using built-in tools (Read, Edit, Bash, Grep, etc.). Do not invoke `implement-feature`, `fix-bug`, or any QA skill. Fast mode does not skip the design standards: if the work touches anything a user sees, load every `APPLY_DESIGN_STANDARDS` binding before writing UI code (see "Design Standards Gate" in `plugins/cortex-workflow/references/runtime-bindings.md`). Skip Step 11 (QA sub-flow) entirely and proceed to Step 12 when done.
 
 **Otherwise:**
 

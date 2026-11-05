@@ -22,6 +22,16 @@
   /plugin install superpowers@claude-plugins-official
   ```
 
+### All runtimes: design skills (`APPLY_DESIGN_STANDARDS`)
+- **Skills:** `design-taste-frontend` (from `Leonxlnx/taste-skill`), `apple-design` and `emil-design-eng` (from `emilkowalski/skills`)
+- **Used for:** every change to visual output, on every implementation path — see "Design Standards Gate" in `plugins/cortex-workflow/references/runtime-bindings.md`
+- **Install:** `bash setup.sh` installs them for each agent it configures. Manually, with `<agent>` one of `claude-code`, `opencode`, `codex`:
+  ```
+  npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a <agent> -y
+  npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a <agent> -y
+  ```
+- **Checked:** at the design standards gate, not at launch — only visual work needs them. A missing one is a hard blocker there.
+
 For OpenCode, run `bash setup.sh --opencode`; it writes the superpowers plugin
 entry alongside cortex-workflow. For Codex, run `bash setup.sh --codex`; it
 registers the `siroc-cortex` marketplace and runs `codex plugin add` to install
@@ -99,6 +109,7 @@ At the very beginning of start-task (before fetching the task), check which rout
 |---|---|---|---|
 | `superpowers` | `/plugin install superpowers@claude-plugins-official` | `bash setup.sh --opencode` | `bash setup.sh --codex` or `codex plugin add superpowers@openai-curated` |
 | `feature-dev` | `/plugin install feature-dev@claude-plugins-official` | n/a — see below | n/a — see below |
+| Design skills (only when visual work reaches the design standards gate, never at launch) | the `npx skills` commands above with `-a claude-code`, or `bash setup.sh` | the same with `-a opencode`, or `bash setup.sh --opencode` | the same with `-a codex`, or `bash setup.sh --codex` |
 | QA MCP servers (only when a QA step needs them, never at launch) | `claude plugin install cortex-qa-<web\|mobile>@siroc-cortex --scope project` | Add it to the project's `opencode.json` | `codex plugin add cortex-qa-<web\|mobile>@siroc-cortex` |
 
 **feature-dev under OpenCode/Codex:** DOES NOT EXIST — `feature-dev` appears only

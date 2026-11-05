@@ -40,6 +40,11 @@ Skills reference external plugins. Handle them as follows under OpenCode:
   opencode.json. Invoke its skills normally via the native skill tool. If it is
   absent, stop and tell the user to run \`bash setup.sh --opencode\`.
 
+- **Design skills** (design-taste-frontend, apple-design, emil-design-eng):
+  REQUIRED for any visual work (APPLY_DESIGN_STANDARDS in runtime-bindings.md).
+  If one is absent when visual work starts, stop and tell the user to run
+  \`bash setup.sh --opencode\`.
+
 - **MCP servers**: OPT-IN PER PROJECT. mobile-mcp and chrome-devtools are only
   present when the project's opencode.json declares them. If a QA skill needs
   one and it is unavailable, stop and tell the user to add it to the project's
