@@ -84,4 +84,5 @@ or improvements that they do not need.
 Put a conflict that the prototype and the one-pager do not settle, or a
 reference you could not open, in `questions`, not in `gaps`, as
 `{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What each answer would change."}`.
-The person answers them.
+The person answers them. Do not ask the person to confirm what a reference already
+settles, such as something the one-pager puts out of scope: that is the answer.

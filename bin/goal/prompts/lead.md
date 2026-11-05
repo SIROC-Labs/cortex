@@ -121,6 +121,13 @@ granted is wrong; or you need something only they have, such as access or a
 secret. Ask everything you can in the analysis, all at once, so the build is not
 held up later. Before you ask, finish everything the question does not block.
 
+Do not ask the person to confirm what the references already settle. When the
+one-pager puts something out of scope, or a reference gives it to another ticket,
+leave it out of this work. When a reference says how something works today, keep
+it. Write each such decision and its source in the journal, under `## Decisions`,
+and go on. A question that only asks "the one-pager says X, is that right?" wastes
+the person's time.
+
 ## Required output
 
 End each response with a fenced JSON block, in one of exactly four shapes.
