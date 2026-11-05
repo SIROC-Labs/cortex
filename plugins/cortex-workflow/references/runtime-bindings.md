@@ -15,6 +15,7 @@ Maps abstract development capabilities to the concrete skill that provides them 
 - **`EXECUTE_INLINE`** — implement directly from the available info using the agent's native tools, without elaborating a new plan.
 - **`DIAGNOSE_AND_FIX_BUG`** — systematic bug investigation: reproduce, isolate, identify the root cause with specificity, and implement the fix.
 - **`APPLY_TDD`** — test-driven development: write the test first (failing), implement until the full suite is green. General-purpose; `fix-bug` applies it as a regression-test hard gate.
+- **`APPLY_DESIGN_STANDARDS`** — the design guidance every visual change must follow: art direction and anti-template taste, interface and fluid-motion principles, and animation and design-engineering craft. Mandatory, not optional: see "Design Standards Gate" below.
 
 ## Bindings
 
@@ -25,12 +26,22 @@ Maps abstract development capabilities to the concrete skill that provides them 
 | `EXECUTE_INLINE` | native tools | native tools | native tools |
 | `DIAGNOSE_AND_FIX_BUG` | `superpowers:systematic-debugging` | `superpowers:systematic-debugging` | `superpowers:systematic-debugging` |
 | `APPLY_TDD` | `superpowers:test-driven-development` | `superpowers:test-driven-development` | `superpowers:test-driven-development` |
+| `APPLY_DESIGN_STANDARDS` | `design-taste-frontend` + `apple-design` + `emil-design-eng` | `design-taste-frontend` + `apple-design` + `emil-design-eng` | `design-taste-frontend` + `apple-design` + `emil-design-eng` |
 
 ¹ `feature-dev` runs its full workflow with the attached plan as input context.
 
 **Resolution rules:**
 - A cell with **multiple bindings** (separated by `·`) means the operator chooses — ask, don't assume.
+- A cell with bindings joined by **`+`** means all of them apply, loaded in the order listed. Never ask which one; never load a subset.
 - `CREATE_PLAN` bindings may carry through to implementation on their own. After the binding returns, chain into `EXECUTE_PLAN` only if a plan was produced but not yet implemented — judge by outcome, not by which binding ran.
+
+## Design Standards Gate
+
+Any work that creates or changes what a user sees — pages, screens, components, layout, styling, typography, color, icons, imagery, copy placement, motion, transitions — applies `APPLY_DESIGN_STANDARDS` before the first line of UI code is written. This holds on every path: planned, plan execution, inline, fast, bug fix, attended or unattended. Work that changes no visual output (backend, data, build tooling, pure logic) skips the gate.
+
+- **Load every binding** of the cell, then implement. Where the bound skills disagree, the project's own design system and conventions win, then the more specific skill (motion → `emil-design-eng`, interface behavior → `apple-design`, visual direction → `design-taste-frontend`).
+- **Hand it down.** When another capability does the implementation (`EXECUTE_PLAN`, `CREATE_PLAN`, `DIAGNOSE_AND_FIX_BUG`), pass the instruction to load these bindings with the handoff; a subagent that writes UI code loads them itself.
+- **Missing binding is a hard blocker.** Stop and tell the operator to install it (`bash setup.sh`, or the commands in `skills/start-task/references/skill-dependencies.md`). Never implement visual work without the guidance.
 
 ## Plan Artifact Convention
 

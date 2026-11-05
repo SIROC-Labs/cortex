@@ -266,7 +266,10 @@ Task stays **"In Progress"** → ■ PAUSED
              ┌─────────┴──────────┐     │
              │  implement inline   │    │
              │  Read · Edit · Bash │    │
-             │  no skill invoked   │    │
+             │  no routing skill   │    │
+             │  visual work →      │    │
+             │  APPLY_DESIGN_      │    │
+             │  STANDARDS first    │    │
              │                     │    │
              │  Step 11 (QA):      │    │
              │  checkpoint.sh skip │    │
@@ -290,7 +293,9 @@ Task stays **"In Progress"** → ■ PAUSED
                        │        │   │  (asks operator when  │
                        │        │   │  several apply;       │
                        │        │   │  workflow_choice      │
-                       │        │   │  pre-answers)         │
+                       │        │   │  pre-answers; visual  │
+                       │        │   │  work → APPLY_DESIGN_ │
+                       │        │   │  STANDARDS first)     │
                        │        │   └──────┬────────────────┘
                        │        │          │
                        │        │     (development skill returns to Step 11)

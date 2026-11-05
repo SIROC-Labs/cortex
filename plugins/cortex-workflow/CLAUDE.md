@@ -77,11 +77,13 @@ implement-feature          (thin router: detects implementation-plan.md, resolve
   ├── [external] superpowers:subagent-driven-development  (EXECUTE_PLAN — all runtimes)
   ├── [external] feature-dev:feature-dev                  (CREATE_PLAN / EXECUTE_PLAN — Claude Code only, operator choice)
   ├── (native tools)                                      (EXECUTE_INLINE — all runtimes)
+  ├── [external] design-taste-frontend + apple-design + emil-design-eng (APPLY_DESIGN_STANDARDS — mandatory for visual work, all runtimes)
   └── → returns control to its invoker  (from start-task: QA verify + ship; standalone: reports and stops)
 
 fix-bug
   ├── [external] superpowers:systematic-debugging     (DIAGNOSE_AND_FIX_BUG — root cause investigation)
   ├── [external] superpowers:test-driven-development  (APPLY_TDD — TDD hard gate)
+  ├── [external] APPLY_DESIGN_STANDARDS bindings       (visual bugs only)
   └── → returns to start-task  (for QA verify + ship)
 
 ship-it
@@ -203,6 +205,8 @@ Skills NOT bundled — must be installed separately:
 | `superpowers:test-driven-development` | `superpowers@claude-plugins-official` | fix-bug (`APPLY_TDD`) |
 | `superpowers:brainstorming` | `superpowers@claude-plugins-official` | implement-feature (`CREATE_PLAN`) |
 | `superpowers:subagent-driven-development` | `superpowers@claude-plugins-official` | implement-feature (`EXECUTE_PLAN`) |
+| `design-taste-frontend` | `Leonxlnx/taste-skill` (via `npx skills`) | implement-feature, fix-bug, start-task fast mode (`APPLY_DESIGN_STANDARDS`, visual work) |
+| `apple-design` · `emil-design-eng` | `emilkowalski/skills` (via `npx skills`) | implement-feature, fix-bug, start-task fast mode (`APPLY_DESIGN_STANDARDS`, visual work) |
 
 Capability-to-skill resolution per runtime lives in `references/runtime-bindings.md`.
 

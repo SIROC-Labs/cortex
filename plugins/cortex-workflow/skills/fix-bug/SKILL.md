@@ -32,6 +32,8 @@ With `unattended: true` from the invoker, the two exits below that stop and surf
 
 ## Step 1: Root Cause Investigation
 
+If the bug or its fix touches anything a user sees, load every `APPLY_DESIGN_STANDARDS` binding first and pass that instruction with the bug report (see "Design Standards Gate" in the bindings reference). A missing binding stops here like any other.
+
 Invoke the `DIAGNOSE_AND_FIX_BUG` binding with the full task context as the bug report. If the bound skill is unavailable, stop and tell the user to install its plugin alongside `cortex-workflow` before continuing (see `references/skill-dependencies.md` in start-task for recovery commands).
 
 Do not proceed to Step 2 until the investigation confirms both:
