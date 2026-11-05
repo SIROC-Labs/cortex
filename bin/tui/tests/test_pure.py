@@ -1761,6 +1761,15 @@ class TestHelpPage(unittest.TestCase):
                             for _, t, style in lines if style != "bold"))
 
 
+class TestGoalStatus(unittest.TestCase):
+    def test_a_goal_stopped_while_it_waits_on_you_says_it_is_stopped(self):
+        wait = {"kind": "questions", "questions": [{"q": "Colour?"}], "asked_at": "x"}
+        text, _ = tui.goal_status({"status": "stopped", "alive": False}, wait)
+        self.assertTrue(text.startswith("stopped — r carries it on"))
+        text, _ = tui.goal_status({"status": "waiting", "alive": True}, wait)
+        self.assertTrue(text.startswith("⚑"))
+
+
 class TestClearGoals(unittest.TestCase):
     def test_done_goals_and_their_parts_leave_the_list(self):
         d = os.path.realpath(tempfile.mkdtemp())

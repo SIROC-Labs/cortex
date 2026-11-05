@@ -461,9 +461,13 @@ def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=N
 
 def goal_status(g, wait=None):
     """(what a goal is doing, style) for its row on the Runs tab."""
+    status = g.get("status")
+    if wait and status in ("stopped", "failed") and not g.get("alive"):
+        # Stopped while it waited on you: it says so first, or it looks like it still runs.
+        return "%s — r carries it on · it still waits on you" % status, (
+            "bad" if status == "failed" else "normal")
     if wait:
         return "⚑ " + wait_summary(wait), "warn"
-    status = g.get("status")
     if status in gl.LIVE and not g.get("alive"):
         return "stopped unexpectedly — r carries on", "bad"
     limits = g.get("limits") or []
@@ -1539,6 +1543,7 @@ class App(object):
                     os.killpg(pid, signal.SIGTERM)
                 except OSError:
                     dm.kill_pid(pid)
+                self.message = "stopping the goal — its row says stopped when it has"
             self.ask("stop the goal \"%s\"? r carries it on later (y/n)" % row["cols"][1], stop)
         elif key == "x":
             self.ask("take the goal \"%s\" off the list? Its branch and PR stay (y/n)"
