@@ -192,7 +192,10 @@ class Board(object):
         try:
             return fn(*args)
         except Exception as e:  # noqa: BLE001 — Asana is never a reason to stop the goal
-            st.warn("Asana: could not %s: %s" % (what, str(e).splitlines()[0][:200] if str(e) else e))
+            lines = [l.strip() for l in str(e).splitlines() if l.strip()] or [repr(e)]
+            # The first line says which call failed; the last, from Asana or asana.py, why.
+            why = lines[0][:200] + (" — %s" % lines[-1][:300] if len(lines) > 1 else "")
+            st.warn("Asana: could not %s: %s" % (what, why))
             return None
 
     def add(self, data, name, body, after=None, section=False):
