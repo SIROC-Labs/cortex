@@ -970,6 +970,13 @@ class TestQuestionSubtasks(unittest.TestCase):
         self.assertEqual(goal.bd.question_title(dict(q, title="Sipgate: build on a simulator?")),
                          "Sipgate: build on a simulator?")
 
+    def test_how_to_answer_is_under_a_line_apart_from_the_question(self):
+        sys.path.insert(0, goal.START_TASK_DIR)
+        import asana
+        html = asana.md_to_html(goal.bd.question_body({"q": "Stay active?", "why": "It archives."}))
+        self.assertTrue(html.startswith("Stay active?\n\nWhy: It archives.<hr/><em>Answer"))
+        self.assertIn("Planned by a cortex goal", html)
+
     def test_the_name_the_agent_gives_survives_parsing(self):
         parsed = goal.st.parse_agent_questions({"questions": [{"title": "T", "q": "Q?", "why": "W"}]})
         self.assertEqual(parsed, [{"q": "Q?", "why": "W", "title": "T"}])

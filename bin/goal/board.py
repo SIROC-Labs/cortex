@@ -58,8 +58,14 @@ def same_step(a, b):
     return bool(a and b) and (a.startswith(b) or b.startswith(a))
 
 
-def made(lines):
-    return "\n".join(list(lines) + ["", "_%s._" % st.GOAL_MADE])
+def made(lines, how=None):
+    """A description: what the subtask is, then, under a line, how to use it and
+    who made it, apart so it is easy to skip."""
+    lines = list(lines)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    foot = ["_%s_" % how] if how else []
+    return "\n".join(lines + ([""] if lines else []) + ["---"] + foot + ["_%s._" % st.GOAL_MADE])
 
 
 QUESTION_TITLE = 70
@@ -79,18 +85,17 @@ def question_body(q):
     lines = [q["q"], ""]
     if q.get("why"):
         lines += ["Why: " + q["why"], ""]
-    return made(lines + ["Answer in a comment on this subtask, then complete it. The goal goes "
-                         "on when every question under Questions is complete. You can "
-                         "answer on the cortex TUI instead."])
+    return made(lines, "Answer in a comment on this subtask, then complete it. The goal goes "
+                       "on when every question under Questions is complete. You can answer "
+                       "on the cortex TUI instead.")
 
 
 def review_body(split):
     what = "parts" if split else "steps"
-    return made(["Complete this subtask to approve the plan and start building. Until then the "
-                 "goal waits.", "",
-                 "To change the plan first: edit, add or delete the %s under Execution, or "
-                 "say what to change in a comment here. The goal reads them once, when you "
-                 "complete this subtask." % what])
+    return made([], "Complete this subtask to approve the plan and start building. Until then "
+                    "the goal waits. To change the plan first: edit, add or delete the %s under "
+                    "Execution, or say what to change in a comment here. The goal reads them "
+                    "once, when you complete this subtask." % what)
 
 
 def part_body(part):

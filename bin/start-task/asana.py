@@ -1990,7 +1990,10 @@ def md_to_html(body):
         h = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         bullet = re.match(r"^[-*]\s+(.*)$", stripped)
         numbered = re.match(r"^\d+\.\s+(.*)$", stripped)
-        if h:
+        if stripped in ("---", "***", "___"):
+            close_list()
+            pieces.append(("block", "<hr/>"))
+        elif h:
             close_list()
             level = len(h.group(1))
             pieces.append(("block", "<h%d>%s</h%d>" % (level, _md_inline(h.group(2)), level)))
@@ -2010,16 +2013,22 @@ def md_to_html(body):
             close_list()
             pieces.append(("text", _md_inline(line)))
         else:
-            close_list()  # blank line: closes any open list, emits nothing
+            close_list()  # blank line: closes any open list
+            pieces.append(("gap", ""))
     close_list()
 
     result = []
     prev_text = False
+    gap = False
     for kind, html in pieces:
+        if kind == "gap":
+            gap = prev_text
+            continue
         if result and kind == "text" and prev_text:
-            result.append("\n")  # line break between running plain-text lines only
+            result.append("\n\n" if gap else "\n")  # a blank line between paragraphs stays
         result.append(html)
         prev_text = (kind == "text")
+        gap = False
     return "".join(result)
 
 
