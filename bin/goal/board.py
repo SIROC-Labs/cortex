@@ -62,8 +62,23 @@ def made(lines):
     return "\n".join(list(lines) + ["", "_%s._" % st.GOAL_MADE])
 
 
+QUESTION_TITLE = 70
+
+
+def question_title(q):
+    """A question's subtask name: the name the agent gave it, or the start of the
+    question. The whole question is in the description."""
+    text = title(q.get("title") or q["q"], width=10 ** 6)
+    if len(text) <= QUESTION_TITLE:
+        return text
+    cut = text[:QUESTION_TITLE].rsplit(" ", 1)[0].rstrip(",;:")
+    return cut + "…"
+
+
 def question_body(q):
-    lines = [q["why"], ""] if q.get("why") else []
+    lines = [q["q"], ""]
+    if q.get("why"):
+        lines += ["Why: " + q["why"], ""]
     return made(lines + ["Answer in a comment on this subtask, then complete it. The goal goes "
                          "on when every question under Questions is complete. You can "
                          "answer on the cortex TUI instead."])
@@ -215,7 +230,7 @@ class Board(object):
         data = self.sections(self.load())
         gids = []
         for q in questions:
-            gid = self.add(data, title(q["q"]), question_body(q), self.last_under(data, "questions"))
+            gid = self.add(data, question_title(q), question_body(q), self.last_under(data, "questions"))
             data.setdefault("asked", []).append(gid)
             gids.append(gid)
         self.save(data)

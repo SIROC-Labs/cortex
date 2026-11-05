@@ -75,5 +75,5 @@ Each gap is one fact, with the reference it comes from, such as
 right. Put a conflict that the prototype and the one-pager do not settle, a
 reference that cannot be opened, or something the ask takes for granted that is
 not so, in `questions`, as
-`{"q": "The question, answerable in a sentence.", "why": "What each answer would change."}`.
+`{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What each answer would change."}`.
 The person answers them.

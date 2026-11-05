@@ -160,7 +160,7 @@ where to start, or what to check.
 When only the person can make a decision that blocks you:
 
 ```json
-{"status": "question", "questions": [{"q": "The question, answerable in a sentence.", "why": "What is ambiguous and what each answer would change."}]}
+{"status": "question", "questions": [{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What is ambiguous and what each answer would change."}]}
 ```
 
 Write the `summary` and the `walkthrough` in ASD-STE100 Simplified Technical English:

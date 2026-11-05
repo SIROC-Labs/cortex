@@ -958,6 +958,23 @@ class TestBoardPure(unittest.TestCase):
         self.assertEqual(goal.testing_guides(os.path.join(d, "apps", "web", "..", "..", "node_modules")), ["x/TESTING.md"])
 
 
+class TestQuestionSubtasks(unittest.TestCase):
+    def test_a_long_question_gets_a_short_name_and_is_whole_in_the_description(self):
+        q = {"q": "There is no Sipgate token here. " * 10 + "Can I build on a simulator?", "why": "No access."}
+        name = goal.bd.question_title(q)
+        self.assertLessEqual(len(name), goal.bd.QUESTION_TITLE + 1)
+        self.assertTrue(name.endswith("…"))
+        body = goal.bd.question_body(q)
+        self.assertIn(q["q"], body)
+        self.assertIn("Why: No access.", body)
+        self.assertEqual(goal.bd.question_title(dict(q, title="Sipgate: build on a simulator?")),
+                         "Sipgate: build on a simulator?")
+
+    def test_the_name_the_agent_gives_survives_parsing(self):
+        parsed = goal.st.parse_agent_questions({"questions": [{"title": "T", "q": "Q?", "why": "W"}]})
+        self.assertEqual(parsed, [{"q": "Q?", "why": "W", "title": "T"}])
+
+
 class TestBoard(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()

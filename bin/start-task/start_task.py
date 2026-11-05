@@ -883,15 +883,17 @@ def parse_agent_questions(structured):
         return None
     out = []
     for item in raw:
+        name = ""
         if isinstance(item, dict):
             question = (item.get("q") or "").strip()
             why = (item.get("why") or "").strip()
+            name = (item.get("title") or "").strip()
         elif isinstance(item, str):
             question, why = item.strip(), ""
         else:
             continue
         if question:
-            out.append({"q": question, "why": why})
+            out.append(dict({"q": question, "why": why}, **({"title": name} if name else {})))
     return out or None
 
 

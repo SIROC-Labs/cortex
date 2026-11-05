@@ -32,5 +32,5 @@ they can decide.
 End your response with a fenced JSON block:
 
 ```json
-{"answers": [{"q": "The question.", "a": "Your answer, and where it comes from."}], "for_person": [{"q": "The question, answerable in a sentence.", "why": "What each answer would change."}]}
+{"answers": [{"q": "The question.", "a": "Your answer, and where it comes from."}], "for_person": [{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What each answer would change."}]}
 ```
