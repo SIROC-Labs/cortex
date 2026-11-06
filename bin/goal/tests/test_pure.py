@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import shutil
 import sys
@@ -761,6 +762,31 @@ class TestWindDown(unittest.TestCase):
                         "gh run view 9 --log-failed", "gh pr view 5", "npm run lint"):
             self.assertFalse(hook.blocked(command), command)
 
+    def test_in_the_build_the_lead_delegates_the_code_and_its_sub_agents_write_it(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        wt = "/repo/.cortex/worktrees/g"
+
+        def lead(tool, **tool_input):
+            return hook.delegated({"tool_name": tool, "tool_input": tool_input}, wt)
+        self.assertTrue(lead("Edit", file_path=wt + "/apps/a.ts"))
+        self.assertTrue(lead("Write", file_path=wt + "/apps/new.ts"))
+        self.assertFalse(lead("Edit", file_path="/repo/.cortex/state/g/journal.md"))
+        self.assertFalse(lead("Write", file_path="/repo/.cortex/worktrees/g2/a.ts"))
+        for command in ("cat > apps/a.ts <<'X'", "echo x >> a.py", "sed -i '' s/a/b/ a.ts",
+                        "perl -pi -e s/a/b/ a.ts", "printf x | tee a.ts", "git apply fix.patch"):
+            self.assertTrue(lead("Bash", command=command), command)
+        for command in ("git status", "git commit -m 'x > y'", "npm test 2>&1 | tail", "ls > /dev/null",
+                        "rg -n 'a' apps", "git log --oneline > /tmp/log", "cmd 2>/dev/null"):
+            self.assertFalse(lead("Bash", command=command), command)
+        self.assertFalse(hook.delegated({"tool_name": "Edit", "agent_type": "general-purpose",
+                                         "tool_input": {"file_path": wt + "/apps/a.ts"}}, wt))
+        hooks = goal.hook_settings("/f", "sonnet", delegate=wt)["hooks"]["PreToolUse"]
+        self.assertTrue(hooks[-1]["hooks"][0]["command"].endswith("hook.py delegate " + wt))
+        self.assertNotIn("delegate", json.dumps(goal.hook_settings("/f", "sonnet")))
+
     def test_after_a_cut_off_the_lead_is_told_what_was_left(self):
         text = goal.cut_off_prompt(0, ["Task panel"], ["apps/a.ts", "apps/b.ts"])
         self.assertIn("- Task panel", text)
@@ -1216,6 +1242,29 @@ class TestPlanFlow(unittest.TestCase):
         self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
         self.assertEqual([n for n, _ in self.fake.tasks[self.fake.gid("Review the plan")]["files"].values()],
                          ["technical-plan.md"])
+
+    def test_the_build_starts_in_a_new_session(self):
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        self.run_with([("planned", lambda: self.journal(PLANNED)),
+                       ("done", lambda: self.journal(done))], lambda record: "continue")
+        self.assertIn(goal.FRESH, self.prompts[1])
+        self.assertIn("The plan is approved", self.prompts[1])
+        self.assertNotIn(goal.FRESH, self.prompts[0])
+
+    def test_a_goal_resumed_while_building_starts_a_new_session(self):
+        self.runner.set(phase="building", approved=True, session_used=True)
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        self.journal(PLANNED)
+        self.run_with([("done", lambda: self.journal(done))], lambda record: "continue")
+        self.assertIn(goal.FRESH, self.prompts[0])
+        self.assertIsNone(self.runner.data.get("session"))
+
+    def test_the_checker_s_effort_follows_the_setup_tab(self):
+        self.assertEqual(self.runner.check_effort(), self.runner.data.get("check_effort") or goal.DEFAULT_CHECK_EFFORT)
+        os.makedirs(os.path.join(self.dir, ".cortex", "queue"), exist_ok=True)
+        with open(os.path.join(self.dir, ".cortex", "queue", "control.json"), "w") as f:
+            json.dump({"models": {"check_effort": "medium"}}, f)
+        self.assertEqual(self.runner.check_effort(), "medium")
 
     def test_the_lead_is_sent_back_for_a_missing_technical_plan(self):
         def no_plan():

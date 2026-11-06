@@ -5,11 +5,14 @@
 #   hook.py bash            # refuses a push, a CI run, or a change to the PR
 #   hook.py agent <model>   # a sub-agent started without a model gets <model>
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
+#   hook.py delegate <dir>  # refuses the lead, not its sub-agents, a change to the
+#                           # code in <dir>: in the build, sub-agents write it
 #
 # Each reads the tool call as JSON on stdin. Exit 2 refuses the call, and what is
 # on stderr reaches the model.
 
 import json
+import os
 import re
 import sys
 
@@ -26,6 +29,18 @@ REFUSED = ("Refused: only the runner pushes the branch, once the lead reports do
 
 FENCED = ("Refused: this goal is fenced off from that path or command. Build from the "
           "ask and its references, and from this repository.")
+DELEGATE = ("Refused: in the build you coordinate, and sub-agents write the code. Start a "
+            "sub-agent with the Agent tool and a brief for this change: what to change, where, "
+            "and how to test it. You can still read the code, run commands that change "
+            "nothing, commit, and edit your journal and the technical plan.")
+EDITS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# Shell commands that change files: a redirect into a file, in-place edits, patches.
+WRITES = (
+    re.compile(r"(?<![0-9&<>])>{1,2}(?!&)\s*(?!/dev/null\b|/tmp/|&)[^\s|;&]"),
+    re.compile(r"\b(?:sed|perl)\s+(?:-\w+\s+)*-\w*i"),
+    re.compile(r"\btee\b"),
+    re.compile(r"\b(?:git\s+apply|patch)\b"),
+)
 CORTEX = re.compile(r"(?:^|[;&|(`\s])cortex(?:\s|$)")
 
 
@@ -42,6 +57,22 @@ def fenced(tool_input, texts):
     return any(t in flat for t in texts if t != "cortex")
 
 
+def delegated(call, root):
+    """Whether the lead itself, not a sub-agent, is changing the code under `root`.
+    A sub-agent's call carries its `agent_type`."""
+    if call.get("agent_type"):
+        return False
+    tool, tool_input = call.get("tool_name"), call.get("tool_input") or {}
+    if tool in EDITS:
+        path = os.path.realpath(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        return path == os.path.realpath(root) or path.startswith(os.path.realpath(root) + os.sep)
+    if tool == "Bash":
+        # What is quoted is text, such as a commit message, not a redirect.
+        command = re.sub(r"'[^']*'|\"[^\"]*\"", "''", tool_input.get("command") or "")
+        return any(p.search(command) for p in WRITES)
+    return False
+
+
 def main(argv):
     try:
         call = json.load(sys.stdin)
@@ -53,6 +84,9 @@ def main(argv):
         return 2
     if argv[:1] == ["fence"] and fenced(tool_input, argv[1:]):
         sys.stderr.write(FENCED + "\n")
+        return 2
+    if argv[:1] == ["delegate"] and len(argv) > 1 and delegated(call, argv[1]):
+        sys.stderr.write(DELEGATE + "\n")
         return 2
     if argv[:1] == ["agent"] and len(argv) > 1 and not tool_input.get("model"):
         json.dump({"hookSpecificOutput": {

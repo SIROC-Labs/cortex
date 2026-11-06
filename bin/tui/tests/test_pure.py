@@ -1601,7 +1601,7 @@ class TestSetup(unittest.TestCase):
                          ["Sprint", "Queue into", "Merging", "Done tasks", "Usage limit", "Task model", "Goal lead",
                           "Goal sub-agents", "Goal checker", "Checker effort", "Plan approval"])
         self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[4:]],
-                         ["75%", "sonnet", "opus", "sonnet", "fable", "xhigh",
+                         ["75%", "sonnet", "opus", "sonnet", "fable", "high",
                           "you, for the goal and each of its parts (recommended)"])
         self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
         self.assertIn("always", rows[2]["cols"][1])

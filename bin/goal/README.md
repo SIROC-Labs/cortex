@@ -101,7 +101,14 @@ This program is the harness around the lead:
   with one push and one CI run for all of it. A part does not split again.
 - **Rounds.** The lead is called on one session, in rounds of up to 200 turns; the next
   round continues the same conversation. If the session is lost, a new one starts from the
-  journal and the branch. The lead ticks each criterion with the file that meets it, and a
+  journal and the branch.
+- **The build is delegated, in a new session.** Every step of a session sends the whole
+  conversation again, so a build carried on from the planning costs far more than the work.
+  The build starts in a new session, from the journal, the technical plan and the branch,
+  and so does a build carried on after a usage pause or a restart. In the build the lead
+  coordinates and its sub-agents write the code: a hook refuses the lead, and only the
+  lead, an edit to the worktree and a shell command that writes a file there. It can still
+  read, run commands that change nothing, commit, and edit its journal and technical plan. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and the one-pager do not settle, and what
   only you have, all at once in the analysis where it can. Each question is a subtask under
@@ -140,12 +147,13 @@ This program is the harness around the lead:
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
   (`CLAUDE_CODE_SUBAGENT_MODEL`, and a hook gives it to each one started without a model,
   since built-in types such as Explore otherwise take the lead's model), as most of them do narrow, well-briefed work;
-  the lead can ask for Opus for one that needs deep reasoning. The checker runs on Fable at `xhigh`
+  the lead can ask for Opus for one that needs deep reasoning. The checker runs on Fable at `high`
   effort. It only verifies and reports: it plans no fix and changes nothing, and leaves
   the legwork on a large diff to Sonnet sub-agents. So the
   strongest model costs little there. All four are on the TUI's Setup tab, and on
   `cortex goal new` as `--model`, `--subagent-model`, `--check-model` and `--check-effort`.
-  A goal keeps the models it started with.
+  A goal keeps the models it started with. The checker's effort is read from the Setup tab
+  at each check, so a change reaches a goal already running.
 - **Permissions.** No run uses bypass mode, which a repo may turn off (Humanus does). Each
   call runs in auto mode: reading, edits in the goal's worktree and state, sub-agents and
   the web are allowed outright, and a classifier judges every other action, such as a

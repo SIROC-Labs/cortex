@@ -67,7 +67,7 @@ DEFAULT_SUBAGENT_MODEL = "claude-sonnet-5-5"
 # The checker only verifies and reports, and runs only when the lead says it is
 # done: the one place where the strongest model costs little and catches most.
 DEFAULT_CHECK_MODEL = "claude-fable-5-1"
-DEFAULT_CHECK_EFFORT = "xhigh"
+DEFAULT_CHECK_EFFORT = "high"
 DEFAULT_THRESHOLD = 75
 # Goals made from now on run this flow: the plan is approved before it is built,
 # and parts plan before the parts they build on are done. Older goals keep theirs.
@@ -209,6 +209,16 @@ TESTING = """   The repository's testing guide is %s. Read it in the analysis an
 """
 BUILD_NOW = ("The plan is approved. Build the work, as the plan says. The analysis is "
              "finished.")
+FRESH = ("This is a new session. The earlier conversation is gone on purpose: carried "
+         "into the build, it is sent again with every step and costs more than the work. "
+         "Your journal, the technical plan and the branch hold everything that is true. "
+         "Read the journal and the technical plan first.\n\n"
+         "In the build you coordinate: sub-agents write the code. Give each one a brief: "
+         "the step, what to change and where, the parts of the technical plan it needs, "
+         "and how to test it. Keep your own context small: read their reports, not the "
+         "whole diff, and record in the journal what each step did and decided. You "
+         "cannot edit the code yourself; you can read it, run commands that change "
+         "nothing, commit, and edit your journal and the technical plan.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -748,13 +758,14 @@ def built_text(built):
         "- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""])
 
 
-def hook_settings(flag, subagent=None, fence=(), allow=None):
+def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
     change to the PR are always refused: only the runner pushes. A sub-agent
     started without a model gets `subagent`. A tool call that names one of the
-    `fence` texts is refused."""
+    `fence` texts is refused. With `delegate`, the worktree, the lead may not
+    change the code there itself: its sub-agents do."""
     check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
         shlex.quote(flag), shlex.quote(WIND_DOWN))
     hook = [{"type": "command", "command": check}]
@@ -766,6 +777,9 @@ def hook_settings(flag, subagent=None, fence=(), allow=None):
     pre = [{"matcher": "Agent|Task", "hooks": agent}, {"matcher": "Bash", "hooks": [guard("bash")]}]
     if fence:
         pre.append({"matcher": "*", "hooks": [guard("fence", *fence)]})
+    if delegate:
+        pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                    "hooks": [guard("delegate", delegate)]})
     out = {"hooks": {"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
     if allow:
@@ -1536,6 +1550,16 @@ class Runner(object):
 
     # usage
 
+    def check_effort(self):
+        """The checker's effort: the TUI's Setup tab's, read each time so a change
+        reaches a goal already running, else the goal's own."""
+        try:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+                value = (json.load(f).get("models") or {}).get("check_effort")
+        except (IOError, OSError, ValueError, AttributeError):
+            value = None
+        return value or self.data.get("check_effort") or DEFAULT_CHECK_EFFORT
+
     def threshold(self):
         """The usage limit to pause at: the TUI's Setup tab's, read each time so a
         change reaches a goal already running, else the goal's own."""
@@ -1592,7 +1616,8 @@ class Runner(object):
                                  ["Agent", "Task"])
         self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
             self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or (),
-            allow))
+            allow, delegate=self.data["worktree"] if label == "lead" and self.data.get(
+                "phase") == "building" else None))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
@@ -1729,7 +1754,7 @@ class Runner(object):
             self.wait_for_usage()
             prompt = render(os.path.join(PROMPTS, template), **self.fields())
             block, stop, error = self.call(prompt, str(uuid.uuid4()), False, label,
-                                           self.data.get("check_model"), self.data.get("check_effort"))
+                                           self.data.get("check_model"), self.check_effort())
             self.cut_off = None
             # Files a check leaves behind — caches, reports — are not changes to the work.
             _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
@@ -2089,7 +2114,13 @@ class Runner(object):
             fix = self.sync_part()
             prompt = "\n\n".join(x for x in (built_text(built), prompt, fix) if x)
         self.set(phase="building", status="working")
-        return prompt + "\n\n" + CONTINUE
+        return self.fresh(prompt + "\n\n" + CONTINUE)
+
+    def fresh(self, prompt):
+        """The build starts, or carries on after a pause or a restart, in a new
+        session: the lead's context is the journal and the branch, not history."""
+        self.set(session=None, session_used=False)
+        return self.first_prompt() + "\n\n" + FRESH + "\n\n" + prompt
 
     def wait_to_build(self):
         """A part's plan is approved: wait until the parts it builds on are merged,
@@ -2338,6 +2369,8 @@ class Runner(object):
             elif self.data.get("phase") == "parts":
                 prompt = self.run_parts()
                 self.set(phase="building", status="working")
+            elif self.data.get("session_used") and self.data.get("phase") == "building":
+                prompt = self.fresh(CONTINUE)
             else:
                 prompt = self.first_prompt() if not self.data.get("session_used") else CONTINUE
             unchanged, checks, before = 0, 0, self.head()
@@ -2358,6 +2391,8 @@ class Runner(object):
                     continue
                 if report == "cut":
                     prompt = self.cut_off_notice()
+                    if self.data.get("phase") == "building":
+                        prompt = self.fresh(prompt)
                     continue
                 if report == "planned" or report == "done" and self.data.get("phase") == "planning":
                     if self.data.get("phase") != "planning":
