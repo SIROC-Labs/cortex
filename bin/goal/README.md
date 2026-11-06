@@ -52,8 +52,12 @@ This program is the harness around the lead:
   ask names, checks what the ask takes for granted against the code (a branch it builds on,
   earlier work it needs), and writes into its journal: `## References`, fine-grained
   `## Acceptance criteria` (one line for each screen part, state, rule or field, each with
-  its source), and a `## Plan`. Its questions come to you together. The runner sends the
-  lead back until the journal has all three.
+  its source), and a `## Plan`. It also writes `technical-plan.md` in the goal's state: how
+  the work will be built, in Simplified Technical English, with tables and mermaid
+  diagrams (overview, where the code goes, data model, flows, API, frontend, tests, risks).
+  When it splits the work, that is only an overview of the parts and where they meet; each
+  part's lead writes its own. Its questions come to you together. The runner sends the
+  lead back until it has all four.
 - **Testing guide.** When the repository has `TESTING.md` files, the lead is told to read
   them in the analysis, plan and write its tests by them, and give them to every sub-agent
   that writes tests; the checker judges the tests against them.
@@ -61,7 +65,9 @@ This program is the harness around the lead:
   before anything is built: criteria that are missing, wrong, or too broad, and questions
   only you can answer. The lead corrects the criteria and the plan.
 - **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
-  approve it: complete *Review the plan* in Asana, or press `c` on the goal's row on the
+  approve it. The steps or parts, with their acceptance criteria, are under Execution, and
+  the technical plan is attached to *Review the plan*: review the criteria alone to move
+  fast, and the technical plan when the design needs care. To approve, complete *Review the plan* in Asana, or press `c` on the goal's row on the
   TUI. To change it first, edit, add or delete the subtasks under Execution, or say what to
   change in a comment on the review (or with `a` on the TUI). The runner reads them once,
   when you approve, and the lead applies them to its journal before it builds. *Plan
@@ -70,8 +76,9 @@ This program is the harness around the lead:
   the reviewer only (`auto`). A goal keeps the setting it started with.
 - **Parts, for large work.** When the work spans several areas, or more than about 25
   criteria, the lead splits it instead of building it alone. It writes `parts.json` in the
-  goal's state: up to 8 parts, each with a brief (what it builds and must not touch, the
-  references that cover it, and where it meets other parts when that is known), its criteria copied
+  goal's state: up to 8 parts, each with a summary for you, a short brief for the part's
+  lead (what it builds, the references that cover it, what it must not touch, and where it
+  meets other parts; the design inside the part is left to its lead), its criteria copied
   from the lead's list, and the parts it comes `after`. The runner checks the split (every
   criterion from the list, none in two parts, no circle), and the review checks its
   boundaries too. Each part then runs as a goal of its own, with its own lead, analysis,

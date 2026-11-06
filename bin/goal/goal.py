@@ -163,6 +163,38 @@ PLAN_AFTER = """   - `plan_after`: usually left out. Every part plans as soon as
      here only when this part cannot sensibly be planned until that one is built,
      such as when it builds on something whose shape only building it settles.
 """
+TECHNICAL_FILE = "technical-plan.md"
+TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a technical person
+   who reviews how the work will be built. The person reads it next to your plan
+   in Asana. Write it in ASD-STE100 Simplified Technical English: short sentences,
+   the active voice, one word for one meaning, and code names as they are in the
+   code. Use tables for lists of things, and mermaid diagrams for structure and
+   flow. Use these numbered sections, and leave out a section that does not apply:
+
+   1. Purpose and scope: what this work builds and what it does not, and a table
+      of the references and where they are.
+   2. Terms: the words that have one meaning in this work.
+   3. Overview: the parts of the system the work touches, in a few lines and a
+      mermaid flowchart.
+   4. Where the code goes: a table of area, path, and what changes there.
+   5. Data model: the new and changed tables, columns and enums, as a mermaid
+      erDiagram and a table; a status as a mermaid stateDiagram.
+   6. Flows: each flow that matters, as a mermaid sequenceDiagram and its steps.
+   7. The API: a table of routes: method, path, what it does, its errors.
+   8. The frontend: the screens, what each shows, and how the data moves.
+   9. Configuration: new settings and variables.
+   10. Tests: what is tested, where and how, by the testing guide.
+   11. Risks and open decisions: what could still change the plan.
+   12. Out of scope.
+
+   It is a plan, so it is shorter than a document of finished work. Decide what
+   you can now, and say what you decide later, while you build. If you split the
+   work, write only sections 1, 3 (the parts and how they meet), a table of the
+   meeting points (each endpoint, shared type or event: which part provides it
+   and which parts use it), and 11: each part's lead writes the rest for its part.
+   Keep the technical plan in step with your journal: when the plan changes,
+   change it too.
+"""
 PLAN_NOTE = """   The person sees your questions and your plan in Asana, as subtasks of the
    ticket, and approves the plan there before anything is built. So write each
    step of the plan, and each part, as one line a person can follow. When the
@@ -673,7 +705,7 @@ def replan_prompt(changes, notes):
     if notes:
         lines += ["", "They said:", "", notes.strip()]
     lines += ["", "Apply the changes to your journal: the acceptance criteria and the plan, "
-              "and the parts file if you split the work. Where a change is unclear or "
+              "the technical plan, and the parts file if you split the work. Where a change is unclear or "
               "conflicts with the prototype, ask. Do not build yet: report planned again."]
     return "\n".join(lines)
 
@@ -1955,7 +1987,9 @@ class Runner(object):
     def publish_plan(self, before_build=True):
         """The plan on the ticket. Returns the parts, or False when Asana refused it."""
         parts = self.written_parts() if self.split_now() else None
-        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build):
+        plan_file = self.technical_plan() if os.path.exists(self.technical_plan()) else None
+        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build,
+                                  plan_file):
             return False
         return parts
 
@@ -2083,7 +2117,8 @@ class Runner(object):
                 "testing_check": (" Judge the tests against the repository's testing guide, "
                                   "%s: a test it requires that is missing, or one written "
                                   "against it, is a gap." % guides) if guides else "",
-                "plan_note": PLAN_NOTE if self.board.on else "",
+                "plan_note": (PLAN_NOTE + (TECHNICAL.replace("{{technical_plan}}", self.technical_plan())
+                                           if self.flow2() else "")) if self.board.on else "",
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
@@ -2092,6 +2127,9 @@ class Runner(object):
                            checks_text(self.data["base"], self.data.get("checks"))),
                 "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
                 "subagent_alias": short_model(self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)}
+
+    def technical_plan(self):
+        return self.goal.state.path(TECHNICAL_FILE)
 
     def read_journal(self):
         try:
@@ -2284,6 +2322,8 @@ class Runner(object):
                         with open(self.goal.state.path(PARTS_FILE)) as f:
                             problems += parts_problems(read_parts(f.read()),
                                                        checklist(journal, "Acceptance criteria"))
+                    if self.flow2() and self.board.on and not os.path.exists(self.technical_plan()):
+                        problems.append("the technical plan, `%s`" % self.technical_plan())
                     if problems:
                         prompt = planning_prompt(problems)
                         continue

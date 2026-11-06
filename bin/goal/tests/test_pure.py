@@ -875,8 +875,13 @@ class FakeAsana(object):
         if family == "comment" and verb == "list":
             return self.comments.get(rest[0], [])
         if verb == "attach":
+            self.n += 1
             with open(rest[1]) as f:
-                self.tasks[rest[0]].setdefault("files", {})[os.path.basename(rest[1])] = f.read()
+                self.tasks[rest[0]].setdefault("files", {})[str(self.n)] = (os.path.basename(rest[1]), f.read())
+            return {"gid": str(self.n)}
+        if verb == "detach":
+            for t in self.tasks.values():
+                t.get("files", {}).pop(rest[0], None)
             return {}
         if family == "comment" and verb == "add":
             self.say(rest[0], rest[1])
@@ -1023,6 +1028,20 @@ class TestBoard(unittest.TestCase):
         self.assertIn("- POST /calls opens a call", task["description"])
         self.assertNotIn("files", task)
 
+    def test_the_technical_plan_is_on_the_review_once_and_a_changed_one_replaces_it(self):
+        path = os.path.join(self.dir, "technical-plan.md")
+        with open(path, "w") as f:
+            f.write("# Plan\n")
+        self.board.publish([("api", "API", "b")], False, plan_file=path)
+        self.board.publish([("api", "API", "b")], False, plan_file=path)
+        review = self.fake.tasks[self.fake.gid("Review the plan")]
+        self.assertEqual([n for n, _ in review["files"].values()], ["technical-plan.md"])
+        self.assertIn("technical-plan.md", review["description"])
+        with open(path, "w") as f:
+            f.write("# Plan, changed\n")
+        self.board.publish([("api", "API", "b")], False, plan_file=path)
+        self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
+
     def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
         self.fake.refuse = "Export"
         self.assertFalse(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
@@ -1101,6 +1120,8 @@ class TestPlanFlow(unittest.TestCase):
     def journal(self, text):
         with open(self.runner.goal.journal, "w") as f:
             f.write(text)
+        with open(self.runner.technical_plan(), "w") as f:
+            f.write("# Technical plan\n")
 
     def run_with(self, rounds, answer):
         def lead(prompt):
@@ -1128,6 +1149,17 @@ class TestPlanFlow(unittest.TestCase):
                                              "API", "Inbox"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Review the plan")]["completed"])
         self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
+        self.assertEqual([n for n, _ in self.fake.tasks[self.fake.gid("Review the plan")]["files"].values()],
+                         ["technical-plan.md"])
+
+    def test_the_lead_is_sent_back_for_a_missing_technical_plan(self):
+        def no_plan():
+            self.journal(PLANNED)
+            os.remove(self.runner.technical_plan())
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        self.run_with([("planned", no_plan), ("planned", lambda: self.journal(PLANNED)),
+                       ("done", lambda: self.journal(done))], lambda record: "continue")
+        self.assertIn("technical plan", self.prompts[1])
 
     def test_the_person_s_changes_go_back_to_the_lead_before_the_build(self):
         def answer(record):
@@ -1211,6 +1243,8 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.runner.wait_for_answer = lambda record: "continue"
 
     def test_parts_plan_at_once_unless_they_plan_after_another(self):
+        with open(self.runner.technical_plan(), "w") as f:
+            f.write("# Technical plan\n")
         rounds = ["planned", "done"]
         self.runner.lead = lambda prompt: (rounds.pop(0), {"summary": "s"})
         self.runner.review = lambda: ([], [])

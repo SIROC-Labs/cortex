@@ -51,6 +51,7 @@
 #   tm.py task set-fields    <task-ref> <Name=Value> [<Name=Value> ...]
 #   tm.py task set-notes     <task-ref> (<body> | --body-file <path>)
 #   tm.py task attach        <task-ref> <file-path>
+#   tm.py task detach        <attachment-gid>
 #   tm.py task add-dependency <task-ref> <depends-on-ref>
 #   tm.py task set-parent    <task-ref> <parent-ref>
 #   tm.py task add-to-board  <task-ref> <board-ref>
@@ -1327,6 +1328,16 @@ def task_create(args):
     sys.exit(0)
 
 
+# Remove one attachment by its gid: DELETE /attachments/<gid>.
+def task_detach(args):
+    if not args or not re.fullmatch(r"[0-9]+", args[0]):
+        die(1, "usage: %s task detach <attachment-gid>" % PROG)
+    token = resolve_token(cache_util.project_key())
+    api_delete("%s/attachments/%s" % (API_BASE, args[0]), token)
+    sys.stdout.write("{}\n")
+    sys.exit(0)
+
+
 def task_delete(args):
     if not args:
         die(1, "usage: %s task delete <task-ref>" % PROG)
@@ -2281,6 +2292,7 @@ TASK_VERBS = {
     "set-fields": task_set_fields,
     "set-notes": task_set_notes,
     "attach": task_attach,
+    "detach": task_detach,
     "add-dependency": task_add_dependency,
     "set-parent": task_set_parent,
     "add-subtask": task_add_subtask,

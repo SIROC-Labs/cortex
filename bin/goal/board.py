@@ -14,6 +14,7 @@
 # them out.
 # No agent reads or writes Asana: only the runner, through this file.
 
+import hashlib
 import os
 import re
 import tempfile
@@ -90,9 +91,12 @@ def question_body(q):
                        "on the cortex TUI instead.")
 
 
-def review_body(split):
+def review_body(split, plan_file=None):
     what = "parts" if split else "steps"
-    return made([], "Complete this subtask to approve the plan and start building. Until then "
+    lines = ["The technical plan is attached as %s: how the work will be built, for a "
+             "technical review. To move fast, review the acceptance criteria under "
+             "Execution alone." % os.path.basename(plan_file)] if plan_file else []
+    return made(lines, "Complete this subtask to approve the plan and start building. Until then "
                     "the goal waits. To change the plan first: edit, add or delete the %s under "
                     "Execution, or say what to change in a comment here. The goal reads them "
                     "once, when you complete this subtask." % what)
@@ -269,29 +273,32 @@ class Board(object):
 
     # the plan
 
-    def publish(self, items, split, before_build=True):
+    def publish(self, items, split, before_build=True, plan_file=None):
         """The plan's review under Review, and the plan under Execution. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
         longer has is deleted; after it, nothing is."""
         if not self.on:
             return True
-        return bool(self.safely("write the plan", self._publish, items, split, before_build))
+        return bool(self.safely("write the plan", self._publish, items, split, before_build,
+                                plan_file))
 
     def has_plan(self):
         """Whether the plan and its review are on the ticket."""
         data = self.load()
         return bool(data.get("review") and data.get("published"))
 
-    def _publish(self, items, split, before_build):
+    def _publish(self, items, split, before_build, plan_file):
         data = self.sections(self.load())
         rows = self.asana(["task", "subtasks", self.task]) or []
         if not data.get("review"):
             # One made before a write that failed is used again, not made twice.
             data["review"] = next((r["ref"] for r in rows if r["ref"] in data.get("made", [])
                                    and r["name"] == st.GOAL_NAME + REVIEW_NAME), None) or self.add(
-                data, REVIEW_NAME, review_body(split), data["section_review"])
+                data, REVIEW_NAME, review_body(split, plan_file), data["section_review"])
             self.save(data)
+        if plan_file:
+            self.attach_plan(data, plan_file)
         old = {i["key"]: i for i in data.get("items") or []}
         theirs = {r["name"].strip().lower(): r["ref"] for r in rows
                   if r["ref"] not in data.get("made", []) and not st.made_by_goal(r)}
@@ -322,6 +329,18 @@ class Board(object):
                                        ("name", "description", "completed")} for i in out}
         self.save(data)
         return True
+
+    def attach_plan(self, data, path):
+        """The technical plan on the review, once; a changed one in place of the old."""
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        if data.get("plan_file", {}).get("sha") == sha:
+            return
+        if data.get("plan_file", {}).get("gid"):
+            self.asana(["task", "detach", data["plan_file"]["gid"]])
+        out = self.asana(["task", "attach", data["review"], path]) or {}
+        data["plan_file"] = {"sha": sha, "gid": str(out.get("gid") or "")}
+        self.save(data)
 
     def gid_of(self, key):
         return next((i["gid"] for i in self.load().get("items") or [] if i["key"] == key), None)
