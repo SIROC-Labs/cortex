@@ -45,6 +45,8 @@ the most expensive in this work, so spend it only on that comparison.
      that use them (`after`);
    - each brief names the references that cover its part, and where it meets
      other parts when that is known: an endpoint, a shared type, a function;
+   - each brief stays short and leaves the design inside its part to that part's
+     lead: a brief that lays out its tables, files or functions is a gap;
    - `plan_after`, when a part has it, names only parts this part truly cannot
      be planned before: most parts plan at once.
 

@@ -1013,21 +1013,15 @@ class TestBoard(unittest.TestCase):
         self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
         self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
 
-    def test_a_part_says_its_summary_and_criteria_and_has_its_whole_brief_attached(self):
+    def test_a_part_says_its_summary_and_criteria_but_not_its_brief(self):
         part = {"name": "Call records API", "after": ["Data"], "summary": "The API keeps each call.",
                 "brief": "Build `core/calls` with btrim<>''.", "criteria": ["POST /calls opens a call"]}
-        self.board.publish([("Call records API", "Call records API", goal.bd.part_body(part))], True,
-                           files={"Call records API": goal.bd.part_file(part)})
+        self.board.publish([("Call records API", "Call records API", goal.bd.part_body(part))], True)
         task = self.fake.tasks[self.fake.gid("Call records API")]
         self.assertTrue(task["description"].startswith("The API keeps each call."))
         self.assertNotIn("core/calls", task["description"])
         self.assertIn("- POST /calls opens a call", task["description"])
-        brief = task["files"]["call-records-api-brief.md"]
-        self.assertIn("## Brief\n\nBuild `core/calls`", brief)
-        self.assertIn("- [ ] POST /calls opens a call", brief)
-        self.board.publish([("Call records API", "Call records API", "b")], True,
-                           files={"Call records API": goal.bd.part_file(part)})
-        self.assertEqual(len(task["files"]), 1)
+        self.assertNotIn("files", task)
 
     def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
         self.fake.refuse = "Export"
