@@ -25,6 +25,7 @@ import start_task as st
 BOARD_FILE = "asana.json"
 QUESTIONS, REVIEW, EXECUTION = "Questions", "Review", "Execution"
 REVIEW_NAME = "Review the plan"
+SPLIT_REVIEW_NAME = "Review the split"
 INTEGRATION = "Integration: the parts together"
 APPROVED = "continue"
 # How often Asana is read while the goal waits on the person there.
@@ -91,15 +92,39 @@ def question_body(q):
                        "on the cortex TUI instead.")
 
 
+def review_name(split):
+    return SPLIT_REVIEW_NAME if split else REVIEW_NAME
+
+
 def review_body(split, plan_file=None):
-    what = "parts" if split else "steps"
-    lines = ["The technical plan is attached as %s: how the work will be built, for a "
-             "technical review. To move fast, review the acceptance criteria under "
-             "Execution alone." % os.path.basename(plan_file)] if plan_file else []
-    return made(lines, "Complete this subtask to approve the plan and start building. Until then "
-                    "the goal waits. To change the plan first: edit, add or delete the %s under "
-                    "Execution, or say what to change in a comment here. The goal reads them "
-                    "once, when you complete this subtask." % what)
+    """What the review asks of the person: to approve the split into parts, or to
+    approve a plan and its technical plan. The two read differently on purpose."""
+    name = plan_file and os.path.basename(plan_file)
+    if split:
+        lines = ["You approve the split here, not how the work is built. The parts and their "
+                 "acceptance criteria are under Execution. Check three things:", "",
+                 "- Each part covers a clear piece of the work, and nothing is missing.",
+                 "- The order makes sense: each part waits on the parts it needs.",
+                 "- At a skim, each part's acceptance criteria are right. A part's lead cannot "
+                 "drop one; only you can.", "",
+                 "After you approve, each part plans itself. Its plan and its technical plan "
+                 "come to you under the part's own subtask."]
+        if name:
+            lines += ["", "How the parts fit together is attached as %s." % name]
+        how = ("Complete this subtask to approve the split, so the parts start to plan. To "
+               "change it first: edit, add or delete the parts under Execution, or say what to "
+               "change in a comment here. The goal reads them once, when you complete this "
+               "subtask.")
+    else:
+        lines = (["You approve the plan here: the steps under Execution, with their acceptance "
+                  "criteria, and the technical plan, attached as %s: how the work will be "
+                  "built. To move fast, review the acceptance criteria alone." % name]
+                 if name else ["You approve the plan here: the steps under Execution."])
+        how = ("Complete this subtask to approve the plan and start building. Until then the "
+               "goal waits. To change the plan first: edit, add or delete the steps under "
+               "Execution, or say what to change in a comment here. The goal reads them once, "
+               "when you complete this subtask.")
+    return made(lines, how)
 
 
 def part_body(part):
@@ -293,8 +318,8 @@ class Board(object):
         if not data.get("review"):
             # One made before a write that failed is used again, not made twice.
             data["review"] = next((r["ref"] for r in rows if r["ref"] in data.get("made", [])
-                                   and r["name"] == st.GOAL_NAME + REVIEW_NAME), None) or self.add(
-                data, REVIEW_NAME, review_body(split, plan_file), data["section_review"])
+                                   and r["name"] == st.GOAL_NAME + review_name(split)), None) or self.add(
+                data, review_name(split), review_body(split, plan_file), data["section_review"])
             self.save(data)
         if plan_file:
             self.attach_plan(data, plan_file)

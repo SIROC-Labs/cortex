@@ -26,12 +26,14 @@ is a subtask Asana shows as a section header):
 
 ```
 🤖 Questions       one subtask for each question only you can answer
-🤖 Review          🤖 Review the plan
+🤖 Review          🤖 Review the plan, or 🤖 Review the split when the work is split
 🤖 Execution       the plan's steps, or the parts, in order; then 🤖 Integration
 ```
 
-A part does the same under its own subtask, so each part has its own questions, review
-and steps. A subtask of yours with the same name as a step or a part is used as it is,
+*Review the split* approves only the parts: their boundaries, their order, and their
+acceptance criteria. *Review the plan* approves how the work is built, with the technical
+plan attached. A part does the same under its own subtask, so each part has its own
+questions, *Review the plan* and steps. A subtask of yours with the same name as a step or a part is used as it is,
 and moved into the Execution section. The steps and parts are ticked as they are done. The goal's own
 subtasks carry "Planned by a cortex goal" in their description, and the queue, the boards
 and the goal's ask leave them out. The description of a subtask of yours is never

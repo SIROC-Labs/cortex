@@ -2009,12 +2009,13 @@ class Runner(object):
         if not self.waits_for_person():
             self.board.approve()
             return self.after_plan()
-        st.step("The plan is ready for your review")
+        what = "split" if parts else "plan"
+        st.step("The %s is ready for your review" % what)
         if not on_ticket:
             st.warn("the plan is not on the ticket yet: it is tried again every minute, "
                     "and you can approve it on the TUI")
         names = [name for _, name, _ in plan_items(self.read_journal(), parts)]
-        return self.await_plan({"kind": "plan", "headline": "plan ready for your review",
+        return self.await_plan({"kind": "plan", "headline": "%s ready for your review" % what,
                                 "split": bool(parts),
                                 "detail": "\n".join("- %s" % n for n in names) or None})
 

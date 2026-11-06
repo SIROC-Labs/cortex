@@ -953,7 +953,11 @@ class TestWaits(unittest.TestCase):
         self.assertIn("c approves it", wait_summary({"kind": "plan"}))
         lines = " ".join(t for t, _ in wait_lines({"kind": "plan", "split": True,
                                                    "detail": "- API\n- Inbox"}, 80))
-        self.assertIn("Nothing is built until you approve it", lines)
+        self.assertIn("You approve the split here, not how the work is built", lines)
+        self.assertIn("Review the split", wait_summary({"kind": "plan", "split": True}))
+        self.assertIn("Review the plan", wait_summary({"kind": "plan"}))
+        self.assertIn("Nothing is built until you approve it",
+                      " ".join(t for t, _ in wait_lines({"kind": "plan"}, 80)))
         self.assertIn("The parts:", lines)
         self.assertIn("- Inbox", lines)
 

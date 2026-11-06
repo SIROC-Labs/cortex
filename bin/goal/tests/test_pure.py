@@ -1046,6 +1046,12 @@ class TestBoard(unittest.TestCase):
         self.board.publish([("api", "API", "b")], False, plan_file=path)
         self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
 
+    def test_a_split_and_a_plan_are_reviewed_under_different_names(self):
+        self.assertIn("not how the work is built", goal.bd.review_body(True))
+        self.assertIn("technical-plan.md", goal.bd.review_body(False, "/x/technical-plan.md"))
+        self.board.publish([("api", "API", "b")], True)
+        self.assertIn("Review the split", self.fake.names())
+
     def test_a_part_depends_in_asana_on_the_parts_it_builds_after(self):
         items = [("api", "API", "b"), ("ui", "UI", "b"), ("x", "Export", "b")]
         self.board.publish(items, True, after={"ui": ["api"], "x": ["api", "ui"]})
@@ -1275,7 +1281,7 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.assertEqual(self.launched[3], ["Dashboard"])
         inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
         self.assertEqual(inbox["asana_task"], self.fake.gid("Inbox"))
-        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
+        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the split", "Execution",
                                              "API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
         self.assertTrue(all(self.fake.tasks[self.fake.gid(n)]["completed"]
                             for n in ("API", "Inbox", "Dashboard")))

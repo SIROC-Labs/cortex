@@ -130,6 +130,9 @@ def wait_summary(wait):
         return wait["headline"] + " — a to say what to do, m to just try again"
     if kind == "checkpoint":
         return "checkpoint reached — c continues the queue"
+    if kind == "plan" and wait.get("split"):
+        return ("split into parts ready for your review — c approves it, a says what to "
+                "change; or complete “Review the split” in Asana")
     if kind == "plan":
         return ("plan ready for your review — c approves it, a says what to change; or "
                 "complete “Review the plan” in Asana")
@@ -258,11 +261,26 @@ def wait_lines(wait, width):
              "back until you continue — nothing past it has started. Check what you need to, "
              "then press c.", "normal")
         return out
+    if wait.get("kind") == "plan" and wait.get("split"):
+        para("The split into parts is ready for your review", "bold")
+        out.append(("", "normal"))
+        para("You approve the split here, not how the work is built: the parts, their order, "
+             "and, at a skim, each part's acceptance criteria. They are on the ticket in Asana, "
+             "under Execution. After you approve, each part plans itself, and its plan comes to "
+             "you on its own. To change the split, edit, add or delete those subtasks, or say "
+             "what to change in a comment on “Review the split” or with a here. Then approve "
+             "it: complete “Review the split”, or press c.", "normal")
+        if wait.get("detail"):
+            out.append(("", "normal"))
+            para("The parts:", "normal")
+            for line in wait["detail"].splitlines():
+                para(line, "dim", "  ")
+        return out
     if wait.get("kind") == "plan":
         para("The plan is ready for your review", "bold")
         out.append(("", "normal"))
         para("Nothing is built until you approve it. The plan is on the ticket in Asana, "
-             "under Execution, and the acceptance criteria are in the goal's journal. To change "
+             "under Execution, with its technical plan attached to “Review the plan”. To change "
              "it, edit, add or delete those subtasks, or say what to change in a comment on "
              "“Review the plan” or with a here. Then approve it: complete “Review the plan”, "
              "or press c.", "normal")
@@ -1701,7 +1719,9 @@ class App(object):
         checkpoint — offer to drop the checkpoint instead."""
         row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
         if row and row["kind"] == "goal" and (row.get("wait") or {}).get("kind") == "plan":
-            self.ask("approve the plan of \"%s\", so it starts building? (y/n)" % row["cols"][1].strip(" └"),
+            split = (row.get("wait") or {}).get("split")
+            self.ask(("approve the split of \"%s\", so its parts start to plan? (y/n)" if split else
+                      "approve the plan of \"%s\", so it starts building? (y/n)") % row["cols"][1].strip(" └"),
                      lambda: self.answer(row["id"], "continue"))
             return
         gates, held, reached = gate_state(self.control, self.data)
