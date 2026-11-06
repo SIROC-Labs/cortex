@@ -92,8 +92,9 @@ This program is the harness around the lead:
   questions go to the goal's lead first, and only what it cannot settle comes to you. A
   part is never pushed: when its check passes, it merges the goal's branch in and is
   merged into it, one part at a time, and a conflict goes back to that part's lead. When
-  every part is in, the goal's lead integrates: it checks that the parts fit together,
-  builds what no part covers, and ticks the criteria. Then the goal goes on as below,
+  every part is in, the goal's lead integrates, in a new session: the planning's context is
+  stale by then, so it starts from its journal and the parts' journals. It checks that the
+  parts fit together, builds what no part covers, and ticks the criteria. Then the goal goes on as below,
   with one push and one CI run for all of it. A part does not split again.
 - **Rounds.** The lead is called on one session, in rounds of up to 200 turns; the next
   round continues the same conversation. If the session is lost, a new one starts from the

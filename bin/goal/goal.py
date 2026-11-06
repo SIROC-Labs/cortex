@@ -580,9 +580,19 @@ def part_id(parent_id, name):
     return "%s--%s" % (parent_id, st.slugify(name, max_words=4))
 
 
-def parts_done_prompt(parts):
-    lines = ["Every part is built, passed its own checker, and is merged into your branch:", ""]
-    lines += ["- %s: %s" % (p["name"], p.get("summary") or "done") for p in parts]
+def parts_done_prompt(parts, journal=None):
+    """What the lead hears when every part is merged. With `journal`, it starts a new
+    session for the integration, from its journal and the parts' journals."""
+    lines = []
+    if journal:
+        lines += ["You integrate the parts in a new session: you do not remember the planning. "
+                  "Read your journal, `%s`, first: its decisions and its acceptance criteria. "
+                  "The criteria no part has are yours to meet. Then read each part's journal "
+                  "for what it built and what it decided." % journal, ""]
+    lines += ["Every part is built, passed its own checker, and is merged into your branch:", ""]
+    lines += ["- %s: %s%s" % (p["name"], p.get("summary") or "done",
+                              " (journal: `%s`)" % p["journal"] if p.get("journal") else "")
+              for p in parts]
     lines += ["", "Now integrate. Read what each part did. Check that the parts fit together: "
               "the contracts, the data flowing between them, and the screens end to end. Build "
               "what no part covers. Tick each acceptance criterion the branch meets, with the "
@@ -1916,9 +1926,14 @@ class Runner(object):
             if flow2:
                 self.board.tick({p["name"] for p in done})
             if len(done) == len(parts):
-                st.info("every part is done")
-                return parts_done_prompt([dict(p, summary=goals[p["name"]].get("summary"))
-                                          for p in parts])
+                st.info("every part is done — the integration starts in a new session")
+                # The planning's context is stale by now: the journal and the branch hold
+                # what is true, so the integration starts fresh from them.
+                self.set(session=None, session_used=False)
+                return self.first_prompt() + "\n\n" + parts_done_prompt(
+                    [dict(p, summary=goals[p["name"]].get("summary"),
+                          journal=Goal(self.main_root, p["id"]).journal) for p in parts],
+                    self.goal.journal)
             running, ready = [], []
             for p in parts:
                 g = goals[p["name"]]

@@ -1268,8 +1268,10 @@ class TestPartsPlanEarly(unittest.TestCase):
     def test_parts_plan_at_once_unless_they_plan_after_another(self):
         with open(self.runner.technical_plan(), "w") as f:
             f.write("# Technical plan\n")
-        rounds = ["planned", "done"]
-        self.runner.lead = lambda prompt: (rounds.pop(0), {"summary": "s"})
+        rounds, calls = ["planned", "done"], []
+        self.runner.data.update(session="planning", session_used=True)
+        self.runner.lead = lambda prompt: (calls.append((prompt, self.runner.data.get("session"))),
+                                           rounds.pop(0), {"summary": "s"})[1:]
         self.runner.review = lambda: ([], [])
         read = goal.Runner.read_journal.__get__(self.runner)
         self.runner.read_journal = lambda: read().replace("- [ ]", "- [x]") if not rounds else read()
@@ -1278,6 +1280,11 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.runner.finish = lambda block: None
         self.assertEqual(self.runner.run(), 0)
         self.assertEqual(self.launched[:3], [["API"], ["Inbox"], "look"])
+        integration, session = calls[1]
+        self.assertIsNone(session)
+        self.assertIn("in a new session", integration)
+        self.assertIn(goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).journal, integration)
+        self.assertIn("## The ask", integration)
         self.assertEqual(self.launched[3], ["Dashboard"])
         inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
         self.assertEqual(inbox["asana_task"], self.fake.gid("Inbox"))
