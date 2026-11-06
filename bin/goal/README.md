@@ -68,11 +68,14 @@ This program is the harness around the lead:
   only you can answer. The lead corrects the criteria and the plan.
 - **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
   approve it. The steps or parts, with their acceptance criteria, are under Execution, and
-  the technical plan is attached to *Review the plan*: review the criteria alone to move
-  fast, and the technical plan when the design needs care. To approve, complete *Review the plan* in Asana, or press `c` on the goal's row on the
-  TUI. To change it first, edit, add or delete the subtasks under Execution, or say what to
-  change in a comment on the review (or with `a` on the TUI). The runner reads them once,
-  when you approve, and the lead applies them to its journal before it builds. *Plan
+  the technical plan is attached to *Review the plan* (and, for a part, to the part's
+  subtask too): review the criteria alone to move fast, and the technical plan when the
+  design needs care. To approve, complete *Review the plan* in Asana, or press `c` on the
+  goal's row on the TUI. To change it first, say what to change in a comment on the review,
+  without completing it: the lead revises the plan, the runner puts it on the ticket again
+  and replies under your comment with what changed, and the plan waits for you again. Edits
+  to the subtasks under Execution go to the lead with your comment, or with your approval;
+  what you say on approving (or with `a` on the TUI) the lead applies before it builds. *Plan
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
   part (`wait`, the default); you for the goal and the reviewer for its parts (`top`); or
   the reviewer only (`auto`). A goal keeps the setting it started with.

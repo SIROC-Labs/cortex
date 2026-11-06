@@ -127,18 +127,19 @@ def review_body(split, plan_file=None):
         if name:
             lines += ["", "How the parts fit together is attached as %s." % name]
         how = ("Complete this subtask to approve the split, so the parts start to plan. To "
-               "change it first: edit, add or delete the parts under Execution, or say what to "
-               "change in a comment here. The goal reads them once, when you complete this "
-               "subtask.")
+               "change it first, say what to change in a comment here, without completing it: "
+               "the lead revises the split, puts it here again and replies. Edits to the parts "
+               "under Execution go with your comment, or with your approval.")
     else:
         lines = (["You approve the plan here: the steps under Execution, with their acceptance "
                   "criteria, and the technical plan, attached as %s: how the work will be "
                   "built. To move fast, review the acceptance criteria alone." % name]
                  if name else ["You approve the plan here: the steps under Execution."])
         how = ("Complete this subtask to approve the plan and start building. Until then the "
-               "goal waits. To change the plan first: edit, add or delete the steps under "
-               "Execution, or say what to change in a comment here. The goal reads them once, "
-               "when you complete this subtask.")
+               "goal waits. To change the plan first, say what to change in a comment here, "
+               "without completing it: the lead revises the plan, puts it here again and "
+               "replies. Edits to the steps under Execution go with your comment, or with your "
+               "approval.")
     return made(lines, how)
 
 
@@ -201,14 +202,19 @@ def comments_since(comments, since):
             and (c.get("created_at") or "") >= (since or "")]
 
 
+class Feedback(str):
+    """What the person commented on the review without completing it: the plan goes
+    back to the lead, and comes to them again."""
+
+
 # --- the board ---------------------------------------------------------------
 
 class Board(object):
     """A goal's subtasks on Asana. Every call is best effort: when Asana fails, the
     goal carries on, and the TUI still shows and answers everything."""
 
-    def __init__(self, main_root, state, task):
-        self.main_root, self.state, self.task = main_root, state, task
+    def __init__(self, main_root, state, task, part=False):
+        self.main_root, self.state, self.task, self.part = main_root, state, task, part
 
     @property
     def on(self):
@@ -385,15 +391,19 @@ class Board(object):
         data["links"] = sorted([list(p) for p in want])
 
     def attach_plan(self, data, path):
-        """The technical plan on the review, once; a changed one in place of the old."""
+        """The technical plan on the review, and on a part's own subtask too, once; a
+        changed one in place of the old."""
         with open(path, "rb") as f:
             sha = hashlib.sha256(f.read()).hexdigest()
-        if data.get("plan_file", {}).get("sha") == sha:
+        was = data.get("plan_file") or {}
+        if was.get("sha") == sha:
             return
-        if data.get("plan_file", {}).get("gid"):
-            self.asana(["task", "detach", data["plan_file"]["gid"]])
-        out = self.asana(["task", "attach", data["review"], path]) or {}
-        data["plan_file"] = {"sha": sha, "gid": str(out.get("gid") or "")}
+        for gid in was.get("gids") or [was.get("gid")]:
+            if gid:
+                self.asana(["task", "detach", gid])
+        gids = [str((self.asana(["task", "attach", task, path]) or {}).get("gid") or "")
+                for task in [data["review"]] + ([self.task] if self.part else [])]
+        data["plan_file"] = {"sha": sha, "gid": gids[0], "gids": gids}
         self.save(data)
 
     def gid_of(self, key):
@@ -408,10 +418,24 @@ class Board(object):
         data = self.load()
         if not data.get("review"):
             return None
-        if not (self.asana(["task", "get", data["review"]]) or {}).get("completed"):
+        completed = (self.asana(["task", "get", data["review"]]) or {}).get("completed")
+        comments = [c for c in self.asana(["comment", "list", data["review"]]) or []
+                    if (c.get("created_at") or "") > (data.get("heard") or "")]
+        said = comments_since(comments, data.get("published"))
+        if completed:
+            return "\n\n".join(said) if said else APPROVED
+        if not said:
             return None
-        said = comments_since(self.asana(["comment", "list", data["review"]]), data.get("published"))
-        return "\n\n".join(said) if said else APPROVED
+        data["heard"] = max(c.get("created_at") or "" for c in comments)
+        self.save(data)
+        return Feedback("\n\n".join(said))
+
+    def reply(self, text):
+        """What the lead changed after the person's comment, on the review."""
+        data = self.load()
+        if data.get("review") and text:
+            self.safely("reply on the review", self.asana,
+                        ["comment", "add", data["review"], st.mark(text)])
 
     def approve(self):
         """The review completed, when the plan was approved elsewhere: on the TUI, or

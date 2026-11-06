@@ -893,8 +893,9 @@ class FakeAsana(object):
         raise AssertionError(args)
 
     def say(self, gid, text):
+        self.n += 1
         self.comments.setdefault(gid, []).append(
-            {"author": "me", "text": text, "created_at": "2099-01-01T00:00:00Z"})
+            {"author": "me", "text": text, "created_at": "2099-01-01T00:00:%02dZ" % (self.n % 60)})
 
 
 def fake_asana(test, fake):
@@ -1119,6 +1120,35 @@ class TestBoard(unittest.TestCase):
         self.fake.tasks[self.fake.gid("API")]["name"] = "\U0001f916 Tasks API"
         self.assertEqual(self.board.changes(), ['- Renamed: "\U0001f916 API" is now "\U0001f916 Tasks API"'])
 
+    def test_a_comment_before_approval_is_feedback_heard_once(self):
+        self.board.publish([("api", "API", "b")], False)
+        review = self.fake.gid("Review the plan")
+        self.fake.say(review, "Support neo too.")
+        said = self.board.approval()
+        self.assertIsInstance(said, goal.bd.Feedback)
+        self.assertEqual(said, "Support neo too.")
+        self.assertIsNone(self.board.approval())
+        self.board.reply("Added the neo flow.")
+        self.assertTrue(goal.st.is_marked(self.fake.comments[review][-1]["text"]))
+        self.assertIsNone(self.board.approval())
+        self.fake.tasks[review]["completed"] = True
+        self.assertEqual(self.board.approval(), goal.bd.APPROVED)
+
+    def test_a_part_s_technical_plan_is_on_the_part_too(self):
+        board = goal.bd.Board(self.dir, self.board.state, "1", part=True)
+        path = os.path.join(self.dir, "technical-plan.md")
+        with open(path, "w") as f:
+            f.write("# Plan\n")
+        board.publish([("api", "API", "b")], False, plan_file=path)
+        review = self.fake.tasks[self.fake.gid("Review the plan")]
+        self.assertEqual([n for n, _ in review["files"].values()], ["technical-plan.md"])
+        self.assertEqual([n for n, _ in self.fake.tasks["1"]["files"].values()], ["technical-plan.md"])
+        with open(path, "w") as f:
+            f.write("# Plan, changed\n")
+        board.publish([("api", "API", "b")], False, plan_file=path)
+        self.assertEqual([t for _, t in self.fake.tasks["1"]["files"].values()], ["# Plan, changed\n"])
+        self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
+
     def test_steps_done_are_ticked_once(self):
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
         self.board.tick({"api"})
@@ -1210,6 +1240,20 @@ class TestPlanFlow(unittest.TestCase):
         self.assertIn("Also drop the export.", self.prompts[1])
         self.assertIn("Do not build yet", self.prompts[1])
         self.assertIn("The plan is approved", self.prompts[2])
+
+    def test_a_comment_on_the_review_sends_the_plan_back_and_to_the_person_again(self):
+        answers = [goal.bd.Feedback("Support neo too."), "continue"]
+        done = PLANNED.replace("- [ ]", "- [x]")
+        self.run_with([("planned", lambda: self.journal(PLANNED)),
+                       ("planned", lambda: None),
+                       ("done", lambda: self.journal(done))], lambda record: answers.pop(0))
+        self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead planned",
+                                       "waits for plan", "lead done", "finish"])
+        self.assertIn("Support neo too.", self.prompts[1])
+        self.assertIn("Do not build yet", self.prompts[1])
+        self.assertIn("The plan is approved", self.prompts[2])
+        review = self.fake.gid("Review the plan")
+        self.assertEqual(self.fake.comments[review][-1]["text"], goal.st.mark("s"))
 
     def test_with_the_reviewer_approving_the_goal_does_not_wait(self):
         self.runner.set(gate="auto")

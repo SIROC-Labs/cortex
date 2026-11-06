@@ -727,6 +727,20 @@ def replan_prompt(changes, notes):
     return "\n".join(lines)
 
 
+def revise_prompt(changes, notes):
+    """What the lead hears when the person commented on the plan, before approving it."""
+    lines = ["The person commented on your plan in Asana, before approving it."]
+    if changes:
+        lines += ["", "They changed these subtasks:", ""] + changes
+    lines += ["", "They said:", "", notes.strip(), "",
+              "Revise your journal to answer it: the acceptance criteria and the plan, the "
+              "technical plan, and the parts file if you split the work. Where a change is "
+              "unclear or conflicts with the prototype, ask. Do not build yet. Report planned "
+              "again, and in its summary tell the person, in a few sentences, what you changed "
+              "and why: it is posted as a reply to their comment."]
+    return "\n".join(lines)
+
+
 def built_text(built):
     if not built:
         return ""
@@ -1447,7 +1461,8 @@ class Runner(object):
         """The goal's subtasks on Asana: under the ticket, or under a part's own
         subtask. Off for goals of the older flow."""
         task = self.data.get("asana_task") if self.data.get("parent") else self.data.get("ref")
-        return bd.Board(self.main_root, self.goal.state, task if self.flow2() else None)
+        return bd.Board(self.main_root, self.goal.state, task if self.flow2() else None,
+                        part=bool(self.data.get("parent")))
 
     def waits_for_person(self):
         """Whether this goal's plan waits for the person's approval."""
@@ -1990,9 +2005,13 @@ class Runner(object):
 
     # the plan, on the ticket
 
-    def planned(self):
+    def planned(self, summary=None):
         """The lead's plan is complete: reviewed, corrected, then put to the
         person. Returns the lead's next prompt."""
+        if self.data.get("revising"):
+            # Revised after the person's comment: on the ticket again, for them.
+            self.set(revising=False)
+            return self.plan_gate(reply=summary)
         if self.data.get("replanning"):
             # The person's changes, applied: they approved the plan already.
             self.publish_plan()
@@ -2015,11 +2034,13 @@ class Runner(object):
             return False
         return parts
 
-    def plan_gate(self):
+    def plan_gate(self, reply=None):
         """After the review: the plan on the ticket, approved by the person when the
         goal waits for them. Returns the lead's next prompt."""
         parts = self.publish_plan()
         on_ticket = parts is not False
+        if on_ticket and reply:
+            self.board.reply(reply)
         parts = parts or (self.written_parts() if self.split_now() else None)
         if not self.waits_for_person():
             self.board.approve()
@@ -2036,6 +2057,11 @@ class Runner(object):
 
     def await_plan(self, record):
         text = self.wait_for_answer(record)
+        if isinstance(text, bd.Feedback):
+            changes = self.board.changes()
+            st.info("you commented on the review — back to the lead")
+            self.set(revising=True, phase="planning")
+            return revise_prompt(changes, text)
         self.board.approve()
         changes = self.board.changes()
         notes = "" if bd.approves(text) else text
@@ -2351,7 +2377,7 @@ class Runner(object):
                         prompt = planning_prompt(problems)
                         continue
                     if self.flow2():
-                        prompt = self.planned()
+                        prompt = self.planned(block.get("summary"))
                         continue
                     if self.data.get("parent") or (split and self.data.get("reviewed")):
                         gaps, questions = [], []
