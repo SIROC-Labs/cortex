@@ -924,6 +924,8 @@ class TestBoardPure(unittest.TestCase):
         long = "- [ ] " + "word " * 40
         self.assertLessEqual(len(goal.bd.step_title(long)), goal.bd.QUESTION_TITLE + 1)
         self.assertIn("word " * 39, goal.bd.step_body(long))
+        self.assertEqual(goal.bd.step_title("- [ ] `inbox` route (`/inbox`, tabs)"), "inbox route")
+        self.assertEqual(goal.bd.step_title("- [ ] Tests, run file by file; lint"), "Tests, run file by file")
         self.assertEqual(goal.bd.step_title("- [ ] Inbox"), "Inbox")
         self.assertNotIn("Inbox", goal.bd.step_body("- [ ] Inbox"))
 
