@@ -135,6 +135,7 @@
 #
 # Dependencies: Python 3 stdlib + git. No interactive prompts. Never prints secrets.
 
+import html
 import json
 import os
 import re
@@ -1911,7 +1912,7 @@ def milestone_ensure(args):
 HTML_TAG_PATTERN = re.compile(
     r"<\s*/?\s*("
     r"body|strong|em|u|s|code|a|ul|ol|li|br|p|div|span|b|i|"
-    r"h[1-6]|html|head|table|tr|td|th|tbody|thead|img|pre"
+    r"h[1-6]|hr|html|head|table|tr|td|th|tbody|thead|img|pre"
     r")(\s[^>]*)?/?\s*>",
     re.IGNORECASE,
 )
@@ -1957,6 +1958,9 @@ def _linkify_bare_urls(text):
 
 
 def _md_inline(text):
+    # The text's own <, > and & are escaped first: Asana rejects rich text with a
+    # bare one, such as SQL's <> in a criterion.
+    text = html.escape(text, quote=False)
     text = _MD_LINK_RE.sub(r'<a href="\2">\1</a>', text)
     text = _MD_BOLD_RE.sub(r"<strong>\1</strong>", text)
     text = _MD_CODE_RE.sub(r"<code>\1</code>", text)
@@ -2044,7 +2048,8 @@ def render_body(body):
         if not (stripped.startswith("<body>") and stripped.endswith("</body>")):
             body = "<body>%s</body>" % body
         return True, body
-    return False, body
+    # Plain text is sent as it is: what md_to_html escaped is turned back.
+    return False, html.unescape(body)
 
 
 # Build the comment/story request payload. Returns (mode, payload) where mode in

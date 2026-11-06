@@ -272,15 +272,26 @@ class Board(object):
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
         longer has is deleted; after it, nothing is."""
-        self.safely("write the plan", self._publish, items, split, before_build)
+        if not self.on:
+            return True
+        return bool(self.safely("write the plan", self._publish, items, split, before_build))
+
+    def has_plan(self):
+        """Whether the plan and its review are on the ticket."""
+        data = self.load()
+        return bool(data.get("review") and data.get("published"))
 
     def _publish(self, items, split, before_build):
         data = self.sections(self.load())
+        rows = self.asana(["task", "subtasks", self.task]) or []
         if not data.get("review"):
-            data["review"] = self.add(data, REVIEW_NAME, review_body(split), data["section_review"])
+            # One made before a write that failed is used again, not made twice.
+            data["review"] = next((r["ref"] for r in rows if r["ref"] in data.get("made", [])
+                                   and r["name"] == st.GOAL_NAME + REVIEW_NAME), None) or self.add(
+                data, REVIEW_NAME, review_body(split), data["section_review"])
+            self.save(data)
         old = {i["key"]: i for i in data.get("items") or []}
-        theirs = {r["name"].strip().lower(): r["ref"]
-                  for r in self.asana(["task", "subtasks", self.task]) or []
+        theirs = {r["name"].strip().lower(): r["ref"] for r in rows
                   if r["ref"] not in data.get("made", []) and not st.made_by_goal(r)}
         out, after = [], data["section_execution"]
         for key, name, body in items:
@@ -292,6 +303,9 @@ class Board(object):
             self.asana(["task", "set-parent", item["gid"], self.task, "--after", after])
             out.append(item)
             after = item["gid"]
+            # Saved as it goes, so a write that fails later does not make it again.
+            data["items"] = out + list(old.values())
+            self.save(data)
         for item in old.values():
             if before_build and item.get("made") and not item.get("done"):
                 self.asana(["task", "delete", item["gid"]])
@@ -305,6 +319,7 @@ class Board(object):
         data["snapshot"] = {i["gid"]: {k: (rows.get(i["gid"]) or {}).get(k) for k in
                                        ("name", "description", "completed")} for i in out}
         self.save(data)
+        return True
 
     def gid_of(self, key):
         return next((i["gid"] for i in self.load().get("items") or [] if i["key"] == key), None)

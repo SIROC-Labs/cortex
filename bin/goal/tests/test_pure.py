@@ -843,6 +843,8 @@ class FakeAsana(object):
     def __call__(self, args, cwd=None):
         family, verb, rest = args[0], args[1], args[2:]
         if verb == "add-subtask":
+            if getattr(self, "refuse", None) and self.refuse in rest[2]:
+                raise goal.st.Failure("asana.py task add-subtask failed (exit 1)\nHTTP 400: Malformed rich text")
             section = "--section" in rest
             rest = [r for r in rest if r != "--section"]
             body = ""
@@ -976,6 +978,8 @@ class TestQuestionSubtasks(unittest.TestCase):
         html = asana.md_to_html(goal.bd.question_body({"q": "Stay active?", "why": "It archives."}))
         self.assertTrue(html.startswith("Stay active?\n\nWhy: It archives.<hr/><em>Answer"))
         self.assertIn("Planned by a cortex goal", html)
+        self.assertIn("btrim&lt;&gt;''", asana.md_to_html("**SQL**: btrim<>''"))
+        self.assertEqual(asana.render_body(asana.md_to_html("a < b & c")), (False, "a < b & c"))
 
     def test_the_name_the_agent_gives_survives_parsing(self):
         parsed = goal.st.parse_agent_questions({"questions": [{"title": "T", "q": "Q?", "why": "W"}]})
@@ -1004,6 +1008,18 @@ class TestBoard(unittest.TestCase):
         self.assertTrue(self.fake.tasks[self.fake.gid("Execution")]["name"].startswith("\U0001f916 "))
         self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
         self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
+
+    def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
+        self.fake.refuse = "Export"
+        self.assertFalse(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
+        self.assertFalse(self.board.has_plan())
+        self.fake.refuse = None
+        self.assertTrue(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
+        self.assertTrue(self.board.has_plan())
+        names = self.fake.names()
+        self.assertEqual(names.count("Review the plan"), 1)
+        self.assertEqual(names.count("API"), 1)
+        self.assertEqual(names[-2:], ["API", "Export"])
 
     def test_a_step_gone_before_the_build_is_deleted_but_never_one_of_theirs(self):
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b"), ("x", "Export", "b")], False)

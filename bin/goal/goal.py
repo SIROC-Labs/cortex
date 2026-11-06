@@ -1945,18 +1945,25 @@ class Runner(object):
         return self.plan_gate()
 
     def publish_plan(self, before_build=True):
+        """The plan on the ticket. Returns the parts, or False when Asana refused it."""
         parts = self.written_parts() if self.split_now() else None
-        self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build)
+        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build):
+            return False
         return parts
 
     def plan_gate(self):
         """After the review: the plan on the ticket, approved by the person when the
         goal waits for them. Returns the lead's next prompt."""
         parts = self.publish_plan()
+        on_ticket = parts is not False
+        parts = parts or (self.written_parts() if self.split_now() else None)
         if not self.waits_for_person():
             self.board.approve()
             return self.after_plan()
         st.step("The plan is ready for your review")
+        if not on_ticket:
+            st.warn("the plan is not on the ticket yet: it is tried again every minute, "
+                    "and you can approve it on the TUI")
         names = [name for _, name, _ in plan_items(self.read_journal(), parts)]
         return self.await_plan({"kind": "plan", "headline": "plan ready for your review",
                                 "split": bool(parts),
@@ -2102,7 +2109,9 @@ class Runner(object):
         board = self.board
         poll = None
         if board.on and record["kind"] == "plan":
-            poll = board.approval
+            # A plan that could not go on the ticket is written again first.
+            poll = lambda: board.approval() if board.has_plan() or self.publish_plan(
+            ) is not False else None  # noqa: E731
         elif board.on and record.get("asana"):
             poll = lambda: board.answers(record["questions"], record["asana"], asked_at)  # noqa: E731
         st.info("waiting on you — %s" % ("in Asana, or on the TUI's Runs tab" if poll
