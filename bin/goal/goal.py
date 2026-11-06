@@ -693,6 +693,13 @@ def plan_items(journal, parts=None):
             for _, text in checklist(journal, "Plan") or [] if bd.step_key(text)]
 
 
+def plan_links(parts=None):
+    """{key: [keys]}: what each part builds after, and the integration after them all."""
+    if not parts:
+        return {}
+    return dict({p["name"]: p["after"] for p in parts}, **{bd.INTEGRATION: [p["name"] for p in parts]})
+
+
 def ticked_steps(journal):
     return {bd.step_key(text) for ticked, text in checklist(journal, "Plan") or [] if ticked}
 
@@ -1989,7 +1996,7 @@ class Runner(object):
         parts = self.written_parts() if self.split_now() else None
         plan_file = self.technical_plan() if os.path.exists(self.technical_plan()) else None
         if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build,
-                                  plan_file):
+                                  plan_file, plan_links(parts)):
             return False
         return parts
 

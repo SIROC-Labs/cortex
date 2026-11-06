@@ -879,6 +879,10 @@ class FakeAsana(object):
             with open(rest[1]) as f:
                 self.tasks[rest[0]].setdefault("files", {})[str(self.n)] = (os.path.basename(rest[1]), f.read())
             return {"gid": str(self.n)}
+        if verb in ("add-dependency", "remove-dependency"):
+            deps = self.tasks[rest[0]].setdefault("deps", [])
+            (deps.append if verb == "add-dependency" else deps.remove)(rest[1])
+            return {}
         if verb == "detach":
             for t in self.tasks.values():
                 t.get("files", {}).pop(rest[0], None)
@@ -921,7 +925,7 @@ class TestBoardPure(unittest.TestCase):
         names = [name for _, name, _ in goal.plan_items(JOURNAL, parts)]
         self.assertEqual(names, ["API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
         body = goal.plan_items(JOURNAL, parts)[1][2]
-        self.assertIn("**Builds after:** API", body)
+        self.assertNotIn("Builds after", body)
         self.assertIn("- An empty Inbox", body)
         self.assertIn(goal.st.GOAL_MADE, body)
 
@@ -1041,6 +1045,19 @@ class TestBoard(unittest.TestCase):
             f.write("# Plan, changed\n")
         self.board.publish([("api", "API", "b")], False, plan_file=path)
         self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
+
+    def test_a_part_depends_in_asana_on_the_parts_it_builds_after(self):
+        items = [("api", "API", "b"), ("ui", "UI", "b"), ("x", "Export", "b")]
+        self.board.publish(items, True, after={"ui": ["api"], "x": ["api", "ui"]})
+        gid = self.fake.gid
+        self.assertEqual(self.fake.tasks[gid("UI")]["deps"], [gid("API")])
+        self.assertEqual(sorted(self.fake.tasks[gid("Export")]["deps"]), sorted([gid("API"), gid("UI")]))
+        self.board.publish(items, True, after={"ui": ["api"], "x": ["ui"]})
+        self.assertEqual(self.fake.tasks[gid("Export")]["deps"], [gid("UI")])
+        self.assertEqual(self.fake.tasks[gid("UI")]["deps"], [gid("API")])
+        self.assertNotIn("Builds after", self.fake.tasks[gid("UI")]["description"])
+        self.assertEqual(goal.plan_links([{"name": "A", "after": []}, {"name": "B", "after": ["A"]}]),
+                         {"A": [], "B": ["A"], goal.bd.INTEGRATION: ["A", "B"]})
 
     def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
         self.fake.refuse = "Export"

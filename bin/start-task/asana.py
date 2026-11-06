@@ -53,6 +53,7 @@
 #   tm.py task attach        <task-ref> <file-path>
 #   tm.py task detach        <attachment-gid>
 #   tm.py task add-dependency <task-ref> <depends-on-ref>
+#   tm.py task remove-dependency <task-ref> <depends-on-ref>
 #   tm.py task set-parent    <task-ref> <parent-ref>
 #   tm.py task add-to-board  <task-ref> <board-ref>
 #   tm.py task set-status    <task-ref> <status-name>
@@ -1558,6 +1559,17 @@ def task_add_dependency(args):
     sys.exit(0)
 
 
+# Remove a dependency added with add-dependency: POST /tasks/<gid>/removeDependencies.
+def task_remove_dependency(args):
+    if len(args) < 2:
+        die(1, "usage: %s task remove-dependency <task-ref> <depends-on-ref>" % PROG)
+    token = resolve_token(cache_util.project_key())
+    api_json("%s/tasks/%s/removeDependencies" % (API_BASE, args[0]), token, "POST",
+             {"data": {"dependencies": [args[1]]}})
+    sys.stdout.write("{}\n")
+    sys.exit(0)
+
+
 # Set a task's parent (place it under another task). <task-ref> and <parent-ref>
 # are task GIDs. POST /tasks/<gid>/setParent (per ../references/rest.md → Set
 # Parent). Prints the response JSON on success.
@@ -2294,6 +2306,7 @@ TASK_VERBS = {
     "attach": task_attach,
     "detach": task_detach,
     "add-dependency": task_add_dependency,
+    "remove-dependency": task_remove_dependency,
     "set-parent": task_set_parent,
     "add-subtask": task_add_subtask,
     "add-to-board": task_add_to_board,

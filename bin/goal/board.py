@@ -106,8 +106,7 @@ def part_body(part):
     """What a part's subtask says: its summary for the person, what it waits on, and
     its criteria. The brief is for the part's lead, not here."""
     lines = [part["summary"], ""] if part.get("summary") else []
-    if part.get("after"):
-        lines += ["**Builds after:** %s" % ", ".join(part["after"]), ""]
+    # What it builds after is an Asana dependency on those parts' subtasks.
     if part.get("plan_after"):
         lines += ["**Plans after:** %s" % ", ".join(part["plan_after"]), ""]
     lines += ["**Acceptance criteria**", ""] + ["- %s" % c for c in part.get("criteria") or []]
@@ -273,7 +272,7 @@ class Board(object):
 
     # the plan
 
-    def publish(self, items, split, before_build=True, plan_file=None):
+    def publish(self, items, split, before_build=True, plan_file=None, after=None):
         """The plan's review under Review, and the plan under Execution. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
@@ -281,14 +280,14 @@ class Board(object):
         if not self.on:
             return True
         return bool(self.safely("write the plan", self._publish, items, split, before_build,
-                                plan_file))
+                                plan_file, after or {}))
 
     def has_plan(self):
         """Whether the plan and its review are on the ticket."""
         data = self.load()
         return bool(data.get("review") and data.get("published"))
 
-    def _publish(self, items, split, before_build, plan_file):
+    def _publish(self, items, split, before_build, plan_file, after_keys):
         data = self.sections(self.load())
         rows = self.asana(["task", "subtasks", self.task]) or []
         if not data.get("review"):
@@ -322,6 +321,7 @@ class Board(object):
             elif not before_build:
                 out.append(item)
         data["items"] = out
+        self.link(data, after_keys)
         data["published"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         rows = {r["ref"]: r for r in self.asana(["task", "subtasks", self.task]) or []}
         data["seen"] = sorted(rows)
@@ -329,6 +329,20 @@ class Board(object):
                                        ("name", "description", "completed")} for i in out}
         self.save(data)
         return True
+
+    def link(self, data, after_keys):
+        """Each part's subtask depends, in Asana, on the parts it builds after."""
+        gid = {i["key"]: i["gid"] for i in data.get("items") or []}
+        want = {(gid[k], gid[d]) for k, ds in after_keys.items() for d in ds if k in gid and d in gid}
+        have = {tuple(p) for p in data.get("links") or []}
+        for task, on in sorted(have - want):
+            self.asana(["task", "remove-dependency", task, on])
+        for task, on in sorted(want - have):
+            self.asana(["task", "add-dependency", task, on])
+            data["links"] = sorted(have | {(task, on)})
+            have.add((task, on))
+            self.save(data)
+        data["links"] = sorted([list(p) for p in want])
 
     def attach_plan(self, data, path):
         """The technical plan on the review, once; a changed one in place of the old."""
