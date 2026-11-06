@@ -699,7 +699,7 @@ def plan_items(journal, parts=None):
         return [(p["name"], p["name"], bd.part_body(p)) for p in parts] + [
             (bd.INTEGRATION, bd.INTEGRATION, bd.made(["The goal's lead puts the parts together "
                                                       "and checks them end to end."]))]
-    return [(bd.step_key(text), bd.title(text), bd.made([]))
+    return [(bd.step_key(text), bd.step_title(text), bd.step_body(text))
             for _, text in checklist(journal, "Plan") or [] if bd.step_key(text)]
 
 

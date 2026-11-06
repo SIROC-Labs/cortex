@@ -83,6 +83,21 @@ def question_title(q):
     return cut + "…"
 
 
+def step_title(text):
+    """A plan step's subtask name: its name before the colon, or the start of the
+    step. The whole step is in the description."""
+    line = re.sub(r"^\d+\.\s+", "", title(text, width=10 ** 6))
+    name = line.split(": ", 1)[0]
+    if len(name) <= QUESTION_TITLE and name != line:
+        return name
+    return question_title({"q": line})
+
+
+def step_body(text):
+    line = title(text, width=10 ** 6)
+    return made([line] if step_title(text) != line else [])
+
+
 def question_body(q):
     lines = [q["q"], ""]
     if q.get("why"):

@@ -917,6 +917,16 @@ class TestBoardPure(unittest.TestCase):
                                           goal.bd.step_key("- [x] Inbox screen, empty state — apps/inbox.tsx")))
         self.assertFalse(goal.bd.same_step("inbox", "api"))
 
+    def test_a_step_s_title_is_its_name_and_the_rest_is_its_description(self):
+        text = "- [ ] 2. Step codes: `CALL_STEPS` as the seven codes, labels in en, de and pl"
+        self.assertEqual(goal.bd.step_title(text), "Step codes")
+        self.assertIn("`CALL_STEPS` as the seven codes", goal.bd.step_body(text))
+        long = "- [ ] " + "word " * 40
+        self.assertLessEqual(len(goal.bd.step_title(long)), goal.bd.QUESTION_TITLE + 1)
+        self.assertIn("word " * 39, goal.bd.step_body(long))
+        self.assertEqual(goal.bd.step_title("- [ ] Inbox"), "Inbox")
+        self.assertNotIn("Inbox", goal.bd.step_body("- [ ] Inbox"))
+
     def test_the_plan_on_the_ticket_is_the_steps_or_the_parts(self):
         items = goal.plan_items(JOURNAL)
         self.assertEqual([name for _, name, _ in items], ["API", "Inbox"])
