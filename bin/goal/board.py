@@ -16,6 +16,7 @@
 
 import os
 import re
+import shutil
 import tempfile
 import time
 
@@ -98,14 +99,34 @@ def review_body(split):
                     "once, when you complete this subtask." % what)
 
 
+def part_slug(part):
+    return re.sub(r"[^a-z0-9]+", "-", (part.get("name") or "part").lower()).strip("-") or "part"
+
+
 def part_body(part):
-    lines = [part.get("brief") or "", ""]
-    if part.get("plan_after"):
-        lines.append("**Plans after:** %s" % ", ".join(part["plan_after"]))
+    """What a part's subtask says: its summary for the person, what it waits on, and
+    its criteria. The brief, written for the part's lead, is attached."""
+    lines = [part.get("summary") or "The part's brief, for its lead, is attached.", ""]
     if part.get("after"):
-        lines.append("**Builds after:** %s" % ", ".join(part["after"]))
-    lines += ["", "**Acceptance criteria**", ""] + ["- %s" % c for c in part.get("criteria") or []]
-    return made(lines)
+        lines += ["**Builds after:** %s" % ", ".join(part["after"]), ""]
+    if part.get("plan_after"):
+        lines += ["**Plans after:** %s" % ", ".join(part["plan_after"]), ""]
+    lines += ["**Acceptance criteria**", ""] + ["- %s" % c for c in part.get("criteria") or []]
+    return made(lines, "The whole brief, for the part's lead, is attached as %s-brief.md."
+                % part_slug(part))
+
+
+def part_file(part):
+    """(file name, Markdown) of a part's whole brief, to attach to its subtask."""
+    text = ["# %s" % part.get("name"), ""]
+    if part.get("summary"):
+        text += [part["summary"], ""]
+    for label, key in (("Builds after", "after"), ("Plans after", "plan_after")):
+        if part.get(key):
+            text += ["**%s:** %s" % (label, ", ".join(part[key])), ""]
+    text += ["## Brief", "", part.get("brief") or "", "", "## Acceptance criteria", ""]
+    text += ["- [ ] %s" % c for c in part.get("criteria") or []]
+    return "%s-brief.md" % part_slug(part), "\n".join(text) + "\n"
 
 
 def plan_changes(snapshot, rows, known):
@@ -267,21 +288,22 @@ class Board(object):
 
     # the plan
 
-    def publish(self, items, split, before_build=True):
+    def publish(self, items, split, before_build=True, files=None):
         """The plan's review under Review, and the plan under Execution. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
         longer has is deleted; after it, nothing is."""
         if not self.on:
             return True
-        return bool(self.safely("write the plan", self._publish, items, split, before_build))
+        return bool(self.safely("write the plan", self._publish, items, split, before_build,
+                                files or {}))
 
     def has_plan(self):
         """Whether the plan and its review are on the ticket."""
         data = self.load()
         return bool(data.get("review") and data.get("published"))
 
-    def _publish(self, items, split, before_build):
+    def _publish(self, items, split, before_build, files):
         data = self.sections(self.load())
         rows = self.asana(["task", "subtasks", self.task]) or []
         if not data.get("review"):
@@ -300,6 +322,9 @@ class Board(object):
                 item = {"key": key, "gid": theirs[name.strip().lower()], "made": False}
             if not item:
                 item = {"key": key, "gid": self.add(data, name, body), "made": True}
+            if item.get("made") and key in files and not item.get("attached"):
+                self.attach(item["gid"], *files[key])
+                item["attached"] = True
             self.asana(["task", "set-parent", item["gid"], self.task, "--after", after])
             out.append(item)
             after = item["gid"]
@@ -320,6 +345,16 @@ class Board(object):
                                        ("name", "description", "completed")} for i in out}
         self.save(data)
         return True
+
+    def attach(self, gid, name, text):
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, name)
+            with open(path, "w") as f:
+                f.write(text)
+            self.asana(["task", "attach", gid, path])
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
     def gid_of(self, key):
         return next((i["gid"] for i in self.load().get("items") or [] if i["key"] == key), None)

@@ -128,7 +128,7 @@ SPLIT = """   When the work is large, split it into parts: do not build it alone
    and merged into yours. Write the parts to `{{parts_file}}` as JSON:
 
    ```json
-   {"parts": [{"name": "Tasks API and data model", "after": [], "brief": "…", "criteria": ["…"]}]}
+   {"parts": [{"name": "Tasks API and data model", "after": [], "summary": "…", "brief": "…", "criteria": ["…"]}]}
    ```
 
    - `criteria`: the acceptance criteria the part must meet, copied word for word
@@ -139,6 +139,9 @@ SPLIT = """   When the work is large, split it into parts: do not build it alone
      as the data model and the API, and the parts that use them after. Parts with
      nothing between them run at the same time, so give them work that does not
      touch the same files.
+   - `summary`: for the person, who reads it in Asana to approve the split: two to
+     four short sentences in ASD-STE100 Simplified Technical English, about what
+     the part builds and what changes for the users. No file paths, no code.
    - `brief`: what the part builds, and what it must not touch; the references
      and their sections that cover it, such as the prototype's functions; and
      where it meets other parts, when that is known now: an endpoint, a shared
@@ -466,6 +469,7 @@ def read_parts(text):
         out.append({"name": str(p.get("name") or "").strip(),
                     "after": [str(a).strip() for a in p.get("after") or []],
                     "plan_after": [str(a).strip() for a in p.get("plan_after") or []],
+                    "summary": str(p.get("summary") or "").strip(),
                     "brief": str(p.get("brief") or "").strip(),
                     "criteria": [str(c).strip() for c in p.get("criteria") or [] if str(c).strip()]})
     return out
@@ -651,6 +655,11 @@ def plan_items(journal, parts=None):
                                                       "and checks them end to end."]))]
     return [(bd.step_key(text), bd.title(text), bd.made([]))
             for _, text in checklist(journal, "Plan") or [] if bd.step_key(text)]
+
+
+def plan_attachments(parts=None):
+    """{key: (file name, text)}: each part's whole brief, attached to its subtask."""
+    return {p["name"]: bd.part_file(p) for p in parts or []}
 
 
 def ticked_steps(journal):
@@ -1947,7 +1956,8 @@ class Runner(object):
     def publish_plan(self, before_build=True):
         """The plan on the ticket. Returns the parts, or False when Asana refused it."""
         parts = self.written_parts() if self.split_now() else None
-        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build):
+        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build,
+                                  plan_attachments(parts)):
             return False
         return parts
 
