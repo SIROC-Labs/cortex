@@ -1267,7 +1267,10 @@ again from their paths when the person asks for the latest.
 - `journal.md` is the lead's journal: its references, decisions, acceptance
   criteria and plan.
 - `awaiting.json`, when it exists, holds what the goal waits on the person for.
-- `goal.log` is what the runner did. `parts.json`, when it exists, is the split.
+- `goal.log` is what the runner did.
+
+Of a split goal's parts, only their state and the paths of their files are below.
+Read a part's journal, technical plan or log when the talk needs it, not before.
 
 The goal's branch is checked out in `%s`. Read its code as you need.
 
@@ -1279,27 +1282,45 @@ to give it on the question's subtask in Asana, or on the TUI.
 %s
 """
 
-DISCUSS_FILES = ("journal.md", "awaiting.json", "parts.json", "goal.log")
+DISCUSS_FILES = ("journal.md", "awaiting.json", "goal.log")
+DISCUSS_PART_FILES = ("journal.md", "technical-plan.md", "awaiting.json", "goal.log")
 DISCUSS_LOG_LINES = 200
+DISCUSS_OPEN = ("In at most eight short lines, tell me what you have loaded: the goal, its state, "
+                "what it waits on me for, and each part with its state. Then wait for my question.")
 
 
 def discuss_files(goals):
-    """The goal's files, then each part's, as text for the session's prompt."""
+    """The goal's own files, and each part's state with the paths of its files, as
+    text for the session's prompt. A part's files are read only when the talk needs
+    them: a split goal's files in full are too much to send on every turn."""
+    top, parts = goals[0], goals[1:]
     out = []
-    for g in goals:
-        who = "the goal" if "--" not in g.id else "part %s" % g.id.split("--", 1)[1]
-        for name in DISCUSS_FILES:
-            path = os.path.join(g.state.dir, name)
-            if not os.path.exists(path):
-                continue
-            with open(path, errors="replace") as f:
-                text = f.read()
-            if name == "goal.log":
-                lines = text.splitlines()
-                text = "\n".join(lines[-DISCUSS_LOG_LINES:])
-                if len(lines) > DISCUSS_LOG_LINES:
-                    name = "goal.log, its last %d lines" % DISCUSS_LOG_LINES
-            out.append("## %s: %s (`%s`)\n\n````\n%s\n````" % (who, name, path, text.strip()))
+    for name in DISCUSS_FILES:
+        path = top.state.path(name)
+        if not os.path.exists(path):
+            continue
+        with open(path, errors="replace") as f:
+            text = f.read()
+        if name == "goal.log":
+            lines = text.splitlines()
+            text = "\n".join(lines[-DISCUSS_LOG_LINES:])
+            if len(lines) > DISCUSS_LOG_LINES:
+                name = "goal.log, its last %d lines" % DISCUSS_LOG_LINES
+        out.append("## The goal: %s (`%s`)\n\n````\n%s\n````" % (name, path, text.strip()))
+    if parts:
+        lines = []
+        for g in parts:
+            data = g.read()
+            state = "%s, %s, round %s" % (data.get("status") or "?", data.get("phase") or "?",
+                                          data.get("round") or 0)
+            if os.path.exists(g.state.path("awaiting.json")):
+                state += ", waits on the person"
+            files = ", ".join("`%s`" % g.state.path(n) for n in DISCUSS_PART_FILES
+                              if os.path.exists(g.state.path(n)))
+            lines.append("- **%s**: %s. Files: %s" % (data.get("part") or g.id, state, files or "none yet"))
+        split = top.state.path("parts.json")
+        out.append("## The parts%s\n\n%s" % (" (the split: `%s`)" % split if os.path.exists(split) else "",
+                                               "\n".join(lines)))
     return "\n\n".join(out) or "Nothing is written yet."
 
 
@@ -1329,7 +1350,8 @@ def pick_goal(main_root, ask=input, say=print):
 def discuss_command(main_root, gid):
     """The argv and the folder of a read-only Claude session about a goal and its
     parts, for the person to talk it through. The goal's files are in its prompt,
-    so it starts knowing them, and waits for the person."""
+    so it starts knowing them. It opens by saying what it has loaded, so the person
+    sees it, and then waits for them."""
     goals = goal_and_parts(main_root, gid)
     top = goals[-1]
     worktree = top.read().get("worktree")
@@ -1343,7 +1365,7 @@ def discuss_command(main_root, gid):
     argv = ["claude", "--permission-mode", "plan"]
     for d in dirs:
         argv += ["--add-dir", d]
-    argv += ["--append-system-prompt", DISCUSS % (cwd, discuss_files([top] + goals[:-1]))]
+    argv += ["--append-system-prompt", DISCUSS % (cwd, discuss_files([top] + goals[:-1])), DISCUSS_OPEN]
     argv += ["--disallowedTools"] + DISCUSS_DENY
     return argv, cwd
 
@@ -2534,9 +2556,6 @@ def main(argv):
         if not gid:
             return 1
         argv, cwd = discuss_command(main_root, gid)
-        data = Goal(main_root, gid).read()
-        print("Discussing %s. Its journal, its questions and its log are loaded, so ask away. "
-              "It changes nothing." % (data.get("key") or gid))
         return subprocess.call(argv, cwd=cwd)
     if args.cmd == "undo":
         for line in undo(main_root, args.id):

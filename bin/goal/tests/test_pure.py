@@ -1431,6 +1431,9 @@ class TestDiscuss(unittest.TestCase):
         with open(g.state.path("journal.md"), "w") as f:
             f.write("# x")
         pid = goal.create_part(d, g.read(), dict(PARTS["parts"][0], subtask=None), 0, [])
+        part = goal.Goal(d, pid)
+        with open(part.state.path("journal.md"), "w") as f:
+            f.write("# the part's own")
         argv, cwd = goal.discuss_command(d, gid)
         self.assertEqual(cwd, tree)
         self.assertEqual(argv[:3], ["claude", "--permission-mode", "plan"])
@@ -1441,6 +1444,9 @@ class TestDiscuss(unittest.TestCase):
         prompt = argv[argv.index("--append-system-prompt") + 1]
         self.assertIn("# x", prompt)
         self.assertIn(g.state.path("journal.md"), prompt)
+        self.assertIn(part.state.path("journal.md"), prompt)
+        self.assertNotIn("# the part's own", prompt)
+        self.assertLess(argv.index(goal.DISCUSS_OPEN), argv.index("--disallowedTools"))
         self.assertNotIn("--", argv[argv.index("--disallowedTools"):])
 
 

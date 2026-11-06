@@ -103,7 +103,7 @@ plan* in Asana. `x` stops a running goal and
 *Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
 worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
 Claude session in its worktree that has read its journal, its open questions and its log,
-to talk it through: plan mode, no file edits and no Asana writes, so it changes nothing.
+and says so in a few lines when it opens, to talk it through: plan mode, no file edits and no Asana writes, so it changes nothing.
 In Ghostty on macOS it opens in a new tab; in another terminal it takes the TUI's screen,
 and the TUI comes back when you leave it.
 Closing the TUI leaves a goal running.

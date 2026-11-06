@@ -180,8 +180,10 @@ that it used as a step and ticked is reopened. It is *Undo the goal* in the TUI'
 on the goal's row, `cortex queue undo <ticket>`, or `cortex goal undo <id>`.
 
 **Discuss** opens a Claude session to talk a goal through, in the goal's worktree. Its
-journal, its open questions, the end of its log and its parts' are in the session's prompt,
-so it starts knowing them and waits for you. It runs in plan
+journal, its open questions and the end of its log are in the session's prompt. Of its
+parts, only their state and the paths of their files are: the session reads a part's files
+when the talk needs them, so a split goal's discussion stays small on every turn. It opens
+by saying in a few lines what it has loaded, then waits for you. It runs in plan
 mode, without the tools that edit files or write to Asana, and it is told to change
 nothing: answers and approvals still go through the ticket or the TUI. It is *Discuss the
 goal* in the TUI's palette, or `cortex goal discuss [<id>]`: without an id, it lists the
