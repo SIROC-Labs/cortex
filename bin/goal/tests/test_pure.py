@@ -1,10 +1,12 @@
 import datetime
+import io
 import json
 import os
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import goal  # noqa: E402
@@ -1448,6 +1450,40 @@ class TestDiscuss(unittest.TestCase):
         self.assertNotIn("# the part's own", prompt)
         self.assertLess(argv.index(goal.DISCUSS_OPEN), argv.index("--disallowedTools"))
         self.assertNotIn("--", argv[argv.index("--disallowedTools"):])
+
+
+class TestOneRunner(unittest.TestCase):
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d)
+        self.gid = goal.create(self.d, "1", "A-1", "x", base="main")
+        self.addCleanup(goal._RUN_LOCK.clear)
+
+    def test_a_goal_has_one_runner_and_launch_leaves_it_be(self):
+        g = goal.Goal(self.d, self.gid)
+        self.assertFalse(g.runner_alive())
+        self.assertTrue(g.hold())
+        self.assertTrue(goal.Goal(self.d, self.gid).runner_alive())
+        self.assertFalse(goal.Goal(self.d, self.gid).hold())
+        g.update(pid=4242)
+        with mock.patch.object(goal.subprocess, "Popen", side_effect=AssertionError("launched")):
+            self.assertEqual(goal.launch(self.d, self.gid), 4242)
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out), mock.patch.object(goal.st, "main_repo_root", lambda _: self.d):
+            self.assertEqual(goal.main(["run", self.gid, "--repo", self.d]), 0)
+        self.assertIn("already running", out.getvalue())
+
+    def test_an_update_keeps_the_fields_and_a_write_is_whole(self):
+        g = goal.Goal(self.d, self.gid)
+        g.update(round=3)
+        self.assertEqual(g.read()["round"], 3)
+        self.assertEqual(g.read()["key"], "A-1")
+        self.assertEqual([n for n in os.listdir(g.state.dir) if n.endswith(".tmp")], [])
+
+    def test_a_goal_without_its_id_does_not_break_the_list(self):
+        g = goal.Goal(self.d, self.gid)
+        g.state.write(goal.GOAL_FILE, {"pid": None, "session": "s"})
+        self.assertEqual([x["id"] for x in goal.list_goals(self.d)], [self.gid])
 
 
 class TestPickGoal(unittest.TestCase):

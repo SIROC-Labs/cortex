@@ -427,10 +427,15 @@ class State(object):
             return default
 
     def write(self, name, data):
+        """Written whole, then moved into place: a reader at the same moment sees the
+        old file or the new one, never an empty one."""
         self.ensure()
-        with open(self.path(name), "w") as f:
+        path = self.path(name)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
+        os.replace(tmp, path)
 
     def phases_done(self):
         return set(self.read("state.json", {}).get("done", []))

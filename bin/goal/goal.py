@@ -55,6 +55,9 @@ HOOK = os.path.join(HERE, "hook.py")
 
 PROMPTS = os.path.join(HERE, "prompts")
 GOAL_FILE = "goal.json"
+GOAL_LOCK = "goal.lock"
+RUN_LOCK = "run.lock"
+_RUN_LOCK = []
 JOURNAL_FILE = "journal.md"
 LOG_FILE = "goal.log"
 CALLS_FILE = "calls.json"
@@ -1111,11 +1114,42 @@ class Goal(object):
         return self.state.read(GOAL_FILE, {})
 
     def update(self, **fields):
-        data = self.read()
-        data.update(fields)
-        data["updated"] = time.time()
-        self.state.write(GOAL_FILE, data)
+        """Under a lock: a part's runner and its parent's both write here, and neither
+        may lose the other's fields."""
+        self.state.ensure()
+        with open(self.state.path(GOAL_LOCK), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            data = self.read()
+            data.update(fields)
+            data["updated"] = time.time()
+            self.state.write(GOAL_FILE, data)
         return data
+
+    def runner_alive(self):
+        """Whether a runner holds this goal: it keeps its run lock while it lives,
+        so a pid written over or left behind cannot mislead."""
+        if not os.path.isdir(self.state.dir):
+            return False
+        with open(self.state.path(RUN_LOCK), "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        return False
+
+    def hold(self):
+        """Take the run lock for the life of this process. False when another
+        runner has it."""
+        self.state.ensure()
+        lock = open(self.state.path(RUN_LOCK), "a")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.close()
+            return False
+        _RUN_LOCK.append(lock)
+        return True
 
     @property
     def journal(self):
@@ -1174,7 +1208,7 @@ def create_part(main_root, parent, part, index, built):
     Returns its id; nothing runs yet."""
     gid = part_id(parent["id"], part["name"])
     goal = Goal(main_root, gid)
-    if goal.read():
+    if os.path.exists(goal.state.path(GOAL_FILE)):
         return gid
     goal.state.ensure()
     goal.update(id=gid, parent=parent["id"], part=part["name"], part_index=index,
@@ -1193,6 +1227,8 @@ def launch(main_root, gid):
     """Run a goal in its own session, so closing the TUI leaves it going. Returns
     its pid."""
     goal = Goal(main_root, gid)
+    if goal.runner_alive():
+        return goal.read().get("pid")
     logfile = open(goal.log, "a")
     proc = subprocess.Popen([sys.executable, os.path.abspath(__file__), "run", gid,
                              "--repo", main_root], cwd=main_root, stdin=subprocess.DEVNULL,
@@ -1217,6 +1253,7 @@ def list_goals(main_root):
         goal = Goal(main_root, name)
         data = goal.read()
         if data and not data.get("cleared"):
+            data.setdefault("id", name)
             data["alive"] = bool(data.get("pid")) and st._pid_alive(data["pid"])
             data["log"] = goal.log
             data["awaiting"] = goal.state.read("awaiting.json")
@@ -1983,6 +2020,7 @@ class Runner(object):
         parts, first = self.data["parts"], True
         while True:
             goals = {p["name"]: Goal(self.main_root, p["id"]).read() or {} for p in parts}
+            alive = {p["name"] for p in parts if Goal(self.main_root, p["id"]).runner_alive()}
             done = [p for p in parts if goals[p["name"]].get("status") == "done"]
             flow2 = self.flow2()
             if flow2:
@@ -2001,9 +2039,10 @@ class Runner(object):
                 g = goals[p["name"]]
                 if g.get("status") == "done":
                     continue
-                if g.get("pid") and st._pid_alive(g["pid"]):
+                if p["name"] in alive:
                     running.append(p["name"])
-                elif not g or g.get("status") == "new" or first:
+                elif not os.path.exists(Goal(self.main_root, p["id"]).state.path(GOAL_FILE)) \
+                        or g.get("status") == "new" or first:
                     ready.append(p)
                 else:
                     reason = g.get("reason") if g.get("status") == "failed" else g.get("status")
@@ -2158,7 +2197,7 @@ class Runner(object):
                 done = [p["name"] for p in parts if goals[p["name"]].get("status") == "done"]
                 building = [n for n, g in goals.items() if n != self.data["part"]
                             and g.get("phase") == "building" and g.get("status") != "done"
-                            and g.get("pid") and st._pid_alive(g["pid"])]
+                            and Goal(self.main_root, g.get("id") or "-").runner_alive()]
                 if needs <= set(done) and len(building) < PARALLEL_PARTS:
                     self.set(phase="building", status="working")
                     return [{"name": n, "summary": goals[n].get("summary")} for n in done]
@@ -2577,6 +2616,9 @@ def main(argv):
         if args.start:
             launch(main_root, gid)
         print(gid)
+        return 0
+    if not Goal(main_root, args.id).hold():
+        print("%s is already running" % args.id)
         return 0
     return Runner(main_root, args.id).run()
 
