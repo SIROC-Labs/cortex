@@ -1945,6 +1945,8 @@ class App(object):
                 self.change_control(lambda c: c.setdefault("models", {}).update({mkey: value}))
                 self.message = "%s: %s%s" % (label.lower(), model_label(value),
                                              " — from the next run on" if mkey == "task"
+                                             else " — from each goal's next check on"
+                                             if mkey == "check_effort"
                                              else " — for goals started from now on")
         elif name == "Setup" and self.setup == "base" and key == "enter":
             if row["kind"] == "new":

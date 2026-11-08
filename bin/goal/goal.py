@@ -1610,14 +1610,15 @@ class Runner(object):
     # usage
 
     def check_effort(self):
-        """The checker's effort: the TUI's Setup tab's, read each time so a change
-        reaches a goal already running, else the goal's own."""
+        """The checker's effort: what the TUI's Setup tab shows, its saved value or
+        else the default, read each time so it reaches a goal already running. Not
+        the goal's own: the tab must be true for every goal it lists."""
         try:
             with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
                 value = (json.load(f).get("models") or {}).get("check_effort")
         except (IOError, OSError, ValueError, AttributeError):
             value = None
-        return value or self.data.get("check_effort") or DEFAULT_CHECK_EFFORT
+        return value or DEFAULT_CHECK_EFFORT
 
     def threshold(self):
         """The usage limit to pause at: the TUI's Setup tab's, read each time so a
@@ -2571,8 +2572,6 @@ def main(argv):
     new.add_argument("--subagent-model", default=DEFAULT_SUBAGENT_MODEL,
                      help="the default for the lead's sub-agents; it can ask for another")
     new.add_argument("--check-model", default=DEFAULT_CHECK_MODEL, help="the checker's model")
-    new.add_argument("--check-effort", default=DEFAULT_CHECK_EFFORT,
-                     choices=("low", "medium", "high", "xhigh", "max"), help="the checker's effort")
     new.add_argument("--gate", default=DEFAULT_GATE, choices=GATES,
                      help="who approves the plan: you at every level, you for the goal only, "
                           "or the reviewer agent")
@@ -2612,7 +2611,7 @@ def main(argv):
         gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
                      threshold=args.threshold, model=args.model,
                      subagent_model=args.subagent_model, check_model=args.check_model,
-                     check_effort=args.check_effort, gate=args.gate)
+                     gate=args.gate)
         if args.start:
             launch(main_root, gid)
         print(gid)

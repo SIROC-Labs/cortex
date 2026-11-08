@@ -1262,7 +1262,8 @@ class TestPlanFlow(unittest.TestCase):
         self.assertIsNone(self.runner.data.get("session"))
 
     def test_the_checker_s_effort_follows_the_setup_tab(self):
-        self.assertEqual(self.runner.check_effort(), self.runner.data.get("check_effort") or goal.DEFAULT_CHECK_EFFORT)
+        self.runner.set(check_effort="xhigh")
+        self.assertEqual(self.runner.check_effort(), goal.DEFAULT_CHECK_EFFORT)
         os.makedirs(os.path.join(self.dir, ".cortex", "queue"), exist_ok=True)
         with open(os.path.join(self.dir, ".cortex", "queue", "control.json"), "w") as f:
             json.dump({"models": {"check_effort": "medium"}}, f)
