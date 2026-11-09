@@ -2538,6 +2538,8 @@ class Runner(object):
 
     def run(self):
         try:
+            # Read before the status says setting-up: a done goal only watches its PR.
+            watch = self.watching()
             self.set(pid=os.getpid(), status="setting-up", reason=None)
             self.set_up()
             pending = self.goal.state.read("awaiting.json") or {}
@@ -2554,7 +2556,7 @@ class Runner(object):
                 prompt = "The person says:\n\n%s\n\n%s" % (self.wait_for_answer(pending), CONTINUE)
             elif pending.get("kind") == "plan":
                 prompt = self.await_plan(pending)
-            elif self.watching():
+            elif watch:
                 prompt = self.watch_pr()
                 if prompt is None:
                     return 0

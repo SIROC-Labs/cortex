@@ -1542,6 +1542,16 @@ class TestWatchPR(unittest.TestCase):
         self.assertFalse(self.runner.watching())
         self.assertEqual(len([c for c in self.calls if c[0] == sys.executable]), 2)
 
+    def test_a_done_goal_started_again_only_watches_its_pr(self):
+        tree = os.path.join(self.d, "tree")
+        os.makedirs(tree)
+        self.runner.set(worktree=tree, ask="x", phase="parts")
+        self.runner.lead = lambda prompt: self.fail("the lead was called")
+        self.runner.run_parts = lambda: self.fail("the parts ran again")
+        self.state = "MERGED"
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(self.runner.data["phase"], "merged")
+
 
 class TestPickGoal(unittest.TestCase):
     def test_a_goal_is_picked_by_number_or_key_and_the_only_one_without_asking(self):
