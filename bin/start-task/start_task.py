@@ -35,6 +35,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -1479,15 +1480,212 @@ def changed_files(worktree, base):
     return sorted({f for f in (diff + "\n" + untracked).splitlines() if f.strip()})
 
 
+VITEST_CONFIGS = ("vitest.config.ts", "vitest.config.mts", "vitest.config.js", "vitest.config.mjs")
+VITEST_SOURCES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
+
+
 def qa_commands(worktree, base):
+    """The QA commands for the branch: the repo's `.start-task.json` when it has one,
+    else only the tests that cover the files the branch changed."""
     config = qa_config(worktree)
-    if config is None:
-        return None
     changed = changed_files(worktree, base)
+    if config is None:
+        return detected_gates(worktree, changed or [])
     try:
         return select_gates(config, changed)
     except ValueError as e:
         die("%s: %s" % (QA_CONFIG, e))
+
+
+def nearest(worktree, path, found):
+    """The closest directory above `path` (relative to the worktree) for which
+    `found(directory)` holds, as a relative path ("" for the root), or None."""
+    parts = path.split("/")[:-1]
+    for i in range(len(parts), -1, -1):
+        rel = "/".join(parts[:i])
+        if found(os.path.join(worktree, rel) if rel else worktree):
+            return rel
+    return None
+
+
+def repo_files(worktree):
+    """The repo's own files, tracked and new, as absolute paths."""
+    _, out, _ = git(["ls-files", "-co", "--exclude-standard"], cwd=worktree, check=False)
+    return [os.path.join(worktree, f) for f in out.splitlines() if f.strip()]
+
+
+def pytest_homes(files):
+    """Each directory pytest runs from: one with a pytest.ini, or the top conftest.py
+    of a tree."""
+    homes = []
+    for d in sorted({os.path.dirname(f) for f in files
+                     if os.path.basename(f) in ("pytest.ini", "conftest.py")}):
+        if not any(d.startswith(h + os.sep) for h in homes):
+            homes.append(d)
+    return homes
+
+
+HUB_REACH = 10
+
+
+def python_modules(worktree, files, homes):
+    """[(project, dotted module, file)] for every Python file, named as it is
+    imported: under a `src` directory from there, in a test home from the home. A
+    project is the directory above `src` or above the test home."""
+    out = []
+    for full in files:
+        if not full.endswith(".py") or not os.path.isfile(full):
+            continue
+        home = next((h for h in homes if full.startswith(h + os.sep)), None)
+        if home:
+            rel = os.path.relpath(full, home)
+            project = os.path.dirname(home) if os.path.basename(home) in ("test", "tests") else home
+        else:
+            rel = os.path.relpath(full, worktree)
+            project = worktree
+            marker = os.sep + "src" + os.sep
+            if rel.startswith("src" + os.sep) or marker in os.sep + rel:
+                head, _, rel = (os.sep + rel).partition(marker)
+                project = os.path.join(worktree, head.strip(os.sep))
+        name = rel[:-3].replace(os.sep, ".")
+        if name.endswith("__init__"):
+            name = name[:-len("__init__")].rstrip(".")
+        if name:
+            out.append((project.rstrip(os.sep), name, full))
+    return out
+
+
+def imported(full, module):
+    """The dotted names a Python file imports, with the names it imports from them."""
+    import ast
+    try:
+        with open(full) as fh:
+            tree = ast.parse(fh.read())
+    except (IOError, OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return set()
+    package = module if full.endswith("__init__.py") else module.rpartition(".")[0]
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                parts = package.split(".") if package else []
+                parts = parts[:len(parts) - node.level + 1] if node.level > 1 else parts
+                base = ".".join(parts + ([base] if base else []))
+            names.update("%s.%s" % (base, a.name) if base else a.name for a in node.names)
+    return names
+
+
+def ignored(home):
+    """The paths a test home's pytest.ini leaves out with `--ignore`."""
+    try:
+        with open(os.path.join(home, "pytest.ini")) as fh:
+            text = fh.read()
+    except (IOError, OSError):
+        return []
+    return [os.path.normpath(os.path.join(home, x))
+            for x in re.findall(r"--ignore(?:=|\s+)(\S+)", text)]
+
+
+def related_python_tests(worktree, changed):
+    """{test home: test files and directories} that reach a changed Python file
+    through their imports, and the test directory that mirrors each package reached
+    (`api.admin` → `test/admin`). A name resolves in the file's own project first, so
+    two apps with an `api` package stay apart. A conftest.py that reaches a change
+    brings its directory."""
+    files = repo_files(worktree)
+    homes = pytest_homes(files)
+    entries = python_modules(worktree, files, homes)
+    own, anywhere = {}, {}
+    for project, name, full in entries:
+        own.setdefault(project, {}).setdefault(name, full)
+        anywhere.setdefault(name, set()).add(full)
+    users, wide = {}, set()
+    for project, name, full in entries:
+        reach = set()
+        for imp in imported(full, name):
+            # The module the import names, not each package above it: the longest
+            # dotted prefix that is a module.
+            parts = imp.split(".")
+            for i in range(len(parts), 0, -1):
+                key = ".".join(parts[:i])
+                hit = own[project].get(key)
+                deps = [hit] if hit else anywhere.get(key, ())
+                if deps:
+                    if i >= 2:
+                        reach.add(".".join(parts[:2]))
+                    for dep in deps:
+                        users.setdefault(dep, set()).add(full)
+                    break
+        if len(reach) >= HUB_REACH:
+            wide.add(full)
+    changed_full = {os.path.join(worktree, f) for f in changed if f.endswith(".py")}
+    seen, todo = set(), list(changed_full)
+    while todo:
+        f = todo.pop()
+        if f in seen or not os.path.isfile(f):
+            continue
+        seen.add(f)
+        # A module that wires the whole app together (its app factory, its
+        # container) reaches every test: the walk stops there, unless it changed.
+        if f not in wide or f in changed_full:
+            todo.extend(users.get(f, ()))
+    homes_of = {(os.path.dirname(h) if os.path.basename(h) in ("test", "tests") else h): h
+                for h in homes}
+    mirrored = set()
+    for project, name, full in entries:
+        if full in seen and full not in wide and project in homes_of and "." in name:
+            d = os.path.join(homes_of[project], name.split(".")[1])
+            if os.path.isdir(d) and not full.startswith(homes_of[project] + os.sep):
+                mirrored.add(d)
+    seen |= mirrored
+    out = {}
+    for f in seen:
+        home = next((h for h in homes if f.startswith(h + os.sep)), None)
+        if not home or any(f == x or f.startswith(x + os.sep) for x in ignored(home)):
+            continue
+        name = os.path.basename(f)
+        if f in mirrored:
+            out.setdefault(home, set()).add(f)
+        elif name.startswith("test_"):
+            out.setdefault(home, set()).add(f)
+        elif name == "conftest.py":
+            out.setdefault(home, set()).add(os.path.dirname(f))
+    for home, picks in out.items():
+        dirs = [p for p in picks if os.path.isdir(p)]
+        out[home] = {p for p in picks if not any(p != d and p.startswith(d + os.sep) for d in dirs)}
+    return out
+
+
+def detected_gates(worktree, changed):
+    """Only the tests that cover the changed files, as [(name, command, cwd)]: for
+    scripts, Vitest's tests related to them; for Python, the tests that import a
+    changed module, directly or through others. Dependencies are installed first
+    where the worktree has none."""
+    vitest = {}
+    for f in changed:
+        full = os.path.join(worktree, f)
+        if not (f.endswith(VITEST_SOURCES) and os.path.isfile(full)):
+            continue
+        pkg = nearest(worktree, f, lambda d: any(
+            os.path.isfile(os.path.join(d, c)) for c in VITEST_CONFIGS))
+        if pkg is not None:
+            vitest.setdefault(pkg, []).append(os.path.relpath(full, os.path.join(worktree, pkg)))
+    gates = []
+    for pkg, files in sorted(vitest.items()):
+        cmd = "npx --no-install vitest related --run --passWithNoTests %s" % " ".join(
+            shlex.quote(x) for x in sorted(files))
+        if not os.path.isfile(os.path.join(worktree, pkg, "node_modules", ".bin", "vitest")):
+            cmd = "npm ci --ignore-scripts && " + cmd
+        gates.append(("tests related to the changes in %s" % (pkg or "the root"), cmd, pkg or None))
+    if any(f.endswith(".py") for f in changed):
+        for home, picks in sorted(related_python_tests(worktree, changed).items()):
+            rel = os.path.relpath(home, worktree)
+            gates.append(("tests of the changes in %s" % rel, "uv run pytest -q %s" % " ".join(
+                shlex.quote(os.path.relpath(x, home)) for x in sorted(picks)), rel))
+    return gates
 
 
 def run_qa_gate(commands, worktree):
@@ -1514,12 +1712,8 @@ def phase_qa(args, state=None):
 
     step("QA")
     commands = qa_commands(worktree, context["git"].get("base") or "origin/main")
-    if commands is None:
-        warn("no %s in %s — skipping QA" % (QA_CONFIG, worktree))
-        state.mark_done("qa")
-        return state
     if not commands:
-        info("no gate in %s applies to the files this branch changed" % QA_CONFIG)
+        info("no tests cover the files this branch changed")
         state.mark_done("qa")
         return state
 

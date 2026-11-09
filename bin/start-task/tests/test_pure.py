@@ -215,6 +215,60 @@ class TestExtractLastJsonBlock(unittest.TestCase):
         self.assertIsNone(extract_last_json_block(None))
 
 
+class TestDetectedGates(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d)
+        files = {
+            "web/vitest.config.ts": "", "web/src/a.ts": "", "infra/main.tf": "",
+            "app/src/app/__init__.py": "",
+            "app/src/app/admin/__init__.py": "",
+            "app/src/app/admin/dto.py": "",
+            "app/src/app/admin/router.py": "from app.admin.dto import X\n",
+            "app/src/app/offers/__init__.py": "",
+            "app/src/app/offers/model.py": "",
+            "app/src/app/factory.py": "".join("from app.m%d import x\n" % i for i in range(10))
+                                      + "from app.admin import router\n",
+            "app/test/pytest.ini": "[pytest]\naddopts = --ignore=integration\n",
+            "app/test/conftest.py": "",
+            "app/test/admin/test_users.py": "from app.factory import make\n",
+            "app/test/offers/test_model.py": "from app.offers.model import Offer\n",
+            "app/test/integration/test_db.py": "from app.offers.model import Offer\n",
+            "other/src/app/admin/dto.py": "",
+            "other/test/pytest.ini": "[pytest]\n",
+            "other/test/test_other.py": "from app.admin.dto import X\n",
+        }
+        for i in range(10):
+            files["app/src/app/m%d.py" % i] = ""
+        for path, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(self.d, path)), exist_ok=True)
+            with open(os.path.join(self.d, path), "w") as f:
+                f.write(text)
+        subprocess.run(["git", "init", "-q"], cwd=self.d, check=True)
+
+    def gates(self, *changed):
+        return {cwd: cmd for _, cmd, cwd in start_task.detected_gates(self.d, list(changed))}
+
+    def test_scripts_run_the_tests_related_to_them(self):
+        cmd = self.gates("web/src/a.ts")["web"]
+        self.assertIn("npm ci --ignore-scripts && npx --no-install vitest related --run", cmd)
+        self.assertTrue(cmd.endswith("src/a.ts"))
+
+    def test_python_runs_the_tests_that_reach_the_change_and_its_mirror(self):
+        self.assertEqual(self.gates("app/src/app/admin/dto.py"),
+                         {"app/test": "uv run pytest -q admin"})
+        self.assertEqual(self.gates("app/src/app/offers/model.py"),
+                         {"app/test": "uv run pytest -q offers"})
+
+    def test_the_app_factory_reaches_everything_only_when_it_changed(self):
+        self.assertNotIn("admin/test_users.py", self.gates("app/src/app/m3.py").get("app/test", ""))
+        self.assertIn("admin/test_users.py", self.gates("app/src/app/factory.py")["app/test"])
+
+    def test_files_without_tests_run_nothing(self):
+        self.assertEqual(self.gates("infra/main.tf"), {})
+
+
 class TestNamesTask(unittest.TestCase):
     def test_the_id_is_a_whole_word_in_the_branch(self):
         self.assertTrue(start_task.names_task("HGM-54/ci-runs", "HGM-54"))

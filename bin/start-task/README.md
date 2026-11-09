@@ -62,8 +62,19 @@ A gate runs when a file the branch changed against its base — committed or not
 one of its `paths` or sits under one; a gate with no `paths` always runs. `cwd` is
 relative to the repo root. A docs-only change runs nothing. When the diff cannot be
 worked out, every gate runs. The older flat form (`"lint"`, `"build"`, `"test"` as
-commands) still works and always runs. Without the file, the QA phase is skipped with a
-warning.
+commands) still works and always runs.
+
+Without the file, QA runs only the tests that cover the files the branch changed:
+- **Scripts:** `vitest related` in each package with a Vitest config, for the changed
+  files in it. It installs with `npm ci --ignore-scripts` first if the worktree has no
+  Vitest.
+- **Python:** `uv run pytest` in each test directory (a `pytest.ini`, or the top
+  `conftest.py`), for the test files that import a changed module, directly or through
+  other modules, plus the test directory that mirrors each package reached
+  (`app.admin` → `test/admin`). A module that wires a whole app together (it imports
+  from 10 or more packages, such as an app factory) does not pass a change on, unless
+  it changed itself. Paths the `pytest.ini` leaves out with `--ignore` stay out.
+- Anything else, such as infrastructure or docs, runs no tests. CI runs the full suites.
 
 The CLI keeps its Asana cache in `~/.cortex/cli/` — never the skills'
 `~/.cortex/cortex-workflow/`.

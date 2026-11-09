@@ -261,7 +261,7 @@ Reads `.start-task.json` from the target repo:
 ]}
 ```
 
-Explicit config, not auto-detection. A gate runs only when the branch changed a file
+With the file, a gate runs only when the branch changed a file
 under one of its `paths` (against the merge-base with its base, uncommitted and
 untracked files included), so a backend-only change never pays for the frontend suite.
 An undeterminable diff runs everything: a skipped gate ships a break, an extra one only
@@ -270,7 +270,11 @@ A non-zero exit is a failure. On failure, one model call per attempt with
 `prompts/qa_fix.md` and the failing command's output, re-running the gate after each.
 Bounded to 2 attempts, then ask — never ship a red gate.
 
-A missing `.start-task.json` skips the phase entirely with a warning.
+Without `.start-task.json`, the gates come from the diff: `vitest related` for changed
+scripts, and for Python the tests an import graph connects to the changed modules,
+plus the test directory mirroring each package reached. The walk stops at modules that
+import from 10 or more packages (app factories, containers): through them every test
+reaches every module. Only what the branch touches is tested; CI runs everything.
 
 This covers the mechanical half of QA. Visual and behavioural verification — "does this
 screen look right" — is out of scope; see Non-goals.
