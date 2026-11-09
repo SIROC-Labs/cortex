@@ -330,7 +330,6 @@ class TestGate(unittest.TestCase):
         self.addCleanup(setattr, goal, "CI_START", start)
         self.assertEqual(self.runner.gate(), (None, None))
         self.assertEqual(self.runner.data["checks"], [])
-        self.assertIn("The PR has no CI checks", goal.checks_text("main", []))
 
     def test_the_base_is_merged_in_and_a_conflict_goes_back_to_the_lead(self):
         self.commit("shared.txt", "goal\n", "work")
@@ -428,7 +427,7 @@ class TestGate(unittest.TestCase):
         self.assertIn(["run", "rerun"], self.gh)
 
     def test_the_checker_is_told_what_ci_passed(self):
-        self.assertIn("CI passed on it: `test`", goal.checks_text("main", ["test"]))
+        self.assertIn("CI runs once this check is clean", goal.checks_text("main"))
 
 class TestFlow(unittest.TestCase):
     def setUp(self):
@@ -465,6 +464,7 @@ class TestFlow(unittest.TestCase):
             return report, {"summary": "s"}
         self.runner.lead = lead
         self.runner.review = lambda: self.events.append("review") or (["no error state"], [])
+        self.runner.sync = lambda: self.events.append("sync") or None
         self.runner.sync_and_ci = lambda: self.events.append("push and CI") or (None, None)
         self.runner.check = lambda: self.events.append("check") or (True, [], [])
         self.runner.finish = lambda block: self.events.append("finish")
@@ -472,10 +472,25 @@ class TestFlow(unittest.TestCase):
         self.assertEqual(self.runner.run(), 0)
         self.assertEqual(self.events, ["lead planned (planning)", "lead planned (planning)", "review",
                                        "lead done (building)", "lead done (building)",
-                                       "push and CI", "check", "finish"])
+                                       "sync", "check", "push and CI", "finish"])
         self.assertIn("References", prompts[1])
         self.assertIn("- no error state", prompts[2])
         self.assertIn("not ticked", prompts[3])
+
+    def test_a_gap_goes_back_to_the_lead_before_anything_is_pushed(self):
+        done = JOURNAL.replace("- [ ] An empty", "- [x] An empty")
+        self.journal(done)
+        self.runner.set(phase="building", reviewed=True)
+        self.runner.lead = lambda prompt: self.events.append("lead") or ("done", {"summary": "s"})
+        verdicts = [(False, ["a gap"], []), (True, [], [])]
+        self.runner.sync = lambda: self.events.append("sync") or None
+        self.runner.check = lambda: self.events.append("check") or verdicts.pop(0)
+        self.runner.sync_and_ci = lambda: self.events.append("push and CI") or (None, None)
+        self.runner.finish = lambda block: self.events.append("finish")
+        self.runner.watch_pr = lambda: None
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(self.events, ["lead", "sync", "check", "lead", "sync", "check",
+                                       "push and CI", "finish"])
 
 
 PARTS = {"parts": [
@@ -587,6 +602,7 @@ class TestSplitFlow(unittest.TestCase):
         self.runner.review = lambda: events.append("review") or (["no due-day rule"], [])
         read = goal.Runner.read_journal.__get__(self.runner)
         self.runner.read_journal = lambda: read().replace("- [ ]", "- [x]") if not rounds else read()
+        self.runner.sync = lambda: None
         self.runner.sync_and_ci = lambda: (None, None)
         self.runner.check = lambda: (True, [], [])
         self.runner.finish = lambda block: events.append("finish")
@@ -1214,6 +1230,7 @@ class TestPlanFlow(unittest.TestCase):
         self.runner = goal.Runner(self.dir, gid)
         self.runner.set_up = lambda: None
         self.runner.head = lambda: "same"
+        self.runner.sync = lambda: None
         self.runner.sync_and_ci = lambda: (None, None)
         self.runner.check = lambda: (True, [], [])
         self.runner.finish = lambda block: self.events.append("finish")
@@ -1392,6 +1409,7 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.runner.review = lambda: ([], [])
         read = goal.Runner.read_journal.__get__(self.runner)
         self.runner.read_journal = lambda: read().replace("- [ ]", "- [x]") if not rounds else read()
+        self.runner.sync = lambda: None
         self.runner.sync_and_ci = lambda: (None, None)
         self.runner.check = lambda: (True, [], [])
         self.runner.finish = lambda block: None

@@ -120,17 +120,19 @@ This program is the harness around the lead:
   while the lead works: the runner pushes once the lead reports done. Through a Claude Code
   hook, every agent's `git push`, `gh pr ready|merge|create`, `gh workflow run` and
   `gh run rerun` is refused.
-- **Sync and CI, by the runner.** When the lead says it is done, the runner merges the base
-  into the branch, pushes, marks the PR ready for review, and waits for its CI, as the merge
-  step does for task runs. The runner waits for the whole CI run, even after a check
+- **Check, then sync and CI, by the runner.** When the lead says it is done, the runner
+  merges the base into the branch and has the checker check it, without pushing. Only a
+  clean check is pushed: a gap found after CI would cost a second CI run. The runner then
+  marks the PR ready for review and waits for its CI, as the merge step does for task runs. The runner waits for the whole CI run, even after a check
   fails, so a fix never starts CI over while a run still bills. Every failing check, with
   the telling lines of its log, then goes at once to a fresh call on the sub-agent model
   (Sonnet) to fix, with two tries before the lead takes it on. A fixer that commits
   nothing hands over without another CI run. When GitHub did not run the jobs at all (a
   spending limit or a failed payment), the runner asks you, and re-runs them once you
   answer: no fixer is called. A conflict goes to the lead. The full suites run only on CI, never on this
-  machine. The checker runs no tests or CI at all: it is told what CI passed and judges only
-  the code against the ticket. The PR comment lists what CI passed under **Checks**.
+  machine. The checker runs no tests or CI at all: it judges only the code against the ticket.
+  A CI fix by the sub-agent model is pushed without another check; one by the lead is
+  checked again first. The PR comment lists what CI passed under **Checks**.
 - **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
   the checker and of every sub-agent it started, from Claude Code's transcripts. `u` on the
   goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API
@@ -148,8 +150,8 @@ This program is the harness around the lead:
 - **After the finish.** The runner stays, and watches the PR every five minutes until it
   is merged or closed: "ready to merge" on the TUI. Each new review comment on it (a
   review, an inline comment, or a top-level comment, but not the runner's own) starts a
-  revision: the lead, in a new session, has sub-agents address it, then the runner pushes,
-  waits for CI, checks again, and replies on the PR with the lead's summary. Only the merge
+  revision: the lead, in a new session, has sub-agents address it, then the runner checks
+  it, pushes, waits for CI, and replies on the PR with the lead's summary. Only the merge
   makes the goal done; a goal whose PR was closed says so. A goal that finished before
   goals watched their PR says "r watches it": r starts the watch. Comments left before
   the finish are not taken as review comments.

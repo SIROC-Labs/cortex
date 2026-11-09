@@ -704,13 +704,11 @@ def failed_ci_prompt(failing, excerpts):
     return "\n".join(parts)
 
 
-def checks_text(base, checks):
-    """Step 3 of the checker's prompt: what CI already checked."""
-    if not checks:
-        return ("The runner merged `%s` into the branch. The PR has no CI checks. Judge the "
-                "code, not test results." % base)
-    return ("The runner merged `%s` into the branch, and CI passed on it: %s. Judge the "
-            "code, not test results." % (base, ", ".join("`%s`" % c for c in checks)))
+def checks_text(base):
+    """Step 3 of the checker's prompt: CI comes after the check."""
+    return ("The runner merged `%s` into the branch. Nothing is pushed yet: CI runs once this "
+            "check is clean, and a cheaper agent fixes what fails. Judge the code, not test "
+            "results." % base)
 
 
 def checks_section(checks):
@@ -1894,9 +1892,9 @@ class Runner(object):
             st.info("- %s" % gap)
         return done, gaps, questions
 
-    def gate(self):
-        """Sync the branch with its base, push it, mark the PR ready, and wait for
-        its CI. Returns (None, None) when CI passes, else ("merge" | "ci", what failed)."""
+    def sync(self):
+        """Merge the base into the branch, without pushing. Returns None, or what the
+        lead is to fix first."""
         worktree, base = self.data["worktree"], self.data["base"]
         self.set(status="checking", doing="syncing with %s" % base)
         st.step("Syncing with %s" % base)
@@ -1907,11 +1905,20 @@ class Runner(object):
             _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree,
                                  check=False)
             if not files.strip():
-                return "merge", ("You reported done, but the runner could not merge `origin/%s` into "
+                return ("You reported done, but the runner could not merge `origin/%s` into "
                         "your branch:\n\n```\n%s\n```\n\nCommit or remove what is in the "
                         "way, then report done again." % (base, (err or out).strip()[-2000:]))
             st.warn("the merge conflicts — back to the lead")
-            return "merge", conflict_prompt("origin/%s" % base, files.split())
+            return conflict_prompt("origin/%s" % base, files.split())
+        return None
+
+    def gate(self):
+        """Sync the branch with its base, push it, mark the PR ready, and wait for
+        its CI. Returns (None, None) when CI passes, else ("merge" | "ci", what failed)."""
+        worktree = self.data["worktree"]
+        fix = self.sync()
+        if fix:
+            return "merge", fix
         self.push()
         pr_url = self.data.get("pr_url")
         if not pr_url:
@@ -2296,7 +2303,7 @@ class Runner(object):
                 "base": self.data["base"], "journal": self.goal.journal,
                 "checks": ("This part has run no CI: CI runs once, when the whole goal is "
                            "done. Judge the code, not test results." if part else
-                           checks_text(self.data["base"], self.data.get("checks"))),
+                           checks_text(self.data["base"])),
                 "subagent_model": self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
                 "subagent_alias": short_model(self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)}
 
@@ -2652,10 +2659,15 @@ class Runner(object):
                         st.warn("done, but %d acceptance criteria are not ticked" % len(unmet))
                         prompt = unmet_prompt(unmet)
                         continue
-                    if self.data.get("parent"):
-                        fix = self.sync_part()
-                    else:
-                        _, fix = self.sync_and_ci()
+                    # Checked before anything is pushed: a gap found after CI costs a
+                    # second CI run.
+                    fix = self.sync_part() if self.data.get("parent") else self.sync()
+                    if not fix:
+                        done, gaps, questions = self.check()
+                        if done and self.data.get("parent"):
+                            fix = self.deliver()
+                        elif done:
+                            _, fix = self.sync_and_ci()
                     if fix:
                         checks += 1
                         if checks >= MAX_CHECKS:
@@ -2666,11 +2678,6 @@ class Runner(object):
                         else:
                             prompt = fix
                         continue
-                    done, gaps, questions = self.check()
-                    if done and self.data.get("parent"):
-                        prompt = self.deliver()
-                        if prompt:
-                            continue
                     if done:
                         self.finish(block)
                         prompt = self.watch_pr() if not self.data.get("parent") else None
