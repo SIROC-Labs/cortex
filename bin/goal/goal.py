@@ -630,6 +630,7 @@ def gaps_prompt(gaps, answers=None):
     return "\n".join(parts)
 
 
+ADDRESSED = "Addressed the review comments"
 REVIEW_DOING = "ready to merge — watching the PR for review comments"
 
 
@@ -2432,20 +2433,36 @@ class Runner(object):
         self.push()
         if pr_url:
             if revised:
-                comment = "Addressed the review comments\n\n%s" % (block.get("summary") or "")
+                comment = "%s\n\n%s" % (ADDRESSED, block.get("summary") or "")
             else:
                 body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
                 st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
-                comment = (block.get("walkthrough") or "").strip()
-            comment += "\n\n" + checks_section(self.data.get("checks"))
-            if comment.strip():
+                comment = "" if self.walked_through(pr_url) else (block.get("walkthrough") or "").strip()
+            if comment:
+                comment += "\n\n" + checks_section(self.data.get("checks"))
                 st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(comment.strip())],
                        cwd=worktree, check=False)
+                if not revised:
+                    self.set(walked_through=True)
             st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
             st.info("PR ready: %s" % pr_url)
         self.set(status="review", phase="review", revising_pr=False, summary=block.get("summary"),
                  doing=REVIEW_DOING, finished=time.time(),
                  watch_from=self.data.get("watch_from") or time.time())
+
+    def walked_through(self, pr_url):
+        """Whether the PR has the walkthrough already: the goal's own record, or a
+        comment of the runner's on the PR that is not a reply to a review."""
+        if self.data.get("walked_through"):
+            return True
+        code, out, _ = st.run(["gh", "pr", "view", pr_url, "--json", "comments"],
+                              cwd=self.main_root, check=False)
+        try:
+            comments = json.loads(out).get("comments") or [] if code == 0 else []
+        except ValueError:
+            comments = []
+        return any(st.is_marked(c.get("body")) and st.mark(ADDRESSED) not in c.get("body", "")
+                   for c in comments)
 
     def announce(self, summary):
         """The ticket hears the goal is done, as it does from a task: In Review, and

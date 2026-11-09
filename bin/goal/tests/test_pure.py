@@ -1552,6 +1552,38 @@ class TestWatchPR(unittest.TestCase):
         self.assertEqual(self.runner.run(), 0)
         self.assertEqual(self.runner.data["phase"], "merged")
 
+    def test_the_walkthrough_is_posted_once(self):
+        self.runner.set(worktree=self.d, url="https://app.asana.com/0/1/77")
+        self.runner.push = lambda: None
+        self.runner.progress = lambda: None
+        posted = lambda: [c[-1] for c in self.calls if c[:3] == ["gh", "pr", "comment"]]
+        block = {"summary": "built", "walkthrough": "## Why\nthe walk"}
+        self.runner.finish(block)
+        self.runner.finish(block)
+        self.assertEqual(len(posted()), 1)
+        self.assertIn("the walk", posted()[0])
+        self.runner.set(revising_pr=True)
+        self.runner.finish({"summary": "renamed it"})
+        self.assertIn(goal.ADDRESSED, posted()[1])
+        self.assertEqual(len(posted()), 2)
+
+    def test_a_walkthrough_already_on_the_pr_is_not_posted_again(self):
+        self.runner.set(worktree=self.d, url="https://app.asana.com/0/1/77")
+        self.runner.push = lambda: None
+        self.runner.progress = lambda: None
+        run = goal.st.run
+
+        def with_walkthrough(cmd, cwd=None, check=True):
+            if cmd[:3] == ["gh", "pr", "view"] and "comments" in cmd:
+                self.calls.append(cmd)
+                bodies = [goal.st.mark("%s\n\nearlier" % goal.ADDRESSED), goal.st.mark("## Why\nold walk")]
+                return 0, json.dumps({"comments": [{"body": b} for b in bodies]}), ""
+            return run(cmd, cwd, check)
+        goal.st.run = with_walkthrough
+        self.runner.finish({"summary": "built", "walkthrough": "## Why\nthe walk"})
+        self.assertFalse([c for c in self.calls if c[:3] == ["gh", "pr", "comment"]])
+        self.assertIn(["gh", "pr", "ready", "https://github.com/o/r/pull/5"], self.calls)
+
 
 class TestPickGoal(unittest.TestCase):
     def test_a_goal_is_picked_by_number_or_key_and_the_only_one_without_asking(self):
