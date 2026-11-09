@@ -215,6 +215,15 @@ class TestExtractLastJsonBlock(unittest.TestCase):
         self.assertIsNone(extract_last_json_block(None))
 
 
+class TestNamesTask(unittest.TestCase):
+    def test_the_id_is_a_whole_word_in_the_branch(self):
+        self.assertTrue(start_task.names_task("HGM-54/ci-runs", "HGM-54"))
+        self.assertTrue(start_task.names_task("origin/HGM-54/ci-runs", "HGM-54"))
+        self.assertFalse(start_task.names_task("HGM-540/nonprod-postgres", "HGM-54"))
+        self.assertFalse(start_task.names_task("XHGM-54/x", "HGM-54"))
+        self.assertFalse(start_task.names_task("", "HGM-54"))
+
+
 class TestTaskKey(unittest.TestCase):
     def test_prefers_human_key(self):
         self.assertEqual(task_key({"task_id": "MT251-47", "ref": "12"}), "MT251-47")

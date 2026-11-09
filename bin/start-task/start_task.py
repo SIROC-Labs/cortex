@@ -508,7 +508,8 @@ def find_existing_work(repo, task_id):
     _, remote, _ = run(
         ["git", "branch", "-r", "--list", "*%s*" % task_id,
          "--format=%(refname:short)"], cwd=repo, check=False)
-    branches = [b.strip() for b in (local + "\n" + remote).splitlines() if b.strip()]
+    branches = [b.strip() for b in (local + "\n" + remote).splitlines()
+                if names_task(b.strip(), task_id)]
 
     pr_url = None
     code, out, _ = run(
@@ -516,12 +517,19 @@ def find_existing_work(repo, task_id):
          "--json", "url,headRefName"], cwd=repo, check=False)
     if code == 0 and out:
         try:
-            prs = json.loads(out)
+            prs = [p for p in json.loads(out) if names_task(p.get("headRefName"), task_id)]
             if prs:
                 pr_url = prs[0].get("url")
         except ValueError:
             pass
     return branches, pr_url
+
+
+def names_task(name, task_id):
+    """Whether a branch name holds the task's id as a whole word: HGM-54 is not in
+    HGM-540/x."""
+    return bool(name) and re.search(r"(?<![A-Za-z0-9])%s(?![0-9])" % re.escape(task_id),
+                                    name) is not None
 
 
 def base_ref(name):
