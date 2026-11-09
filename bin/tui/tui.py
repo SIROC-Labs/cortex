@@ -513,8 +513,14 @@ def goal_status(g, wait=None):
         return g.get("doing") or "paused for the usage limit", "normal"
     if status == "done" and g.get("parent"):
         return "done — merged into the goal's branch", "dim"
+    if status == "review":
+        return "%s%s" % (gl.REVIEW_DOING, use), "ok"
+    if status == "done" and g.get("phase") == "merged":
+        return "merged", "dim"
+    if status == "done" and g.get("phase") == "closed":
+        return "its PR was closed without a merge", "dim"
     if status == "done":
-        return "done — its PR is ready for review", "dim"
+        return "done — its PR is ready · r watches it for review comments and the merge", "normal"
     if status == "failed":
         return "failed — %s · r tries again" % (g.get("reason") or "?").splitlines()[0][:120], "bad"
     if status == "stopped":
@@ -532,7 +538,8 @@ def goal_rows(goals, waits=None, hide_done=False):
             continue
         gid = "goal:%s" % g["id"]
         wait = waits.get(gid)
-        done = g.get("status") == "done"
+        done = g.get("status") == "done" and (bool(g.get("parent")) or not g.get("pr_url")
+                                              or g.get("phase") in ("merged", "closed"))
         if hide_done and done and not wait:
             continue
         status, style = goal_status(g, wait)
@@ -1568,8 +1575,8 @@ class App(object):
                      % row["cols"][1], lambda: (goal.update(cleared=True), self.snapshot()))
         elif key == "r" and row.get("alive"):
             self.message = "the goal is still running"
-        elif key == "r" and row.get("status") == "done":
-            self.message = "the goal is done — its PR is ready for review"
+        elif key == "r" and row.get("done"):
+            self.message = "the goal is done"
         elif key == "r":
             gl.launch(self.main_root, row["goal"])
             self.message = "the goal carries on from where it stopped"

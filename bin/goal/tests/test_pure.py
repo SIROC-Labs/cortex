@@ -1048,6 +1048,15 @@ class TestBoard(unittest.TestCase):
         self.board = goal.bd.Board(self.dir, goal.st.State(self.dir, "goal-x"), "1")
         self.board.state.ensure()
 
+    def test_a_reworded_step_keeps_its_subtask(self):
+        self.board.publish([("nav dot and sse count from the reviews query", "Nav dot and SSE", "b")], False)
+        gid = self.fake.gid("Nav dot and SSE")
+        self.board.publish([("nav dot and sse count done in 3c5b60f0", "Nav dot and SSE", "b")], False,
+                           before_build=False)
+        self.assertEqual(self.fake.names().count("Nav dot and SSE"), 1)
+        self.board.tick({"nav dot and sse count done in 3c5b60f0"})
+        self.assertTrue(self.fake.tasks[gid]["completed"])
+
     def test_sections_questions_review_then_plan(self):
         self.board.ask([{"q": "Which colour?", "why": "The two disagree."}])
         self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
@@ -1485,6 +1494,53 @@ class TestOneRunner(unittest.TestCase):
         g = goal.Goal(self.d, self.gid)
         g.state.write(goal.GOAL_FILE, {"pid": None, "session": "s"})
         self.assertEqual([x["id"] for x in goal.list_goals(self.d)], [self.gid])
+
+
+class TestWatchPR(unittest.TestCase):
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d)
+        gid = goal.create(self.d, "77", "A-1", "x", base="main")
+        goal.Goal(self.d, gid).update(pr_url="https://github.com/o/r/pull/5", status="done",
+                                      phase="building", finished=1000.0, doing="all built")
+        self.runner = goal.Runner(self.d, gid)
+        self.runner.fresh = lambda prompt: prompt
+        self.state, self.calls = "OPEN", []
+        self.comments = [
+            {"id": 1, "body": "old, before the finish", "created_at": "1970-01-01T00:00:01Z", "user": {"login": "j"}},
+            {"id": 2, "body": goal.st.mark("the runner's own"), "created_at": "2026-11-09T10:00:00Z",
+             "user": {"login": "j"}},
+            {"id": 3, "body": "Rename the button.", "created_at": "2026-11-09T10:00:00Z", "user": {"login": "j"}}]
+
+        def fake(cmd, cwd=None, check=True):
+            self.calls.append(cmd)
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return 0, json.dumps({"state": self.state}), ""
+            if cmd[:2] == ["gh", "api"]:
+                rows = self.comments if "/issues/" in cmd[3] else []
+                return 0, "\n".join(json.dumps(r) for r in rows), ""
+            return 0, "", ""
+        run, sleep = goal.st.run, goal.time.sleep
+        goal.st.run, goal.time.sleep = fake, lambda _: None
+        self.addCleanup(setattr, goal.st, "run", run)
+        self.addCleanup(setattr, goal.time, "sleep", sleep)
+
+    def test_a_finished_goal_watches_its_pr_until_the_merge(self):
+        self.assertTrue(self.runner.watching())
+        prompt = self.runner.watch_pr()
+        self.assertIn("Rename the button.", prompt)
+        self.assertNotIn("old, before the finish", prompt)
+        self.assertNotIn("the runner's own", prompt)
+        self.assertEqual(self.runner.data["status"], "working")
+        self.assertTrue(self.runner.data["revising_pr"])
+        asana = [c for c in self.calls if c[0] == sys.executable]
+        self.assertEqual([c[2:4] for c in asana], [["task", "set-status"], ["comment", "add"]])
+        self.assertIn("Ready for review — https://github.com/o/r/pull/5", asana[1][-1])
+        self.state = "MERGED"
+        self.assertIsNone(self.runner.watch_pr())
+        self.assertEqual((self.runner.data["status"], self.runner.data["phase"]), ("done", "merged"))
+        self.assertFalse(self.runner.watching())
+        self.assertEqual(len([c for c in self.calls if c[0] == sys.executable]), 2)
 
 
 class TestPickGoal(unittest.TestCase):

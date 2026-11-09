@@ -47,7 +47,8 @@ import start_task as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope, unattended  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import CI_NOT_STARTED, actions_refused, check_states, failed_runs, failure_excerpt  # noqa: E402
+from engine import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
+                    failed_runs, failure_excerpt, render_feedback)
 sys.path.insert(0, HERE)
 import board as bd  # noqa: E402
 
@@ -118,6 +119,8 @@ PARTS_FILE = "parts.json"
 MAX_DEPTH = 1
 PARALLEL_PARTS = 2
 PARTS_CHECK = 30
+# How often a finished goal looks at its PR: for review comments, and the merge.
+PR_CHECK = 300
 MAX_PARTS = 8
 PLANNING = ("This first round is the analysis: steps 1 to 4 of How to work. Do not "
             "change code yet. When the journal has the references, the acceptance criteria "
@@ -229,7 +232,7 @@ CONTINUE = ("Continue the work. Read your journal if you need to remind yourself
 # zombies that still look alive.
 _CHILDREN = []
 
-LIVE = ("setting-up", "working", "checking", "waiting", "paused", "parts", "queued")
+LIVE = ("setting-up", "working", "checking", "waiting", "paused", "parts", "queued", "review")
 FINISHED = ("done", "failed", "stopped")
 
 
@@ -625,6 +628,32 @@ def gaps_prompt(gaps, answers=None):
               "summary, and the checker reads that. If the prototype and the one-pager do "
               "not settle a gap, ask the person. Then report done again."]
     return "\n".join(parts)
+
+
+REVIEW_DOING = "ready to merge — watching the PR for review comments"
+
+
+def after(stamp, since):
+    """Whether a GitHub time, such as 2026-11-08T21:13:40Z, is after `since`, in
+    seconds since the epoch."""
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc).timestamp() > since
+    except (TypeError, ValueError):
+        return False
+
+
+def pr_review_prompt(feedback):
+    """What the lead hears when someone commented on the finished goal's PR."""
+    return ("The goal is done and its PR is open for review. These review comments were "
+            "left on it:\n\n%s\n"
+            "Address each one, as in the build: brief sub-agents to change the code, and "
+            "test by the repo's TESTING.md files. Where a comment asks a question, answer it "
+            "in your summary. Where a comment is wrong or out of scope, do not change the "
+            "code for it: say why in your summary. Record the changes in the journal, with "
+            "an acceptance criterion for each new requirement, then report done. The runner "
+            "pushes, waits for CI and checks the branch again, and posts your summary on "
+            "the PR as the reply." % feedback)
 
 
 def answers_text(questions, answer):
@@ -2399,18 +2428,111 @@ class Runner(object):
                      summary=block.get("summary"), finished=time.time())
             return
         worktree, pr_url = self.data["worktree"], self.data.get("pr_url")
+        revised = self.data.get("revising_pr")
         self.push()
         if pr_url:
-            body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
-            st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
-            comment = (block.get("walkthrough") or "").strip()
+            if revised:
+                comment = "Addressed the review comments\n\n%s" % (block.get("summary") or "")
+            else:
+                body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
+                st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
+                comment = (block.get("walkthrough") or "").strip()
             comment += "\n\n" + checks_section(self.data.get("checks"))
             if comment.strip():
                 st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(comment.strip())],
                        cwd=worktree, check=False)
             st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
             st.info("PR ready: %s" % pr_url)
-        self.set(status="done", doing=block.get("summary") or "done", finished=time.time())
+        self.set(status="review", phase="review", revising_pr=False, summary=block.get("summary"),
+                 doing=REVIEW_DOING, finished=time.time(),
+                 watch_from=self.data.get("watch_from") or time.time())
+
+    def announce(self, summary):
+        """The ticket hears the goal is done, as it does from a task: In Review, and
+        a comment with the PR. Once."""
+        ref, pr_url = self.data.get("ref"), self.data.get("pr_url")
+        if not ref or self.data.get("announced"):
+            return
+        self.set(announced=True)
+        st.run([sys.executable, st.ASANA, "task", "set-status", ref, "In Review"],
+               cwd=self.main_root, check=False)
+        text = "🚀 Ready for review — %s\n\n%s" % (pr_url or "(no PR)", summary or "")
+        code, _, err = st.run([sys.executable, st.ASANA, "comment", "add", ref, st.mark(text.strip())],
+                              cwd=self.main_root, check=False)
+        if code != 0:
+            st.warn("Asana: could not post the ready comment: %s" % err.strip()[:200])
+
+    def watching(self):
+        """Whether the goal is done and watches its PR. A goal that finished before
+        goals watched their PR counts too, until its PR is merged or closed."""
+        if self.data.get("parent") or not self.data.get("pr_url"):
+            return False
+        return self.data.get("phase") == "review" or (
+            self.data.get("status") == "done" and self.data.get("phase") not in ("merged", "closed"))
+
+    def watch_pr(self):
+        """After the finish, until the PR is merged or closed: each new review comment
+        on it, from anyone but the runner, starts a revision. Returns the lead's
+        prompt for it, or None once the PR is merged or closed."""
+        pr_url = self.data.get("pr_url")
+        m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", pr_url or "")
+        if not m:
+            self.set(status="done", phase="merged", doing="done")
+            return None
+        if not self.data.get("watch_from"):
+            self.set(watch_from=self.data.get("finished") or time.time())
+        self.announce(self.data.get("summary") or self.data.get("doing"))
+        st.step("Watching the PR for review comments and the merge")
+        while True:
+            state = self.pr_state(pr_url)
+            if state == "MERGED":
+                st.step("Merged")
+                self.set(status="done", phase="merged", doing="merged")
+                return None
+            if state == "CLOSED":
+                st.step("The PR was closed without a merge")
+                self.set(status="done", phase="closed", doing="its PR was closed without a merge")
+                return None
+            items = self.pr_feedback(*m.groups())
+            if items:
+                st.step("Review comments on the PR")
+                for _, heading, _ in items:
+                    st.info(heading)
+                self.set(pr_handled=sorted(set(self.data.get("pr_handled") or [])
+                                           | {i[0] for i in items}),
+                         status="working", phase="building", revising_pr=True)
+                return self.fresh(pr_review_prompt(render_feedback(items)))
+            if self.data.get("status") != "review":
+                self.set(status="review", doing=REVIEW_DOING)
+            time.sleep(PR_CHECK)
+
+    def pr_state(self, pr_url):
+        code, out, _ = st.run(["gh", "pr", "view", pr_url, "--json", "state"],
+                              cwd=self.main_root, check=False)
+        try:
+            return json.loads(out).get("state") if code == 0 else None
+        except ValueError:
+            return None
+
+    def pr_feedback(self, owner, name, number):
+        """The PR's review comments since the goal finished, not handled yet."""
+        base = "repos/%s/%s" % (owner, name)
+        lists = []
+        for path in ("%s/pulls/%s/reviews" % (base, number), "%s/pulls/%s/comments" % (base, number),
+                     "%s/issues/%s/comments" % (base, number)):
+            code, out, _ = st.run(["gh", "api", "--paginate", path, "--jq", ".[]"],
+                                  cwd=self.main_root, check=False)
+            if code != 0:
+                return []
+            rows = []
+            for line in out.splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+            lists.append([r for r in rows if after(r.get("submitted_at") or r.get("created_at"),
+                                                   self.data.get("watch_from") or 0)])
+        return collect_feedback(lists[0], lists[1], lists[2], self.data.get("pr_handled"))
 
     # the loop
 
@@ -2422,10 +2544,20 @@ class Runner(object):
             if pending.get("kind") == "questions":
                 prompt = answer_prompt(pending.get("questions"),
                                        self.wait_for_answer(pending))
+            elif pending.get("kind") == "problem" and self.data.get("phase") == "parts":
+                # A part's problem is looked at again: the parts loop asks once more if
+                # the part is still stopped, and goes on if it runs or is done by now.
+                self.goal.state.remove("awaiting.json")
+                prompt = self.run_parts()
+                self.set(phase="building", status="working")
             elif pending.get("kind") == "problem":
                 prompt = "The person says:\n\n%s\n\n%s" % (self.wait_for_answer(pending), CONTINUE)
             elif pending.get("kind") == "plan":
                 prompt = self.await_plan(pending)
+            elif self.watching():
+                prompt = self.watch_pr()
+                if prompt is None:
+                    return 0
             elif self.flow2() and self.data.get("approved") and self.data.get("phase") == "planning":
                 prompt = self.after_plan()
             elif self.data.get("phase") == "parts":
@@ -2522,7 +2654,11 @@ class Runner(object):
                             continue
                     if done:
                         self.finish(block)
-                        return 0
+                        prompt = self.watch_pr() if not self.data.get("parent") else None
+                        if prompt is None:
+                            return 0
+                        unchanged, checks = 0, 0
+                        continue
                     answers = answers_text(questions, self.ask_questions(
                         questions, "check")) if questions else None
                     checks += 1

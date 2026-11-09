@@ -143,7 +143,16 @@ This program is the harness around the lead:
   conflict the references do not settle is a question to you. A check that is cut off by
   the usage limit, or fails, runs again: only a real verdict counts. Only a clean check
   finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
-  walkthrough, and is marked ready for review.
+  walkthrough, and is marked ready for review. The ticket is set to In Review, with a
+  comment that links the PR.
+- **After the finish.** The runner stays, and watches the PR every five minutes until it
+  is merged or closed: "ready to merge" on the TUI. Each new review comment on it (a
+  review, an inline comment, or a top-level comment, but not the runner's own) starts a
+  revision: the lead, in a new session, has sub-agents address it, then the runner pushes,
+  waits for CI, checks again, and replies on the PR with the lead's summary. Only the merge
+  makes the goal done; a goal whose PR was closed says so. A goal that finished before
+  goals watched their PR says "r watches it": r starts the watch. Comments left before
+  the finish are not taken as review comments.
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
   (`CLAUDE_CODE_SUBAGENT_MODEL`, and a hook gives it to each one started without a model,
   since built-in types such as Explore otherwise take the lead's model), as most of them do narrow, well-briefed work;

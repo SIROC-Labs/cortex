@@ -353,9 +353,14 @@ class TestGoalRows(unittest.TestCase):
         [row] = tui.goal_rows([self.goal(alive=False)])
         self.assertEqual((row["cols"][2], row["style"]), ("stopped unexpectedly — r carries on", "bad"))
 
-    def test_done_goals_hide_with_done_tasks(self):
-        goals = [self.goal(status="done", alive=False), self.goal(id="b")]
-        self.assertEqual([r["goal"] for r in tui.goal_rows(goals, hide_done=True)], ["b"])
+    def test_done_goals_hide_with_done_tasks_once_merged(self):
+        goals = [self.goal(status="done", phase="merged", alive=False), self.goal(id="b"),
+                 self.goal(id="c", status="done", alive=False, pr_url="https://github.com/o/r/pull/1")]
+        rows = tui.goal_rows(goals, hide_done=True)
+        self.assertEqual([r["goal"] for r in rows], ["b", "c"])
+        self.assertIn("r watches it", rows[1]["cols"][2])
+        review = tui.goal_status(self.goal(status="review", alive=True))[0]
+        self.assertTrue(review.startswith("ready to merge"))
 
     def test_goals_come_before_the_queue_and_their_questions_are_waits(self):
         g = self.goal(awaiting={"kind": "problem", "asked_at": "t", "headline": "push refused"})

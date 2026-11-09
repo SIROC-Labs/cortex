@@ -349,11 +349,15 @@ class Board(object):
                   if r["ref"] not in data.get("made", []) and not st.made_by_goal(r)}
         out, after = [], data["section_execution"]
         for key, name, body in items:
-            item = old.pop(key, None) or old.pop(next((k for k in old if same_step(k, key)), None), None)
+            item = old.pop(key, None) or old.pop(next((k for k in old if same_step(k, key)), None), None) \
+                or old.pop(next((k for k, i in old.items() if self.item_name(data, i) == name), None), None)
+            if item:
+                # A reworded step keeps its subtask: the lead may say more about it later.
+                item.update(key=key, name=name)
             if not item and name.strip().lower() in theirs:
                 item = {"key": key, "gid": theirs[name.strip().lower()], "made": False}
             if not item:
-                item = {"key": key, "gid": self.add(data, name, body), "made": True}
+                item = {"key": key, "name": name, "gid": self.add(data, name, body), "made": True}
             self.asana(["task", "set-parent", item["gid"], self.task, "--after", after])
             out.append(item)
             after = item["gid"]
@@ -375,6 +379,12 @@ class Board(object):
                                        ("name", "description", "completed")} for i in out}
         self.save(data)
         return True
+
+    @staticmethod
+    def item_name(data, item):
+        """A subtask's step title, as made: saved with it, or else from its name."""
+        name = item.get("name") or ((data.get("snapshot") or {}).get(item["gid"]) or {}).get("name") or ""
+        return name[len(st.GOAL_NAME):] if name.startswith(st.GOAL_NAME) else name
 
     def link(self, data, after_keys):
         """Each part's subtask depends, in Asana, on the parts it builds after."""

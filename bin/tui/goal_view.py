@@ -248,7 +248,7 @@ def stage(goal):
     """Where a goal is in its flow, one of STAGES, from its status and what it says
     it is doing."""
     status, doing = goal.get("status"), (goal.get("doing") or "").lower()
-    if status == "done":
+    if status in ("done", "review"):
         return "done"
     if (goal.get("awaiting") or {}).get("kind") == "plan":
         return "approval"
