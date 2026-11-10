@@ -11,6 +11,8 @@ import json
 import os
 import re
 import subprocess
+import tempfile
+import threading
 import time
 
 TAIL_BYTES = 400 * 1024
@@ -110,6 +112,89 @@ def activity(lines):
     return out
 
 
+# --- why: a few words from a cheap model on what each running agent is after ----
+
+WHY_MODEL = "haiku"
+WHY_EVERY = 45
+_WHY = {}
+_WHY_LOCK = threading.Lock()
+
+
+def recent(lines, n=6):
+    """From transcript lines: the agent's last `n` actions, each with the reason its
+    tool call gave, and the last two things it said."""
+    actions, said = [], []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        message = row.get("message") or {}
+        if row.get("type") != "assistant" or not isinstance(message.get("content"), list):
+            continue
+        for block in message["content"]:
+            if block.get("type") == "tool_use":
+                args = block.get("input") or {}
+                reason = args.get("description")
+                actions.append(describe_tool(block.get("name"), args)[:160]
+                               + (" (%s)" % reason if reason else ""))
+            elif block.get("type") == "text" and (block.get("text") or "").strip():
+                said.append(" ".join(block["text"].split())[:400])
+    return actions[-n:], said[-2:]
+
+
+def brief_of(path, size=1500):
+    """The first message an agent got: its brief."""
+    try:
+        row = json.loads(_first_line(path))
+    except ValueError:
+        return ""
+    content = (row.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
+    return " ".join(str(content or "").split())[:size]
+
+
+def why_prompt(role, brief, said, actions):
+    return ("An agent works on a software change. In at most six words, say what it is "
+            "trying to find out or get done right now: the purpose, not the command. Reply "
+            "with the words only, no punctuation at the end.\n\nThe agent: %s\n\nIts brief, "
+            "the start:\n%s\n\nWhat it said last:\n%s\n\nIts last actions, oldest first:\n%s"
+            % (role, brief or "(none)", "\n".join(said) or "(nothing)",
+               "\n".join("- " + a for a in actions) or "(none)"))
+
+
+def _ask_why(key, prompt):
+    text = None
+    try:
+        done = subprocess.run(
+            ["claude", "-p", "--model", WHY_MODEL, "--max-turns", "1", "--tools", "",
+             "--no-session-persistence", "--setting-sources", "", prompt],
+            capture_output=True, text=True, timeout=90, cwd=tempfile.gettempdir(),
+            stdin=subprocess.DEVNULL)
+        text = " ".join(done.stdout.split()).strip(" .") if done.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        pass
+    with _WHY_LOCK:
+        entry = _WHY.setdefault(key, {})
+        entry["pending"] = False
+        if text:
+            entry["text"] = " ".join(text.split()[:8])
+
+
+def why(key, moved, prompt_for):
+    """The last few words on why the agent `key` does what it does, or None. A new
+    one is asked for in the background when the agent moved since, at most every
+    WHY_EVERY seconds. `prompt_for` builds the prompt, only when one is asked."""
+    with _WHY_LOCK:
+        entry = _WHY.setdefault(key, {})
+        stale = entry.get("moved") != moved and time.time() - entry.get("asked", 0) >= WHY_EVERY
+        if stale and not entry.get("pending"):
+            entry.update(pending=True, asked=time.time(), moved=moved)
+            threading.Thread(target=_ask_why, args=(key, prompt_for()), daemon=True).start()
+        return entry.get("text")
+
+
 def active(goal):
     return goal.get("status") in ACTIVE and goal.get("alive", True)
 
@@ -135,6 +220,7 @@ def subagents(session_path, now=None, in_call=True):
         moved = live["at"] or os.path.getmtime(path)
         unfinished = meta.get("finished") is not True
         out.append({"description": meta.get("description") or "sub-agent",
+                    "id": os.path.basename(path)[len("agent-"):-len(".jsonl")],
                     "running": in_call and unfinished and now - moved < STALE,
                     "cut": unfinished and not (in_call and now - moved < STALE),
                     "started": _when(first.get("timestamp")) or moved, "at": moved,
@@ -221,9 +307,10 @@ def call_role(goal, session, tasks):
     return "Call"
 
 
-def running_agents(goal, now=None, processes=None):
+def running_agents(goal, now=None, processes=None, want_why=False):
     """Every agent of the goal that is running now: each call alive, then the
-    sub-agents working inside it. [{role, model, seconds, action, at, depth}]."""
+    sub-agents working inside it. [{role, model, seconds, action, at, depth, why}].
+    With `want_why`, each gets a few words from a cheap model on what it is after."""
     now = now or time.time()
     processes = claude_processes() if processes is None else processes
     tasks = tasks_now(goal, now) or []
@@ -234,14 +321,22 @@ def running_agents(goal, now=None, processes=None):
         path = session_path(session)
         if not path or not (session in mine or (folder and os.path.dirname(path) == folder)):
             continue
-        live = activity(_read_tail(path, 64 * 1024))
-        out.append({"role": call_role(goal, session, tasks), "model": live["model"],
-                    "seconds": seconds, "action": live["action"], "at": live["at"], "depth": 0})
+        tail = _read_tail(path, 64 * 1024)
+        live = activity(tail)
+        role = call_role(goal, session, tasks)
+        out.append({"role": role, "model": live["model"], "seconds": seconds,
+                    "action": live["action"], "at": live["at"], "depth": 0,
+                    "why": why(session, live["at"], lambda p=path, r=role, t=tail: why_prompt(
+                        r, brief_of(p, 600), *reversed(recent(t)))) if want_why else None})
         for a in subagents(path, now, True):
             if a["running"]:
+                agent_path = os.path.join(path[:-len(".jsonl")], "subagents", "agent-%s.jsonl" % a["id"]) \
+                    if a.get("id") else None
                 out.append({"role": "Sub-agent: " + a["description"], "model": a["model"],
                             "seconds": now - a["started"], "action": a["action"], "at": a["at"],
-                            "depth": 1})
+                            "depth": 1, "why": why(agent_path, a["at"], lambda p=agent_path, r=a[
+                                "description"]: why_prompt(r, brief_of(p), *reversed(recent(
+                                    _read_tail(p, 64 * 1024))))) if want_why and agent_path else None})
     return out
 
 
@@ -261,7 +356,7 @@ def snapshot(goal, now=None, processes=None):
     return {"session": session, "role": "lead" if session == goal.get("session") else "call",
             "main": activity(_read_tail(path)), "agents": agents,
             "running": sum(1 for a in agents if a["running"]), "now": now, "tasks": tasks,
-            "live": running_agents(goal, now, processes)}
+            "live": running_agents(goal, now, processes, want_why=processes is None)}
 
 
 def running_count(goal, now=None, processes=None):
@@ -417,8 +512,9 @@ def lines_for(goal, snap, journal, width):
         out.append(("  · Lead             not running: the runner calls it again when these end", "dim"))
     for r in live[:40]:
         indent = "  " + "   " * r["depth"]
-        out.append(("%s● %-*s %-7s %6s" % (indent, 46 - len(indent), r["role"][:46 - len(indent)],
-                                           short_model(r["model"]), span(r["seconds"])),
+        out.append(("%s● %-*s %-7s %6s%s" % (indent, 46 - len(indent), r["role"][:46 - len(indent)],
+                                             short_model(r["model"]), span(r["seconds"]),
+                                             "  · " + r["why"] if r.get("why") else ""),
                     "warn" if r["seconds"] > LONG and r["depth"] else "ok"))
         if r["action"]:
             out.append(("%s    %s · %s" % (indent, r["action"][:width - 24],

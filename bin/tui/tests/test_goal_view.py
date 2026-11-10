@@ -122,6 +122,27 @@ class TestGoalView(unittest.TestCase):
         self.assertIn("Finished this round\n  ✓ Explorer: Where is X", text)
         self.assertNotIn("░", gv.bar(1, 4))
 
+    def test_a_cheap_model_says_why_an_agent_does_what_it_does_once_per_move(self):
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        lines = [line(now, type="text", text="I check the step 3 screen."),
+                 line(now, type="tool_use", name="Bash",
+                      input={"command": "sed -n 1,80p a.tsx", "description": "Show the fit screen"})]
+        actions, said = gv.recent(lines)
+        self.assertEqual(actions, ["Bash: sed -n 1,80p a.tsx (Show the fit screen)"])
+        self.assertIn("I check the step 3 screen.", gv.why_prompt("Lead", "", said, actions))
+        asked = []
+        ask, gv._ask_why = gv._ask_why, lambda key, prompt: (asked.append(key), gv._WHY[key].update(
+            pending=False, text="checking the step 3 screen"))
+        self.addCleanup(setattr, gv, "_ask_why", ask)
+        self.addCleanup(gv._WHY.clear)
+        gv.why("s9", 100, lambda: "p")
+        deadline = time.time() + 2
+        while gv._WHY["s9"].get("pending") and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(gv.why("s9", 100, lambda: "p"), "checking the step 3 screen")
+        gv.why("s9", 101, lambda: "p")
+        self.assertEqual(asked, ["s9"])
+
     def test_the_plan_is_the_checklist_under_its_heading(self):
         journal = ["# Journal", "- [x] not part of the plan", "## Plan", "1. [x] Backend",
                    "2. [ ] Migration 0030", "- [ ] Frontend", "### detail", "- [x] sub-step",
