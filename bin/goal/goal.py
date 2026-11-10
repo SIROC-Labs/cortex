@@ -91,6 +91,7 @@ WIND_CHECK = 60
 HARD_MARGIN = 2
 WIND_FILE = "wind-down"
 PARALLEL_TASKS = 6
+TASKS_FILE = "tasks.json"
 TASK_CHECK = 15
 DEP_DIRS = ("node_modules", ".venv")
 SETTINGS_FILE = "settings.json"
@@ -2436,6 +2437,9 @@ class Runner(object):
             st.info("committed the work an earlier session left uncommitted")
         self.set(status="working", doing="running %d task(s)" % len(tasks))
         results = [None] * len(tasks)
+        self.goal.state.write(TASKS_FILE, {"round": self.data.get("round"), "tasks": [
+            {"name": str(t.get("name") or "task %d" % (n + 1)), "kind": t.get("kind") or "code",
+             "status": "waiting"} for n, t in enumerate(tasks)]})
         todo = list(enumerate(tasks))
         while todo:
             batch, todo = todo[:PARALLEL_TASKS], todo[PARALLEL_TASKS:]
@@ -2476,6 +2480,8 @@ class Runner(object):
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
                "--disallowedTools", "Agent,Task", "--session-id", run["session"], prompt]
         st.info("%s: %s on %s" % ("question" if explore else "task", name, short_model(model)))
+        self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
+                        started=run["started"], name=name)
         run["child"] = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         start_new_session=True)
@@ -2545,7 +2551,16 @@ class Runner(object):
             report["merge"] = self.merge_task(run, report["status"] == "done")
         st.info("%s: %s%s" % (run["name"], report["status"], " · %s" % report["merge"]
                               if report.get("merge") else ""))
+        self.task_state(run["n"], status=report["status"], merge=report.get("merge"),
+                        ended=time.time(), summary=report.get("summary") or report.get("answer"))
         return report
+
+    def task_state(self, n, **fields):
+        """What the TUI shows of the tasks running now: `tasks.json` in the state."""
+        data = self.goal.state.read(TASKS_FILE) or {"tasks": []}
+        if n < len(data["tasks"]):
+            data["tasks"][n].update(fields)
+            self.goal.state.write(TASKS_FILE, data)
 
     def merge_task(self, run, finished=True):
         """Commit what a task left, merge its branch into the goal's when it finished,

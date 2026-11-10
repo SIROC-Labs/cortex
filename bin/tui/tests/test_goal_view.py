@@ -98,6 +98,31 @@ class TestGoalView(unittest.TestCase):
         os.utime(os.path.join(self.folder, "s1.jsonl"), (time.time() - 60, time.time() - 60))
         self.assertEqual(gv.snapshot(self.goal)["role"], "call")
 
+    def test_the_tasks_the_runner_runs_are_shown_each_with_what_it_does(self):
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        state = os.path.join(self.base, "state")
+        os.makedirs(state)
+        self.goal.update(log=os.path.join(state, "goal.log"), round=4, session="s1",
+                         status="working", doing="running 2 task(s)")
+        self.write(os.path.join(self.folder, "s1.jsonl"), [line(now)])
+        task_folder = os.path.join(self.base, "projects", "task")
+        os.makedirs(task_folder)
+        self.write(os.path.join(task_folder, "t1.jsonl"), [line(now, model="claude-sonnet-5-5")])
+        with open(os.path.join(state, "tasks.json"), "w") as f:
+            json.dump({"round": 4, "tasks": [
+                {"name": "Inbox screen", "kind": "code", "status": "running", "session": "t1",
+                 "model": "claude-sonnet-5-5", "started": time.time() - 90},
+                {"name": "Where is X", "kind": "explore", "status": "done", "session": "t2",
+                 "started": time.time() - 60, "ended": time.time()}]}, f)
+        snap = gv.snapshot(self.goal)
+        self.assertEqual(snap["role"], "lead")
+        text = "\n".join(l for l, _ in gv.lines_for(self.goal, snap, [], 120))
+        self.assertIn("Lead · waiting for its tasks", text)
+        self.assertIn("Tasks the runner runs: 1 running, 0 waiting, 1 finished", text)
+        self.assertIn("● Inbox screen", text)
+        self.assertIn("✓ Where is X", text)
+        self.assertNotIn("░", gv.bar(1, 4))
+
     def test_the_plan_is_the_checklist_under_its_heading(self):
         journal = ["# Journal", "- [x] not part of the plan", "## Plan", "1. [x] Backend",
                    "2. [ ] Migration 0030", "- [ ] Frontend", "### detail", "- [x] sub-step",
