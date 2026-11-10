@@ -2088,16 +2088,45 @@ class Runner(object):
             return conflict_prompt("origin/%s" % base, files.split())
         return None
 
-    def changed_tests(self):
-        """The tests that cover the files the branch changed, run here before the check
-        and the push. Returns None when they pass, else what the lead is to fix."""
-        worktree = self.data["worktree"]
+    def own_files(self, since=None):
+        """The files this goal's own commits changed, and none that a merge brought in
+        from elsewhere: commits on any other remote branch, such as `main`, or on its
+        base are not its own. With `since`, only what changed after that commit."""
+        worktree, branch = self.data["worktree"], self.data["branch"]
         base = self.data["base"] if self.data.get("parent") else st.base_ref(self.data["base"])
-        commands = st.qa_commands(worktree, base)
+        args = ["log", "--no-merges", "--name-only", "--format=", "HEAD", "--not", base]
+        args += [since] if since else []
+        args += ["--exclude=refs/remotes/origin/%s" % branch, "--remotes=origin"]
+        code, out, _ = st.git(args, cwd=worktree, check=False)
+        return sorted({f for f in out.splitlines() if f.strip()}) if code == 0 else None
+
+    def changed_tests(self):
+        """The tests that cover the files the goal's own commits changed since the
+        last run, and the ones that failed then, run here before the check and the
+        push. Returns None when they pass, else what the lead is to fix."""
+        worktree = self.data["worktree"]
+        _, head, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
+        since = self.data.get("tested_head")
+        if since and st.git(["merge-base", "--is-ancestor", since, "HEAD"], cwd=worktree,
+                            check=False)[0] != 0:
+            since = None
+        files = self.own_files(since)
+        if files is None:
+            files = self.own_files()
+        config = st.qa_config(worktree)
+        try:
+            commands = (st.select_gates(config, files) if config is not None
+                        else st.detected_gates(worktree, files or []))
+        except ValueError as e:
+            st.warn("%s: %s" % (st.QA_CONFIG, e))
+            commands = []
+        known = {c[1] for c in commands}
+        commands += [tuple(c) for c in self.data.get("failed_tests") or [] if c[1] not in known]
         if not commands:
-            st.info("no tests cover the files this branch changed")
+            st.info("no tests cover the files changed%s" % (" since the last test run" if since else ""))
+            self.set(tested_head=head.strip(), failed_tests=[])
             return None
-        st.step("Testing what the branch changed")
+        st.step("Testing what the branch changed%s" % (" since the last run" if since else ""))
         failure = None
         for n, command in enumerate(commands, 1):
             self.set(status="checking", doing="running the tests that cover the changes",
@@ -2105,8 +2134,10 @@ class Runner(object):
                      runner_since=time.time())
             failure = st.run_qa_gate([command], worktree)
             if failure:
+                self.set(failed_tests=[list(command)])
                 break
-        self.set(runner_doing=None)
+        self.set(runner_doing=None, tested_head=head.strip(),
+                 **({} if failure else {"failed_tests": []}))
         if not failure:
             return None
         name, cmd, output = failure

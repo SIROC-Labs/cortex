@@ -586,6 +586,27 @@ class TestChangedTests(unittest.TestCase):
         self.assertIn("1 failed", fix)
         self.assertIn("Nothing was pushed or checked", fix)
 
+    def test_only_the_goal_s_own_commits_count_and_only_since_the_last_run(self):
+        self.git("checkout", "-q", "-b", "other", "main")
+        self.commit("elsewhere.txt", "x\n", "main's own work")
+        self.git("push", "-q", "origin", "other")
+        self.git("checkout", "-q", "A-1/goal-x")
+        self.commit("mine.txt", "x\n", "the goal's work")
+        self.git("merge", "-q", "--no-edit", "origin/other")
+        self.git("fetch", "-q", "origin")
+        self.assertEqual(self.runner.own_files(), ["mine.txt"])
+        first = self.git("rev-parse", "HEAD").strip()
+        self.commit("later.txt", "x\n", "a fix")
+        self.assertEqual(self.runner.own_files(first), ["later.txt"])
+        goal.st.run_qa_gate = lambda commands, worktree: None
+        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+        self.runner.set(tested_head=first, failed_tests=[["tests", "uv run pytest -q test_a.py", "app/test"]])
+        ran = []
+        goal.st.run_qa_gate = lambda commands, worktree: ran.extend(commands)
+        self.assertIsNone(self.runner.changed_tests())
+        self.assertEqual(ran, [("tests", "uv run pytest -q test_a.py", "app/test")])
+        self.assertEqual(self.runner.data["failed_tests"], [])
+
     def test_nothing_runs_when_no_test_covers_the_change(self):
         self.commit("docs.txt", "x\n", "docs")
         goal.st.run_qa_gate = lambda *a: self.fail("ran tests")
