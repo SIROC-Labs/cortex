@@ -55,17 +55,17 @@ class TestGoalView(unittest.TestCase):
             line(now, model="claude-sonnet-5-5", type="tool_use", name="Bash",
                  input={"command": "pytest apps/api/tests/test_queue.py"})])
         self.agent("b", "Map the frontend", True, [line(now, model="claude-sonnet-5-5")])
-        snap = gv.snapshot(self.goal)
+        snap = gv.snapshot(self.goal, processes={"s1": 120})
         self.assertEqual((snap["role"], snap["running"]), ("lead", 1))
         self.assertEqual(snap["main"]["action"], "Edit apps/api/queue.py")
         self.assertEqual(snap["main"]["said"], "Starting the API with two sub-agents.")
         self.assertEqual([a["description"] for a in snap["agents"]], ["Build the API", "Map the frontend"])
-        self.assertEqual(gv.running_count(self.goal), 1)
+        self.assertEqual(gv.running_count(self.goal, processes={"s1": 120}), 2)
+        self.assertEqual(gv.running_count(self.goal, processes={}), 0)
         journal = ["- D1 no tabs", "## Plan", "- [x] Backend", "- [ ] Frontend"]
         text = "\n".join(l for l, _ in gv.lines_for(self.goal, snap, journal, 100))
-        for expected in ("round 2", "Lead · opus", "doing: Edit apps/api/queue.py",
-                         "Sub-agents: 1 running, 1 finished", "● Build the API",
-                         "Bash: pytest apps/api/tests/test_queue.py", "✓ Map the frontend",
+        for expected in ("round 2", "Running now", "● Lead", "opus", "Edit apps/api/queue.py",
+                         "● Sub-agent: Build the API", "Bash: pytest apps/api/tests/test_queue.py",
                          "- D1 no tabs", "[building] ▸ syncing", "1 of 2 steps done · next: Frontend",
                          "✓ Backend", "· Frontend"):
             self.assertIn(expected, text)
@@ -75,21 +75,20 @@ class TestGoalView(unittest.TestCase):
         self.write(os.path.join(self.folder, "s1.jsonl"), [line(now)])
         self.agent("a", "Task panel", None, [line(now, model="claude-sonnet-5-5")])
         paused = dict(self.goal, status="paused")
-        snap = gv.snapshot(paused)
+        snap = gv.snapshot(paused, processes={})
         self.assertEqual((snap["running"], snap["agents"][0]["cut"]), (0, True))
-        self.assertEqual(gv.running_count(paused), 0)
+        self.assertEqual(gv.running_count(paused, processes={}), 0)
         text = "\n".join(l for l, _ in gv.lines_for(paused, snap, [], 100))
-        self.assertIn("0 running, 0 finished, 1 cut off when the goal stopped", text)
-        self.assertIn("✗ Task panel", text)
+        self.assertIn("Running now\n  nothing — round 2", text)
 
-    def test_a_sub_agent_quiet_for_long_is_not_running(self):
+    def test_a_sub_agent_quiet_for_long_is_not_running_but_its_call_is(self):
         old = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
         self.write(os.path.join(self.folder, "s1.jsonl"), [line(old)])
         path = os.path.join(self.folder, "s1", "subagents", "agent-a.jsonl")
         self.agent("a", "Stuck", None, [line(old)])
         os.utime(path, (time.time() - 3600, time.time() - 3600))
-        self.assertEqual(gv.snapshot(self.goal)["running"], 0)
-        self.assertEqual(gv.running_count(self.goal), 0)
+        self.assertEqual(gv.snapshot(self.goal, processes={"s1": 60})["running"], 0)
+        self.assertEqual(gv.running_count(self.goal, processes={"s1": 60}), 1)
 
     def test_a_call_other_than_the_lead(self):
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -98,7 +97,7 @@ class TestGoalView(unittest.TestCase):
         os.utime(os.path.join(self.folder, "s1.jsonl"), (time.time() - 60, time.time() - 60))
         self.assertEqual(gv.snapshot(self.goal)["role"], "call")
 
-    def test_the_tasks_the_runner_runs_are_shown_each_with_what_it_does(self):
+    def test_every_agent_running_is_listed_with_what_it_does(self):
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         state = os.path.join(self.base, "state")
         os.makedirs(state)
@@ -114,13 +113,13 @@ class TestGoalView(unittest.TestCase):
                  "model": "claude-sonnet-5-5", "started": time.time() - 90},
                 {"name": "Where is X", "kind": "explore", "status": "done", "session": "t2",
                  "started": time.time() - 60, "ended": time.time()}]}, f)
-        snap = gv.snapshot(self.goal)
-        self.assertEqual(snap["role"], "lead")
+        snap = gv.snapshot(self.goal, processes={"t1": 90, "elsewhere": 30})
         text = "\n".join(l for l, _ in gv.lines_for(self.goal, snap, [], 120))
-        self.assertIn("Lead · waiting for its tasks", text)
-        self.assertIn("Tasks the runner runs: 1 running, 0 waiting, 1 finished", text)
-        self.assertIn("● Inbox screen", text)
-        self.assertIn("✓ Where is X", text)
+        self.assertIn("Lead             not running", text)
+        self.assertIn("● Coder: Inbox screen", text)
+        self.assertIn("sonnet", text)
+        self.assertNotIn("elsewhere", text)
+        self.assertIn("Finished this round\n  ✓ Explorer: Where is X", text)
         self.assertNotIn("░", gv.bar(1, 4))
 
     def test_the_plan_is_the_checklist_under_its_heading(self):
@@ -160,7 +159,7 @@ class TestGoalView(unittest.TestCase):
 
     def test_no_call_yet(self):
         self.assertIsNone(gv.snapshot(dict(self.goal, worktree="/nothing")))
-        self.assertIn("No call has started yet.", [l for l, _ in gv.lines_for(self.goal, None, [], 80)])
+        self.assertIn("  nothing — round 2", [l for l, _ in gv.lines_for(self.goal, None, [], 80)])
 
 
 if __name__ == "__main__":

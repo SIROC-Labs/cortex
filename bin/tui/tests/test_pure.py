@@ -1313,7 +1313,7 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual(self.app.goal_view, gid)
         lines = self.frame()
         self.assertIn("Runs › goal A-9 Queue", lines[2])
-        self.assertTrue(any("No call has started yet." in l for l in lines))
+        self.assertTrue(any("Running now" in l for l in lines))
         self.press("l")
         self.assertEqual(self.app.log_path, tui.gl.Goal(self.root, gid).log)
         self.press("esc")

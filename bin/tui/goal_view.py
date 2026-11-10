@@ -10,6 +10,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import time
 
 TAIL_BYTES = 400 * 1024
@@ -179,7 +180,72 @@ def tasks_now(goal, now=None):
     return out
 
 
-def snapshot(goal, now=None):
+def _etime(text):
+    """`ps` elapsed time, [[dd-]hh:]mm:ss, in seconds."""
+    days, _, rest = text.strip().rpartition("-")
+    parts = [int(p) for p in rest.split(":") if p.isdigit()]
+    seconds = 0
+    for p in parts:
+        seconds = seconds * 60 + p
+    return seconds + (int(days) * 86400 if days.isdigit() else 0)
+
+
+def claude_processes():
+    """{session: seconds running} of every `claude -p` call alive on this machine."""
+    try:
+        out = subprocess.run(["ps", "-axww", "-o", "etime=,command="], capture_output=True,
+                             text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for line in out.splitlines():
+        if " -p " not in line or "claude" not in line:
+            continue
+        m = re.search(r"--(?:session-id|resume)\s+([0-9a-f-]{36})", line)
+        if m:
+            found[m.group(1)] = _etime(line.split(None, 1)[0])
+    return found
+
+
+def call_role(goal, session, tasks):
+    """What a call of the goal is, in a word or two."""
+    if session == goal.get("session"):
+        return "Lead"
+    for t in tasks or []:
+        if t.get("session") == session:
+            return ("Explorer: " if t.get("kind") == "explore" else "Coder: ") + t.get("name", "")
+    doing = (goal.get("doing") or "").lower()
+    for word, role in (("ci", "CI fixer"), ("review", "Reviewer"), ("check", "Checker")):
+        if re.search(r"\b%s" % word, doing):
+            return role
+    return "Call"
+
+
+def running_agents(goal, now=None, processes=None):
+    """Every agent of the goal that is running now: each call alive, then the
+    sub-agents working inside it. [{role, model, seconds, action, at, depth}]."""
+    now = now or time.time()
+    processes = claude_processes() if processes is None else processes
+    tasks = tasks_now(goal, now) or []
+    mine = {goal.get("session")} | {t.get("session") for t in tasks}
+    folder = project_dir(goal["worktree"]) if goal.get("worktree") else None
+    out = []
+    for session, seconds in sorted(processes.items(), key=lambda kv: -kv[1]):
+        path = session_path(session)
+        if not path or not (session in mine or (folder and os.path.dirname(path) == folder)):
+            continue
+        live = activity(_read_tail(path, 64 * 1024))
+        out.append({"role": call_role(goal, session, tasks), "model": live["model"],
+                    "seconds": seconds, "action": live["action"], "at": live["at"], "depth": 0})
+        for a in subagents(path, now, True):
+            if a["running"]:
+                out.append({"role": "Sub-agent: " + a["description"], "model": a["model"],
+                            "seconds": now - a["started"], "action": a["action"], "at": a["at"],
+                            "depth": 1})
+    return out
+
+
+def snapshot(goal, now=None, processes=None):
     """Everything the live view shows for a goal, or None when no call has run.
     The lead's own session comes first; else the latest call in its worktree."""
     worktree = goal.get("worktree")
@@ -194,10 +260,17 @@ def snapshot(goal, now=None):
     agents = subagents(path, now, active(goal))
     return {"session": session, "role": "lead" if session == goal.get("session") else "call",
             "main": activity(_read_tail(path)), "agents": agents,
-            "running": sum(1 for a in agents if a["running"]), "now": now, "tasks": tasks}
+            "running": sum(1 for a in agents if a["running"]), "now": now, "tasks": tasks,
+            "live": running_agents(goal, now, processes)}
 
 
-def running_count(goal, now=None):
+def running_count(goal, now=None, processes=None):
+    """How many agents of the goal are running now: its calls alive, and the
+    sub-agents inside them."""
+    return len(running_agents(goal, now, processes))
+
+
+def _old_running_count(goal, now=None):
     """How many of the current call's sub-agents are running: cheap enough for every
     refresh, as it reads only their meta files and modification times."""
     path = current_session(goal["worktree"]) if goal.get("worktree") else None
@@ -334,60 +407,33 @@ def lines_for(goal, snap, journal, width):
     if goal.get("cost"):
         out.append(("≈ $%.2f so far at API prices · u for the breakdown" % goal["cost"], "dim"))
     out.append(("", "normal"))
-    if not snap:
-        out.append(("No call has started yet.", "dim"))
-    else:
-        main, now = snap["main"], snap["now"]
-        tasks = snap.get("tasks")
-        who = "Lead" if snap["role"] == "lead" else "This call (%s)" % (goal.get("doing") or "checking")
-        if tasks and any(t.get("status") in ("running", "waiting") for t in tasks):
-            who = "Lead · waiting for its tasks"
-        out.append(("%s · %s · last moved %s" % (who, short_model(main["model"]),
-                                                 ago(now - main["at"]) if main["at"] else "?"), "bold"))
-        if main["action"]:
-            out.append(("  doing: " + main["action"][:width - 10], "normal"))
-        if main["said"]:
-            out.append(("  said:  " + main["said"][:width - 10], "dim"))
-        out.append(("", "normal"))
-        if tasks:
-            running = [t for t in tasks if t.get("status") == "running"]
-            out.append(("Tasks the runner runs: %d running, %d waiting, %d finished" % (
-                len(running), sum(1 for t in tasks if t.get("status") == "waiting"),
-                len(tasks) - len(running) - sum(1 for t in tasks if t.get("status") == "waiting")),
-                "bold"))
-            for t in tasks:
-                state = t.get("status") or "?"
-                mark = {"running": "●", "waiting": "·", "done": "✓"}.get(state, "✗")
-                took = ((t.get("ended") or now) - t["started"]) if t.get("started") else 0
-                kind = "question" if t.get("kind") == "explore" else "code"
-                result = "" if state in ("running", "waiting") else " · " + (
-                    t.get("merge") or state)
-                out.append(("  %s %-40s %-8s %-7s %6s%s" % (
-                    mark, t["name"][:40], kind, short_model(t.get("model")), span(took),
-                    result[:width - 70]), "ok" if state == "running" else
-                    "warn" if mark == "✗" or "not merged" in (t.get("merge") or "") else "dim"))
-                live = t.get("live")
-                if live and live.get("action"):
-                    out.append(("      %s · %s" % (live["action"][:width - 22],
-                                                   ago(now - live["at"]) if live.get("at") else "?"), "dim"))
-            out.append(("", "normal"))
-        agents = snap["agents"]
-        cut = sum(1 for a in agents if a["cut"])
-        out.append(("Sub-agents: %d running, %d finished%s" % (
-            snap["running"], len(agents) - snap["running"] - cut,
-            ", %d cut off when the goal stopped" % cut if cut else ""), "bold"))
-        for a in agents[:30]:
-            took = (now if a["running"] else a["at"]) - a["started"]
-            mark = "●" if a["running"] else "✗" if a["cut"] else "✓"
-            row = "  %s %-44s %-7s %6s%s" % (mark, a["description"][:44], short_model(a["model"]),
-                                             span(took), "  cut off" if a["cut"] else
-                                             "  long — a big brief" if a["running"] and took > LONG else "")
-            out.append((row, "warn" if a["cut"] or (a["running"] and took > LONG)
-                        else "ok" if a["running"] else "dim"))
-            if a["running"] and a["action"]:
-                out.append(("      %s · %s" % (a["action"][:width - 22], ago(now - a["at"])), "dim"))
-        if len(agents) > 30:
-            out.append(("  … and %d more" % (len(agents) - 30), "dim"))
+    live = (snap or {}).get("live") or []
+    now = (snap or {}).get("now") or time.time()
+    tasks = (snap or {}).get("tasks") or []
+    out.append(("Running now", "bold"))
+    if not live:
+        out.append(("  nothing — %s" % doing, "dim"))
+    if live and not any(r["role"] == "Lead" for r in live) and tasks:
+        out.append(("  · Lead             not running: the runner calls it again when these end", "dim"))
+    for r in live[:40]:
+        indent = "  " + "   " * r["depth"]
+        out.append(("%s● %-*s %-7s %6s" % (indent, 46 - len(indent), r["role"][:46 - len(indent)],
+                                           short_model(r["model"]), span(r["seconds"])),
+                    "warn" if r["seconds"] > LONG and r["depth"] else "ok"))
+        if r["action"]:
+            out.append(("%s    %s · %s" % (indent, r["action"][:width - 24],
+                                          ago(now - r["at"]) if r["at"] else "?"), "dim"))
+    finished = [t for t in tasks if t.get("status") not in ("running", "waiting")]
+    if finished:
+        out += [("", "normal"), ("Finished this round", "bold")]
+        for t in finished:
+            role = ("Explorer: " if t.get("kind") == "explore" else "Coder: ") + t["name"]
+            took = (t.get("ended") or now) - (t.get("started") or now)
+            result = t.get("merge") or t.get("status")
+            out.append(("  %s %-44s %-7s %6s  %s" % (
+                "✓" if t.get("status") == "done" else "✗", role[:44], short_model(t.get("model")),
+                span(took), result[:max(10, width - 70)]),
+                "warn" if t.get("status") != "done" or "not merged" in (t.get("merge") or "") else "dim"))
     if steps:
         out += [("", "normal"), ("Plan", "bold")]
         out += [("  %s %s" % ("✓" if d else "·", t[:width - 6]), "dim" if d else "normal")
