@@ -146,7 +146,7 @@ the person's time. Two references that contradict each other settle nothing: ask
 
 ## Required output
 
-End each response with a fenced JSON block, in one of exactly four shapes.
+End each response with a fenced JSON block, in one of exactly five shapes.
 
 When you have more to do, but you stop for now:
 
@@ -159,6 +159,13 @@ criteria and the plan, and the person answered your questions:
 
 ```json
 {"status": "planned", "summary": "What the work is, in one or two sentences."}
+```
+
+In the build, when a step of the plan is done, committed and ticked, and steps are
+left. Write the handoff in the journal too. The next step starts in a new session:
+
+```json
+{"status": "step", "summary": "What this step did, in one sentence.", "handoff": "What the next step needs to know that the journal and the plan do not say yet, in at most ten lines."}
 ```
 
 When the ask is fully implemented, committed, its tests pass, and every acceptance

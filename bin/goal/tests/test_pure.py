@@ -570,6 +570,33 @@ class TestFlow(unittest.TestCase):
         self.assertIn("- no error state", prompts[2])
         self.assertIn("not ticked", prompts[3])
 
+    def test_each_step_and_each_fix_of_the_build_starts_a_new_session(self):
+        self.journal(JOURNAL.replace("- [ ] An empty", "- [x] An empty"))
+        self.runner.set(phase="building", reviewed=True)
+        reports = [("step", {"summary": "API done", "handoff": "The tasks API returns due days."}),
+                   ("done", {"summary": "s"}), ("done", {"summary": "s"})]
+        calls = []
+
+        def lead(prompt):
+            calls.append((self.runner.data.get("session"), prompt))
+            self.runner.set(session="used", session_used=True)
+            return reports.pop(0)
+        self.runner.lead = lead
+        verdicts = [(False, ["a gap"], []), (True, [], [])]
+        self.runner.sync = lambda: None
+        self.runner.changed_tests = lambda: None
+        self.runner.check = lambda: verdicts.pop(0)
+        self.runner.sync_and_ci = lambda: (None, None)
+        self.runner.finish = lambda block: None
+        self.runner.watch_pr = lambda: None
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[1][0])
+        self.assertIn("The tasks API returns due days.", calls[1][1])
+        self.assertIn("This is a new session", calls[1][1])
+        self.assertIsNone(calls[2][0])
+        self.assertIn("a gap", calls[2][1])
+
     def test_a_gap_goes_back_to_the_lead_before_anything_is_pushed(self):
         done = JOURNAL.replace("- [ ] An empty", "- [x] An empty")
         self.journal(done)

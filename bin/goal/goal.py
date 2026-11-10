@@ -219,6 +219,10 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "into the build, it is sent again with every step and costs more than the work. "
          "Your journal, the technical plan and the branch hold everything that is true. "
          "Read the journal and the technical plan first.\n\n"
+         "One session does one step of the plan, or a few small steps that belong "
+         "together. When it is committed and ticked, write in the journal what the next "
+         "step needs to know, and end the session with the `step` block. The next step "
+         "starts in a new session, from the journal.\n\n"
          "In the build you coordinate: sub-agents write the code. Give each one a brief: "
          "the step, what to change and where, the parts of the technical plan it needs, "
          "and how to test it. Keep your own context small: read their reports, not the "
@@ -227,6 +231,11 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "it, start an Explore sub-agent with one narrow question and ask for a short "
          "answer: the files, the lines and the facts. You can run git, commit, read "
          "Markdown documents, and edit your journal and the technical plan.")
+NEXT_STEP = ("Do the next step of the plan: the first one not ticked. The session before "
+             "this one did a step and handed over:\n\n%s")
+RESUME_STEP = ("The session before this one stopped in the middle of a step. Find where it "
+               "got to from the journal and `git status`, finish that step, and end with the "
+               "`step` block, or `done` when it was the last.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -389,7 +398,7 @@ def over_threshold(limits, threshold):
 
 
 def lead_report(structured):
-    """What the lead's result block says: ("progress" | "planned" | "done" |
+    """What the lead's result block says: ("progress" | "planned" | "step" | "done" |
     "question", block). A missing or unreadable block is progress — the lead
     stopped, not finished."""
     if not isinstance(structured, dict):
@@ -397,7 +406,7 @@ def lead_report(structured):
     status = structured.get("status")
     if status == "question" and st.parse_agent_questions(structured):
         return "question", structured
-    if status in ("done", "planned"):
+    if status in ("done", "planned", "step"):
         return status, structured
     return "progress", structured
 
@@ -2325,6 +2334,11 @@ class Runner(object):
         self.set(session=None, session_used=False)
         return self.first_prompt() + "\n\n" + FRESH + "\n\n" + prompt
 
+    def decide(self, prompt):
+        """What the runner hands the lead in the build — a fix, gaps, a failure —
+        starts a new session: the work before it is in the journal and the branch."""
+        return self.fresh(prompt) if self.data.get("phase") == "building" else prompt
+
     def wait_to_build(self):
         """A part's plan is approved: wait until the parts it builds on are merged,
         and fewer than PARALLEL_PARTS others are building. Returns the parts done."""
@@ -2721,6 +2735,10 @@ class Runner(object):
                     if self.data.get("phase") == "building":
                         prompt = self.fresh(prompt)
                     continue
+                if report == "step" and self.data.get("phase") == "building":
+                    prompt = self.fresh(NEXT_STEP % (block.get("handoff") or block.get("summary")
+                                                     or "(no note: read the journal)"))
+                    continue
                 if report == "planned" or report == "done" and self.data.get("phase") == "planning":
                     if self.data.get("phase") != "planning":
                         prompt = CONTINUE
@@ -2758,13 +2776,13 @@ class Runner(object):
                         self.set(phase="building", status="working")
                         continue
                     self.set(phase="building")
-                    prompt = review_prompt(gaps, answers)
+                    prompt = self.fresh(review_prompt(gaps, answers))
                     continue
                 if report == "done":
                     unmet = unmet_criteria(self.read_journal())
                     if unmet:
                         st.warn("done, but %d acceptance criteria are not ticked" % len(unmet))
-                        prompt = unmet_prompt(unmet)
+                        prompt = self.decide(unmet_prompt(unmet))
                         continue
                     # Checked before anything is pushed: a gap found after CI costs a
                     # second CI run.
@@ -2786,6 +2804,7 @@ class Runner(object):
                             prompt, checks = "The person says:\n\n%s\n\n%s" % (answer, fix), 0
                         else:
                             prompt = fix
+                        prompt = self.decide(prompt)
                         continue
                     if done:
                         self.finish(block)
@@ -2804,12 +2823,13 @@ class Runner(object):
                             answer, gaps_prompt(gaps, answers)), 0
                     else:
                         prompt = gaps_prompt(gaps, answers)
+                    prompt = self.decide(prompt)
                     continue
                 if unchanged >= STALL_ROUNDS:
                     answer = self.ask_problem("%d rounds in a row changed nothing" % unchanged)
                     prompt, unchanged = "The person says:\n\n%s\n\n%s" % (answer, CONTINUE), 0
                     continue
-                prompt = CONTINUE
+                prompt = self.decide(RESUME_STEP) if self.data.get("phase") == "building" else CONTINUE
         except Stopped:
             self.set(status="stopped", reason="stopped", doing="stopped")
             return 1

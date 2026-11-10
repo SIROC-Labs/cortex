@@ -105,7 +105,12 @@ This program is the harness around the lead:
 - **The build is delegated, in a new session.** Every step of a session sends the whole
   conversation again, so a build carried on from the planning costs far more than the work.
   The build starts in a new session, from the journal, the technical plan and the branch,
-  and so does a build carried on after a usage pause or a restart. In the build the lead
+  and so does a build carried on after a usage pause or a restart. In the build, every
+  session is short: one step of the plan, then a `step` report with a handoff of at most
+  ten lines, and the next step starts in a new session from the journal and that handoff.
+  Whatever the runner hands back (failing tests, a conflict, CI, the checker's gaps,
+  criteria not ticked) starts a new session too, and so does a session that stopped
+  mid-step. Only an answer to the lead's own question goes back into its session. In the build the lead
   coordinates, its sub-agents write the code, and Explore sub-agents read it: a hook
   refuses the lead, and only the lead, an edit to the worktree, a shell command that
   writes a file there, and a read of its code (Read, Grep, Glob, or `cat`, `grep`, `sed`
