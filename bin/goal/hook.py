@@ -44,10 +44,10 @@ EXPLORE = ("Refused: in the build, explorers read the code for you. Every file y
            "and run git.")
 READONLY = ("Refused: you answer a question about the code, and change nothing. Read what "
             "you need, then answer.")
-CHECKS = ("Refused: in the build you do not run tests, type checks, linters or builds. Before "
-          "the check, the runner runs the tests that cover every file the branch changed, and "
-          "gives you any that fail; the checker and CI do the rest. To know whether a task's "
-          "work is right, read its report, or hand over a reviewer task.")
+CHECKS = ("Refused: in the build you do not run tests, type checks, linters or builds. Tests "
+          "guide the coding tasks while they code: each runs the tests of its own change. The "
+          "checker and CI check the rest. To know whether a task's work is right, read its "
+          "report, or hand over a reviewer task.")
 # Commands that test, type-check, lint or build: the runner and CI do those in the build.
 CHECKERS = re.compile(r"(?:^|[;&|(`]\s*|\s)(?:vitest|jest|pytest|tsc|eslint|ruff|mypy|playwright|"
                       r"npm\s+(?:run|test|exec)|npx|yarn|pnpm|make|uv\s+run|cargo\s+test|go\s+test)\b")

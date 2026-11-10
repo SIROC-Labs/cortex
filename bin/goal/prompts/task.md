@@ -21,10 +21,13 @@ worktree. When you finish, the runner merges your branch into the goal's branch.
 - Write tests where the testing guide asks for them.{{testing}} You may run the
   tests that cover the files you changed in this task, and only those. Your files
   are `git diff --name-only {{start}}`: work that was on the branch before you
-  started is not yours to test. Run them with the tools that are already there:
+  started is not yours to test. When the testing guide names a command for the
+  tests of a change, use it. Else use the tools that are already there:
   `npx --no-install vitest related --run <your files>` in their package, or
   `uv run pytest <the test files of your modules>` in their test folder. When a
-  tool is missing, do not install it: say so in `notes`.
+  tool is missing, do not install it: say so in `notes`. The tests are there to
+  guide you, not to pass a gate: when one fails for a reason outside your change,
+  say so in `notes` and go on.
 - Never run a check of the whole project: no type check (`tsc`, `npm run
   typecheck`), no lint of everything, no whole suite, build, CI or e2e tests. The
   runner, the checker and CI run those after you.

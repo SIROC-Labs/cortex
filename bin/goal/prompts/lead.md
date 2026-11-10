@@ -112,8 +112,8 @@ general rule of the repository does not override what this ask's references say.
    modules you change. Add cheap checks such as a linter or a type check on those
    files. Never run a whole suite (`npx vitest run`, `pytest` with no paths, `npm
    test`), coverage, `make verify`, `npm run verify*`, a build, or e2e tests, and
-   tell every sub-agent the same. Before the check, the runner runs the tests that
-   cover every file the branch changed, and gives you any that fail. {{delivery}} Never weaken a check,
+   tell every sub-agent the same. Tests guide the agent that writes the code; they
+   are not a gate. {{delivery}} Never weaken a check,
    raise a budget, or add a baseline entry to make it pass. Then an independent
    checker compares the branch with the references and your acceptance criteria.
 10. When the usage limit is reached, every tool call starts to show a message

@@ -560,60 +560,6 @@ print(json.dumps({"type": "result", "subtype": "success", "result": "```json\\n"
         self.assertIn("A-1/goal-x--r3-1", self.git("branch"))
 
 
-class TestChangedTests(unittest.TestCase):
-    git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
-
-    def setUp(self):
-        TestGate.setUp(self)
-        self.runner.set(ask="# A-1: x")
-
-    def test_only_the_tests_of_the_changed_files_run_and_a_failure_goes_to_the_lead(self):
-        os.makedirs(os.path.join(self.work, "app", "test"))
-        self.commit("app/test/pytest.ini", "[pytest]\n", "tests")
-        self.git("push", "-q", "origin", "A-1/goal-x:main")
-        self.commit("app/test/test_a.py", "def test_a():\n    assert False\n", "a test")
-        ran = []
-        gate = goal.st.run_qa_gate
-
-        def run_gate(commands, worktree):
-            ran.extend(commands)
-            return ("tests", commands[0][1], "1 failed")
-        goal.st.run_qa_gate = run_gate
-        self.addCleanup(setattr, goal.st, "run_qa_gate", gate)
-        self.git("fetch", "-q", "origin")
-        fix = self.runner.changed_tests()
-        self.assertEqual(ran, [("tests of the changes in app/test", "uv run pytest -q test_a.py", "app/test")])
-        self.assertIn("1 failed", fix)
-        self.assertIn("Nothing was pushed or checked", fix)
-
-    def test_only_the_goal_s_own_commits_count_and_only_since_the_last_run(self):
-        self.git("checkout", "-q", "-b", "other", "main")
-        self.commit("elsewhere.txt", "x\n", "main's own work")
-        self.git("push", "-q", "origin", "other")
-        self.git("checkout", "-q", "A-1/goal-x")
-        self.commit("mine.txt", "x\n", "the goal's work")
-        self.git("merge", "-q", "--no-edit", "origin/other")
-        self.git("fetch", "-q", "origin")
-        self.assertEqual(self.runner.own_files(), ["mine.txt"])
-        first = self.git("rev-parse", "HEAD").strip()
-        self.commit("later.txt", "x\n", "a fix")
-        self.assertEqual(self.runner.own_files(first), ["later.txt"])
-        goal.st.run_qa_gate = lambda commands, worktree: None
-        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
-        self.runner.set(tested_head=first, failed_tests=[["tests", "uv run pytest -q test_a.py", "app/test"]])
-        ran = []
-        goal.st.run_qa_gate = lambda commands, worktree: ran.extend(commands)
-        self.assertIsNone(self.runner.changed_tests())
-        self.assertEqual(ran, [("tests", "uv run pytest -q test_a.py", "app/test")])
-        self.assertEqual(self.runner.data["failed_tests"], [])
-
-    def test_nothing_runs_when_no_test_covers_the_change(self):
-        self.commit("docs.txt", "x\n", "docs")
-        goal.st.run_qa_gate = lambda *a: self.fail("ran tests")
-        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
-        self.assertIsNone(self.runner.changed_tests())
-
-
 class TestQuestionOptions(unittest.TestCase):
     def test_a_question_s_options_reach_the_ticket_and_the_lead(self):
         qs = goal.st.parse_agent_questions({"questions": [{
@@ -692,7 +638,6 @@ class TestFlow(unittest.TestCase):
         self.runner.lead = lead
         verdicts = [(False, ["a gap"], []), (True, [], [])]
         self.runner.sync = lambda: None
-        self.runner.changed_tests = lambda: None
         self.runner.check = lambda: verdicts.pop(0)
         self.runner.sync_and_ci = lambda: (None, None)
         self.runner.finish = lambda block: None
@@ -720,7 +665,6 @@ class TestFlow(unittest.TestCase):
         self.runner.run_tasks = lambda t: ran.append(t) or [
             {"name": "Inbox", "kind": "code", "status": "done", "summary": "Built it.", "merge": "merged"}]
         self.runner.sync = lambda: None
-        self.runner.changed_tests = lambda: None
         self.runner.check = lambda: (True, [], [])
         self.runner.sync_and_ci = lambda: (None, None)
         self.runner.finish = lambda block: None

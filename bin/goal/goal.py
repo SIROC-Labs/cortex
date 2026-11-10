@@ -238,9 +238,9 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "lines for a screen, the tests to write, and what done means. Record in the journal "
          "what each batch did and decided, and tick the steps and criteria it meets. You can "
          "run git, read Markdown documents, and edit your journal and the technical plan. "
-         "You do not run tests, type checks or builds: before the check, the runner runs the "
-         "tests that cover every file the branch changed and gives you any that fail. To "
-         "know whether a task's work is right, read its report, or hand over a reviewer task.")
+         "You do not run tests, type checks or builds. Tests guide the coding tasks while "
+         "they code: each runs the tests of its own change. To know whether a task's work is "
+         "right, read its report, or hand over a reviewer task.")
 NEXT_STEP = ("Hand over the next tasks: the first step of the plan not ticked, and with it "
              "every later step that does not depend on it. The session before this one handed "
              "over:\n\n%s")
@@ -832,15 +832,6 @@ def dispatched_prompt(reports):
               "tasks with the `dispatch` block, or end with `done` when every step and "
               "criterion is ticked."]
     return "\n".join(lines)
-
-
-def changed_tests_prompt(cmd, output):
-    """What the lead is told when the tests of what it changed fail."""
-    return ("You reported done, but the tests that cover the files the branch changed "
-            "fail. Nothing was pushed or checked. The runner ran, in the worktree:\n\n"
-            "```\n%s\n```\n\nIts output ends:\n\n```\n%s\n```\n\nHave a sub-agent "
-            "fix the code or the tests, as the testing guide says. Never weaken a test to "
-            "make it pass. Then report done again." % (cmd, output.strip()[-6000:]))
 
 
 def checks_text(base):
@@ -2088,62 +2079,6 @@ class Runner(object):
             return conflict_prompt("origin/%s" % base, files.split())
         return None
 
-    def own_files(self, since=None):
-        """The files this goal's own commits changed, and none that a merge brought in
-        from elsewhere: commits on any other remote branch, such as `main`, or on its
-        base are not its own. With `since`, only what changed after that commit."""
-        worktree, branch = self.data["worktree"], self.data["branch"]
-        base = self.data["base"] if self.data.get("parent") else st.base_ref(self.data["base"])
-        args = ["log", "--no-merges", "--name-only", "--format=", "HEAD", "--not", base]
-        args += [since] if since else []
-        args += ["--exclude=refs/remotes/origin/%s" % branch, "--remotes=origin"]
-        code, out, _ = st.git(args, cwd=worktree, check=False)
-        return sorted({f for f in out.splitlines() if f.strip()}) if code == 0 else None
-
-    def changed_tests(self):
-        """The tests that cover the files the goal's own commits changed since the
-        last run, and the ones that failed then, run here before the check and the
-        push. Returns None when they pass, else what the lead is to fix."""
-        worktree = self.data["worktree"]
-        _, head, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
-        since = self.data.get("tested_head")
-        if since and st.git(["merge-base", "--is-ancestor", since, "HEAD"], cwd=worktree,
-                            check=False)[0] != 0:
-            since = None
-        files = self.own_files(since)
-        if files is None:
-            files = self.own_files()
-        config = st.qa_config(worktree)
-        try:
-            commands = (st.select_gates(config, files) if config is not None
-                        else st.detected_gates(worktree, files or []))
-        except ValueError as e:
-            st.warn("%s: %s" % (st.QA_CONFIG, e))
-            commands = []
-        known = {c[1] for c in commands}
-        commands += [tuple(c) for c in self.data.get("failed_tests") or [] if c[1] not in known]
-        if not commands:
-            st.info("no tests cover the files changed%s" % (" since the last test run" if since else ""))
-            self.set(tested_head=head.strip(), failed_tests=[])
-            return None
-        st.step("Testing what the branch changed%s" % (" since the last run" if since else ""))
-        failure = None
-        for n, command in enumerate(commands, 1):
-            self.set(status="checking", doing="running the tests that cover the changes",
-                     runner_doing="%s (%d of %d): %s" % (command[0], n, len(commands), command[1]),
-                     runner_since=time.time())
-            failure = st.run_qa_gate([command], worktree)
-            if failure:
-                self.set(failed_tests=[list(command)])
-                break
-        self.set(runner_doing=None, tested_head=head.strip(),
-                 **({} if failure else {"failed_tests": []}))
-        if not failure:
-            return None
-        name, cmd, output = failure
-        st.warn("%s failed — back to the lead" % name)
-        return changed_tests_prompt(cmd, output)
-
     def gate(self):
         """Sync the branch with its base, push it, mark the PR ready, and wait for
         its CI. Returns (None, None) when CI passes, else ("merge" | "ci", what failed)."""
@@ -3082,8 +3017,6 @@ class Runner(object):
                     # Checked before anything is pushed: a gap found after CI costs a
                     # second CI run.
                     fix = self.sync_part() if self.data.get("parent") else self.sync()
-                    if not fix:
-                        fix = self.changed_tests()
                     if not fix:
                         done, gaps, questions = self.check()
                         if done and self.data.get("parent"):

@@ -155,11 +155,9 @@ This program is the harness around the lead:
   goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API
   prices: what the work would cost, not a bill. Each agent is priced from its own tokens at
   the rate its model's result reported, since a resumed session reports its running total.
-- **Done means tested, then checked.** When the lead says it is done, the runner first runs
-  only the tests that cover the files the branch changed (the same detection as task runs:
-  `vitest related`, and the pytest files an import graph links to the changed modules).
-  A failure goes back to the lead, with nothing pushed or checked. Then a separate checker
-  agent compares the branch with the references and the lead's acceptance criteria, which
+- **Done means checked.** Tests guide the coding tasks while they code: each runs the tests
+  of its own change, and they are not a gate. When the lead says it is done, a separate
+  checker agent compares the branch with the references and the lead's acceptance criteria, which
   it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by
