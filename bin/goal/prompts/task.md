@@ -19,10 +19,15 @@ worktree. When you finish, the runner merges your branch into the goal's branch.
 - Change only what the brief asks for. Follow the repository's conventions, in its
   `CLAUDE.md` files.
 - Write tests where the testing guide asks for them.{{testing}} You may run the
-  tests that cover the files you changed, with the tools that are already there:
-  `npx --no-install vitest related --run <files>` in their package, or
-  `uv run pytest <test files>` in their test folder. When a tool is missing, do not
-  install it: say so in `notes`. Never run a whole suite, a build, CI or e2e tests.
+  tests that cover the files you changed in this task, and only those. Your files
+  are `git diff --name-only {{start}}`: work that was on the branch before you
+  started is not yours to test. Run them with the tools that are already there:
+  `npx --no-install vitest related --run <your files>` in their package, or
+  `uv run pytest <the test files of your modules>` in their test folder. When a
+  tool is missing, do not install it: say so in `notes`.
+- Never run a check of the whole project: no type check (`tsc`, `npm run
+  typecheck`), no lint of everything, no whole suite, build, CI or e2e tests. The
+  runner, the checker and CI run those after you.
 - Commit your work on this branch, with clear messages. Do not push.
 - Do not start sub-agents.
 

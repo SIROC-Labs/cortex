@@ -2454,13 +2454,14 @@ class Runner(object):
             prompt = render(os.path.join(PROMPTS, "explore.md"), question=task["brief"].strip())
         else:
             stamp = "r%d-%d" % (self.data.get("round", 0), n + 1)
+            _, start, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
             run["branch"] = "%s--%s" % (self.data["branch"], stamp)
             cwd = run["worktree"] = "%s--%s" % (self.data["worktree"], stamp)
             st.git(["worktree", "add", "-b", run["branch"], cwd, "HEAD"], cwd=self.data["worktree"])
             link_dependencies(self.data["worktree"], cwd)
             guides = ", ".join("`%s`" % g for g in testing_guides(self.data["worktree"]))
             prompt = render(os.path.join(PROMPTS, "task.md"), brief=task["brief"].strip(),
-                            worktree=cwd, branch=run["branch"],
+                            worktree=cwd, branch=run["branch"], start=start.strip()[:12],
                             testing=" The testing guide is %s." % guides if guides else "")
         settings = self.goal.state.path("settings-%s.json" % run["session"][:8])
         mode, allow = unattended(model, [cwd, self.goal.state.dir], [])
@@ -2943,7 +2944,9 @@ class Runner(object):
             elif self.data.get("phase") == "parts":
                 prompt = self.run_parts()
                 self.set(phase="building", status="working")
-            elif self.data.get("session_used") and self.data.get("phase") == "building":
+            elif self.data.get("phase") == "building":
+                # A build always carries on in a new session, even from a call that was
+                # stopped before it ended.
                 prompt = self.fresh(CONTINUE)
             else:
                 prompt = self.first_prompt() if not self.data.get("session_used") else CONTINUE

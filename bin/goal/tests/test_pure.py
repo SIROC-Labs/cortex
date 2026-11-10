@@ -1541,6 +1541,13 @@ class TestPlanFlow(unittest.TestCase):
         self.assertIn(goal.FRESH, self.prompts[0])
         self.assertIsNone(self.runner.data.get("session"))
 
+    def test_a_build_stopped_in_the_middle_of_a_call_starts_a_new_session(self):
+        self.runner.set(phase="building", approved=True, session="stopped-call", session_used=False)
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        self.journal(PLANNED)
+        self.run_with([("done", lambda: self.journal(done))], lambda record: "continue")
+        self.assertIn(goal.FRESH, self.prompts[0])
+
     def test_the_checker_s_effort_follows_the_setup_tab(self):
         self.runner.set(check_effort="xhigh")
         self.assertEqual(self.runner.check_effort(), goal.DEFAULT_CHECK_EFFORT)
