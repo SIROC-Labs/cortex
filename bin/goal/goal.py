@@ -219,10 +219,13 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "into the build, it is sent again with every step and costs more than the work. "
          "Your journal, the technical plan and the branch hold everything that is true. "
          "Read the journal and the technical plan first.\n\n"
-         "One session does one step of the plan, or a few small steps that belong "
-         "together. When it is committed and ticked, write in the journal what the next "
-         "step needs to know, and end the session with the `step` block. The next step "
-         "starts in a new session, from the journal.\n\n"
+         "One session does the next step of the plan, together with every later step "
+         "that does not depend on it: their sub-agents run at the same time, each on its "
+         "own files, or in its own worktree where they could touch the same ones. Inside "
+         "a step, start every sub-agent whose work does not wait on another at once. "
+         "When the steps are committed and ticked, write in the journal what the next "
+         "session needs to know, and end the session with the `step` block. The next "
+         "steps start in a new session, from the journal.\n\n"
          "In the build you coordinate: sub-agents write the code. Give each one a brief: "
          "the step, what to change and where, the parts of the technical plan it needs, "
          "and how to test it. Keep your own context small: read their reports, not the "
@@ -231,8 +234,9 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "it, start an Explore sub-agent with one narrow question and ask for a short "
          "answer: the files, the lines and the facts. You can run git, commit, read "
          "Markdown documents, and edit your journal and the technical plan.")
-NEXT_STEP = ("Do the next step of the plan: the first one not ticked. The session before "
-             "this one did a step and handed over:\n\n%s")
+NEXT_STEP = ("Do the next step of the plan, the first one not ticked, and with it every later "
+             "step that does not depend on it, in parallel. The session before this one "
+             "handed over:\n\n%s")
 RESUME_STEP = ("The session before this one stopped in the middle of a step. Find where it "
                "got to from the journal and `git status`, finish that step, and end with the "
                "`step` block, or `done` when it was the last.")
@@ -858,7 +862,7 @@ def built_text(built):
         "- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""])
 
 
-def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None):
+def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -874,7 +878,8 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None):
         return {"type": "command", "command": " ".join(
             shlex.quote(a) for a in (sys.executable, HOOK) + args)}
     agent = hook + ([guard("agent", subagent)] if subagent else [])
-    pre = [{"matcher": "Agent|Task", "hooks": agent}, {"matcher": "Bash", "hooks": [guard("bash")]}]
+    pre = [{"matcher": "Agent|Task", "hooks": agent},
+           {"matcher": "Bash", "hooks": [guard(*(("bash", "lead") if lead else ("bash",)))]}]
     if fence:
         pre.append({"matcher": "*", "hooks": [guard("fence", *fence)]})
     if delegate:
@@ -1774,7 +1779,7 @@ class Runner(object):
         self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
             self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or (),
             allow, delegate=self.data["worktree"] if label == "lead" and self.data.get(
-                "phase") == "building" else None))
+                "phase") == "building" else None, lead=label == "lead"))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]

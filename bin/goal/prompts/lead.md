@@ -63,7 +63,9 @@ general rule of the repository does not override what this ask's references say.
 4. Plan the work in the journal, under `## Plan`, as a checklist: one `- [ ]`
    line for each step, ticked `- [x]` when it is done. Start each step with a
    name of a few words and a colon, then what it does: the name is its subtask's
-   title on the ticket. The person follows your progress through it. Keep the journal current: what is done, what is in
+   title on the ticket. End each step with the earlier steps it needs, such as
+   `(after: 1, 3)`. Steps that do not need each other are built at the same time,
+   so split the work into steps that can. The person follows your progress through it. Keep the journal current: what is done, what is in
    progress, what is next, and every decision you made and why. You can lose your
    memory of this conversation at any time. The journal and the branch must be
    enough for you to continue.

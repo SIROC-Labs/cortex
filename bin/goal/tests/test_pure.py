@@ -939,6 +939,17 @@ class TestWindDown(unittest.TestCase):
         for command in ("rg -n 'a' apps", "cat apps/a.ts", "cd apps && grep -rn x .", "sed -n 1,80p a.py"):
             self.assertEqual(lead("Bash", command=command), hook.EXPLORE, command)
         self.assertEqual(lead("Read", file_path=wt + "/apps/a.ts"), hook.EXPLORE)
+        import io, contextlib
+        def bash(command, *argv, **call):
+            sys.stdin = io.StringIO(json.dumps(dict({"tool_name": "Bash", "tool_input": {"command": command}}, **call)))
+            with contextlib.redirect_stderr(io.StringIO()):
+                return hook.main(["bash"] + list(argv))
+        self.addCleanup(setattr, sys, "stdin", sys.__stdin__)
+        self.assertEqual(bash("for i in $(seq 1 9); do sleep 5; done", "lead"), 2)
+        self.assertEqual(bash("sleep 30", "lead"), 2)
+        self.assertEqual(bash("sleep 30", "lead", agent_type="general-purpose"), 0)
+        self.assertEqual(bash("sleep 30"), 0)
+        self.assertEqual(bash("git log --oneline", "lead"), 0)
         self.assertEqual(lead("Grep", pattern="x", path=wt + "/apps"), hook.EXPLORE)
         self.assertFalse(lead("Read", file_path=wt + "/docs/decisions/a.md"))
         self.assertFalse(lead("Read", file_path="/repo/.cortex/state/g/journal.md"))

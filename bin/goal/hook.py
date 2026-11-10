@@ -2,7 +2,8 @@
 #
 # hook.py — Claude Code hooks for a goal's calls.
 #
-#   hook.py bash            # refuses a push, a CI run, or a change to the PR
+#   hook.py bash [lead]     # refuses a push, a CI run, or a change to the PR; for
+#                           # the lead, also a sleep: sub-agents' reports come by themselves
 #   hook.py agent <model>   # a sub-agent started without a model gets <model>
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
 #   hook.py delegate <dir>  # refuses the lead, not its sub-agents, a change to the
@@ -52,6 +53,12 @@ WRITES = (
     re.compile(r"\btee\b"),
     re.compile(r"\b(?:git\s+apply|patch)\b"),
 )
+WAIT = ("Refused: do not wait for a sub-agent with sleep or a loop. Its report reaches you by "
+        "itself, as a message, the moment it finishes. Start every sub-agent whose work does "
+        "not depend on another now, and do other work meanwhile. When nothing is left to do "
+        "until a report arrives, end your reply with one short line, such as \"I wait for "
+        "the reports\". You continue when the next report arrives.")
+SLEEP = re.compile(r"(?:^|[;&|(`\s])sleep\s")
 CORTEX = re.compile(r"(?:^|[;&|(`\s])cortex(?:\s|$)")
 
 
@@ -106,6 +113,10 @@ def main(argv):
     tool_input = call.get("tool_input") or {}
     if argv[:1] == ["bash"] and blocked(tool_input.get("command")):
         sys.stderr.write(REFUSED + "\n")
+        return 2
+    if argv[:1] == ["bash"] and len(argv) > 1 and argv[1] == "lead" and not call.get("agent_type") \
+            and SLEEP.search(tool_input.get("command") or ""):
+        sys.stderr.write(WAIT + "\n")
         return 2
     if argv[:1] == ["fence"] and fenced(tool_input, argv[1:]):
         sys.stderr.write(FENCED + "\n")
