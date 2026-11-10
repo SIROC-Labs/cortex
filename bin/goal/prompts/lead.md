@@ -75,7 +75,8 @@ general rule of the repository does not override what this ask's references say.
 5. Build the work. Tick each acceptance criterion when the branch meets it, with
    the file that meets it, as in `- [x] … — path/to/file`. You cannot report done while a
    criterion is not ticked. Only the person can drop one.
-6. Use sub-agents freely. Give each one a clear part of the work, with what it must
+6. In the analysis, use sub-agents freely. In the build, the runner runs them: you
+   hand it tasks with the `dispatch` block, and the rules below are for those briefs. Use them freely. Give each one a clear part of the work, with what it must
    do and what it must not touch. Run independent parts in parallel. When parts
    can conflict, give each its own worktree, or run them one after the other.
    Start a reviewer or a checker agent when a part is risky or large. You own the
@@ -175,12 +176,14 @@ criteria and the plan, and the person answered your questions:
 {"status": "planned", "summary": "What the work is, in one or two sentences."}
 ```
 
-In the build, when a step of the plan is done, committed and ticked, and steps are
-left. Write the handoff in the journal too. The next step starts in a new session:
-the handoff is all it gets from this one, so give it what it needs, and only that.
+In the build, to hand the runner the next tasks. It runs them all at the same time
+and calls you again, in a new session, with their reports. Write in the journal
+first what the next session needs: it gets the journal and the reports, nothing of
+this session. `kind` is `code` for a change or `explore` for a question;
+`model` is `opus` only for a task that needs deep reasoning:
 
 ```json
-{"status": "step", "summary": "What this step did, in one sentence.", "handoff": "What the next step needs to know that the journal and the plan do not say yet."}
+{"status": "dispatch", "summary": "What these tasks do, in one sentence.", "tasks": [{"name": "A few words", "kind": "code", "brief": "The whole brief: the step, what to change and where, the technical plan's parts, the prototype file and lines, the tests, what done means."}]}
 ```
 
 When the ask is fully implemented, committed, its tests pass, and every acceptance

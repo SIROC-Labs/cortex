@@ -105,13 +105,21 @@ This program is the harness around the lead:
 - **The build is delegated, in a new session.** Every step of a session sends the whole
   conversation again, so a build carried on from the planning costs far more than the work.
   The build starts in a new session, from the journal, the technical plan and the branch,
-  and so does a build carried on after a usage pause or a restart. In the build, every
-  session is short: one step of the plan, then a `step` report with a handoff of what the
-  next step needs, and the next step starts in a new session from the journal and that handoff.
-  Whatever the runner hands back (failing tests, a conflict, CI, the checker's gaps,
-  criteria not ticked) starts a new session too, and so does a session that stopped
-  mid-step. Only an answer to the lead's own question goes back into its session. In the build the lead
-  coordinates, its sub-agents write the code, and Explore sub-agents read it: a hook
+  and so does a build carried on after a usage pause or a restart. In the build the lead
+  does not start agents: it ends each session with a `dispatch` block, a list of tasks.
+  A coding task makes one change; a question asks an explorer one thing about the code.
+  The runner runs the whole list at once (six at a time), each coding task as its own
+  `claude -p` call on the sub-agent model, in its own worktree off the goal's branch. A
+  task's worktree links the goal worktree's `node_modules` and `.venv`, so it can run the
+  tests of what it changed without an install; it runs nothing else, since the runner,
+  the checker and CI test after it. When the tasks end, the runner commits what each
+  left, merges each finished task's branch into the goal's branch, removes the
+  worktrees, and calls the lead again, in a new session, with only their reports. A task
+  that failed, or conflicts with one merged before it, keeps its branch, and its report
+  says so. Whatever the runner hands back (failing tests, a conflict, CI, the checker's
+  gaps, criteria not ticked) starts a new session too. Only an answer to the lead's own
+  question goes back into its session. In the build the lead
+  coordinates, coding tasks write the code, and explorers read it: a hook
   refuses the lead, and only the lead, an edit to the worktree, a shell command that
   writes a file there, and a read of its code (Read, Grep, Glob, or `cat`, `grep`, `sed`
   and the like), Markdown aside. Every file the lead reads stays in its context and is

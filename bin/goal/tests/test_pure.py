@@ -489,6 +489,77 @@ class TestScopedCheck(unittest.TestCase):
         self.assertNotIn("What this check covers", prompts[0])
 
 
+class TestRunTasks(unittest.TestCase):
+    git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
+
+    def setUp(self):
+        TestGate.setUp(self)
+        self.runner.set(ask="# A-1: x", round=3)
+        self.runner.usage = lambda: []
+        self.runner.wait_for_usage = lambda: None
+        os.makedirs(os.path.join(self.work, "app", "node_modules"))
+        self.commit("app/a.ts", "a\n", "app")
+        bindir = os.path.join(self.dir, "bin")
+        os.makedirs(bindir)
+        # A claude that writes the file its brief names, or answers a question.
+        with open(os.path.join(bindir, "claude"), "w") as f:
+            f.write("""#!/usr/bin/env python3
+import json, os, subprocess, sys
+prompt = sys.argv[-1]
+if "You answer one question" in prompt:
+    block = {"status": "done", "answer": "it is in app/a.ts"}
+else:
+    name = prompt.split("WRITE:")[1].split()[0]
+    with open(name, "w") as f:
+        f.write(os.getcwd() + "\\n")
+    assert os.path.islink("app/node_modules")
+    if "FAIL" in prompt:
+        sys.exit(1)
+    if "COMMIT" in prompt:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"], check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name], check=True)
+    block = {"status": "done", "summary": "wrote " + name, "files": [name]}
+print(json.dumps({"type": "result", "subtype": "success", "result": "```json\\n" + json.dumps(block) + "\\n```"}))
+""")
+        os.chmod(os.path.join(bindir, "claude"), 0o755)
+        self.addCleanup(os.environ.__setitem__, "PATH", os.environ["PATH"])
+        os.environ["PATH"] = bindir + os.pathsep + os.environ["PATH"]
+
+    def test_tasks_run_in_their_own_worktrees_and_merge_back(self):
+        os.makedirs(os.path.join(self.work, "app"), exist_ok=True)
+        reports = self.runner.run_tasks([
+            {"name": "One", "kind": "code", "brief": "WRITE: one.txt COMMIT"},
+            {"name": "Two", "kind": "code", "brief": "WRITE: two.txt"},
+            {"name": "Clash", "kind": "code", "brief": "WRITE: shared.txt COMMIT"},
+            {"name": "Where", "kind": "explore", "brief": "Where is a?"}])
+        self.assertEqual([r["merge"] for r in reports[:3]], ["merged", "merged", "merged"])
+        self.assertEqual(reports[3]["answer"], "it is in app/a.ts")
+        for name in ("one.txt", "two.txt"):
+            self.assertTrue(os.path.exists(os.path.join(self.work, name)))
+        self.assertNotIn("node_modules", self.git("ls-files"))
+        self.assertEqual(self.git("worktree", "list").count("\n"), 1)
+        self.assertNotIn("--r3-", self.git("branch"))
+        prompt = goal.dispatched_prompt(reports)
+        self.assertIn("### One (coding task): done", prompt)
+        self.assertIn("- Answer: it is in app/a.ts", prompt)
+
+    def test_a_task_that_conflicts_keeps_its_branch_for_the_lead(self):
+        reports = self.runner.run_tasks([
+            {"name": "A", "kind": "code", "brief": "WRITE: same.txt COMMIT"},
+            {"name": "B", "kind": "code", "brief": "WRITE: same.txt COMMIT"}])
+        merges = sorted(r["merge"] for r in reports)
+        self.assertEqual(merges[0], "merged")
+        self.assertIn("not merged", merges[1])
+        self.assertIn("`same.txt`", merges[1])
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_a_task_that_fails_is_not_merged(self):
+        reports = self.runner.run_tasks([{"name": "Broken", "kind": "code", "brief": "WRITE: half.txt FAIL"}])
+        self.assertEqual(reports[0]["status"], "failed")
+        self.assertIn("did not finish", reports[0]["merge"])
+        self.assertIn("A-1/goal-x--r3-1", self.git("branch"))
+
+
 class TestChangedTests(unittest.TestCase):
     git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
 
@@ -612,6 +683,33 @@ class TestFlow(unittest.TestCase):
         self.assertIn("This is a new session", calls[1][1])
         self.assertIsNone(calls[2][0])
         self.assertIn("a gap", calls[2][1])
+
+    def test_the_lead_hands_tasks_to_the_runner_and_gets_their_reports_in_a_new_session(self):
+        self.journal(JOURNAL.replace("- [ ] An empty", "- [x] An empty"))
+        self.runner.set(phase="building", reviewed=True)
+        tasks = [{"name": "Inbox", "kind": "code", "brief": "Build the inbox."}]
+        reports = [("dispatch", {"status": "dispatch", "tasks": tasks}), ("done", {"summary": "s"})]
+        calls, ran = [], []
+
+        def lead(prompt):
+            calls.append((self.runner.data.get("session"), prompt))
+            self.runner.set(session="used", session_used=True)
+            return reports.pop(0)
+        self.runner.lead = lead
+        self.runner.run_tasks = lambda t: ran.append(t) or [
+            {"name": "Inbox", "kind": "code", "status": "done", "summary": "Built it.", "merge": "merged"}]
+        self.runner.sync = lambda: None
+        self.runner.changed_tests = lambda: None
+        self.runner.check = lambda: (True, [], [])
+        self.runner.sync_and_ci = lambda: (None, None)
+        self.runner.finish = lambda block: None
+        self.runner.watch_pr = lambda: None
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(ran, [tasks])
+        self.assertIsNone(calls[1][0])
+        self.assertIn("### Inbox (coding task): done", calls[1][1])
+        self.assertIn("- Did: Built it.", calls[1][1])
+        self.assertEqual(goal.lead_report({"status": "dispatch", "tasks": []})[0], "progress")
 
     def test_a_gap_goes_back_to_the_lead_before_anything_is_pushed(self):
         done = JOURNAL.replace("- [ ] An empty", "- [x] An empty")

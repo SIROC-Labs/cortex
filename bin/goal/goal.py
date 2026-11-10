@@ -90,6 +90,9 @@ WIND_CHECK = 60
 # safe point. Only this many points past it is it cut off.
 HARD_MARGIN = 2
 WIND_FILE = "wind-down"
+PARALLEL_TASKS = 6
+TASK_CHECK = 15
+DEP_DIRS = ("node_modules", ".venv")
 SETTINGS_FILE = "settings.json"
 WIND_DOWN = ("WIND DOWN: the person's Claude usage limit is reached, so this work pauses "
              "now. Start no new sub-agent and no new step. Finish the step you are on. If "
@@ -111,7 +114,8 @@ CI_START = 600
 CI_TIMEOUT = 2 * 3600
 # Tries a cheap fixer gets at failing CI before the lead takes it on.
 CI_FIXES = 2
-ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes"}
+ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes", "review": "reviewer",
+         "task": "coding tasks", "explore": "explorers"}
 
 # A large goal is split into parts, each a goal of its own on a branch off the
 # goal's, merged back into it when done. A part does not split again.
@@ -219,27 +223,26 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "into the build, it is sent again with every step and costs more than the work. "
          "Your journal, the technical plan and the branch hold everything that is true. "
          "Read the journal and the technical plan first.\n\n"
-         "One session does the next step of the plan, together with every later step "
-         "that does not depend on it: their sub-agents run at the same time, each on its "
-         "own files, or in its own worktree where they could touch the same ones. Inside "
-         "a step, start every sub-agent whose work does not wait on another at once. "
-         "When the steps are committed and ticked, write in the journal what the next "
-         "session needs to know, and end the session with the `step` block. The next "
-         "steps start in a new session, from the journal.\n\n"
-         "In the build you coordinate: sub-agents write the code. Give each one a brief: "
-         "the step, what to change and where, the parts of the technical plan it needs, "
-         "and how to test it. Keep your own context small: read their reports, not the "
-         "whole diff, and record in the journal what each step did and decided. You "
-         "cannot edit or read the code yourself. When you need to know something about "
-         "it, start an Explore sub-agent with one narrow question and ask for a short "
-         "answer: the files, the lines and the facts. You can run git, commit, read "
-         "Markdown documents, and edit your journal and the technical plan.")
-NEXT_STEP = ("Do the next step of the plan, the first one not ticked, and with it every later "
-             "step that does not depend on it, in parallel. The session before this one "
-             "handed over:\n\n%s")
-RESUME_STEP = ("The session before this one stopped in the middle of a step. Find where it "
-               "got to from the journal and `git status`, finish that step, and end with the "
-               "`step` block, or `done` when it was the last.")
+         "In the build you coordinate. You do not write or read the code, and you do not "
+         "start sub-agents: the runner does. To get work done, end your reply with the "
+         "`dispatch` block, a list of tasks. A coding task makes one change; a question "
+         "asks an explorer one narrow thing about the code. The runner runs every task in "
+         "the block at the same time, each coding task in its own worktree off the branch, "
+         "merges their branches into yours, and calls you again, in a new session, with "
+         "their reports. So put every task that does not wait on another in one block: the "
+         "next step of the plan, and every later step that does not depend on it. Give two "
+         "tasks that change the same file to two blocks, one after the other.\n\n"
+         "Brief each task completely, because it knows only its brief: the step, what to "
+         "change and where, the parts of the technical plan it needs, the prototype file and "
+         "lines for a screen, the tests to write, and what done means. Record in the journal "
+         "what each batch did and decided, and tick the steps and criteria it meets. You can "
+         "run git, read Markdown documents, and edit your journal and the technical plan.")
+NEXT_STEP = ("Hand over the next tasks: the first step of the plan not ticked, and with it "
+             "every later step that does not depend on it. The session before this one handed "
+             "over:\n\n%s")
+RESUME_STEP = ("The session before this one stopped before it handed over its tasks. Find "
+               "where the work is from the journal and `git log`, and hand over the next tasks "
+               "with the `dispatch` block, or end with `done` when every step is ticked.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -402,8 +405,8 @@ def over_threshold(limits, threshold):
 
 
 def lead_report(structured):
-    """What the lead's result block says: ("progress" | "planned" | "step" | "done" |
-    "question", block). A missing or unreadable block is progress — the lead
+    """What the lead's result block says: ("progress" | "planned" | "dispatch" | "step" |
+    "done" | "question", block). A missing or unreadable block is progress — the lead
     stopped, not finished."""
     if not isinstance(structured, dict):
         return "progress", {}
@@ -411,6 +414,8 @@ def lead_report(structured):
     if status == "question" and st.parse_agent_questions(structured):
         return "question", structured
     if status in ("done", "planned", "step"):
+        return status, structured
+    if status == "dispatch" and isinstance(structured.get("tasks"), list) and structured["tasks"]:
         return status, structured
     return "progress", structured
 
@@ -768,6 +773,63 @@ def integration_scope(sha, technical_plan, base):
         "the steps below say to read or check everything, keep to this list.", ""])
 
 
+def link_dependencies(source, target):
+    """Link the installed dependencies of one worktree into another, so a task's
+    tests can run without an install. The links are kept out of git."""
+    linked = []
+    for root, dirs, _ in os.walk(source):
+        rel = os.path.relpath(root, source)
+        if rel.count(os.sep) >= 3 or any(p in (".git", ".cortex") for p in rel.split(os.sep)):
+            dirs[:] = []
+            continue
+        for d in list(dirs):
+            if d in DEP_DIRS:
+                dirs.remove(d)
+                path = os.path.normpath(os.path.join(rel, d))
+                dest = os.path.join(target, path)
+                if os.path.isdir(os.path.dirname(dest)) and not os.path.lexists(dest):
+                    os.symlink(os.path.join(root, d), dest)
+                    linked.append(path)
+            elif d.startswith("."):
+                dirs.remove(d)
+    if linked:
+        _, common, _ = st.git(["rev-parse", "--git-common-dir"], cwd=target, check=False)
+        exclude = os.path.join(os.path.join(target, common.strip()) if not os.path.isabs(
+            common.strip()) else common.strip(), "info", "exclude")
+        try:
+            with open(exclude) as f:
+                have = set(f.read().splitlines())
+        except (IOError, OSError):
+            have = set()
+        os.makedirs(os.path.dirname(exclude), exist_ok=True)
+        with open(exclude, "a") as f:
+            for path in linked:
+                if "/" + path not in have:
+                    f.write("/%s\n" % path)
+    return linked
+
+
+def dispatched_prompt(reports):
+    """What the lead gets back from its tasks, in a new session."""
+    lines = ["The runner ran your tasks. Their reports, in your order:", ""]
+    for r in reports:
+        if not r:
+            continue
+        lines.append("### %s (%s): %s" % (r["name"], "question" if r["kind"] == "explore"
+                                           else "coding task", r["status"]))
+        for key, label in (("summary", "Did"), ("answer", "Answer"), ("files", "Files"),
+                           ("notes", "Notes"), ("merge", "Branch")):
+            if r.get(key):
+                value = ", ".join("`%s`" % f for f in r[key]) if isinstance(r[key], list) else r[key]
+                lines.append("- %s: %s" % (label, value))
+        lines.append("")
+    lines += ["Check the results against the plan, from these reports, or with an explorer "
+              "or a reviewer task. Tick what is done in the journal. Then hand over the next "
+              "tasks with the `dispatch` block, or end with `done` when every step and "
+              "criterion is ticked."]
+    return "\n".join(lines)
+
+
 def changed_tests_prompt(cmd, output):
     """What the lead is told when the tests of what it changed fail."""
     return ("You reported done, but the tests that cover the files the branch changed "
@@ -862,7 +924,8 @@ def built_text(built):
         "- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""])
 
 
-def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False):
+def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False,
+                  readonly=None):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -885,6 +948,9 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
     if delegate:
         pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob",
                     "hooks": [guard("delegate", delegate)]})
+    if readonly:
+        pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                    "hooks": [guard("readonly", readonly)]})
     out = {"hooks": {"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
     if allow:
@@ -1139,14 +1205,16 @@ def usage_report(calls):
                                              c.get("estimated") for c in calls) else "")
                                      + ("" if known else " so far known")),
            ""]
-    for role in ("lead", "sub-agents", "CI fixes", "checker"):
+    for role in ("lead", "coding tasks", "explorers", "sub-agents", "CI fixes", "reviewer", "checker"):
         if role in roles:
             r = roles[role]
             entry = dict(r, model="/".join(sorted(r["models"])))
             out.append(_line("%s (%d)" % (role, r["count"]), entry))
     for call in calls:
         out += ["", "%s · %s%s · %s · %s" % (
-            {"lead": "Round %s", "check": "Check %s"}.get(call["label"], "CI fix %s") % call["round"],
+            ({"lead": "Round %s", "check": "Check %s", "review": "Review %s", "ci-fix": "CI fix %s",
+              "task": "Task %s", "explore": "Explorer %s"}.get(call["label"], call["label"] + " %s")
+             % call["round"]) + (": " + call["name"] if call.get("name") else ""),
             short_model(call["model"]), " %s effort" % call["effort"] if call.get("effort") else "",
             time.strftime("%a %H:%M", time.localtime(call["started"])),
             _cost(call.get("cost"), call.get("estimated")))]
@@ -1607,15 +1675,17 @@ class Runner(object):
         if not self.data:
             st.die("no goal %s in %s" % (gid, main_root), escalate=False)
         self.child = None
+        self.children = []
         self.cut_off = None
         signal.signal(signal.SIGTERM, self.on_term)
 
     def on_term(self, *_):
-        if self.child and self.child.poll() is None:
-            try:
-                os.killpg(self.child.pid, signal.SIGTERM)
-            except OSError:
-                pass
+        for child in [self.child] + list(self.children):
+            if child and child.poll() is None:
+                try:
+                    os.killpg(child.pid, signal.SIGTERM)
+                except OSError:
+                    pass
         for part in self.data.get("parts") or []:
             pid = (Goal(self.main_root, part["id"]).read() or {}).get("pid")
             if pid and st._pid_alive(pid):
@@ -1784,6 +1854,9 @@ class Runner(object):
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
+        if label == "lead" and self.data.get("phase") == "building":
+            # In the build the runner starts the agents: the lead hands it their tasks.
+            cmd += ["--disallowedTools", "Agent,Task"]
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
         started = time.time()
@@ -1835,7 +1908,7 @@ class Runner(object):
         st.info("%s: %s turns" % (label, telemetry.get("turns") or "?"))
         return extract_last_json_block(text), telemetry.get("stop_reason"), None
 
-    def record_call(self, label, model, effort, session, started, out=b""):
+    def record_call(self, label, model, effort, session, started, out=b"", name=None):
         """Note what a call cost, by agent, and rewrite the goal's usage report."""
         try:
             envelope = json.loads(out.decode("utf-8", "replace")) if out.strip() else {}
@@ -1850,9 +1923,10 @@ class Runner(object):
         entries = [main] + agents
         cost = (sum(e["cost"] for e in entries)
                 if all(e.get("cost") is not None for e in entries) else None)
-        calls.append({"v": 2, "label": label, "round": rounds, "model": model, "effort": effort,
-                      "started": started, "session": session, "cost": cost,
-                      "main": dict(main, seconds=time.time() - started), "subagents": agents})
+        calls.append(dict({"v": 2, "label": label, "round": rounds, "model": model, "effort": effort,
+                           "started": started, "session": session, "cost": cost,
+                           "main": dict(main, seconds=time.time() - started), "subagents": agents},
+                          **({"name": name} if name else {})))
         self.goal.state.write(CALLS_FILE, calls)
         save_rates(learned_rates(normalise(calls)))
         _, total = write_report(self.goal)
@@ -2339,6 +2413,150 @@ class Runner(object):
         self.set(session=None, session_used=False)
         return self.first_prompt() + "\n\n" + FRESH + "\n\n" + prompt
 
+    # the build's tasks: the lead hands them over, the runner runs them
+
+    def run_tasks(self, tasks):
+        """Run the lead's tasks, PARALLEL_TASKS at a time: each coding task in its own
+        worktree off the branch, merged back when it ends; each question on the goal's
+        worktree, read only. Returns a report per task, in the lead's order."""
+        tasks = [t for t in tasks if isinstance(t, dict) and str(t.get("brief") or "").strip()]
+        st.step("Running %d task(s) from the lead" % len(tasks))
+        self.set(status="working", doing="running %d task(s)" % len(tasks))
+        results = [None] * len(tasks)
+        todo = list(enumerate(tasks))
+        while todo:
+            batch, todo = todo[:PARALLEL_TASKS], todo[PARALLEL_TASKS:]
+            self.wait_for_usage()
+            running = [self.start_task(n, task) for n, task in batch]
+            for run in self.wait_tasks(running):
+                results[run["n"]] = self.end_task(run)
+        return results
+
+    def start_task(self, n, task):
+        explore = task.get("kind") == "explore"
+        name = str(task.get("name") or ("question %d" % (n + 1) if explore else "task %d" % (n + 1)))
+        model = {"opus": DEFAULT_MODEL}.get(task.get("model"), self.data.get("subagent_model")
+                                           or DEFAULT_SUBAGENT_MODEL)
+        run = {"n": n, "name": name, "explore": explore, "model": model,
+               "session": str(uuid.uuid4()), "started": time.time()}
+        if explore:
+            cwd = self.data["worktree"]
+            prompt = render(os.path.join(PROMPTS, "explore.md"), question=task["brief"].strip())
+        else:
+            stamp = "r%d-%d" % (self.data.get("round", 0), n + 1)
+            run["branch"] = "%s--%s" % (self.data["branch"], stamp)
+            cwd = run["worktree"] = "%s--%s" % (self.data["worktree"], stamp)
+            st.git(["worktree", "add", "-b", run["branch"], cwd, "HEAD"], cwd=self.data["worktree"])
+            link_dependencies(self.data["worktree"], cwd)
+            guides = ", ".join("`%s`" % g for g in testing_guides(self.data["worktree"]))
+            prompt = render(os.path.join(PROMPTS, "task.md"), brief=task["brief"].strip(),
+                            worktree=cwd, branch=run["branch"],
+                            testing=" The testing guide is %s." % guides if guides else "")
+        settings = self.goal.state.path("settings-%s.json" % run["session"][:8])
+        mode, allow = unattended(model, [cwd, self.goal.state.dir], [])
+        with open(settings, "w") as f:
+            json.dump(hook_settings(self.goal.state.path(WIND_FILE), fence=self.data.get("fence") or (),
+                                    allow=allow, readonly=cwd if explore else None), f)
+        run["settings"] = settings
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model,
+               "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
+               "--disallowedTools", "Agent,Task", "--session-id", run["session"], prompt]
+        st.info("%s: %s on %s" % ("question" if explore else "task", name, short_model(model)))
+        run["child"] = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        start_new_session=True)
+        self.children.append(run["child"])
+        return run
+
+    def wait_tasks(self, running):
+        """Each task as it ends. Over the usage limit, every task still running is
+        stopped: its report says so, and the lead starts it again later."""
+        import threading
+        outs = {}
+
+        def drain(run):
+            outs[run["n"]] = run["child"].communicate()
+        threads = [threading.Thread(target=drain, args=(run,), daemon=True) for run in running]
+        for t in threads:
+            t.start()
+        left, checked = list(running), time.time()
+        while left:
+            for run in list(left):
+                if run["n"] in outs:
+                    run["out"], run["err"] = outs[run["n"]]
+                    left.remove(run)
+                    yield run
+            if not left:
+                break
+            if time.time() - checked >= USAGE_CHECK:
+                checked = time.time()
+                self.progress()
+                hard = over_threshold(self.usage(), self.threshold() + HARD_MARGIN)
+                if hard:
+                    st.warn("%s at %d%% — stopping the tasks; the lead starts them again later"
+                            % (hard["name"], hard["used"]))
+                    for run in left:
+                        run["cut"] = True
+                        try:
+                            os.killpg(run["child"].pid, signal.SIGTERM)
+                        except OSError:
+                            pass
+            time.sleep(TASK_CHECK if left else 0)
+
+    def end_task(self, run):
+        """A task's report for the lead; a coding task's branch merged into the goal's."""
+        self.children.remove(run["child"])
+        out = run.get("out") or b""
+        self.record_call("explore" if run["explore"] else "task", run["model"], None,
+                         run["session"], run["started"], out, name=run["name"])
+        try:
+            os.remove(run["settings"])
+        except OSError:
+            pass
+        text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
+        block = extract_last_json_block(text) or {}
+        report = {"name": run["name"], "kind": "explore" if run["explore"] else "code"}
+        if run.get("cut"):
+            report["status"] = "stopped at the usage limit"
+        elif telemetry.get("ok") is False or not out.strip():
+            report["status"] = "failed"
+            report["notes"] = (telemetry.get("error") or (run.get("err") or b"").decode(
+                "utf-8", "replace").strip())[-1500:]
+        else:
+            report["status"] = block.get("status") or "done"
+        for key in ("summary", "answer", "notes", "files"):
+            if block.get(key):
+                report[key] = block[key]
+        if not run["explore"]:
+            report["merge"] = self.merge_task(run, report["status"] == "done")
+        st.info("%s: %s%s" % (run["name"], report["status"], " · %s" % report["merge"]
+                              if report.get("merge") else ""))
+        return report
+
+    def merge_task(self, run, finished=True):
+        """Commit what a task left, merge its branch into the goal's when it finished,
+        and remove its worktree. Returns what happened, in a few words."""
+        worktree, branch, home = run["worktree"], run["branch"], self.data["worktree"]
+        st.git(["add", "-A"], cwd=worktree, check=False)
+        st.git(["commit", "-q", "-m", "%s (left uncommitted)" % run["name"]], cwd=worktree, check=False)
+        st.git(["worktree", "remove", "--force", worktree], cwd=home, check=False)
+        _, ahead, _ = st.git(["rev-list", "--count", "HEAD.." + branch], cwd=home, check=False)
+        if ahead.strip() in ("", "0"):
+            st.git(["branch", "-D", branch], cwd=home, check=False)
+            return "no changes"
+        if not finished:
+            return "not merged, because the task did not finish. Its work is kept on branch `%s`" % branch
+        code, _, _ = st.git(["merge", "--no-ff", "--no-edit", "-m", "Merge task: %s" % run["name"],
+                             branch], cwd=home, check=False)
+        if code != 0:
+            _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=home, check=False)
+            st.git(["merge", "--abort"], cwd=home, check=False)
+            return ("not merged: it conflicts with the tasks merged before it in %s. Its "
+                    "work is kept on branch `%s`" % (", ".join("`%s`" % f for f in files.split())
+                                                     or "some files", branch))
+        st.git(["branch", "-D", branch], cwd=home, check=False)
+        return "merged"
+
     def decide(self, prompt):
         """What the runner hands the lead in the build — a fix, gaps, a failure —
         starts a new session: the work before it is in the journal and the branch."""
@@ -2739,6 +2957,9 @@ class Runner(object):
                     prompt = self.cut_off_notice()
                     if self.data.get("phase") == "building":
                         prompt = self.fresh(prompt)
+                    continue
+                if report == "dispatch" and self.data.get("phase") == "building":
+                    prompt = self.decide(dispatched_prompt(self.run_tasks(block.get("tasks") or [])))
                     continue
                 if report == "step" and self.data.get("phase") == "building":
                     prompt = self.fresh(NEXT_STEP % (block.get("handoff") or block.get("summary")

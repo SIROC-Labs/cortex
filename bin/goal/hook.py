@@ -6,6 +6,7 @@
 #                           # the lead, also a sleep: sub-agents' reports come by themselves
 #   hook.py agent <model>   # a sub-agent started without a model gets <model>
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
+#   hook.py readonly <dir>  # refuses any change to the code in <dir>: an explorer
 #   hook.py delegate <dir>  # refuses the lead, not its sub-agents, a change to the
 #                           # code in <dir>, or reading it: in the build, sub-agents
 #                           # write it and explorers read it
@@ -41,6 +42,8 @@ EXPLORE = ("Refused: in the build, explorers read the code for you. Every file y
            "a function returns, and ask for a short answer: the files, the lines and the "
            "facts. You can read your journal, the technical plan and Markdown documents, "
            "and run git.")
+READONLY = ("Refused: you answer a question about the code, and change nothing. Read what "
+            "you need, then answer.")
 READS = ("Read", "Grep", "Glob")
 # Shell commands that read code: the lead asks an explorer instead. git is not one, and
 # a filter after a pipe reads only the output before it.
@@ -120,6 +123,9 @@ def main(argv):
         return 2
     if argv[:1] == ["fence"] and fenced(tool_input, argv[1:]):
         sys.stderr.write(FENCED + "\n")
+        return 2
+    if argv[:1] == ["readonly"] and len(argv) > 1 and delegated(call, argv[1]) == DELEGATE:
+        sys.stderr.write(READONLY + "\n")
         return 2
     refusal = delegated(call, argv[1]) if argv[:1] == ["delegate"] and len(argv) > 1 else None
     if refusal:
