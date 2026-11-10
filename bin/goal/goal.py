@@ -2411,7 +2411,12 @@ class Runner(object):
         """The build starts, or carries on after a pause or a restart, in a new
         session: the lead's context is the journal and the branch, not history."""
         self.set(session=None, session_used=False)
-        return self.first_prompt() + "\n\n" + FRESH + "\n\n" + prompt
+        _, dirty, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
+        left = ("\n\nThe worktree has changes that are not committed, from a session that was "
+                "stopped: `git status` shows them. Check them with an explorer or a reviewer "
+                "task. The runner commits them before it runs your next tasks."
+                if dirty.strip() else "")
+        return self.first_prompt() + "\n\n" + FRESH + left + "\n\n" + prompt
 
     # the build's tasks: the lead hands them over, the runner runs them
 
@@ -2421,6 +2426,11 @@ class Runner(object):
         worktree, read only. Returns a report per task, in the lead's order."""
         tasks = [t for t in tasks if isinstance(t, dict) and str(t.get("brief") or "").strip()]
         st.step("Running %d task(s) from the lead" % len(tasks))
+        # Tasks start from the last commit, and merge back into a clean tree.
+        st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
+        if st.git(["commit", "-q", "-m", "Work left uncommitted by an earlier session"],
+                  cwd=self.data["worktree"], check=False)[0] == 0:
+            st.info("committed the work an earlier session left uncommitted")
         self.set(status="working", doing="running %d task(s)" % len(tasks))
         results = [None] * len(tasks)
         todo = list(enumerate(tasks))
