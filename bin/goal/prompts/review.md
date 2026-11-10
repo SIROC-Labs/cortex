@@ -68,6 +68,12 @@ yourself.
 - Do not read or judge code that is not written yet, and do not plan the work.
 - Do not run tests, linters, builds or CI.
 
+Write the gaps, the questions and every brief to a sub-agent in ASD-STE100
+Simplified Technical English: one topic in each sentence, no more than 25 words in a
+sentence, the active voice, common words with one meaning, the same term for the
+same thing every time, and code names in backticks. Tell every sub-agent to write
+its report the same way.
+
 ## Required output
 
 End your response with a fenced JSON block:

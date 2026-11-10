@@ -194,8 +194,10 @@ When only the person can make a decision that blocks you:
 {"status": "question", "questions": [{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What is ambiguous and what each answer would change."}]}
 ```
 
-Write the `summary` and the `walkthrough` in ASD-STE100 Simplified Technical English:
-one topic in each sentence, no more than 25 words in a sentence, the active voice,
-common words with one meaning, the same term for the same thing every time, and code
-names in backticks. Describe what the change does. Do not tell the reader how to
-review it.
+Write everything another agent or the person reads in ASD-STE100 Simplified
+Technical English: the journal, the handoff, every brief to a sub-agent, every
+question, the `summary` and the `walkthrough`. One topic in each sentence, no more
+than 25 words in a sentence, the active voice, common words with one meaning, the
+same term for the same thing every time, and code names in backticks. Tell every
+sub-agent to write its report the same way. Describe what the change does. Do not
+tell the reader how to review it.

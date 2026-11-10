@@ -67,6 +67,12 @@ yourself, and never mark a requirement met on a sub-agent's word alone.
   move on.
 - Do not have a sub-agent plan or make a fix either.
 
+Write the gaps, the questions and every brief to a sub-agent in ASD-STE100
+Simplified Technical English: one topic in each sentence, no more than 25 words in a
+sentence, the active voice, common words with one meaning, the same term for the
+same thing every time, and code names in backticks. Tell every sub-agent to write
+its report the same way.
+
 ## Required output
 
 End your response with a fenced JSON block:
