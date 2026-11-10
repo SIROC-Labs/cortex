@@ -300,6 +300,11 @@ def wait_lines(wait, width):
         return out
     for n, q in enumerate(wait.get("questions") or [], 1):
         para("%d. %s" % (n, q.get("q", "")), "bold")
+        for line in st.options_lines(q, "   "):
+            if line:
+                para(line.strip(), "normal", line[:len(line) - len(line.lstrip())])
+            else:
+                out.append(("", "normal"))
         if q.get("why"):
             para(q["why"], "dim", "   ")
         out.append(("", "normal"))

@@ -34,5 +34,5 @@ they can decide.
 End your response with a fenced JSON block:
 
 ```json
-{"answers": [{"q": "The question.", "a": "Your answer, and where it comes from."}], "for_person": [{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What each answer would change."}]}
+{"answers": [{"q": "The question.", "a": "Your answer, and where it comes from."}], "for_person": [{"title": "A name for it in a few words, such as Quality review: who reviews a junior?", "q": "The question in plain words, answerable in a sentence.", "options": [{"label": "A. As in the prototype", "flow": ["Anna, a junior recruiter, reaches the quality review step.", "Every salesperson sees the review on the Quality reviews board.", "Tom opens it during the call and clicks Accepted or Rejected."], "means": "What choosing this changes in the build, in one sentence."}], "recommend": "The option the references point to, and why, in one sentence.", "why": "Which references disagree, or what is missing, in one sentence."}]}
 ```

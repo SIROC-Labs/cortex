@@ -144,6 +144,18 @@ it. Write each such decision and its source in the journal, under `## Decisions`
 and go on. A question that only asks "the one-pager says X, is that right?" wastes
 the person's time. Two references that contradict each other settle nothing: ask.
 
+How to ask: the person decides from your question alone, without your analysis. So:
+
+- Ask about what people do and see, not about your design. Use the names on the
+  screens and buttons. Do not use your own terms, code names or the plan's words,
+  such as "routing" or "pending", unless the screens use them too.
+- When the answer picks between ways something works, give each way as an option:
+  a short flow of numbered steps, with example people by name, what they see, what
+  they click and what happens next. Give two or three options, and one sentence
+  each on what choosing it changes in the build.
+- Say which option the references point to, if one, in `recommend`.
+- Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
+
 ## Required output
 
 End each response with a fenced JSON block, in one of exactly five shapes.
@@ -191,7 +203,7 @@ where to start, or what to check.
 When only the person can make a decision that blocks you:
 
 ```json
-{"status": "question", "questions": [{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What is ambiguous and what each answer would change."}]}
+{"status": "question", "questions": [{"title": "A name for it in a few words, such as Quality review: who reviews a junior?", "q": "The question in plain words, answerable in a sentence.", "options": [{"label": "A. As in the prototype", "flow": ["Anna, a junior recruiter, reaches the quality review step.", "Every salesperson sees the review on the Quality reviews board.", "Tom opens it during the call and clicks Accepted or Rejected."], "means": "What choosing this changes in the build, in one sentence."}], "recommend": "The option the references point to, and why, in one sentence.", "why": "Which references disagree, or what is missing, in one sentence."}]}
 ```
 
 Write everything another agent or the person reads in ASD-STE100 Simplified

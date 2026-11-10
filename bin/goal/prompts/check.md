@@ -94,6 +94,18 @@ or improvements that they do not need.
 
 Put a conflict that the prototype and the one-pager do not settle, or a
 reference you could not open, in `questions`, not in `gaps`, as
-`{"title": "A name for it in a few words, such as Sipgate: build on a simulator?", "q": "The question, answerable in a sentence.", "why": "What each answer would change."}`.
+`{"title": "A name for it in a few words, such as Quality review: who reviews a junior?", "q": "The question in plain words, answerable in a sentence.", "options": [{"label": "A. As in the prototype", "flow": ["Anna, a junior recruiter, reaches the quality review step.", "Every salesperson sees the review on the Quality reviews board.", "Tom opens it during the call and clicks Accepted or Rejected."], "means": "What choosing this changes in the build, in one sentence."}], "recommend": "The option the references point to, and why, in one sentence.", "why": "Which references disagree, or what is missing, in one sentence."}`.
+Write each question so that the person can decide from it alone:
+
+- Ask about what people do and see, not about your design. Use the names on the
+  screens and buttons. Do not use your own terms, code names or the plan's words,
+  such as "routing" or "pending", unless the screens use them too.
+- When the answer picks between ways something works, give each way as an option:
+  a short flow of numbered steps, with example people by name, what they see, what
+  they click and what happens next. Give two or three options, and one sentence
+  each on what choosing it changes in the build.
+- Say which option the references point to, if one, in `recommend`.
+- Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
+
 The person answers them. Do not ask the person to confirm what a reference already
 settles, such as something the one-pager puts out of scope: that is the answer.

@@ -907,8 +907,48 @@ def parse_agent_questions(structured):
         else:
             continue
         if question:
-            out.append(dict({"q": question, "why": why}, **({"title": name} if name else {})))
+            entry = dict({"q": question, "why": why}, **({"title": name} if name else {}))
+            options = question_options(item) if isinstance(item, dict) else []
+            if options:
+                entry["options"] = options
+            if isinstance(item, dict) and str(item.get("recommend") or "").strip():
+                entry["recommend"] = str(item["recommend"]).strip()
+            out.append(entry)
     return out or None
+
+
+def question_options(item):
+    """A question's options, each a label, the flow it means and what it changes:
+    the usable ones only."""
+    out = []
+    for o in item.get("options") or []:
+        if not isinstance(o, dict) or not str(o.get("label") or "").strip():
+            continue
+        flow = [str(x).strip() for x in o.get("flow") or [] if str(x).strip()]
+        out.append(dict({"label": str(o["label"]).strip(), "flow": flow},
+                        **({"means": str(o["means"]).strip()} if str(o.get("means") or "").strip() else {})))
+    return out
+
+
+def options_lines(q, indent=""):
+    """A question's options as lines a person reads: each label, its flow as
+    numbered steps, and what choosing it means."""
+    lines = []
+    for o in q.get("options") or []:
+        lines.append("%s%s" % (indent, o["label"]))
+        lines += ["%s   %d. %s" % (indent, n, step) for n, step in enumerate(o.get("flow") or [], 1)]
+        if o.get("means"):
+            lines.append("%s   → %s" % (indent, o["means"]))
+        lines.append("")
+    if q.get("recommend"):
+        lines += ["%sSuggested: %s" % (indent, q["recommend"]), ""]
+    return lines
+
+
+def question_brief(q):
+    """A question as one line for an agent: the question and its options' labels."""
+    labels = "; ".join(o["label"] for o in q.get("options") or [])
+    return "%s%s" % (q["q"], " (options: %s)" % labels if labels else "")
 
 
 def format_questions_comment(questions, branch=None):

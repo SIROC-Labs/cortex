@@ -670,7 +670,7 @@ def pr_review_prompt(feedback):
 
 def answers_text(questions, answer):
     """The person's answer to questions a reviewer or checker raised, for the lead."""
-    lines = ["The person was asked:", ""] + ["- %s" % q["q"] for q in questions]
+    lines = ["The person was asked:", ""] + ["- %s" % st.question_brief(q) for q in questions]
     lines += ["", "They answered:", "", answer.strip()]
     return "\n".join(lines)
 
@@ -908,7 +908,7 @@ def cut_off_prompt(at, agents, dirty):
 
 def answer_prompt(questions, answer):
     lines = ["You asked the person:", ""]
-    lines += ["- %s" % q["q"] for q in questions or []]
+    lines += ["- %s" % st.question_brief(q) for q in questions or []]
     lines += ["", "They answered:", "", answer.strip(), "", CONTINUE]
     return "\n".join(lines)
 

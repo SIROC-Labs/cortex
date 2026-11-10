@@ -522,6 +522,22 @@ class TestChangedTests(unittest.TestCase):
         self.assertIsNone(self.runner.changed_tests())
 
 
+class TestQuestionOptions(unittest.TestCase):
+    def test_a_question_s_options_reach_the_ticket_and_the_lead(self):
+        qs = goal.st.parse_agent_questions({"questions": [{
+            "title": "Quality review: who reviews a junior?", "q": "Who reviews a junior's call?",
+            "options": [{"label": "A. As in the prototype", "flow": ["Anna reaches the review step.",
+                                                                    "Tom clicks Accepted."],
+                         "means": "Drops the extra routing."}, {"label": ""}, "junk"],
+            "recommend": "A: the prototype decides the UI.", "why": "The references disagree."}]})
+        self.assertEqual([o["label"] for o in qs[0]["options"]], ["A. As in the prototype"])
+        body = goal.bd.question_body(qs[0])
+        self.assertIn("A. As in the prototype\n   1. Anna reaches the review step.\n   2. Tom clicks Accepted.", body)
+        self.assertIn("→ Drops the extra routing.", body)
+        self.assertIn("Suggested: A: the prototype decides the UI.", body)
+        self.assertIn("(options: A. As in the prototype)", goal.answer_prompt(qs, "A"))
+
+
 class TestFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()

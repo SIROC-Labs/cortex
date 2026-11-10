@@ -99,7 +99,7 @@ def step_body(text):
 
 
 def question_body(q):
-    lines = [q["q"], ""]
+    lines = [q["q"], ""] + st.options_lines(q)
     if q.get("why"):
         lines += ["Why: " + q["why"], ""]
     return made(lines, "Answer in a comment on this subtask, then complete it. The goal goes "
@@ -190,7 +190,7 @@ def answers_text(questions, said):
     `said` is [[comment text]] in the questions' order."""
     lines = []
     for q, comments in zip(questions, said):
-        lines += ["- %s" % q["q"], "  %s" % ("\n  ".join(comments) if comments else
+        lines += ["- %s" % st.question_brief(q), "  %s" % ("\n  ".join(comments) if comments else
                                              "(completed with no comment)")]
     return "\n".join(lines)
 
