@@ -429,6 +429,99 @@ class TestGate(unittest.TestCase):
     def test_the_checker_is_told_what_ci_passed(self):
         self.assertIn("CI runs once this check is clean", goal.checks_text("main"))
 
+class TestScopedCheck(unittest.TestCase):
+    git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
+
+    def setUp(self):
+        TestGate.setUp(self)
+        self.runner.set(ask="# A-1: x")
+
+    def judged(self):
+        prompts = []
+
+        def judge(label, template, read):
+            prompts.append(goal.render(os.path.join(goal.PROMPTS, template), **self.runner.fields()))
+            return self.verdicts.pop(0)
+        self.runner.judge = judge
+        return prompts
+
+    def test_a_check_after_a_check_covers_only_its_gaps_and_what_changed(self):
+        self.verdicts = [(False, ["The inbox has no empty state (prototype: inbox)"], []),
+                         (True, [], [])]
+        prompts = self.judged()
+        self.runner.check()
+        first = self.git("rev-parse", "HEAD").strip()
+        self.commit("inbox.ts", "empty\n", "empty state")
+        self.runner.check()
+        self.assertNotIn("What this check covers", prompts[0])
+        self.assertIn("at commit `%s`, found these gaps" % first, prompts[1])
+        self.assertIn("- The inbox has no empty state", prompts[1])
+        self.assertIn("git log -p --first-parent --no-merges %s..HEAD" % first, prompts[1])
+        self.assertEqual(self.runner.data["last_gaps"], [])
+
+    def test_a_revision_is_checked_against_its_review_comments(self):
+        self.verdicts = [(True, [], []), (True, [], [])]
+        prompts = self.judged()
+        self.runner.check()
+        self.runner.set(revision_ask="### Comment by @j\n\nRename the button.")
+        self.commit("button.ts", "renamed\n", "rename")
+        self.runner.check()
+        self.assertIn("found the work done", prompts[1])
+        self.assertIn("Rename the button.", prompts[1])
+        self.assertIn("Each review comment", prompts[1])
+        self.assertIsNone(self.runner.data["revision_ask"])
+
+    def test_a_split_goal_checks_how_its_parts_meet(self):
+        self.verdicts = [(True, [], [])]
+        prompts = self.judged()
+        merged = self.git("rev-parse", "HEAD").strip()
+        self.runner.set(parts_merged_head=merged)
+        self.commit("glue.ts", "x\n", "integrate")
+        self.runner.check()
+        self.assertIn("Do not check the parts' criteria again", prompts[0])
+        self.assertIn("%s..HEAD" % merged, prompts[0])
+
+    def test_a_rewritten_branch_is_checked_whole(self):
+        self.verdicts = [(True, [], [])]
+        prompts = self.judged()
+        self.runner.set(checked_head="0" * 40)
+        self.runner.check()
+        self.assertNotIn("What this check covers", prompts[0])
+
+
+class TestChangedTests(unittest.TestCase):
+    git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
+
+    def setUp(self):
+        TestGate.setUp(self)
+        self.runner.set(ask="# A-1: x")
+
+    def test_only_the_tests_of_the_changed_files_run_and_a_failure_goes_to_the_lead(self):
+        os.makedirs(os.path.join(self.work, "app", "test"))
+        self.commit("app/test/pytest.ini", "[pytest]\n", "tests")
+        self.git("push", "-q", "origin", "A-1/goal-x:main")
+        self.commit("app/test/test_a.py", "def test_a():\n    assert False\n", "a test")
+        ran = []
+        gate = goal.st.run_qa_gate
+
+        def run_gate(commands, worktree):
+            ran.extend(commands)
+            return ("tests", commands[0][1], "1 failed")
+        goal.st.run_qa_gate = run_gate
+        self.addCleanup(setattr, goal.st, "run_qa_gate", gate)
+        self.git("fetch", "-q", "origin")
+        fix = self.runner.changed_tests()
+        self.assertEqual(ran, [("tests of the changes in app/test", "uv run pytest -q test_a.py", "app/test")])
+        self.assertIn("1 failed", fix)
+        self.assertIn("Nothing was pushed or checked", fix)
+
+    def test_nothing_runs_when_no_test_covers_the_change(self):
+        self.commit("docs.txt", "x\n", "docs")
+        goal.st.run_qa_gate = lambda *a: self.fail("ran tests")
+        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+        self.assertIsNone(self.runner.changed_tests())
+
+
 class TestFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -797,8 +890,17 @@ class TestWindDown(unittest.TestCase):
                         "perl -pi -e s/a/b/ a.ts", "printf x | tee a.ts", "git apply fix.patch"):
             self.assertTrue(lead("Bash", command=command), command)
         for command in ("git status", "git commit -m 'x > y'", "npm test 2>&1 | tail", "ls > /dev/null",
-                        "rg -n 'a' apps", "git log --oneline > /tmp/log", "cmd 2>/dev/null"):
+                        "git log --oneline > /tmp/log", "cmd 2>/dev/null", "git diff --stat | grep a",
+                        "cat docs/plan.md"):
             self.assertFalse(lead("Bash", command=command), command)
+        for command in ("rg -n 'a' apps", "cat apps/a.ts", "cd apps && grep -rn x .", "sed -n 1,80p a.py"):
+            self.assertEqual(lead("Bash", command=command), hook.EXPLORE, command)
+        self.assertEqual(lead("Read", file_path=wt + "/apps/a.ts"), hook.EXPLORE)
+        self.assertEqual(lead("Grep", pattern="x", path=wt + "/apps"), hook.EXPLORE)
+        self.assertFalse(lead("Read", file_path=wt + "/docs/decisions/a.md"))
+        self.assertFalse(lead("Read", file_path="/repo/.cortex/state/g/journal.md"))
+        self.assertFalse(hook.delegated({"tool_name": "Read", "agent_type": "Explore",
+                                         "tool_input": {"file_path": wt + "/apps/a.ts"}}, wt))
         self.assertFalse(hook.delegated({"tool_name": "Edit", "agent_type": "general-purpose",
                                          "tool_input": {"file_path": wt + "/apps/a.ts"}}, wt))
         hooks = goal.hook_settings("/f", "sonnet", delegate=wt)["hooks"]["PreToolUse"]

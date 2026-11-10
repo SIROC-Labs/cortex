@@ -223,8 +223,10 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "the step, what to change and where, the parts of the technical plan it needs, "
          "and how to test it. Keep your own context small: read their reports, not the "
          "whole diff, and record in the journal what each step did and decided. You "
-         "cannot edit the code yourself; you can read it, run commands that change "
-         "nothing, commit, and edit your journal and the technical plan.")
+         "cannot edit or read the code yourself. When you need to know something about "
+         "it, start an Explore sub-agent with one narrow question and ask for a short "
+         "answer: the files, the lines and the facts. You can run git, commit, read "
+         "Markdown documents, and edit your journal and the technical plan.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -704,6 +706,64 @@ def failed_ci_prompt(failing, excerpts):
     return "\n".join(parts)
 
 
+def changes_since(sha, base):
+    return ("the branch's own commits since then, `git log -p --first-parent --no-merges "
+            "%s..HEAD`, and in each merge of `%s` since then only the lines that touch the "
+            "work" % (sha, base))
+
+
+def recheck_scope(sha, gaps, revision, base):
+    """check.md's scope for a branch checked before at `sha`."""
+    found = ("found these gaps:\n\n%s" % "\n".join("- %s" % g for g in gaps) if gaps
+             else "found the work done.")
+    lines = ["## What this check covers", "",
+             "An earlier check of this branch, at commit `%s`, %s" % (sha, found), ""]
+    if revision:
+        lines += ["Since then, review comments on the PR asked for changes:", "", revision.strip(), ""]
+    lines += ["Everything that check passed is met, unless what changed since breaks it. "
+              "So check only these, and nothing else:", ""]
+    n = 1
+    if gaps:
+        lines.append("%d. Each gap above: is it fixed, as its reference requires? Where the "
+                     "journal says why it is not a gap, weigh that against the references." % n)
+        n += 1
+    if revision:
+        lines.append("%d. Each review comment: is it addressed, or does the journal say why "
+                     "not?" % n)
+        n += 1
+    lines += ["%d. What changed since: %s. For each criterion these changes touch, is it "
+              "met? Do they break anything the earlier check passed?" % (n, changes_since(sha, base)),
+              "", "Read the ask, the references and the journal only as far as these need. "
+              "Where the steps below say to read or check everything, keep to this list.", ""]
+    return "\n".join(lines)
+
+
+def integration_scope(sha, technical_plan, base):
+    """check.md's scope for the first check of a split goal, once its parts are merged."""
+    return "\n".join([
+        "## What this check covers", "",
+        "Each part of this goal was built and checked by its own checker against its own "
+        "criteria, and the parts were merged into this branch at commit `%s`. Do not check "
+        "the parts' criteria again. Check only these, and nothing else:" % sha, "",
+        "1. The acceptance criteria that are not under a part's heading in the journal: "
+        "the goal's own, which span the parts.",
+        "2. How the parts meet: each meeting point in the technical plan `%s` (an endpoint, "
+        "a shared type, an event). Does the part that provides it match what the parts "
+        "that use it expect?" % technical_plan,
+        "3. What changed since the parts were merged: %s." % changes_since(sha, base), "",
+        "Read the ask, the references and the journal only as far as these need. Where "
+        "the steps below say to read or check everything, keep to this list.", ""])
+
+
+def changed_tests_prompt(cmd, output):
+    """What the lead is told when the tests of what it changed fail."""
+    return ("You reported done, but the tests that cover the files the branch changed "
+            "fail. Nothing was pushed or checked. The runner ran, in the worktree:\n\n"
+            "```\n%s\n```\n\nIts output ends:\n\n```\n%s\n```\n\nHave a sub-agent "
+            "fix the code or the tests, as the testing guide says. Never weaken a test to "
+            "make it pass. Then report done again." % (cmd, output.strip()[-6000:]))
+
+
 def checks_text(base):
     """Step 3 of the checker's prompt: CI comes after the check."""
     return ("The runner merged `%s` into the branch. Nothing is pushed yet: CI runs once this "
@@ -796,7 +856,7 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None):
     change to the PR are always refused: only the runner pushes. A sub-agent
     started without a model gets `subagent`. A tool call that names one of the
     `fence` texts is refused. With `delegate`, the worktree, the lead may not
-    change the code there itself: its sub-agents do."""
+    change or read the code there itself: its sub-agents do."""
     check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
         shlex.quote(flag), shlex.quote(WIND_DOWN))
     hook = [{"type": "command", "command": check}]
@@ -809,7 +869,7 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None):
     if fence:
         pre.append({"matcher": "*", "hooks": [guard("fence", *fence)]})
     if delegate:
-        pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob",
                     "hooks": [guard("delegate", delegate)]})
     out = {"hooks": {"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
@@ -1870,6 +1930,22 @@ class Runner(object):
             self.set(status="checking")
             failures = 0
 
+    def check_scope(self, head):
+        """What a check covers when the branch was checked before, or its parts were:
+        the text for check.md, or "" for a full check."""
+        worktree = self.data["worktree"]
+
+        def under(sha):
+            return sha and st.git(["merge-base", "--is-ancestor", sha, head], cwd=worktree,
+                                  check=False)[0] == 0
+        since, merged = self.data.get("checked_head"), self.data.get("parts_merged_head")
+        if under(since):
+            return recheck_scope(since, self.data.get("last_gaps") or [],
+                                 self.data.get("revision_ask"), self.data["base"])
+        if under(merged):
+            return integration_scope(merged, self.technical_plan(), self.data["base"])
+        return ""
+
     def review(self):
         """The acceptance criteria, reviewed against the references before anything
         is built: (gaps, questions)."""
@@ -1882,10 +1958,18 @@ class Runner(object):
         return gaps, questions
 
     def check(self):
-        """An independent check of the branch against the ask: (done, gaps, questions)."""
+        """An independent check of the branch against the ask: (done, gaps, questions).
+        After an earlier check, only what changed since and that check's gaps."""
         self.set(status="checking", doing="checking the branch against the ask")
         st.step("Checking against the ask")
+        _, head, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
+        self.scope = self.check_scope(head.strip())
+        if self.scope:
+            st.info("only what changed since the last check")
         done, gaps, questions = self.judge("check", "check.md", check_verdict)
+        self.scope = ""
+        self.set(checked_head=head.strip(), last_gaps=[] if done else gaps,
+                 revision_ask=None if done else self.data.get("revision_ask"))
         st.info("verdict: %s" % ("done" if done else "%d gap(s), %d question(s)"
                                  % (len(gaps), len(questions))))
         for gap in gaps:
@@ -1911,6 +1995,24 @@ class Runner(object):
             st.warn("the merge conflicts — back to the lead")
             return conflict_prompt("origin/%s" % base, files.split())
         return None
+
+    def changed_tests(self):
+        """The tests that cover the files the branch changed, run here before the check
+        and the push. Returns None when they pass, else what the lead is to fix."""
+        worktree = self.data["worktree"]
+        base = self.data["base"] if self.data.get("parent") else st.base_ref(self.data["base"])
+        commands = st.qa_commands(worktree, base)
+        if not commands:
+            st.info("no tests cover the files this branch changed")
+            return None
+        st.step("Testing what the branch changed")
+        self.set(status="checking", doing="running the tests that cover the changes")
+        failure = st.run_qa_gate(commands, worktree)
+        if not failure:
+            return None
+        name, cmd, output = failure
+        st.warn("%s failed — back to the lead" % name)
+        return changed_tests_prompt(cmd, output)
 
     def gate(self):
         """Sync the branch with its base, push it, mark the PR ready, and wait for
@@ -2065,6 +2167,8 @@ class Runner(object):
                 self.board.tick({p["name"] for p in done})
             if len(done) == len(parts):
                 st.info("every part is done — the integration starts in a new session")
+                _, merged, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
+                self.set(parts_merged_head=merged.strip())
                 # The planning's context is stale by now: the journal and the branch hold
                 # what is true, so the integration starts fresh from them.
                 self.set(session=None, session_used=False)
@@ -2301,6 +2405,7 @@ class Runner(object):
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
+                "scope": getattr(self, "scope", ""),
                 "checks": ("This part has run no CI: CI runs once, when the whole goal is "
                            "done. Judge the code, not test results." if part else
                            checks_text(self.data["base"])),
@@ -2524,7 +2629,9 @@ class Runner(object):
                     st.info(heading)
                 self.set(pr_handled=sorted(set(self.data.get("pr_handled") or [])
                                            | {i[0] for i in items}),
-                         status="working", phase="building", revising_pr=True)
+                         status="working", phase="building", revising_pr=True,
+                         revision_ask=((self.data.get("revision_ask") or "") + "\n\n"
+                                       + render_feedback(items)).strip())
                 return self.fresh(pr_review_prompt(render_feedback(items)))
             if self.data.get("status") != "review":
                 self.set(status="review", doing=REVIEW_DOING)
@@ -2662,6 +2769,8 @@ class Runner(object):
                     # Checked before anything is pushed: a gap found after CI costs a
                     # second CI run.
                     fix = self.sync_part() if self.data.get("parent") else self.sync()
+                    if not fix:
+                        fix = self.changed_tests()
                     if not fix:
                         done, gaps, questions = self.check()
                         if done and self.data.get("parent"):

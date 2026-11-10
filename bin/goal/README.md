@@ -106,9 +106,13 @@ This program is the harness around the lead:
   conversation again, so a build carried on from the planning costs far more than the work.
   The build starts in a new session, from the journal, the technical plan and the branch,
   and so does a build carried on after a usage pause or a restart. In the build the lead
-  coordinates and its sub-agents write the code: a hook refuses the lead, and only the
-  lead, an edit to the worktree and a shell command that writes a file there. It can still
-  read, run commands that change nothing, commit, and edit its journal and technical plan. The lead ticks each criterion with the file that meets it, and a
+  coordinates, its sub-agents write the code, and Explore sub-agents read it: a hook
+  refuses the lead, and only the lead, an edit to the worktree, a shell command that
+  writes a file there, and a read of its code (Read, Grep, Glob, or `cat`, `grep`, `sed`
+  and the like), Markdown aside. Every file the lead reads stays in its context and is
+  paid for on every later turn; an explorer answers one narrow question for a few cents.
+  The lead can still run git, commit, and edit its journal and technical plan. In the
+  analysis it is told to learn the codebase through explorers too. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and the one-pager do not settle, and what
   only you have, all at once in the analysis where it can. Each question is a subtask under
@@ -138,15 +142,24 @@ This program is the harness around the lead:
   goal's row on the TUI shows it; it is `usage.txt` in the goal's state. Costs are at API
   prices: what the work would cost, not a bill. Each agent is priced from its own tokens at
   the rate its model's result reported, since a resumed session reports its running total.
-- **Done means checked.** When the lead says it is done, a separate checker agent compares
-  the branch with the references and the lead's acceptance criteria, which it does not
-  trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
+- **Done means tested, then checked.** When the lead says it is done, the runner first runs
+  only the tests that cover the files the branch changed (the same detection as task runs:
+  `vitest related`, and the pytest files an import graph links to the changed modules).
+  A failure goes back to the lead, with nothing pushed or checked. Then a separate checker
+  agent compares the branch with the references and the lead's acceptance criteria, which
+  it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by
   the usage limit, or fails, runs again: only a real verdict counts. Only a clean check
   finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
   walkthrough, and is marked ready for review. The ticket is set to In Review, with a
   comment that links the PR.
+- **Re-checks are scoped.** The first check reads the whole branch. After it, a check
+  covers only the last check's gaps, the review comments of a PR revision, and the
+  branch's own commits since the last check. A split goal's first check skips the parts'
+  criteria, which their own checkers checked: it covers the goal's own criteria, how the
+  parts meet, and the integration since the parts were merged. A branch rewritten since
+  the last check is checked whole.
 - **After the finish.** The runner stays, and watches the PR every five minutes until it
   is merged or closed: "ready to merge" on the TUI. Each new review comment on it (a
   review, an inline comment, or a top-level comment, but not the runner's own) starts a

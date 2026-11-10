@@ -13,17 +13,22 @@ what is met and what is not.
 ## Which source wins
 
 The ask points to references: a prototype, one-pagers or specs, design records,
-attachments, branches. They define what the work must do. When they disagree:
+attachments, branches. They define what the work must do. When a question comes
+up that one reference answers and another leaves open:
 
 1. The prototype always wins: what is built, and how each screen looks and
    behaves.
 2. Where the prototype does not answer a question, the one-pager or spec does.
 3. Where neither answers it, the person decides. That is a question, not a gap.
 
+When the references contradict each other, the person decides which one to follow:
+the journal's answers say what they decided. A contradiction they have not decided
+is a question, not a gap.
+
 A branch that matches the prototype where the one-pager says otherwise is right,
 not a gap.
 
-## What to do
+{{scope}}## What to do
 
 1. Read the ask, and open every reference it names. For each screen the work
    touches, read the prototype's source for it. List what they require.

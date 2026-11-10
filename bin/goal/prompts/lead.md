@@ -40,7 +40,12 @@ general rule of the repository does not override what this ask's references say.
 
 1. Read every reference the ask names, all of it: open each link and file, and
    read the prototype's source for each screen the work touches. Read the
-   codebase and its conventions too. In the journal, under `## References`, list
+   repository's conventions too. Learn the rest of the codebase through Explore
+   sub-agents: each gets one narrow question, such as where something is handled,
+   what calls it, or what a type holds, and gives a short answer with files, lines
+   and facts. Every file you read yourself stays in your context and is paid for
+   again on every later turn, so read yourself only the lines that decide a
+   criterion or a design. In the journal, under `## References`, list
    each reference: what it is, where it is, and what it decides. A reference you
    cannot open, such as a link that needs a login, is a question for the person.
 {{testing}}2. Find what the ask takes for granted, and check it against the code: a branch
@@ -72,7 +77,8 @@ general rule of the repository does not override what this ask's references say.
    do and what it must not touch. Run independent parts in parallel. When parts
    can conflict, give each its own worktree, or run them one after the other.
    Start a reviewer or a checker agent when a part is risky or large. You own the
-   result: read what each agent did before you build on it.
+   result: check what each agent did before you build on it, from its report, or
+   through an explorer or a reviewer. In the build you do not read the code yourself.
    Start every sub-agent with `model: "{{subagent_alias}}"`, whatever its type.
    Built-in types such as Explore otherwise use your own, far more expensive
    model. That model does narrow, well-specified work well, so brief each
@@ -92,15 +98,19 @@ general rule of the repository does not override what this ask's references say.
    the function or lines that draw that part, and tell it to read them and match
    them. Never describe the prototype in your own words instead, and never call
    it an illustration or a guide.
-7. Write tests where the project has a test suite, and run them.
+7. Write tests where the project has a test suite, and run the ones that cover
+   what you changed.
 8. Commit often, in small commits with clear messages that follow the conventions
    of the repository. You cannot push, and no agent can.
 9. Do not run skills or slash commands, and do not run the full test suites or CI
-   locally: many goals and tasks run on this machine at once. Run only single test
-   files by their path, and cheap checks such as a linter or a type check on the
-   files you change. Never run a whole suite (`npx vitest run`, `pytest` with no
-   paths, `npm test`), coverage, `make verify`, `npm run verify*`, a build, or e2e
-   tests, and tell every sub-agent the same. {{delivery}} Never weaken a check,
+   locally: many goals and tasks run on this machine at once. Run only the tests
+   that cover the files you change: for scripts, `npx vitest related --run <the
+   changed files>` in their package; for Python, `pytest` on the test files of the
+   modules you change. Add cheap checks such as a linter or a type check on those
+   files. Never run a whole suite (`npx vitest run`, `pytest` with no paths, `npm
+   test`), coverage, `make verify`, `npm run verify*`, a build, or e2e tests, and
+   tell every sub-agent the same. Before the check, the runner runs the tests that
+   cover every file the branch changed, and gives you any that fail. {{delivery}} Never weaken a check,
    raise a budget, or add a baseline entry to make it pass. Then an independent
    checker compares the branch with the references and your acceptance criteria.
 10. When the usage limit is reached, every tool call starts to show a message
