@@ -2098,8 +2098,15 @@ class Runner(object):
             st.info("no tests cover the files this branch changed")
             return None
         st.step("Testing what the branch changed")
-        self.set(status="checking", doing="running the tests that cover the changes")
-        failure = st.run_qa_gate(commands, worktree)
+        failure = None
+        for n, command in enumerate(commands, 1):
+            self.set(status="checking", doing="running the tests that cover the changes",
+                     runner_doing="%s (%d of %d): %s" % (command[0], n, len(commands), command[1]),
+                     runner_since=time.time())
+            failure = st.run_qa_gate([command], worktree)
+            if failure:
+                break
+        self.set(runner_doing=None)
         if not failure:
             return None
         name, cmd, output = failure

@@ -506,7 +506,13 @@ def lines_for(goal, snap, journal, width):
     now = (snap or {}).get("now") or time.time()
     tasks = (snap or {}).get("tasks") or []
     out.append(("Running now", "bold"))
-    if not live:
+    if not live and goal.get("alive", True) and (goal.get("runner_doing") or goal.get(
+            "status") == "checking"):
+        out.append(("  ● %-44s %-7s %6s" % ("Runner, no agent", "", span(
+            now - goal["runner_since"]) if goal.get("runner_doing") and goal.get("runner_since")
+            else ""), "ok"))
+        out.append(("      %s" % (goal.get("runner_doing") or doing)[:width - 8], "dim"))
+    elif not live:
         out.append(("  nothing — %s" % doing, "dim"))
     if live and not any(r["role"] == "Lead" for r in live) and tasks:
         out.append(("  · Lead             not running: the runner calls it again when these end", "dim"))

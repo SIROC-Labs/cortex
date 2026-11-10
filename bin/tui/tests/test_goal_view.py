@@ -143,6 +143,13 @@ class TestGoalView(unittest.TestCase):
         gv.why("s9", 101, lambda: "p")
         self.assertEqual(asked, ["s9"])
 
+    def test_the_runner_s_own_work_is_shown_when_no_agent_runs(self):
+        goal = dict(self.goal, runner_doing="tests of the changes in apps/frontend (1 of 2): npx vitest related",
+                    runner_since=time.time() - 120)
+        text = "\n".join(l for l, _ in gv.lines_for(goal, None, [], 120))
+        self.assertIn("● Runner, no agent", text)
+        self.assertIn("npx vitest related", text)
+
     def test_the_plan_is_the_checklist_under_its_heading(self):
         journal = ["# Journal", "- [x] not part of the plan", "## Plan", "1. [x] Backend",
                    "2. [ ] Migration 0030", "- [ ] Frontend", "### detail", "- [x] sub-step",
