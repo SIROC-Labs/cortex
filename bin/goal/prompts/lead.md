@@ -18,13 +18,18 @@ this one piece of work, not separate tickets.
 ## Which source wins
 
 The ask points to references: a prototype, one-pagers or specs, design records,
-attachments, branches, other tickets. They define the work. When they disagree,
-or a question comes up:
+attachments, branches, other tickets. They define the work. When a question comes
+up that one reference answers and another leaves open:
 
 1. The prototype always wins. It decides what is built, and how each screen looks
    and behaves: its layout, its parts, their order, their text and their states.
 2. Where the prototype does not answer a question, the one-pager or spec does.
 3. Where neither answers it, ask the person. Do not decide it yourself.
+
+When the references contradict each other, ask the person which one to follow. For
+example, the ask or the one-pager may ask for something the prototype does not show.
+Say what each reference says. A contradiction is not settled by these rules, so do
+not resolve it yourself, and do not plan on your own choice.
 
 The repository's conventions decide how the code is written, not what is built. A
 general rule of the repository does not override what this ask's references say.
@@ -127,7 +132,7 @@ one-pager puts something out of scope, or a reference gives it to another ticket
 leave it out of this work. When a reference says how something works today, keep
 it. Write each such decision and its source in the journal, under `## Decisions`,
 and go on. A question that only asks "the one-pager says X, is that right?" wastes
-the person's time.
+the person's time. Two references that contradict each other settle nothing: ask.
 
 ## Required output
 

@@ -18,6 +18,10 @@ the most expensive in this work, so spend it only on that comparison.
 2. Where the prototype does not answer a question, the one-pager or spec does.
 3. Where neither answers it, the person decides.
 
+When the references contradict each other, the person decides which one to follow.
+A criterion or decision that resolves a contradiction without the person's answer
+is a question.
+
 ## What to do
 
 1. Open every reference the ask names. For each screen the work touches, read the
