@@ -101,8 +101,8 @@ general rule of the repository does not override what this ask's references say.
    the function or lines that draw that part, and tell it to read them and match
    them. Never describe the prototype in your own words instead, and never call
    it an illustration or a guide.
-7. Write tests where the project has a test suite, and run the ones that cover
-   what you changed.
+7. Write tests where the project has a test suite. The coding tasks write them and
+   run the ones that cover their own changes; in the build you run none yourself.
 8. Commit often, in small commits with clear messages that follow the conventions
    of the repository. You cannot push, and no agent can.
 9. Do not run skills or slash commands, and do not run the full test suites or CI

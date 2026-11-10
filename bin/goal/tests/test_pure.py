@@ -1030,10 +1030,13 @@ class TestWindDown(unittest.TestCase):
         for command in ("cat > apps/a.ts <<'X'", "echo x >> a.py", "sed -i '' s/a/b/ a.ts",
                         "perl -pi -e s/a/b/ a.ts", "printf x | tee a.ts", "git apply fix.patch"):
             self.assertTrue(lead("Bash", command=command), command)
-        for command in ("git status", "git commit -m 'x > y'", "npm test 2>&1 | tail", "ls > /dev/null",
+        for command in ("git status", "git commit -m 'x > y'", "ls > /dev/null",
                         "git log --oneline > /tmp/log", "cmd 2>/dev/null", "git diff --stat | grep a",
                         "cat docs/plan.md"):
             self.assertFalse(lead("Bash", command=command), command)
+        for command in ("npx vitest related --run a.ts", "cd apps/frontend && npx tsc --noEmit",
+                        "export PATH=x:$PATH && npm run typecheck", "uv run pytest -q test", "make verify"):
+            self.assertEqual(lead("Bash", command=command), hook.CHECKS, command)
         for command in ("rg -n 'a' apps", "cat apps/a.ts", "cd apps && grep -rn x .", "sed -n 1,80p a.py"):
             self.assertEqual(lead("Bash", command=command), hook.EXPLORE, command)
         self.assertEqual(lead("Read", file_path=wt + "/apps/a.ts"), hook.EXPLORE)

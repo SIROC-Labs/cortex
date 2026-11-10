@@ -236,7 +236,10 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "change and where, the parts of the technical plan it needs, the prototype file and "
          "lines for a screen, the tests to write, and what done means. Record in the journal "
          "what each batch did and decided, and tick the steps and criteria it meets. You can "
-         "run git, read Markdown documents, and edit your journal and the technical plan.")
+         "run git, read Markdown documents, and edit your journal and the technical plan. "
+         "You do not run tests, type checks or builds: before the check, the runner runs the "
+         "tests that cover every file the branch changed and gives you any that fail. To "
+         "know whether a task's work is right, read its report, or hand over a reviewer task.")
 NEXT_STEP = ("Hand over the next tasks: the first step of the plan not ticked, and with it "
              "every later step that does not depend on it. The session before this one handed "
              "over:\n\n%s")
