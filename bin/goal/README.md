@@ -106,8 +106,8 @@ This program is the harness around the lead:
   conversation again, so a build carried on from the planning costs far more than the work.
   The build starts in a new session, from the journal, the technical plan and the branch,
   and so does a build carried on after a usage pause or a restart. In the build, every
-  session is short: one step of the plan, then a `step` report with a handoff of at most
-  ten lines, and the next step starts in a new session from the journal and that handoff.
+  session is short: one step of the plan, then a `step` report with a handoff of what the
+  next step needs, and the next step starts in a new session from the journal and that handoff.
   Whatever the runner hands back (failing tests, a conflict, CI, the checker's gaps,
   criteria not ticked) starts a new session too, and so does a session that stopped
   mid-step. Only an answer to the lead's own question goes back into its session. In the build the lead

@@ -163,9 +163,10 @@ criteria and the plan, and the person answered your questions:
 
 In the build, when a step of the plan is done, committed and ticked, and steps are
 left. Write the handoff in the journal too. The next step starts in a new session:
+the handoff is all it gets from this one, so give it what it needs, and only that.
 
 ```json
-{"status": "step", "summary": "What this step did, in one sentence.", "handoff": "What the next step needs to know that the journal and the plan do not say yet, in at most ten lines."}
+{"status": "step", "summary": "What this step did, in one sentence.", "handoff": "What the next step needs to know that the journal and the plan do not say yet."}
 ```
 
 When the ask is fully implemented, committed, its tests pass, and every acceptance
