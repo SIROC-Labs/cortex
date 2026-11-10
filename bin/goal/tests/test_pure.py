@@ -1039,6 +1039,11 @@ class TestWindDown(unittest.TestCase):
             self.assertEqual(lead("Bash", command=command), hook.CHECKS, command)
         for command in ("rg -n 'a' apps", "cat apps/a.ts", "cd apps && grep -rn x .", "sed -n 1,80p a.py"):
             self.assertEqual(lead("Bash", command=command), hook.EXPLORE, command)
+        for command in ("sed -n 1,400p /Users/j/.claude/projects/x/tool-results/b0.txt | tail -c 32000",
+                        "cat /repo/.cortex/state/g/goal.log | tail -40"):
+            self.assertIsNone(lead("Bash", command=command), command)
+        self.assertEqual(lead("Bash", command="cat %s/apps/a.ts" % wt), hook.EXPLORE)
+        self.assertEqual(lead("Bash", command="grep -rn x apps/web /tmp/y"), hook.EXPLORE)
         self.assertEqual(lead("Read", file_path=wt + "/apps/a.ts"), hook.EXPLORE)
         import io, contextlib
         def bash(command, *argv, **call):

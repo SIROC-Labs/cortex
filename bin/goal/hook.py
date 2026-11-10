@@ -90,6 +90,16 @@ def inside(path, root):
     return path == root or path.startswith(root + os.sep)
 
 
+def outside(command, root):
+    """Whether a shell command names files, all by absolute path outside `root`: its
+    own saved tool output, the goal's state. A relative path is in the worktree."""
+    paths = re.findall(r"(?<![\w.-])(/[^\s'\"|;&()<>]+)", command)
+    words = [w for w in re.split(r"[\s|;&()]+", command) if w and not w.startswith("-")]
+    relative = [w for w in words if not w.startswith(("/", "$", "~")) and (
+        "/" in w or os.path.exists(os.path.join(root, w)))]
+    return bool(paths) and not relative and not any(inside(p, root) for p in paths)
+
+
 def delegated(call, root):
     """What the lead itself, not a sub-agent, may not do to the code under `root`:
     DELEGATE for a change, EXPLORE for a read of anything but Markdown, else None.
@@ -112,7 +122,8 @@ def delegated(call, root):
             return DELEGATE
         if CHECKERS.search(command):
             return CHECKS
-        if READERS.search(command.strip()) and not re.search(r"\.md\b", tool_input.get("command") or ""):
+        if READERS.search(command.strip()) and not re.search(r"\.md\b", tool_input.get("command") or "") \
+                and not outside(tool_input.get("command") or "", root):
             return EXPLORE
     return None
 
