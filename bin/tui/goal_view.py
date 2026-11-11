@@ -146,12 +146,25 @@ def recent(lines, n=6):
 def brief_of(path, size=1500, end=False):
     """The first message an agent got: its brief. With `end`, its last part: a
     lead's first message is the same opening for every lead, and what it is asked
-    to do now comes last."""
+    to do now comes last. A transcript opens with bookkeeping lines, so the first
+    line with a message, or a queued prompt, is the brief."""
+    content = ""
     try:
-        row = json.loads(_first_line(path))
-    except ValueError:
+        with open(path, "rb") as f:
+            for _ in range(20):
+                raw = f.readline(4 * LINE_BYTES)
+                if not raw:
+                    break
+                try:
+                    row = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                content = ((row.get("message") or {}).get("content") if row.get("type") == "user"
+                           else row.get("content") if row.get("type") == "queue-operation" else None)
+                if content:
+                    break
+    except (IOError, OSError):
         return ""
-    content = (row.get("message") or {}).get("content")
     if isinstance(content, list):
         content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
     text = " ".join(str(content or "").split())
@@ -186,15 +199,19 @@ def _ask_why(key, prompt):
             entry["text"] = " ".join(text.split()[:8])
 
 
-def why(key, moved, prompt_for):
+def why(key, moved, prompt_for, ready=True):
     """The last few words on why the agent `key` does what it does, or None. A new
     one is asked for in the background when the agent moved since, at most every
     WHY_EVERY seconds. `prompt_for` builds the prompt, only when one is asked."""
+    if not ready:
+        return None
     with _WHY_LOCK:
         entry = _WHY.setdefault(key, {})
-        stale = entry.get("moved") != moved and time.time() - entry.get("asked", 0) >= WHY_EVERY
+        # An answer from before the agent did anything is replaced as soon as it acts.
+        wait = WHY_EVERY if entry.get("ready") else 0
+        stale = entry.get("moved") != moved and time.time() - entry.get("asked", 0) >= wait
         if stale and not entry.get("pending"):
-            entry.update(pending=True, asked=time.time(), moved=moved)
+            entry.update(pending=True, asked=time.time(), moved=moved, ready=True)
             threading.Thread(target=_ask_why, args=(key, prompt_for()), daemon=True).start()
         return entry.get("text")
 
@@ -331,7 +348,8 @@ def running_agents(goal, now=None, processes=None, want_why=False):
         out.append({"role": role, "model": live["model"], "seconds": seconds,
                     "action": live["action"], "at": live["at"], "depth": 0,
                     "why": why(session, live["at"], lambda p=path, r=role, t=tail: why_prompt(
-                        r, brief_of(p, 800, end=True), *reversed(recent(t)))) if want_why else None})
+                        r, brief_of(p, 800, end=True), *reversed(recent(t))),
+                        ready=bool(live["action"] or live["said"])) if want_why else None})
         for a in subagents(path, now, True):
             if a["running"]:
                 agent_path = os.path.join(path[:-len(".jsonl")], "subagents", "agent-%s.jsonl" % a["id"]) \
