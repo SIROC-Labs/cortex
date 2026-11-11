@@ -1720,6 +1720,12 @@ class Runner(object):
         self.cut_off = None
         signal.signal(signal.SIGTERM, self.on_term)
 
+    def step(self, text):
+        """A step of the run: in the log, and as what the goal is doing, so the TUI
+        never shows an earlier step as the current one."""
+        st.step(text)
+        self.set(doing=text[:1].lower() + text[1:])
+
     def on_term(self, *_):
         for child in [self.child] + list(self.children):
             if child and child.poll() is None:
@@ -1767,7 +1773,7 @@ class Runner(object):
 
     def read_ticket(self):
         """The ask, from the ticket as it is now. Read once, when the goal starts."""
-        st.step("Reading the ticket")
+        self.step("Reading the ticket")
         ref = self.data["ref"]
         task = st.asana(["task", "get", ref], cwd=self.main_root)
         subtasks = [dict(st.asana(["task", "get", t["ref"]], cwd=self.main_root) or {},
@@ -1791,7 +1797,7 @@ class Runner(object):
             self.read_ticket()
         if self.data.get("worktree") and os.path.isdir(self.data["worktree"]):
             return
-        st.step("Setting up")
+        self.step("Setting up")
         if self.data.get("parent"):
             parent = Goal(self.main_root, self.data["parent"]).read()
             branch = "%s--%s" % (parent["branch"], st.slugify(self.data["part"], max_words=4))
@@ -1867,7 +1873,7 @@ class Runner(object):
             until = worst["resets_at"] or time.time() + PAUSE_CHECK
             what = "%s at %d%%" % (worst["name"], worst["used"])
             if self.data.get("status") != "paused":
-                st.step("Paused — %s" % what)
+                self.step("Paused — %s" % what)
                 st.info("resumes at %s" % time.strftime("%a %H:%M", time.localtime(until)))
             self.set(status="paused", doing="paused — %s, until %s"
                      % (what, time.strftime("%a %H:%M", time.localtime(until))))
@@ -2081,7 +2087,7 @@ class Runner(object):
         """The acceptance criteria, reviewed against the references before anything
         is built: (gaps, questions)."""
         self.set(status="checking", doing="reviewing the acceptance criteria")
-        st.step("Reviewing the acceptance criteria")
+        self.step("Reviewing the acceptance criteria")
         gaps, questions = self.judge("review", "review.md", review_verdict)
         st.info("review: %d problem(s), %d question(s)" % (len(gaps), len(questions)))
         for gap in gaps:
@@ -2092,7 +2098,7 @@ class Runner(object):
         """An independent check of the branch against the ask: (done, gaps, questions).
         After an earlier check, only what changed since and that check's gaps."""
         self.set(status="checking", doing="checking the branch against the ask")
-        st.step("Checking against the ask")
+        self.step("Checking against the ask")
         _, head, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
         self.scope = self.check_scope(head.strip())
         if self.scope:
@@ -2113,7 +2119,7 @@ class Runner(object):
         the lead is to fix first."""
         worktree, base, branch = self.data["worktree"], self.data["base"], self.data["branch"]
         self.set(status="checking", doing="syncing with %s" % base)
-        st.step("Syncing with %s" % base)
+        self.step("Syncing with %s" % base)
         st.git(["fetch", "origin", base, branch], cwd=worktree, check=False)
         theirs = "origin/%s" % branch
         if st.git(["rev-parse", "--verify", "--quiet", theirs], cwd=worktree, check=False)[0] == 0 \
@@ -2150,7 +2156,7 @@ class Runner(object):
             return None
         attempt = 0
         while True:
-            st.step("Running CI's static checks here" + (" again" if attempt else ""))
+            self.step("Running CI's static checks here" + (" again" if attempt else ""))
             failure = None
             for n, (name, cmd, cwd) in enumerate(commands, 1):
                 self.set(status="checking", doing="running CI's static checks here",
@@ -2178,7 +2184,7 @@ class Runner(object):
                 "The failure above is from running the check here: its output is all you "
                 "need.")
             _, before, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
-            st.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
+            self.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
             self.wait_for_usage()
             self.set(status="checking", doing="fixing CI's static checks, try %d" % attempt)
             self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
@@ -2210,7 +2216,7 @@ class Runner(object):
         return self.wait_for_ci(pr_url)
 
     def wait_for_ci(self, pr_url):
-        st.step("Waiting for CI")
+        self.step("Waiting for CI")
         worktree = self.data["worktree"]
         _, head, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
         started, nudged = time.time(), False
@@ -2294,7 +2300,7 @@ class Runner(object):
             prompt = ci_fix_prompt(self.data["branch"], fix.split("\n", 2)[2])
             _, before, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
             while True:
-                st.step("Fixing CI (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
+                self.step("Fixing CI (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
                 self.wait_for_usage()
                 self.set(status="checking", doing="fixing CI, try %d" % attempt)
                 _, stop, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
@@ -2315,7 +2321,7 @@ class Runner(object):
         before it. Returns None, or what the lead is to fix."""
         worktree, base = self.data["worktree"], self.data["base"]
         self.set(status="checking", doing="syncing with the goal's branch")
-        st.step("Syncing with %s" % base)
+        self.step("Syncing with %s" % base)
         code, out, err = st.git(["merge", "--no-edit", base], cwd=worktree, check=False)
         if code == 0:
             return None
@@ -2416,7 +2422,7 @@ class Runner(object):
             st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
             st.git(["commit", "-m", "%s :: work before the parts" % self.data["key"]],
                    cwd=self.data["worktree"], check=False)
-        st.step("Splitting into %d parts" % len(parts))
+        self.step("Splitting into %d parts" % len(parts))
         for p in parts:
             st.info("- %s%s" % (p["name"], " (after %s)" % ", ".join(p["after"]) if p["after"] else ""))
         self.set(parts=parts, phase="parts")
@@ -2465,7 +2471,7 @@ class Runner(object):
             self.board.approve()
             return self.after_plan()
         what = "split" if parts else "plan"
-        st.step("The %s is ready for your review" % what)
+        self.step("The %s is ready for your review" % what)
         if not on_ticket:
             st.warn("the plan is not on the ticket yet: it is tried again every minute, "
                     "and you can approve it on the TUI")
@@ -2528,7 +2534,7 @@ class Runner(object):
         worktree off the branch, merged back when it ends; each question on the goal's
         worktree, read only. Returns a report per task, in the lead's order."""
         tasks = [t for t in tasks if isinstance(t, dict) and str(t.get("brief") or "").strip()]
-        st.step("Running %d task(s) from the lead" % len(tasks))
+        self.step("Running %d task(s) from the lead" % len(tasks))
         # Tasks start from the last commit, and merge back into a clean tree.
         st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
         if st.git(["commit", "-q", "-m", "Work left uncommitted by an earlier session"],
@@ -2842,7 +2848,7 @@ class Runner(object):
     def consult(self, questions):
         """A part's questions, put to the goal's lead first: (the ones only the
         person can answer, the lead's answers to the rest as text)."""
-        st.step("Asking the goal's lead")
+        self.step("Asking the goal's lead")
         parent = Goal(self.main_root, self.data["parent"])
         try:
             with open(parent.journal) as f:
@@ -2871,7 +2877,7 @@ class Runner(object):
         return rest, text
 
     def ask_person(self, questions, label="lead"):
-        st.step("Asking you")
+        self.step("Asking you")
         for q in questions:
             st.info("Q: %s" % q["q"])
         gids = self.board.ask(questions) if self.board.on else []
@@ -2879,7 +2885,7 @@ class Runner(object):
                                      "asana": gids})
 
     def ask_problem(self, headline, detail=None):
-        st.step("Stopped — %s" % headline)
+        self.step("Stopped — %s" % headline)
         return self.wait_for_answer({"kind": "problem", "headline": headline,
                                      "detail": (detail or "").strip()[-1500:] or None})
 
@@ -2898,7 +2904,7 @@ class Runner(object):
         return "%s\n%s" % (sha, st.worktree_fingerprint(self.data["worktree"]))
 
     def finish(self, block):
-        st.step("Finishing")
+        self.step("Finishing")
         self.progress()
         if self.flow2() and self.split_now():
             self.board.tick({bd.INTEGRATION})
@@ -2978,20 +2984,20 @@ class Runner(object):
         if not self.data.get("watch_from"):
             self.set(watch_from=self.data.get("finished") or time.time())
         self.announce(self.data.get("summary") or self.data.get("doing"))
-        st.step("Watching the PR for review comments and the merge")
+        self.step("Watching the PR for review comments and the merge")
         while True:
             state = self.pr_state(pr_url)
             if state == "MERGED":
-                st.step("Merged")
+                self.step("Merged")
                 self.set(status="done", phase="merged", doing="merged")
                 return None
             if state == "CLOSED":
-                st.step("The PR was closed without a merge")
+                self.step("The PR was closed without a merge")
                 self.set(status="done", phase="closed", doing="its PR was closed without a merge")
                 return None
             items = self.pr_feedback(*m.groups())
             if items:
-                st.step("Review comments on the PR")
+                self.step("Review comments on the PR")
                 for _, heading, _ in items:
                     st.info(heading)
                 self.set(pr_handled=sorted(set(self.data.get("pr_handled") or [])
@@ -3074,7 +3080,7 @@ class Runner(object):
             unchanged, checks, before = 0, 0, self.head()
             while True:
                 self.set(round=self.data.get("round", 0) + 1)
-                st.step("Round %d" % self.data["round"])
+                self.step("Round %d" % self.data["round"])
                 report, block = self.lead(prompt)
                 if block.get("summary"):
                     st.info(block["summary"])
