@@ -181,6 +181,22 @@ def plan_changes(snapshot, rows, known):
     return out
 
 
+def fix_mermaid(text):
+    """Markdown with its mermaid diagrams made safe to render. Inside a diagram a `;`
+    ends a statement, so one in a label, such as a sequence message that lists
+    steps, breaks the whole diagram: each one mid-line becomes a comma."""
+    out, inside = [], False
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            inside = line.strip().startswith("```mermaid") if not inside else False
+        elif inside and ";" in line.rstrip().rstrip(";"):
+            body = line.rstrip()
+            end = ";" if body.endswith(";") else ""
+            line = re.sub(r";(?!\s*$)", ",", body[:len(body) - len(end)]) + end
+        out.append(line)
+    return "\n".join(out)
+
+
 def _quote(text):
     return "\n".join("  > %s" % l for l in (text or "").strip().splitlines())
 
@@ -402,7 +418,13 @@ class Board(object):
 
     def attach_plan(self, data, path):
         """The technical plan on the review, and on a part's own subtask too, once; a
-        changed one in place of the old."""
+        changed one in place of the old. Its diagrams are made safe to render first."""
+        with open(path) as f:
+            text = f.read()
+        fixed = fix_mermaid(text)
+        if fixed != text:
+            with open(path, "w") as f:
+                f.write(fixed)
         with open(path, "rb") as f:
             sha = hashlib.sha256(f.read()).hexdigest()
         was = data.get("plan_file") or {}

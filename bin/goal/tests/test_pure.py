@@ -636,6 +636,14 @@ class TestLocalCI(unittest.TestCase):
         self.assertIsNone(self.runner.local_ci())
 
 
+class TestMermaid(unittest.TestCase):
+    def test_a_semicolon_in_a_diagram_label_becomes_a_comma(self):
+        text = ("Before; kept.\n```mermaid\nsequenceDiagram\n  I->>I: refuse big; type from bytes\n"
+                "  A->>B: ok;\n```\nAfter; kept.")
+        self.assertEqual(goal.bd.fix_mermaid(text), "Before; kept.\n```mermaid\nsequenceDiagram\n"
+                         "  I->>I: refuse big, type from bytes\n  A->>B: ok;\n```\nAfter; kept.")
+
+
 class TestFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()

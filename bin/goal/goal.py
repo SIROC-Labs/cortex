@@ -189,7 +189,8 @@ TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a techni
    in Asana. Write it in ASD-STE100 Simplified Technical English: short sentences,
    the active voice, one word for one meaning, and code names as they are in the
    code. Use tables for lists of things, and mermaid diagrams for structure and
-   flow. Use these numbered sections, and leave out a section that does not apply:
+   flow. In a diagram's labels and messages, never write `;` or `#`: mermaid reads
+   `;` as the end of a line. Use commas. Use these numbered sections, and leave out a section that does not apply:
 
    1. Purpose and scope: what this work builds and what it does not, and a table
       of the references and where they are.
