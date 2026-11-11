@@ -143,8 +143,10 @@ def recent(lines, n=6):
     return actions[-n:], said[-2:]
 
 
-def brief_of(path, size=1500):
-    """The first message an agent got: its brief."""
+def brief_of(path, size=1500, end=False):
+    """The first message an agent got: its brief. With `end`, its last part: a
+    lead's first message is the same opening for every lead, and what it is asked
+    to do now comes last."""
     try:
         row = json.loads(_first_line(path))
     except ValueError:
@@ -152,7 +154,8 @@ def brief_of(path, size=1500):
     content = (row.get("message") or {}).get("content")
     if isinstance(content, list):
         content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
-    return " ".join(str(content or "").split())[:size]
+    text = " ".join(str(content or "").split())
+    return text[-size:] if end else text[:size]
 
 
 def why_prompt(role, brief, said, actions):
@@ -327,7 +330,7 @@ def running_agents(goal, now=None, processes=None, want_why=False):
         out.append({"role": role, "model": live["model"], "seconds": seconds,
                     "action": live["action"], "at": live["at"], "depth": 0,
                     "why": why(session, live["at"], lambda p=path, r=role, t=tail: why_prompt(
-                        r, brief_of(p, 600), *reversed(recent(t)))) if want_why else None})
+                        r, brief_of(p, 800, end=True), *reversed(recent(t)))) if want_why else None})
         for a in subagents(path, now, True):
             if a["running"]:
                 agent_path = os.path.join(path[:-len(".jsonl")], "subagents", "agent-%s.jsonl" % a["id"]) \
