@@ -172,6 +172,7 @@ def _ask_why(key, prompt):
     try:
         done = subprocess.run(
             ["claude", "-p", "--model", WHY_MODEL, "--max-turns", "1", "--tools", "",
+             "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}',
              "--no-session-persistence", "--setting-sources", "", prompt],
             capture_output=True, text=True, timeout=90, cwd=tempfile.gettempdir(),
             stdin=subprocess.DEVNULL)

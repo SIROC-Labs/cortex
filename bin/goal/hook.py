@@ -6,6 +6,7 @@
 #                           # the lead, also a sleep: sub-agents' reports come by themselves
 #   hook.py agent <model>   # a sub-agent started without a model gets <model>
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
+#   hook.py task            # refuses a coding task a whole-project check or an install
 #   hook.py readonly <dir>  # refuses any change to the code in <dir>: an explorer
 #   hook.py delegate <dir>  # refuses the lead, not its sub-agents, a change to the
 #                           # code in <dir>, or reading it: in the build, sub-agents
@@ -51,6 +52,16 @@ CHECKS = ("Refused: in the build you do not run tests, type checks, linters or b
 # Commands that test, type-check, lint or build: the runner and CI do those in the build.
 CHECKERS = re.compile(r"(?:^|[;&|(`]\s*|\s)(?:vitest|jest|pytest|tsc|eslint|ruff|mypy|playwright|"
                       r"npm\s+(?:run|test|exec)|npx|yarn|pnpm|make|uv\s+run|cargo\s+test|go\s+test)\b")
+TASK_CHECKS = ("Refused: a coding task runs no check of the whole project, and installs "
+               "nothing, whatever its brief says. Run the linter and the tests of the files you "
+               "changed, by their paths. When a tool is missing, say so in your notes. The "
+               "runner runs CI's static checks for the whole project after you.")
+# What a coding task may not run: whole-project checks, installs, whole suites.
+WHOLE = re.compile(
+    r"(?:^|[;&|(`]\s*|\s)(?:tsc\b(?![^;&|]*\.tsx?\b)|npm\s+(?:ci|install|i)\b|"
+    r"npm\s+(?:run\s+)?(?:typecheck|verify[\w:-]*|ci-verify|build|test|lint)\b|"
+    r"npx\s+(?:--no-install\s+)?vitest\s+run\s*(?:$|[;&|])|"
+    r"make\s+(?!-)[\w-]+|\S*setup-worktree\S*|uv\s+sync\b|pnpm\s+install|yarn\s+install)")
 READS = ("Read", "Grep", "Glob")
 # Shell commands that read code: the lead asks an explorer instead. git is not one, and
 # a filter after a pipe reads only the output before it.
@@ -143,6 +154,10 @@ def main(argv):
         return 2
     if argv[:1] == ["fence"] and fenced(tool_input, argv[1:]):
         sys.stderr.write(FENCED + "\n")
+        return 2
+    if argv[:1] == ["task"] and call.get("tool_name") == "Bash" and WHOLE.search(
+            re.sub(r"'[^']*'|\"[^\"]*\"", "''", tool_input.get("command") or "")):
+        sys.stderr.write(TASK_CHECKS + "\n")
         return 2
     if argv[:1] == ["readonly"] and len(argv) > 1 and delegated(call, argv[1]) == DELEGATE:
         sys.stderr.write(READONLY + "\n")

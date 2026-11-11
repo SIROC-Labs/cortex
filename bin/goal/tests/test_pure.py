@@ -1100,6 +1100,19 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(bash("sleep 30", "lead", agent_type="general-purpose"), 0)
         self.assertEqual(bash("sleep 30"), 0)
         self.assertEqual(bash("git log --oneline", "lead"), 0)
+
+        def task(command):
+            sys.stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}))
+            with contextlib.redirect_stderr(io.StringIO()):
+                return hook.main(["task"])
+        for command in ("npx tsc -b", "cd apps/frontend && npm run typecheck", "./scripts/setup-worktree.sh",
+                        "npm ci --ignore-scripts", "make lint-imports", "npm run verify:static",
+                        "npx vitest run", "uv sync"):
+            self.assertEqual(task(command), 2, command)
+        for command in ("npx --no-install vitest related --run src/a.ts", "npx eslint src/a.ts src/b.tsx",
+                        "uv run pytest -q calls/test_a.py", "uv run ruff check apps/a.py", "git commit -m 'make it'",
+                        "npx tsc --noEmit src/a.ts"):
+            self.assertEqual(task(command), 0, command)
         self.assertEqual(lead("Grep", pattern="x", path=wt + "/apps"), hook.EXPLORE)
         self.assertFalse(lead("Read", file_path=wt + "/docs/decisions/a.md"))
         self.assertFalse(lead("Read", file_path="/repo/.cortex/state/g/journal.md"))

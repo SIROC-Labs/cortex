@@ -94,6 +94,9 @@ PARALLEL_TASKS = 6
 # Tools that keep a call alive after its answer, waiting for a timer: a goal's call
 # ends with its answer, and the runner starts the next.
 NO_WAITING = "ScheduleWakeup,CronCreate,CronDelete,CronList,Monitor,RemoteTrigger"
+# No MCP servers: each call would start every plugin's server (browsers, devices), and
+# a goal's agents use none of them.
+NO_MCP = ["--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}']
 TASKS_FILE = "tasks.json"
 TASK_CHECK = 15
 DEP_DIRS = ("node_modules", ".venv")
@@ -970,7 +973,7 @@ def built_text(built):
 
 
 def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False,
-                  readonly=None):
+                  readonly=None, task=False):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -996,6 +999,8 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
     if readonly:
         pre.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
                     "hooks": [guard("readonly", readonly)]})
+    if task:
+        pre.append({"matcher": "Bash", "hooks": [guard("task")]})
     out = {"hooks": {"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
     if allow:
@@ -1905,6 +1910,7 @@ class Runner(object):
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
+        cmd += NO_MCP
         if label == "lead" and self.data.get("phase") == "building":
             # In the build the runner starts the agents: the lead hands it their tasks.
             cmd += ["--disallowedTools", "Agent,Task," + NO_WAITING]
@@ -2584,11 +2590,13 @@ class Runner(object):
         mode, allow = unattended(model, [cwd, self.goal.state.dir], [])
         with open(settings, "w") as f:
             json.dump(hook_settings(self.goal.state.path(WIND_FILE), fence=self.data.get("fence") or (),
-                                    allow=allow, readonly=cwd if explore else None), f)
+                                    allow=allow, readonly=cwd if explore else None,
+                                    task=not explore), f)
         run["settings"] = settings
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
-               "--disallowedTools", "Agent,Task," + NO_WAITING, "--session-id", run["session"], prompt]
+               "--disallowedTools", "Agent,Task," + NO_WAITING] + NO_MCP + [
+                   "--session-id", run["session"], prompt]
         st.info("%s: %s on %s" % ("question" if explore else "task", name, short_model(model)))
         self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
                         started=run["started"], name=name)
