@@ -2108,23 +2108,36 @@ class Runner(object):
         return done, gaps, questions
 
     def sync(self):
-        """Merge the base into the branch, without pushing. Returns None, or what the
-        lead is to fix first."""
-        worktree, base = self.data["worktree"], self.data["base"]
+        """Merge into the branch, without pushing, what others merged into it on GitHub,
+        such as a PR into the goal's branch, and then its base. Returns None, or what
+        the lead is to fix first."""
+        worktree, base, branch = self.data["worktree"], self.data["base"], self.data["branch"]
         self.set(status="checking", doing="syncing with %s" % base)
         st.step("Syncing with %s" % base)
-        st.git(["fetch", "origin", base], cwd=worktree, check=False)
-        code, out, err = st.git(["merge", "--no-edit", "origin/%s" % base], cwd=worktree,
-                                check=False)
+        st.git(["fetch", "origin", base, branch], cwd=worktree, check=False)
+        theirs = "origin/%s" % branch
+        if st.git(["rev-parse", "--verify", "--quiet", theirs], cwd=worktree, check=False)[0] == 0 \
+                and st.git(["merge-base", "--is-ancestor", theirs, "HEAD"], cwd=worktree,
+                           check=False)[0] != 0:
+            st.info("%s has work merged into it on GitHub — merging it in" % branch)
+            fix = self.merge_in(theirs)
+            if fix:
+                return fix
+        return self.merge_in("origin/%s" % base)
+
+    def merge_in(self, ref):
+        """Merge `ref` into the branch. Returns None, or what the lead is to fix."""
+        worktree = self.data["worktree"]
+        code, out, err = st.git(["merge", "--no-edit", ref], cwd=worktree, check=False)
         if code != 0:
             _, files, _ = st.git(["diff", "--name-only", "--diff-filter=U"], cwd=worktree,
                                  check=False)
             if not files.strip():
-                return ("You reported done, but the runner could not merge `origin/%s` into "
+                return ("You reported done, but the runner could not merge `%s` into "
                         "your branch:\n\n```\n%s\n```\n\nCommit or remove what is in the "
-                        "way, then report done again." % (base, (err or out).strip()[-2000:]))
+                        "way, then report done again." % (ref, (err or out).strip()[-2000:]))
             st.warn("the merge conflicts — back to the lead")
-            return conflict_prompt("origin/%s" % base, files.split())
+            return conflict_prompt(ref, files.split())
         return None
 
     def local_ci(self):
@@ -3039,6 +3052,8 @@ class Runner(object):
                 self.set(phase="building", status="working")
             elif pending.get("kind") == "problem":
                 prompt = "The person says:\n\n%s\n\n%s" % (self.wait_for_answer(pending), CONTINUE)
+                if self.data.get("phase") == "building":
+                    prompt = self.fresh(prompt)
             elif pending.get("kind") == "plan":
                 prompt = self.await_plan(pending)
             elif watch:

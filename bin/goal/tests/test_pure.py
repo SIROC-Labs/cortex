@@ -352,6 +352,17 @@ class TestGate(unittest.TestCase):
         self.assertEqual(self.runner.gate(), (None, None))
         self.assertEqual(self.runner.data["checks"], [])
 
+    def test_work_merged_into_the_goal_s_branch_on_github_is_merged_in_before_the_push(self):
+        self.git("push", "-q", "origin", "A-1/goal-x")
+        self.commit("from-a-pr.txt", "x\n", "a PR merged into the goal's branch")
+        self.git("push", "-q", "origin", "A-1/goal-x")
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        self.commit("goal.txt", "x\n", "the goal's own work")
+        self.rollup = [self.check("test", "SUCCESS")]
+        self.assertEqual(self.runner.gate(), (None, None))
+        self.assertTrue(os.path.exists(os.path.join(self.work, "from-a-pr.txt")))
+        self.assertEqual(self.git("rev-parse", "origin/A-1/goal-x"), self.git("rev-parse", "HEAD"))
+
     def test_the_base_is_merged_in_and_a_conflict_goes_back_to_the_lead(self):
         self.commit("shared.txt", "goal\n", "work")
         self.git("checkout", "-q", "main")
