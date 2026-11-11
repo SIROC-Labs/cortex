@@ -1631,13 +1631,15 @@ class TestPlanFlow(unittest.TestCase):
         self.run_with([("done", lambda: self.journal(done))], lambda record: "continue")
         self.assertIn(goal.FRESH, self.prompts[0])
 
-    def test_the_checker_s_effort_follows_the_setup_tab(self):
-        self.runner.set(check_effort="xhigh")
+    def test_the_checker_s_effort_and_model_follow_the_setup_tab(self):
+        self.runner.set(check_effort="xhigh", check_model="claude-fable-5-1")
         self.assertEqual(self.runner.check_effort(), goal.DEFAULT_CHECK_EFFORT)
+        self.assertEqual(self.runner.check_model(), "claude-fable-5-1")
         os.makedirs(os.path.join(self.dir, ".cortex", "queue"), exist_ok=True)
         with open(os.path.join(self.dir, ".cortex", "queue", "control.json"), "w") as f:
-            json.dump({"models": {"check_effort": "medium"}}, f)
+            json.dump({"models": {"check_effort": "medium", "check": "claude-opus-5-5"}}, f)
         self.assertEqual(self.runner.check_effort(), "medium")
+        self.assertEqual(self.runner.check_model(), "claude-opus-5-5")
 
     def test_the_lead_is_sent_back_for_a_missing_technical_plan(self):
         def no_plan():

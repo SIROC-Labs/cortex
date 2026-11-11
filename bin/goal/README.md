@@ -191,8 +191,9 @@ This program is the harness around the lead:
   the legwork on a large diff to Sonnet sub-agents. So the
   strongest model costs little there. All four are on the TUI's Setup tab, and on
   `cortex goal new` as `--model`, `--subagent-model` and `--check-model`, all but the effort.
-  A goal keeps the models it started with. The checker's effort is what the Setup tab shows,
-  read at each check, so it holds for every goal, running ones too.
+  A goal keeps the lead's and the sub-agents' models it started with. The checker's model and
+  effort are what the Setup tab shows, read at each check and review, so they hold for every
+  goal, running ones too.
 - **Permissions.** No run uses bypass mode, which a repo may turn off (Humanus does). Each
   call runs in auto mode: reading, edits in the goal's worktree and state, sub-agents and
   the web are allowed outright, and a classifier judges every other action, such as a

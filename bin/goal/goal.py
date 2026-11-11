@@ -1837,6 +1837,19 @@ class Runner(object):
 
     # usage
 
+    def setup(self, key):
+        """A value from the TUI's Setup tab, read each time so a change reaches a
+        goal already running; None when the tab has none saved."""
+        try:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+                return (json.load(f).get("models") or {}).get(key)
+        except (IOError, OSError, ValueError, AttributeError):
+            return None
+
+    def check_model(self):
+        """The checker's model: the Setup tab's, else the one the goal started with."""
+        return self.setup("check") or self.data.get("check_model") or DEFAULT_CHECK_MODEL
+
     def check_effort(self):
         """The checker's effort: what the TUI's Setup tab shows, its saved value or
         else the default, read each time so it reaches a goal already running. Not
@@ -2054,7 +2067,7 @@ class Runner(object):
             self.wait_for_usage()
             prompt = render(os.path.join(PROMPTS, template), **self.fields())
             block, stop, error = self.call(prompt, str(uuid.uuid4()), False, label,
-                                           self.data.get("check_model"), self.check_effort())
+                                           self.check_model(), self.check_effort())
             self.cut_off = None
             # Files a check leaves behind — caches, reports — are not changes to the work.
             _, dirty, _ = st.git(["status", "--porcelain", "--untracked-files=no"],
