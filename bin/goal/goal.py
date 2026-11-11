@@ -112,6 +112,7 @@ ANSWER_CHECK = 2
 # check reporting before it counts as having no CI, and how long CI may take.
 CI_CHECK = 60
 CI_START = 600
+CI_NUDGE = 120
 CI_TIMEOUT = 2 * 3600
 # Tries a cheap fixer gets at failing CI before the lead takes it on.
 CI_FIXES = 2
@@ -2086,24 +2087,26 @@ class Runner(object):
         fix = self.sync()
         if fix:
             return "merge", fix
-        self.push()
         pr_url = self.data.get("pr_url")
+        if pr_url and not self.data.get("ready"):
+            # Ready before the push: a push to a draft starts a run that skips every
+            # job, and the run that marking it ready starts can be for the commit
+            # before the push. CI may run only on PRs ready for review.
+            st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
+            self.set(ready=True)
+            st.info("PR marked ready for review: %s" % pr_url)
+        self.push()
         if not pr_url:
             st.warn("no PR, so no CI to wait for")
             self.set(checks=[])
             return None, None
-        if not self.data.get("ready"):
-            # CI may run only on PRs ready for review; it stays ready from here on.
-            st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
-            self.set(ready=True)
-            st.info("PR marked ready for review: %s" % pr_url)
         return self.wait_for_ci(pr_url)
 
     def wait_for_ci(self, pr_url):
         st.step("Waiting for CI")
         worktree = self.data["worktree"]
         _, head, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
-        started = time.time()
+        started, nudged = time.time(), False
         while True:
             _, out, _ = st.run(["gh", "pr", "view", pr_url, "--json",
                                 "headRefOid,statusCheckRollup"], cwd=worktree, check=False)
@@ -2143,7 +2146,23 @@ class Runner(object):
                     st.info("CI passed: %s" % ", ".join(names))
                     self.set(checks=names)
                     return None, None
-                if (not rollup or pending == [CI_NOT_STARTED]) and waited >= CI_START:
+                if pending == [CI_NOT_STARTED] and waited >= CI_NUDGE and not nudged:
+                    # Every job skipped, as on a draft: draft and ready again starts a run
+                    # for the commit as it is now.
+                    st.warn("every CI job was skipped — marking the PR draft and ready again")
+                    st.run(["gh", "pr", "ready", "--undo", pr_url], cwd=worktree, check=False)
+                    st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
+                    nudged = True
+                elif pending == [CI_NOT_STARTED] and waited >= CI_START:
+                    self.ask_problem("every CI job on %s was skipped, so CI has not checked "
+                                     "the branch" % pr_url,
+                                     "Start CI on the PR, for example by marking it draft and "
+                                     "ready again. When you answer, the runner waits for it.")
+                    self.set(status="checking")
+                    started, nudged = time.time(), True
+                    time.sleep(CI_CHECK)
+                    continue
+                elif not rollup and waited >= CI_START:
                     st.warn("no CI check ran in %d minutes — taking it as none" % (CI_START // 60))
                     self.set(checks=[])
                     return None, None

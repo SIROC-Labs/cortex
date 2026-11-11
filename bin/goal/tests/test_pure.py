@@ -325,6 +325,27 @@ class TestGate(unittest.TestCase):
         self.assertEqual(kind, "ci")
         self.assertIn("- `test`", fix)
 
+    def test_the_pr_is_ready_before_the_push_and_an_all_skipped_run_is_started_again(self):
+        order = []
+        push = self.runner.push
+        self.runner.push = lambda: (order.append("push"), push())
+        run = goal.st.run
+
+        def watch(cmd, cwd=None, check=True):
+            if cmd[:3] == ["gh", "pr", "ready"]:
+                order.append(" ".join(cmd[1:4]))
+                if "--undo" not in cmd and order.count("pr ready https://gh/pr/1") > 1:
+                    self.rollup = [self.check("test", "SUCCESS")]
+            return run(cmd, cwd=cwd, check=check)
+        goal.st.run = watch
+        self.rollup = [self.check("test", "SKIPPED")]
+        nudge, goal.CI_NUDGE = goal.CI_NUDGE, 0
+        self.addCleanup(setattr, goal, "CI_NUDGE", nudge)
+        self.assertEqual(self.runner.gate(), (None, None))
+        self.assertEqual(order[:2], ["pr ready https://gh/pr/1", "push"])
+        self.assertIn("pr ready --undo", order)
+        self.assertEqual(self.runner.data["checks"], ["test"])
+
     def test_a_pr_with_no_checks_at_all_counts_as_having_no_ci(self):
         start, goal.CI_START = goal.CI_START, 0
         self.addCleanup(setattr, goal, "CI_START", start)
