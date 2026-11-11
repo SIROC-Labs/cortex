@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -653,6 +654,23 @@ class TestMermaid(unittest.TestCase):
                 "  A->>B: ok;\n```\nAfter; kept.")
         self.assertEqual(goal.bd.fix_mermaid(text), "Before; kept.\n```mermaid\nsequenceDiagram\n"
                          "  I->>I: refuse big, type from bytes\n  A->>B: ok;\n```\nAfter; kept.")
+
+
+class TestPause(unittest.TestCase):
+    def test_a_goal_goes_back_to_what_it_was_doing_after_a_pause(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        gid = goal.create(d, "1", "A-1", "x", base="main")
+        runner = goal.Runner(d, gid)
+        runner.set(status="checking", doing="checking the branch against the ask")
+        readings = [[{"name": "Current session", "used": 80, "resets_at": time.time()}], []]
+        runner.usage = lambda: readings.pop(0)
+        runner.threshold = lambda: 75
+        sleep, goal.time.sleep = goal.time.sleep, lambda _: None
+        self.addCleanup(setattr, goal.time, "sleep", sleep)
+        runner.wait_for_usage()
+        self.assertEqual((runner.data["status"], runner.data["doing"]),
+                         ("checking", "checking the branch against the ask"))
 
 
 class TestFlow(unittest.TestCase):

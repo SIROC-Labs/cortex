@@ -1878,10 +1878,15 @@ class Runner(object):
             if not worst:
                 if self.data.get("status") == "paused":
                     st.info("usage is back under %d%% — going on" % self.threshold())
+                    before = self.data.get("before_pause") or {}
+                    self.set(status=before.get("status") or "working",
+                             doing=before.get("doing") or "going on", before_pause=None)
                 return
             until = worst["resets_at"] or time.time() + PAUSE_CHECK
             what = "%s at %d%%" % (worst["name"], worst["used"])
             if self.data.get("status") != "paused":
+                self.set(before_pause={"status": self.data.get("status"),
+                                       "doing": self.data.get("doing")})
                 self.step("Paused — %s" % what)
                 st.info("resumes at %s" % time.strftime("%a %H:%M", time.localtime(until)))
             self.set(status="paused", doing="paused — %s, until %s"
