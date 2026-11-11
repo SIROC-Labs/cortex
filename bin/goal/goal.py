@@ -253,8 +253,12 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "what each batch did and decided, and tick the steps and criteria it meets. You can "
          "run git, read Markdown documents, and edit your journal and the technical plan. "
          "You do not run tests, type checks or builds. Tests guide the coding tasks while "
-         "they code: each runs the tests of its own change. To know whether a task's work is "
-         "right, read its report, or hand over a reviewer task.")
+         "they code: each runs the tests of its own change. When you report done, the runner "
+         "merges the base in and runs the repo's CI static checks here (type checks, lint, "
+         "format), and a fixer repairs what fails, before the checker and the push. So do "
+         "not hand over tasks that only run checks or verify a merge: report done, and the "
+         "runner finds what is broken. Never tell a task to run a whole-project check. To "
+         "know whether a task's work is right, read its report, or hand over a reviewer task.")
 NEXT_STEP = ("Hand over the next tasks: the first step of the plan not ticked, and with it "
              "every later step that does not depend on it. The session before this one handed "
              "over:\n\n%s")
