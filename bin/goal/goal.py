@@ -716,6 +716,30 @@ def ci_fix_prompt(branch, failures):
             % (branch, failures))
 
 
+def ci_commands(worktree):
+    """The repo's own commands for what CI checks, as [(name, command, cwd)]: a
+    `ci-verify` make target at the root, and a `ci-verify` script in each package."""
+    out = []
+    try:
+        with open(os.path.join(worktree, "Makefile")) as f:
+            if re.search(r"^ci-verify:", f.read(), re.M):
+                out.append(("make ci-verify", "make ci-verify", None))
+    except (IOError, OSError):
+        pass
+    _, files, _ = st.git(["ls-files", "package.json", "*/package.json", "*/*/package.json"],
+                         cwd=worktree, check=False)
+    for rel in sorted(files.split()):
+        try:
+            with open(os.path.join(worktree, rel)) as f:
+                scripts = json.load(f).get("scripts") or {}
+        except (IOError, OSError, ValueError):
+            continue
+        if "ci-verify" in scripts:
+            folder = os.path.dirname(rel)
+            out.append(("%s ci-verify" % (folder or "npm"), "npm run ci-verify", folder or None))
+    return out
+
+
 def failed_ci_prompt(failing, excerpts):
     """What CI says when it fails on the PR: each failed check, with the telling
     lines of its log where GitHub gave them."""
@@ -2080,6 +2104,53 @@ class Runner(object):
             return conflict_prompt("origin/%s" % base, files.split())
         return None
 
+    def local_ci(self):
+        """The repo's own CI static checks (`ci-verify`), run here before the check
+        and the push: a failure goes to the cheap fixer, twice, then to the lead.
+        Returns None when they pass or the repo has none, else what the lead fixes."""
+        worktree = self.data["worktree"]
+        commands = ci_commands(worktree)
+        if not commands:
+            return None
+        attempt = 0
+        while True:
+            st.step("Running CI's static checks here" + (" again" if attempt else ""))
+            failure = None
+            for n, (name, cmd, cwd) in enumerate(commands, 1):
+                self.set(status="checking", doing="running CI's static checks here",
+                         runner_doing="%s (%d of %d): %s" % (name, n, len(commands), cmd),
+                         runner_since=time.time())
+                failure = st.run_qa_gate([(name, cmd, cwd)], worktree)
+                if failure:
+                    break
+            self.set(runner_doing=None)
+            if not failure:
+                st.info("CI's static checks pass here")
+                return None
+            name, cmd, output = failure
+            text = "- `%s`, run here as `%s`:\n\n```\n%s\n```" % (name, cmd, output.strip()[-4000:])
+            if attempt == CI_FIXES:
+                st.warn("%s still fails — over to the lead" % name)
+                return ("You reported done. The runner ran CI's static checks here, before "
+                        "the push, and they fail:\n\n%s\n\nHand over a task that fixes "
+                        "the cause, then report done again. Never weaken a check." % text)
+            attempt += 1
+            model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
+            prompt = ci_fix_prompt(self.data["branch"], text).replace(
+                "Read why it fails from CI, not by running it here: `gh run view <run-id> "
+                "--log-failed` gives the whole log of a failed job (the run id is in its URL).",
+                "The failure above is from running the check here: its output is all you "
+                "need.")
+            _, before, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
+            st.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
+            self.wait_for_usage()
+            self.set(status="checking", doing="fixing CI's static checks, try %d" % attempt)
+            self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
+            _, after, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
+            if after == before:
+                st.warn("the fixer committed nothing — over to the lead")
+                attempt = CI_FIXES
+
     def gate(self):
         """Sync the branch with its base, push it, mark the PR ready, and wait for
         its CI. Returns (None, None) when CI passes, else ("merge" | "ci", what failed)."""
@@ -3036,6 +3107,8 @@ class Runner(object):
                     # Checked before anything is pushed: a gap found after CI costs a
                     # second CI run.
                     fix = self.sync_part() if self.data.get("parent") else self.sync()
+                    if not fix:
+                        fix = self.local_ci()
                     if not fix:
                         done, gaps, questions = self.check()
                         if done and self.data.get("parent"):

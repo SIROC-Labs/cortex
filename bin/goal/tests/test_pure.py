@@ -597,6 +597,45 @@ class TestQuestionOptions(unittest.TestCase):
         self.assertIn("(options: A. As in the prototype)", goal.answer_prompt(qs, "A"))
 
 
+class TestLocalCI(unittest.TestCase):
+    git, commit, tearDown = TestGate.git, TestGate.commit, TestGate.tearDown
+
+    def setUp(self):
+        TestGate.setUp(self)
+        self.runner.set(ask="# A-1: x")
+        self.commit("Makefile", "ci-verify:\n\t@echo ok\n", "make")
+        os.makedirs(os.path.join(self.work, "apps", "web"))
+        self.commit("apps/web/package.json", json.dumps({"scripts": {"ci-verify": "x"}}), "web")
+        self.commit("apps/other.json", "{}", "other")
+
+    def test_ci_s_own_static_checks_are_found(self):
+        self.assertEqual(goal.ci_commands(self.work), [
+            ("make ci-verify", "make ci-verify", None),
+            ("apps/web ci-verify", "npm run ci-verify", "apps/web")])
+
+    def test_a_failure_goes_to_the_fixer_then_to_the_lead(self):
+        results = [("make ci-verify", "make ci-verify", "2 errors")] * 3
+        goal.st.run_qa_gate = lambda commands, worktree: results.pop(0) if results else None
+        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+        fixes = []
+
+        def call(prompt, session, resume, label, model=None, effort=None):
+            fixes.append(prompt)
+            self.commit("fix%d.txt" % len(fixes), "x\n", "fix")
+            return None, None, None
+        self.runner.call = call
+        fix = self.runner.local_ci()
+        self.assertEqual(len(fixes), 2)
+        self.assertIn("2 errors", fixes[0])
+        self.assertNotIn("gh run view", fixes[0])
+        self.assertIn("they fail", fix)
+
+    def test_passing_checks_go_on(self):
+        goal.st.run_qa_gate = lambda commands, worktree: None
+        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+        self.assertIsNone(self.runner.local_ci())
+
+
 class TestFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()

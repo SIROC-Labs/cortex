@@ -156,8 +156,11 @@ This program is the harness around the lead:
   prices: what the work would cost, not a bill. Each agent is priced from its own tokens at
   the rate its model's result reported, since a resumed session reports its running total.
 - **Done means checked.** Tests guide the coding tasks while they code: each runs the tests
-  of its own change, and they are not a gate. When the lead says it is done, a separate
-  checker agent compares the branch with the references and the lead's acceptance criteria, which
+  of its own change, and they are not a gate. When the lead says it is done, the runner
+  first runs the repo's own CI static checks here (a `ci-verify` make target at the root,
+  and a `ci-verify` script in each package): they show in seconds whether the merged
+  pieces fit, before a push pays for CI. A failure goes to the sub-agent model's fixer,
+  twice, then to the lead. Then a separate checker agent compares the branch with the references and the lead's acceptance criteria, which
   it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by
