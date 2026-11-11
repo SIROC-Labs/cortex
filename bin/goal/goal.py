@@ -243,6 +243,10 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "their reports. So put every task that does not wait on another in one block: the "
          "next step of the plan, and every later step that does not depend on it. Give two "
          "tasks that change the same file to two blocks, one after the other.\n\n"
+         "A coding task gets work that is decided: it does not find causes or choose "
+         "designs. When the cause of a problem is not known yet, first ask explorers for "
+         "the facts, decide the fix yourself from their answers, and then hand over the "
+         "coding task. "
          "Brief each task completely, because it knows only its brief: the step, what to "
          "change and where, the parts of the technical plan it needs, the prototype file and "
          "lines for a screen, the tests to write, and what done means. Record in the journal "
@@ -2526,8 +2530,9 @@ class Runner(object):
     def start_task(self, n, task):
         explore = task.get("kind") == "explore"
         name = str(task.get("name") or ("question %d" % (n + 1) if explore else "task %d" % (n + 1)))
-        model = {"opus": DEFAULT_MODEL}.get(task.get("model"), self.data.get("subagent_model")
-                                           or DEFAULT_SUBAGENT_MODEL)
+        # Tasks code or answer questions: the reasoning is the lead's. So every task
+        # runs on the sub-agent model, whatever the lead asks for.
+        model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
         run = {"n": n, "name": name, "explore": explore, "model": model,
                "session": str(uuid.uuid4()), "started": time.time()}
         if explore:

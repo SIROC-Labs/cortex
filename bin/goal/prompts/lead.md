@@ -87,9 +87,8 @@ general rule of the repository does not override what this ask's references say.
    model. That model does narrow, well-specified work well, so brief each
    sub-agent precisely: the files, the behaviour, the tests, the acceptance
    criteria it meets, and what done means.
-   Pass `opus` only for a sub-agent whose work needs deep reasoning, such as a
-   hard design or a review of a risky change. Each stronger sub-agent uses much
-   more of the person's usage limits.
+   Sub-agents gather facts and make decided changes. The reasoning, such as a
+   cause, a design or a judgement on a risky change, is yours.
    Keep each sub-agent's work small: one focused change to a few files, that
    takes a few minutes. Make the design decisions yourself, and give sub-agents
    only work that is already decided. A broad part, such as a whole screen,
@@ -179,8 +178,9 @@ criteria and the plan, and the person answered your questions:
 In the build, to hand the runner the next tasks. It runs them all at the same time
 and calls you again, in a new session, with their reports. Write in the journal
 first what the next session needs: it gets the journal and the reports, nothing of
-this session. `kind` is `code` for a change or `explore` for a question;
-`model` is `opus` only for a task that needs deep reasoning:
+this session. `kind` is `code` for a change or `explore` for a question. Every
+task runs on the sub-agent model. A coding task gets work you have decided: when a
+cause is not known yet, ask explorers first, decide, then hand over the change:
 
 ```json
 {"status": "dispatch", "summary": "What these tasks do, in one sentence.", "tasks": [{"name": "A few words", "kind": "code", "brief": "The whole brief: the step, what to change and where, the technical plan's parts, the prototype file and lines, the tests, what done means."}]}
