@@ -370,6 +370,35 @@ def scroll_top(top, cur, body, count):
     return max(0, min(top, count - body))
 
 
+_PR_LOOKED = {}
+PR_LOOK_EVERY = 300
+
+
+def settle_finished_prs(main_root, goals, now=None):
+    """A finished goal whose runner no longer watches its PR, such as one that
+    finished before goals watched them, learns in the background when its PR was
+    merged or closed, so it leaves the list as a watched one does."""
+    import threading
+    now = now or time.time()
+    for g in goals:
+        if (g.get("status") != "done" or g.get("parent") or not g.get("pr_url") or g.get("alive")
+                or g.get("phase") in ("merged", "closed")
+                or now - _PR_LOOKED.get(g["id"], 0) < PR_LOOK_EVERY):
+            continue
+        _PR_LOOKED[g["id"]] = now
+
+        def look(gid=g["id"], url=g["pr_url"]):
+            try:
+                out = subprocess.run(["gh", "pr", "view", url, "--json", "state", "--jq", ".state"],
+                                     capture_output=True, text=True, timeout=30, cwd=main_root).stdout
+            except (OSError, subprocess.SubprocessError):
+                return
+            phase = {"MERGED": "merged", "CLOSED": "closed"}.get(out.strip())
+            if phase:
+                gl.Goal(main_root, gid).update(phase=phase)
+        threading.Thread(target=look, daemon=True).start()
+
+
 def read_waits(main_root, control, data):
     """What each queued task is waiting on you for: an outstanding question or
     problem from its run (its `awaiting.json`), or a parked conflict."""
@@ -1180,8 +1209,10 @@ class App(object):
         self.live = dm.live_runs(self.main_root)
         self.goals = gl.list_goals(self.main_root)
         rates = gl.repo_rates(self.main_root) if self.goals else {}
+        processes = gv.claude_processes() if any(g.get("alive") for g in self.goals) else {}
+        settle_finished_prs(self.main_root, self.goals)
         for g in self.goals:
-            g["agents_running"] = gv.running_count(g) if g.get("alive") else 0
+            g["agents_running"] = gv.running_count(g, processes=processes) if g.get("alive") else 0
             g["cost"] = gl.write_report(gl.Goal(self.main_root, g["id"]), rates, write=False)[1] \
                 or g.get("cost")
             journal = gv.read_journal(gl.Goal(self.main_root, g["id"]).journal)

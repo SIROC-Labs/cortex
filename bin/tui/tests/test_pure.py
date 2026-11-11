@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1824,6 +1825,24 @@ class TestLogLine(unittest.TestCase):
 
     def test_colour_and_cursor_codes_go_too(self):
         self.assertEqual(log_line("\x1b[32mok\x1b[39m \x1b[2Kdone")[0], "ok done")
+
+
+
+class TestSettleFinishedPRs(unittest.TestCase):
+    def test_a_finished_goal_learns_its_pr_was_closed(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        gid = tui.gl.create(root, "9", "A-9", "Old", base="main")
+        tui.gl.Goal(root, gid).update(status="done", pr_url="https://github.com/o/r/pull/5")
+        run = tui.subprocess.run
+        tui.subprocess.run = lambda *a, **k: tui.subprocess.CompletedProcess(a, 0, "CLOSED\n", "")
+        self.addCleanup(setattr, tui.subprocess, "run", run)
+        tui._PR_LOOKED.clear()
+        tui.settle_finished_prs(root, tui.gl.list_goals(root))
+        deadline = time.time() + 2
+        while tui.gl.Goal(root, gid).read().get("phase") != "closed" and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(tui.gl.Goal(root, gid).read().get("phase"), "closed")
 
 
 if __name__ == "__main__":
