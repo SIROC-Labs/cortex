@@ -79,8 +79,9 @@ This program is the harness around the lead:
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
   part (`wait`, the default); you for the goal and the reviewer for its parts (`top`); or
   the reviewer only (`auto`). A goal keeps the setting it started with.
-- **Parts, for large work.** When the work spans several areas, or more than about 25
-  criteria, the lead splits it instead of building it alone. It writes `parts.json` in the
+- **Parts, for very large work.** One lead builds most goals: its tasks already run at the
+  same time. Only work of more than about 60 criteria, in areas that can be built at the
+  same time, is split, never into a chain of parts that wait for each other. It writes `parts.json` in the
   goal's state: up to 8 parts, each with a summary for you, a short brief for the part's
   lead (what it builds, the references that cover it, what it must not touch, and where it
   meets other parts; the design inside the part is left to its lead), its criteria copied

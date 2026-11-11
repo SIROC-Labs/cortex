@@ -801,7 +801,7 @@ class TestParts(unittest.TestCase):
         gid = goal.create(d, "1", "A-1", "x", base="main")
         g = goal.Goal(d, gid)
         g.update(worktree=d, branch="A-1/goal-x", ask="# A-1")
-        self.assertIn("split it into parts", goal.Runner(d, gid).fields()["split"])
+        self.assertIn("Split only when", goal.Runner(d, gid).fields()["split"])
         self.assertIn(g.state.path("parts.json"), goal.Runner(d, gid).fields()["split"])
         pid = goal.create_part(d, g.read(), PARTS["parts"][0], 0, [])
         goal.Goal(d, pid).update(worktree=d, branch="A-1/goal-x--api")

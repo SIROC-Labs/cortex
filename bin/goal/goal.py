@@ -91,6 +91,9 @@ WIND_CHECK = 60
 HARD_MARGIN = 2
 WIND_FILE = "wind-down"
 PARALLEL_TASKS = 6
+# Tools that keep a call alive after its answer, waiting for a timer: a goal's call
+# ends with its answer, and the runner starts the next.
+NO_WAITING = "ScheduleWakeup,CronCreate,CronDelete,CronList,Monitor,RemoteTrigger"
 TASKS_FILE = "tasks.json"
 TASK_CHECK = 15
 DEP_DIRS = ("node_modules", ".venv")
@@ -133,11 +136,16 @@ PLANNING = ("This first round is the analysis: steps 1 to 4 of How to work. Do n
             "and the plan, end with the `planned` block.")
 BUILDING = ("The analysis is finished: the journal has the references, the acceptance "
             "criteria and the plan. Build the work.")
-SPLIT = """   When the work is large, split it into parts: do not build it alone. Large is
-   several areas of the product, such as separate screens, or an API and the
-   screens on it, or more than about 25 acceptance criteria. Each part is built by
-   its own lead, with its own sub-agents, journal and checker, on its own branch,
-   and merged into yours. Write the parts to `{{parts_file}}` as JSON:
+SPLIT = """   Build the work yourself, as one goal, unless it is very large. In the build you
+   do not code: you hand over tasks, and the runner runs them at the same time. So
+   an API and the screens on it, or several screens, are one goal: your plan's
+   steps and their tasks cover them. Each part costs its own lead, analysis, plan
+   review and checker. Split only when the work is more than about 60 acceptance
+   criteria AND falls into areas that can be built at the same time. Never split
+   into a chain where each part waits for the one before: that only adds cost.
+   Each part is built by its own lead, with its own tasks, journal and checker, on
+   its own branch, and merged into yours. Write the parts to `{{parts_file}}` as
+   JSON:
 
    ```json
    {"parts": [{"name": "Tasks API and data model", "after": [], "summary": "…", "brief": "…", "criteria": ["…"]}]}
@@ -1876,7 +1884,9 @@ class Runner(object):
         cmd += ["--effort", effort] if effort else []
         if label == "lead" and self.data.get("phase") == "building":
             # In the build the runner starts the agents: the lead hands it their tasks.
-            cmd += ["--disallowedTools", "Agent,Task"]
+            cmd += ["--disallowedTools", "Agent,Task," + NO_WAITING]
+        else:
+            cmd += ["--disallowedTools", NO_WAITING]
         cmd += ["--resume", session] if resume else ["--session-id", session]
         st.info("%s: calling claude%s" % (label, " (continuing)" if resume else ""))
         started = time.time()
@@ -2541,7 +2551,7 @@ class Runner(object):
         run["settings"] = settings
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
-               "--disallowedTools", "Agent,Task", "--session-id", run["session"], prompt]
+               "--disallowedTools", "Agent,Task," + NO_WAITING, "--session-id", run["session"], prompt]
         st.info("%s: %s on %s" % ("question" if explore else "task", name, short_model(model)))
         self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
                         started=run["started"], name=name)
