@@ -686,13 +686,21 @@ def pr_review_prompt(feedback):
     """What the lead hears when someone commented on the finished goal's PR."""
     return ("The goal is done and its PR is open for review. These review comments were "
             "left on it:\n\n%s\n"
-            "Address each one, as in the build: brief sub-agents to change the code, and "
-            "test by the repo's TESTING.md files. Where a comment asks a question, answer it "
-            "in your summary. Where a comment is wrong or out of scope, do not change the "
-            "code for it: say why in your summary. Record the changes in the journal, with "
-            "an acceptance criterion for each new requirement, then report done. The runner "
-            "pushes, waits for CI and checks the branch again, and posts your summary on "
-            "the PR as the reply." % feedback)
+            "Address each one, as in the build: hand over tasks for the changes. Where a "
+            "comment is wrong or out of scope, do not change the code for it. Record the "
+            "changes in the journal, with an acceptance criterion for each new requirement, "
+            "then report done. The runner checks the branch, pushes, waits for CI, and posts "
+            "your `walkthrough` on the PR as the reply. Write it for this revision only, "
+            "with these `##` sections:\n\n"
+            "- **Comments**: each comment in a few words, then what you changed for it and "
+            "what is different for users now; or the answer to its question; or why you did "
+            "not change the code for it.\n"
+            "- **Behaviour**: what else is different when this revision is live, and what it "
+            "does not touch. Leave it out when the comments cover it.\n"
+            "- **Key files**: only the files that matter in this revision, each as `path`: "
+            "one short sentence that says why it changed.\n\n"
+            "Write it in ASD-STE100. Put a one-sentence `summary` of the revision in the "
+            "result block too." % feedback)
 
 
 def answers_text(questions, answer):
@@ -2890,7 +2898,8 @@ class Runner(object):
         self.push()
         if pr_url:
             if revised:
-                comment = "%s\n\n%s" % (ADDRESSED, block.get("summary") or "")
+                comment = "%s\n\n%s" % (ADDRESSED, (block.get("walkthrough") or "").strip()
+                                          or block.get("summary") or "")
             else:
                 body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
                 st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)

@@ -1883,8 +1883,9 @@ class TestWatchPR(unittest.TestCase):
         self.assertEqual(len(posted()), 1)
         self.assertIn("the walk", posted()[0])
         self.runner.set(revising_pr=True)
-        self.runner.finish({"summary": "renamed it"})
+        self.runner.finish({"summary": "renamed it", "walkthrough": "## Comments\n- Rename: renamed it"})
         self.assertIn(goal.ADDRESSED, posted()[1])
+        self.assertIn("## Comments\n- Rename: renamed it", posted()[1])
         self.assertEqual(len(posted()), 2)
 
     def test_a_walkthrough_already_on_the_pr_is_not_posted_again(self):
