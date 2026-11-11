@@ -129,7 +129,7 @@ MAX_DEPTH = 1
 PARALLEL_PARTS = 2
 PARTS_CHECK = 30
 # How often a finished goal looks at its PR: for review comments, and the merge.
-PR_CHECK = 300
+PR_CHECK = 60
 MAX_PARTS = 8
 PLANNING = ("This first round is the analysis: steps 1 to 4 of How to work. Do not "
             "change code yet. When the journal has the references, the acceptance criteria "

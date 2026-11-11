@@ -30,7 +30,7 @@ import start_task as st  # noqa: E402
 TICK = 15
 REFRESH_EVERY = 300
 PR_POLL_START = 60
-PR_POLL_CAP = 600
+PR_POLL_CAP = 60
 # A parked conflict is waiting on a person to type a comment, so it is looked at
 # often rather than backed off.
 CONFLICT_POLL = 60

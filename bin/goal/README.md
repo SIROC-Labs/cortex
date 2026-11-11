@@ -175,7 +175,7 @@ This program is the harness around the lead:
   criteria, which their own checkers checked: it covers the goal's own criteria, how the
   parts meet, and the integration since the parts were merged. A branch rewritten since
   the last check is checked whole.
-- **After the finish.** The runner stays, and watches the PR every five minutes until it
+- **After the finish.** The runner stays, and watches the PR every minute until it
   is merged or closed: "ready to merge" on the TUI. Each new review comment on it (a
   review, an inline comment, or a top-level comment, but not the runner's own) starts a
   revision: the lead, in a new session, has sub-agents address it, then the runner checks
