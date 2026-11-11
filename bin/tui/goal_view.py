@@ -471,7 +471,7 @@ def stage_line(goal):
 
 def bar(done, total, width=20):
     filled = int(round(width * done / total)) if total else 0
-    return "█" * filled + "·" * (width - filled)
+    return "●" * filled + "·" * (width - filled)
 
 
 def journal_tail(path, n=12):
