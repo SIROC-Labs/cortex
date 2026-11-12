@@ -35,6 +35,7 @@ import os
 import re
 import shlex
 import signal
+import tempfile
 import subprocess
 import sys
 import time
@@ -1529,8 +1530,9 @@ def goal_and_parts(main_root, gid):
     return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
 
 
-# Tools a discussion may not use: it reads, and changes nothing.
-DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
+# Tools a discussion may not use: it changes nothing but scratch files in a temp
+# folder, which a hook holds it to.
+DISCUSS_DENY = ["AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
                 "mcp__claude_ai_Asana__create_tasks", "mcp__claude_ai_Asana__update_tasks",
                 "mcp__claude_ai_Asana__delete_task", "mcp__claude_ai_Asana__create_project",
                 "mcp__claude_ai_Asana__update_project",
@@ -1540,7 +1542,8 @@ DISCUSS_DENY = ["Edit", "Write", "NotebookEdit", "AskUserQuestion", "mcp__claude
 
 DISCUSS = """You help the person who runs a cortex goal talk it through. A cortex goal
 is an autonomous run that implements an Asana ticket. Other agents analyse it, plan
-it, review the plan and build it. You change nothing.
+it, review the plan and build it. You change nothing in the repository, the goal's
+files or Asana.
 
 How you talk:
 
@@ -1565,8 +1568,11 @@ Read a part's journal, technical plan or log when the talk needs it, not before.
 
 The goal's branch is checked out in `%s`. Read its code as you need.
 
-Do not change any file. Do not run commands that write, such as `git commit`,
-`git checkout`, `git stash`, or any write to Asana. Do not answer the goal's
+You may write scratch files in the temp folder `%s` and run them: a script that
+reads the code or the logs, a draft, a diagram, a comparison. Do it when the person
+asks for it, or when it answers their question better than reading does. Change no
+other file. Do not run commands that write elsewhere, such as `git commit`,
+`git checkout`, `git stash`, or any write to Asana; a hook refuses them. Do not answer the goal's
 questions or approve its plan. When the talk changes an answer, tell the person
 to give it on the question's subtask in Asana, or on the TUI.
 
@@ -1639,7 +1645,7 @@ def pick_goal(main_root, ask=input, say=print):
 
 
 def discuss_command(main_root, gid):
-    """The argv and the folder of a read-only Claude session about a goal and its
+    """The argv and the folder of a Claude session about a goal and its
     parts, for the person to talk it through. The goal's files are in its prompt,
     so it starts knowing them. It opens by saying what it has loaded, so the person
     sees it, and then waits for them."""
@@ -1653,10 +1659,19 @@ def discuss_command(main_root, gid):
         tree = g.read().get("worktree")
         if g is not top and tree and os.path.isdir(tree):
             dirs.append(tree)
-    argv = ["claude", "--permission-mode", "plan"]
-    for d in dirs:
+    scratch = os.path.join(os.path.realpath(tempfile.gettempdir()), "cortex-discuss-%s" % gid)
+    os.makedirs(scratch, exist_ok=True)
+    # Edits are accepted without a prompt, and the hook refuses any outside the temp
+    # folders. A shell command still asks the person first.
+    argv = ["claude", "--permission-mode", "acceptEdits"]
+    for d in dirs + [scratch]:
         argv += ["--add-dir", d]
-    argv += ["--append-system-prompt", DISCUSS % (cwd, discuss_files([top] + goals[:-1])), DISCUSS_OPEN]
+    guard = " ".join(shlex.quote(a) for a in (sys.executable, HOOK, "discuss"))
+    argv += ["--settings", json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+         "hooks": [{"type": "command", "command": guard}]}]}})]
+    argv += ["--append-system-prompt", DISCUSS % (cwd, scratch, discuss_files([top] + goals[:-1])),
+             DISCUSS_OPEN]
     argv += ["--disallowedTools"] + DISCUSS_DENY
     return argv, cwd
 
@@ -3361,7 +3376,7 @@ def main(argv):
                                        "state and the subtasks it made")
     back.add_argument("id")
     back.add_argument("--repo", default=".")
-    talk = sub.add_parser("discuss", help="talk a goal through with Claude, which changes nothing")
+    talk = sub.add_parser("discuss", help="talk a goal through with Claude, which writes only in a temp folder")
     talk.add_argument("id", nargs="?", help="the goal; without it, pick one from a list")
     talk.add_argument("--repo", default=".")
     args = parser.parse_args(argv)

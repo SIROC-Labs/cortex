@@ -8,6 +8,8 @@
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
 #   hook.py task            # refuses a coding task a whole-project check or an install
 #   hook.py readonly <dir>  # refuses any change to the code in <dir>: an explorer
+#   hook.py discuss         # refuses a goal's discussion any change outside the temp
+#                           # folders: it writes and runs scratch files there only
 #   hook.py delegate <dir>  # refuses the lead, not its sub-agents, a change to the
 #                           # code in <dir>, or reading it: in the build, sub-agents
 #                           # write it and explorers read it
@@ -19,6 +21,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 BLOCKED = (
     re.compile(r"\bgit\b(?:\s+-[cC]\s+\S+)*\s+push\b"),
@@ -81,6 +84,49 @@ WAIT = ("Refused: do not wait for a sub-agent with sleep or a loop. Its report r
         "the reports\". You continue when the next report arrives.")
 SLEEP = re.compile(r"(?:^|[;&|(`\s])sleep\s")
 CORTEX = re.compile(r"(?:^|[;&|(`\s])cortex(?:\s|$)")
+
+
+DISCUSS = ("Refused: in a discussion you change nothing in the repository, the goal's files "
+           "or Asana. You may write and run scratch files in a temp folder: %s.")
+# Shell commands that change files or the repository, beyond WRITES.
+CHANGES = re.compile(r"(?:^|[;&|(`]\s*)(?:rm|mv|cp|mkdir|touch|ln|rmdir|chmod|install|npm|npx|pnpm|yarn|uv|pip)\b|"
+                     r"\bgit\s+(?:-C\s+\S+\s+)?(?:commit|checkout|switch|stash|reset|merge|rebase|"
+                     r"cherry-pick|revert|push|pull|am|apply|clean|rm|mv|add|restore|tag|branch|worktree|"
+                     r"fetch|init|clone)\b")
+
+
+def temp_roots():
+    roots = {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}
+    if os.environ.get("TMPDIR"):
+        roots.add(os.path.realpath(os.environ["TMPDIR"]))
+    return sorted(roots)
+
+
+def in_temp(path):
+    return any(inside(path, r) for r in temp_roots())
+
+
+def only_temp(command):
+    """Whether every path a shell command names is in a temp folder."""
+    paths = re.findall(r"(?<![\w.-])(/[^\s'\"|;&()<>]+)", command)
+    words = [w for w in re.split(r"[\s|;&()<>]+", command) if w and not w.startswith("-")]
+    relative = [w for w in words if not w.startswith(("/", "$", "~")) and (
+        "/" in w or os.path.exists(w))]
+    return bool(paths) and not relative and all(in_temp(p) for p in paths)
+
+
+def discussed(call):
+    """Whether a discussion's tool call changes something outside the temp folders."""
+    tool, tool_input = call.get("tool_name"), call.get("tool_input") or {}
+    if tool in EDITS:
+        return not in_temp(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+    if tool == "Bash":
+        raw = tool_input.get("command") or ""
+        command = re.sub(r"'[^']*'|\"[^\"]*\"", "''", raw)
+        if any(p.search(command) for p in WRITES[1:]) or CHANGES.search(command) or re.search(
+                r"(?<![0-9&<>])>{1,2}(?!&)\s*(?!/dev/null\b)[^\s|;&]", command):
+            return not only_temp(raw)
+    return False
 
 
 def blocked(command):
@@ -158,6 +204,9 @@ def main(argv):
     if argv[:1] == ["task"] and call.get("tool_name") == "Bash" and WHOLE.search(
             re.sub(r"'[^']*'|\"[^\"]*\"", "''", tool_input.get("command") or "")):
         sys.stderr.write(TASK_CHECKS + "\n")
+        return 2
+    if argv[:1] == ["discuss"] and discussed(call):
+        sys.stderr.write(DISCUSS % ", ".join("`%s`" % r for r in temp_roots()) + "\n")
         return 2
     if argv[:1] == ["readonly"] and len(argv) > 1 and delegated(call, argv[1]) == DELEGATE:
         sys.stderr.write(READONLY + "\n")

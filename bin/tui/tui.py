@@ -981,7 +981,7 @@ HELP = [
                        "on Boards also before it is queued (◇)"),
         ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
         ("discuss", "Discuss the goal X — talk it through with Claude, which reads its "
-                    "journal and code and changes nothing; a new tab in Ghostty"),
+                    "journal and code, and writes only scratch files in a temp folder; a new tab in Ghostty"),
         ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
         ("clear", "Clear the finished tasks from the list · Clear the done goals, shown or not"),
         ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
@@ -2532,10 +2532,10 @@ def run_ui(main_root, forward):
             if app.discuss_request:
                 gid, app.discuss_request = app.discuss_request, None
                 if discuss_in_tab(main_root, gid):
-                    app.message = "the discussion is in a new tab — it changes nothing"
+                    app.message = "the discussion is in a new tab — it writes only in a temp folder"
                 else:
                     discuss(scr, main_root, gid)
-                    app.message = "back from the discussion — it changed nothing"
+                    app.message = "back from the discussion"
     curses.wrapper(loop)
 
 
@@ -2577,7 +2577,7 @@ def discuss_in_tab(main_root, gid):
 
 
 def discuss(scr, main_root, gid):
-    """Leave the screen to a read-only Claude session about the goal, the way
+    """Leave the screen to a Claude session about the goal, the way
     $EDITOR is opened, and come back when it ends."""
     argv, cwd = gl.discuss_command(main_root, gid)
     curses.def_prog_mode()

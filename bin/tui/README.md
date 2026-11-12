@@ -105,7 +105,7 @@ branch, PR and ticket stay as they are.
 *Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
 worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
 Claude session in its worktree that has read its journal, its open questions and its log,
-and says so in a few lines when it opens, to talk it through: plan mode, no file edits and no Asana writes, so it changes nothing.
+and says so in a few lines when it opens, to talk it through: it may write and run scratch files (scripts, drafts, diagrams) in a temp folder, and a hook refuses any other change: no repository files, no git writes, no Asana writes. Edits are accepted without asking; shell commands still ask you.
 In Ghostty on macOS it opens in a new tab; in another terminal it takes the TUI's screen,
 and the TUI comes back when you leave it.
 Closing the TUI leaves a goal running.

@@ -1160,6 +1160,22 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(bash("sleep 30"), 0)
         self.assertEqual(bash("git log --oneline", "lead"), 0)
 
+        tmp = os.path.realpath(tempfile.gettempdir())
+
+        def discuss(tool, **tool_input):
+            sys.stdin = io.StringIO(json.dumps({"tool_name": tool, "tool_input": tool_input}))
+            with contextlib.redirect_stderr(io.StringIO()):
+                return hook.main(["discuss"])
+        self.assertEqual(discuss("Write", file_path=tmp + "/cortex-discuss-g/a.py", content="x"), 0)
+        self.assertEqual(discuss("Write", file_path="/tmp/a.md", content="x"), 0)
+        self.assertEqual(discuss("Edit", file_path=wt + "/apps/a.ts"), 2)
+        for command in ("python3 %s/cortex-discuss-g/a.py > %s/out.txt" % (tmp, tmp),
+                        "mkdir -p /tmp/x", "git log --oneline", "rg -n x apps", "cat apps/a.ts | head"):
+            self.assertEqual(discuss("Bash", command=command), 0, command)
+        for command in ("echo x > apps/a.ts", "git commit -qm x", "git checkout -b y", "rm -rf apps",
+                        "sed -i '' s/a/b/ apps/a.ts", "npm install", "cp /tmp/a.ts apps/a.ts"):
+            self.assertEqual(discuss("Bash", command=command), 2, command)
+
         def task(command):
             sys.stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}))
             with contextlib.redirect_stderr(io.StringIO()):
@@ -1853,11 +1869,14 @@ class TestDiscuss(unittest.TestCase):
             f.write("# the part's own")
         argv, cwd = goal.discuss_command(d, gid)
         self.assertEqual(cwd, tree)
-        self.assertEqual(argv[:3], ["claude", "--permission-mode", "plan"])
+        self.assertEqual(argv[:3], ["claude", "--permission-mode", "acceptEdits"])
+        self.assertIn("hook.py discuss", argv[argv.index("--settings") + 1])
         self.assertIn(g.state.dir, argv)
         self.assertIn(goal.Goal(d, pid).state.dir, argv)
-        for tool in ("Edit", "Write", "AskUserQuestion", "mcp__claude_ai_Asana__update_tasks"):
+        for tool in ("AskUserQuestion", "mcp__claude_ai_Asana__update_tasks"):
             self.assertIn(tool, argv[argv.index("--disallowedTools"):])
+        for tool in ("Edit", "Write"):
+            self.assertNotIn(tool, argv[argv.index("--disallowedTools"):])
         prompt = argv[argv.index("--append-system-prompt") + 1]
         self.assertIn("# x", prompt)
         self.assertIn(g.state.path("journal.md"), prompt)
