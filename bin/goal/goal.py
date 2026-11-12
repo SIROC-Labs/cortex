@@ -1340,6 +1340,8 @@ class Goal(object):
         with open(self.state.path(GOAL_LOCK), "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             data = self.read()
+            if data.get("marked_done"):
+                fields = {k: v for k, v in fields.items() if k not in ("status", "phase", "doing")}
             data.update(fields)
             data["updated"] = time.time()
             self.state.write(GOAL_FILE, data)
@@ -1486,6 +1488,29 @@ def list_goals(main_root):
         ordered += sorted((g for g in out if g.get("parent") == top["id"]),
                           key=lambda g: g.get("part_index") or 0)
     return ordered
+
+
+MARKED = "marked"
+
+
+def mark_done(main_root, gid):
+    """You mark a goal done by hand: it and its unfinished parts are stopped and
+    stay done, whatever their runners write as they end. Its branch, PR and
+    ticket stay as they are."""
+    for one in goal_and_parts(main_root, gid):
+        data = one.read()
+        if not data or (data.get("parent") and data.get("status") == "done"):
+            continue
+        one.update(status="done", phase=MARKED, doing="marked done by you", marked_done=True)
+        pid = data.get("pid")
+        if pid and st._pid_alive(pid):
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except OSError:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
 
 
 def goal_and_parts(main_root, gid):
@@ -3000,7 +3025,7 @@ class Runner(object):
         if self.data.get("parent") or not self.data.get("pr_url"):
             return False
         return self.data.get("phase") == "review" or (
-            self.data.get("status") == "done" and self.data.get("phase") not in ("merged", "closed"))
+            self.data.get("status") == "done" and self.data.get("phase") not in ("merged", "closed", MARKED))
 
     def watch_pr(self):
         """After the finish, until the PR is merged or closed: each new review comment

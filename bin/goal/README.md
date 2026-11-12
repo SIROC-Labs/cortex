@@ -182,7 +182,8 @@ This program is the harness around the lead:
   it, pushes, waits for CI, and replies on the PR with the lead's summary. Only the merge
   makes the goal done; a goal whose PR was closed says so. A goal that finished before
   goals watched their PR says "r watches it": r starts the watch. Comments left before
-  the finish are not taken as review comments.
+  the finish are not taken as review comments. `d` on the TUI marks a goal done by hand, at any
+  time: the runner stops and nothing it writes as it ends undoes the mark.
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
   (`CLAUDE_CODE_SUBAGENT_MODEL`, and a hook gives it to each one started without a model,
   since built-in types such as Explore otherwise take the lead's model), as most of them do narrow, well-briefed work;

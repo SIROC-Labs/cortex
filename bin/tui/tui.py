@@ -382,7 +382,7 @@ def settle_finished_prs(main_root, goals, now=None):
     now = now or time.time()
     for g in goals:
         if (g.get("status") != "done" or g.get("parent") or not g.get("pr_url") or g.get("alive")
-                or g.get("phase") in ("merged", "closed")
+                or g.get("phase") in ("merged", "closed", gl.MARKED)
                 or now - _PR_LOOKED.get(g["id"], 0) < PR_LOOK_EVERY):
             continue
         _PR_LOOKED[g["id"]] = now
@@ -545,6 +545,8 @@ def goal_status(g, wait=None):
         return "setting up its branch%s" % ("" if g.get("parent") else " and PR"), "ok"
     if status == "paused":
         return g.get("doing") or "paused for the usage limit", "normal"
+    if status == "done" and g.get("phase") == gl.MARKED:
+        return "marked done by you", "dim"
     if status == "done" and g.get("parent"):
         return "done — merged into the goal's branch", "dim"
     if status == "review":
@@ -573,7 +575,7 @@ def goal_rows(goals, waits=None, hide_done=False):
         gid = "goal:%s" % g["id"]
         wait = waits.get(gid)
         done = g.get("status") == "done" and (bool(g.get("parent")) or not g.get("pr_url")
-                                              or g.get("phase") in ("merged", "closed"))
+                                              or g.get("phase") in ("merged", "closed", gl.MARKED))
         if hide_done and done and not wait:
             continue
         status, style = goal_status(g, wait)
@@ -950,6 +952,7 @@ HELP = [
               "on a held-back task, drop the checkpoint holding it"),
         ("x r o u", "on a goal: stop it (finished: remove it) · carry it on · open its PR · "
                     "what each agent took: time, tokens, cost"),
+        ("d", "on a goal: mark it done by hand — it stops, and stops watching its PR"),
     ]),
     ("Boards", [
         ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
@@ -1595,7 +1598,7 @@ class App(object):
 
     def goal_key(self, key, row):
         """x stops a running goal, or takes a finished one off the list; r starts a
-        stopped one again where it left off; o opens its PR."""
+        stopped one again where it left off; o opens its PR; d marks it done by hand."""
         goal = gl.Goal(self.main_root, row["goal"])
         pid = goal.read().get("pid")
         if key == "x" and row.get("alive") and pid:
@@ -1621,6 +1624,17 @@ class App(object):
             webbrowser.open(row["pr_url"])
         elif key == "o":
             self.message = "no PR yet"
+        elif key == "d" and row.get("done"):
+            self.message = "the goal is done"
+        elif key == "d" and goal.read().get("parent"):
+            self.message = "a part is done when it is merged — mark its goal done instead"
+        elif key == "d":
+            def mark():
+                gl.mark_done(self.main_root, row["goal"])
+                self.message = "marked done — x takes it off the list"
+                self.snapshot()
+            self.ask("mark the goal \"%s\" done?%s Its branch, PR and ticket stay as they are (y/n)"
+                     % (row["cols"][1], " It and its parts stop." if row.get("alive") else ""), mark)
         elif key == "u" and gl.write_report(goal, gl.repo_rates(self.main_root))[0]:
             self.log_path, self.log_scroll = goal.state.path(gl.REPORT_FILE), 0
         elif key == "u":
@@ -1878,7 +1892,7 @@ class App(object):
         if name == "Runs" and row:
             if key in ("a", "A") and row["kind"] in ("task", "goal"):
                 self.start_answer(row, editor=key == "A")
-            elif row["kind"] == "goal" and key in ("x", "r", "o", "u"):
+            elif row["kind"] == "goal" and key in ("x", "r", "o", "u", "d"):
                 self.goal_key(key, row)
             elif key == "m" and row["kind"] == "task":
                 self.merge(row)
@@ -2209,7 +2223,7 @@ class App(object):
             return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
         return {
             "Runs": ("c continue past the checkpoint · " if gate_state(self.control, self.data)[2] else "")
-                    + "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR",
+                    + "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR · d goal done",
             "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"

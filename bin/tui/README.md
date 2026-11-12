@@ -100,6 +100,8 @@ on each question's subtask. When its plan is ready, the row says so and nothing 
 until you approve it: `c` approves it, `a` says what to change, or complete *Review the
 plan* in Asana. `x` stops a running goal and
 `r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
+`d` marks a goal done by hand: it and its parts stop, and it no longer watches its PR. Its
+branch, PR and ticket stay as they are.
 *Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
 worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
 Claude session in its worktree that has read its journal, its open questions and its log,

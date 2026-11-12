@@ -1780,6 +1780,36 @@ class TestGoalStatus(unittest.TestCase):
         self.assertTrue(text.startswith("⚑"))
 
 
+class TestMarkGoalDone(unittest.TestCase):
+    def test_a_goal_marked_done_stays_done_and_leaves_a_hidden_list(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        tui.gl.Goal(d, gid).update(status="done", phase="review", pr_url="https://github.com/o/r/pull/1")
+        tui.gl.mark_done(d, gid)
+        tui.gl.Goal(d, gid).update(status="stopped", reason="stopped", doing="stopped")
+        [g] = tui.gl.list_goals(d)
+        self.assertEqual((g["status"], g["phase"], g["reason"]), ("done", tui.gl.MARKED, "stopped"))
+        self.assertEqual(tui.goal_status(g), ("marked done by you", "dim"))
+        [row] = tui.goal_rows([g])
+        self.assertTrue(row["done"])
+        self.assertEqual(tui.goal_rows([g], hide_done=True), [])
+
+    def test_a_part_already_merged_keeps_its_status(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        tui.gl.Goal(d, gid).update(status="parts", branch="A-1/goal-x", worktree=d)
+        brief = {"brief": "b", "criteria": [], "after": []}
+        done = tui.gl.create_part(d, tui.gl.Goal(d, gid).read(), dict(brief, name="API"), 0, [])
+        live = tui.gl.create_part(d, tui.gl.Goal(d, gid).read(), dict(brief, name="UI"), 1, [])
+        tui.gl.Goal(d, done).update(status="done", phase="merged")
+        tui.gl.mark_done(d, gid)
+        self.assertEqual(tui.gl.Goal(d, done).read()["phase"], "merged")
+        self.assertEqual(tui.gl.Goal(d, live).read()["phase"], tui.gl.MARKED)
+        self.assertEqual(tui.gl.Goal(d, gid).read()["status"], "done")
+
+
 class TestClearGoals(unittest.TestCase):
     def test_done_goals_and_their_parts_leave_the_list(self):
         d = os.path.realpath(tempfile.mkdtemp())
