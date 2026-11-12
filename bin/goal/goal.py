@@ -3075,12 +3075,22 @@ class Runner(object):
             time.sleep(PR_CHECK)
 
     def pr_state(self, pr_url):
-        code, out, _ = st.run(["gh", "pr", "view", pr_url, "--json", "state"],
-                              cwd=self.main_root, check=False)
+        code, out, err = st.run(["gh", "pr", "view", pr_url, "--json", "state"],
+                                cwd=self.main_root, check=False)
+        if code != 0:
+            self.pr_unreadable(err or out)
         try:
             return json.loads(out).get("state") if code == 0 else None
         except ValueError:
             return None
+
+    def pr_unreadable(self, err):
+        """GitHub refused a read of the PR: in the log once per new error, and on the
+        TUI, so a watch that cannot see comments does not look like one with none."""
+        line = ((err or "").strip().splitlines() or ["no output"])[-1][:200]
+        if self.data.get("pr_error") != line:
+            st.warn("cannot read the PR on GitHub: %s" % line)
+            self.set(pr_error=line)
 
     def pr_feedback(self, owner, name, number):
         """The PR's review comments since the goal finished, not handled yet."""
@@ -3088,9 +3098,10 @@ class Runner(object):
         lists = []
         for path in ("%s/pulls/%s/reviews" % (base, number), "%s/pulls/%s/comments" % (base, number),
                      "%s/issues/%s/comments" % (base, number)):
-            code, out, _ = st.run(["gh", "api", "--paginate", path, "--jq", ".[]"],
-                                  cwd=self.main_root, check=False)
+            code, out, err = st.run(["gh", "api", "--paginate", path, "--jq", ".[]"],
+                                    cwd=self.main_root, check=False)
             if code != 0:
+                self.pr_unreadable(err or out)
                 return []
             rows = []
             for line in out.splitlines():
@@ -3100,6 +3111,9 @@ class Runner(object):
                     continue
             lists.append([r for r in rows if after(r.get("submitted_at") or r.get("created_at"),
                                                    self.data.get("watch_from") or 0)])
+        if self.data.get("pr_error"):
+            st.info("the PR can be read again")
+            self.set(pr_error=None)
         return collect_feedback(lists[0], lists[1], lists[2], self.data.get("pr_handled"))
 
     # the loop

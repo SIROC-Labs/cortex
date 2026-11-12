@@ -1919,6 +1919,21 @@ class TestWatchPR(unittest.TestCase):
         self.assertFalse(self.runner.watching())
         self.assertEqual(len([c for c in self.calls if c[0] == sys.executable]), 2)
 
+    def test_a_pr_github_refuses_shows_as_an_error_and_clears_once_read(self):
+        fake = goal.st.run
+        failing = [True]
+
+        def refusing(cmd, cwd=None, check=True):
+            if failing[0] and cmd[:2] == ["gh", "api"]:
+                return 1, "", "HTTP 401: Bad credentials (https://api.github.com/graphql)"
+            return fake(cmd, cwd, check)
+        goal.st.run = refusing
+        self.assertEqual(self.runner.pr_feedback("o", "r", "5"), [])
+        self.assertIn("Bad credentials", self.runner.data["pr_error"])
+        failing[0] = False
+        self.assertTrue(self.runner.pr_feedback("o", "r", "5"))
+        self.assertIsNone(self.runner.data["pr_error"])
+
     def test_a_done_goal_started_again_only_watches_its_pr(self):
         tree = os.path.join(self.d, "tree")
         os.makedirs(tree)

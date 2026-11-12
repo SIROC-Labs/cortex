@@ -549,6 +549,9 @@ def goal_status(g, wait=None):
         return "marked done by you", "dim"
     if status == "done" and g.get("parent"):
         return "done — merged into the goal's branch", "dim"
+    if status == "review" and g.get("pr_error"):
+        return "cannot read its PR on GitHub, so it sees no comments: %s · x then r restarts it" % (
+            g["pr_error"][:100]), "bad"
     if status == "review":
         return "%s%s" % (gl.REVIEW_DOING, use), "ok"
     if status == "done" and g.get("phase") == "merged":

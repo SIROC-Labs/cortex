@@ -1780,6 +1780,14 @@ class TestGoalStatus(unittest.TestCase):
         self.assertTrue(text.startswith("⚑"))
 
 
+class TestGoalPRError(unittest.TestCase):
+    def test_a_goal_that_cannot_read_its_pr_says_so(self):
+        text, style = tui.goal_status({"status": "review", "alive": True,
+                                       "pr_error": "HTTP 401: Bad credentials"})
+        self.assertIn("cannot read its PR", text)
+        self.assertEqual(style, "bad")
+
+
 class TestMarkGoalDone(unittest.TestCase):
     def test_a_goal_marked_done_stays_done_and_leaves_a_hidden_list(self):
         d = os.path.realpath(tempfile.mkdtemp())
