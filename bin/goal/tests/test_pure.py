@@ -556,6 +556,12 @@ if "You answer one question" in prompt:
     block = {"status": "done", "answer": "it is in app/a.ts"}
 else:
     name = prompt.split("WRITE:")[1].split()[0]
+    if os.environ.get("TASK_LOG"):
+        with open(os.environ["TASK_LOG"], "a") as f:
+            f.write("start %s\\n" % name)
+    if "SLOW" in prompt:
+        import time
+        time.sleep(3)
     with open(name, "w") as f:
         f.write(os.getcwd() + "\\n")
     assert os.path.islink("app/node_modules")
@@ -588,6 +594,28 @@ print(json.dumps({"type": "result", "subtype": "success", "result": "```json\\n"
         prompt = goal.dispatched_prompt(reports)
         self.assertIn("### One (coding task): done", prompt)
         self.assertIn("- Answer: it is in app/a.ts", prompt)
+
+    def test_a_free_slot_starts_the_next_task_without_waiting_for_the_slowest(self):
+        log = os.path.join(self.dir, "tasks.log")
+        self.addCleanup(os.environ.pop, "TASK_LOG", None)
+        os.environ["TASK_LOG"] = log
+        parallel, goal.PARALLEL_TASKS = goal.PARALLEL_TASKS, 2
+        self.addCleanup(setattr, goal, "PARALLEL_TASKS", parallel)
+        slow_done = []
+        end = self.runner.end_task
+
+        def ended(run):
+            if run["name"] == "Slow":
+                with open(log) as f:
+                    slow_done.append(f.read())
+            return end(run)
+        self.runner.end_task = ended
+        reports = self.runner.run_tasks([
+            {"name": "Slow", "kind": "code", "brief": "WRITE: slow.txt SLOW"},
+            {"name": "Quick", "kind": "code", "brief": "WRITE: quick.txt"},
+            {"name": "Next", "kind": "code", "brief": "WRITE: next.txt"}])
+        self.assertEqual([r["merge"] for r in reports], ["merged"] * 3)
+        self.assertIn("start next.txt", slow_done[0])
 
     def test_a_task_that_conflicts_keeps_its_branch_for_the_lead(self):
         reports = self.runner.run_tasks([

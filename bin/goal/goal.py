@@ -2609,10 +2609,22 @@ class Runner(object):
              "status": "waiting"} for n, t in enumerate(tasks)]})
         todo = list(enumerate(tasks))
         while todo:
-            batch, todo = todo[:PARALLEL_TASKS], todo[PARALLEL_TASKS:]
             self.wait_for_usage()
-            running = [self.start_task(n, task) for n, task in batch]
-            for run in self.wait_tasks(running):
+            first, todo[:] = todo[:PARALLEL_TASKS], todo[PARALLEL_TASKS:]
+            held = []
+
+            def refill(ended):
+                # A slot is free as soon as one task ends: the next task starts then,
+                # from the branch with that task merged. Near the usage limit, none
+                # starts until the limit resets.
+                if ended.get("cut") or (todo and not held and over_threshold(
+                        self.usage(), self.threshold())):
+                    held.append(True)
+                if held or not todo:
+                    return []
+                return [self.start_task(*todo.pop(0))]
+            running = [self.start_task(n, task) for n, task in first]
+            for run in self.wait_tasks(running, refill):
                 results[run["n"]] = self.end_task(run)
         return results
 
@@ -2658,17 +2670,20 @@ class Runner(object):
         self.children.append(run["child"])
         return run
 
-    def wait_tasks(self, running):
-        """Each task as it ends. Over the usage limit, every task still running is
-        stopped: its report says so, and the lead starts it again later."""
+    def wait_tasks(self, running, refill=None):
+        """Each task as it ends; after each, `refill(run)` may start more, which are
+        waited for too. Over the usage limit, every task still running is stopped:
+        its report says so, and the lead starts it again later."""
         import threading
         outs = {}
 
         def drain(run):
             outs[run["n"]] = run["child"].communicate()
-        threads = [threading.Thread(target=drain, args=(run,), daemon=True) for run in running]
-        for t in threads:
-            t.start()
+
+        def watch(run):
+            threading.Thread(target=drain, args=(run,), daemon=True).start()
+        for run in running:
+            watch(run)
         left, checked = list(running), time.time()
         while left:
             for run in list(left):
@@ -2676,6 +2691,9 @@ class Runner(object):
                     run["out"], run["err"] = outs[run["n"]]
                     left.remove(run)
                     yield run
+                    for new in (refill(run) if refill else []):
+                        watch(new)
+                        left.append(new)
             if not left:
                 break
             if time.time() - checked >= USAGE_CHECK:
