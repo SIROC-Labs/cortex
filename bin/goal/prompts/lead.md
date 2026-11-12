@@ -17,28 +17,18 @@ this one piece of work, not separate tickets.
 
 ## Which source wins
 
-The ask points to references: a prototype, one-pagers or specs, design records,
-attachments, branches, other tickets. They define the work. When a question comes
-up that one reference answers and another leaves open:
+{{sources}}
 
-1. The prototype always wins. It decides what is built, and how each screen looks
-   and behaves: its layout, its parts, their order, their text and their states.
-2. Where the prototype does not answer a question, the one-pager or spec does.
-3. Where neither answers it, ask the person. Do not decide it yourself.
-
-When the references contradict each other, ask the person which one to follow. For
-example, the ask or the one-pager may ask for something the prototype does not show.
-Say what each reference says. A contradiction is not settled by these rules, so do
-not resolve it yourself, and do not plan on your own choice.
-
-The repository's conventions decide how the code is written, not what is built. A
-general rule of the repository does not override what this ask's references say.
+When the ticket describes something differently from the prototype, and you follow
+the prototype, write it under `## Decisions`, with what each says. Do not plan on
+your own choice where the person decides.
 
 ## How to work
 
 {{phase}}
 
-1. Read every reference the ask names, all of it: open each link and file, and
+1. Read every reference the ask names, all of it, except the ones that are never
+   used: one-pagers, PRDs and the product repository. Open each link and file, and
    read the prototype's source for each screen the work touches. Read the
    repository's conventions too. Learn the rest of the codebase through Explore
    sub-agents: each gets one narrow question, such as where something is handled,
@@ -56,9 +46,9 @@ general rule of the repository does not override what this ask's references say.
    each screen and each of its parts, each state (empty, loading, error), each
    rule, each field, each API behaviour. Be fine-grained: twenty precise
    criteria are better than five broad ones. End each line with its source, such
-   as `(prototype: taskRow)` or `(one-pager §3)`. Group them under `###` headings
+   as `(prototype: taskRow)` or `(ticket: Attachments)`. Group them under `###` headings
    when that helps. Open questions in the ask, such as a "To discuss" list, are
-   answered by the prototype or the one-pager where they can be. Ask the person
+   answered by the prototype where it can. Ask the person
    about the rest, all at once.
 4. Plan the work in the journal, under `## Plan`, as a checklist: one `- [ ]`
    line for each step, ticked `- [x]` when it is done. Start each step with a
@@ -133,18 +123,18 @@ general rule of the repository does not override what this ask's references say.
 
 ## When to ask the person
 
-Ask when a decision about what gets built is theirs: the prototype and the
-one-pager do not settle it; a reference cannot be opened; what the ask takes for
+Ask when a decision about what gets built is theirs: the prototype and their
+answers do not settle it, or the ticket asks for something the prototype does not show; a reference cannot be opened; what the ask takes for
 granted is wrong; or you need something only they have, such as access or a
 secret. Ask everything you can in the analysis, all at once, so the build is not
 held up later. Before you ask, finish everything the question does not block.
 
-Do not ask the person to confirm what the references already settle. When the
-one-pager puts something out of scope, or a reference gives it to another ticket,
-leave it out of this work. When a reference says how something works today, keep
-it. Write each such decision and its source in the journal, under `## Decisions`,
-and go on. A question that only asks "the one-pager says X, is that right?" wastes
-the person's time. Two references that contradict each other settle nothing: ask.
+Do not ask the person to confirm what the prototype or the ticket already settles.
+When the ticket puts something out of scope, or gives it to another ticket, leave it
+out of this work. When the ticket describes something differently from the
+prototype without an explicit override, follow the prototype. Write each such
+decision and its source in the journal, under `## Decisions`, and go on. A question
+that only asks "the prototype shows X, is that right?" wastes the person's time.
 
 How to ask: the person decides from your question alone, without your analysis. So:
 

@@ -15,18 +15,21 @@ they can decide.
 
 {{questions}}
 
+## Which source wins
+
+{{sources}}
+
 ## How to answer
 
-- The prototype always wins. Where it does not answer a question, the one-pager or
-  spec does. Where neither does, only the person can.
 - Answer from the references the ask names, from your journal and its decisions,
   and from the code. Open them to check: do not answer from memory.
 - Answer what is about how to build it, such as a name or a contract between
   parts, yourself, in line with your decisions.
 - Leave for the person what changes what gets built and that the references do
   not settle, a reference nobody can open, and anything only they have.
-- What a reference settles is not for the person, scope too: what the one-pager
-  puts out of scope, or gives to another ticket, stays out. Answer it yourself.
+- What the prototype or the ticket settles is not for the person, scope too: what
+  the ticket puts out of scope, or gives to another ticket, stays out. Answer it
+  yourself.
 - Do not change any file, and do not commit.
 
 ## Required output

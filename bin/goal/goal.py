@@ -292,6 +292,9 @@ def title_of(goal, width=70):
     return line if len(line) <= width else line[:width - 1].rstrip() + "…"
 
 
+ONE_PAGER = re.compile(r"one[-_ ]?pager|\bprd\b|product[-_ ]requirements", re.I)
+
+
 def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
     """The ask, as the lead reads it: the ticket and everything hanging off it.
     `subtasks` are full tickets too; `attachments` are download entries with an
@@ -315,6 +318,9 @@ def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
     if attachments:
         out += ["## Attachments", ""]
         for a in attachments:
+            if ONE_PAGER.search(os.path.basename(a["path"])):
+                out.append("- `%s`: a one-pager. It is not used, and it decides nothing." % a["path"])
+                continue
             out.append("- `%s`" % a["path"])
             inline = a.get("inline")
             if inline and a["path"].lower().endswith((".html", ".htm")):
@@ -502,7 +508,7 @@ def plan_problems(journal):
     acceptance criteria and a plan."""
     problems = []
     if not section_text(journal, "References"):
-        problems.append("a `## References` section that lists every reference the ask names")
+        problems.append("a `## References` section that lists every reference the ask names that is used")
     if not checklist(journal, "Acceptance criteria"):
         problems.append("a `## Acceptance criteria` checklist")
     if not checklist(journal, "Plan"):
@@ -538,7 +544,8 @@ def review_prompt(gaps, answers, again=False):
         parts += ["- %s" % g for g in gaps] + [""]
         parts += ["Check each one against the references. Correct the criteria where it is "
                   "right. Where it is wrong, write why in the journal. The prototype wins, "
-                  "then the one-pager.", ""]
+                  "unless the ticket says explicitly that it replaces the prototype, or the "
+                  "person's answers say otherwise. One-pagers decide nothing.", ""]
     if answers:
         parts += [answers, ""]
     if again:
@@ -668,10 +675,12 @@ def gaps_prompt(gaps, answers=None):
     if answers:
         parts += [answers, ""]
     parts += ["Before you fix a gap, check it against the references. The prototype wins, "
-              "then the one-pager. Do not change what the prototype shows to satisfy a gap. "
-              "If a gap is wrong, do not fix it: write why in the journal and say so in your "
-              "summary, and the checker reads that. If the prototype and the one-pager do "
-              "not settle a gap, ask the person. Then report done again."]
+              "unless the ticket says explicitly that it replaces the prototype, or the "
+              "person's answers say otherwise. One-pagers decide nothing. Do not change what "
+              "the prototype shows to satisfy a gap. If a gap is wrong, do not fix it: write "
+              "why in the journal and say so in your summary, and the checker reads that. If "
+              "the prototype and the person's answers do not settle a gap, ask the person. "
+              "Then report done again."]
     return "\n".join(parts)
 
 
@@ -2832,7 +2841,7 @@ class Runner(object):
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
-                "scope": getattr(self, "scope", ""),
+                "scope": getattr(self, "scope", ""), "sources": SOURCES,
                 "checks": ("This part has run no CI: CI runs once, when the whole goal is "
                            "done. Judge the code, not test results." if part else
                            checks_text(self.data["base"])),
@@ -2910,7 +2919,7 @@ class Runner(object):
                 journal = f.read()
         except (IOError, OSError):
             journal = ""
-        prompt = render(os.path.join(PROMPTS, "consult.md"), ask=parent.read().get("ask") or "",
+        prompt = render(os.path.join(PROMPTS, "consult.md"), ask=parent.read().get("ask") or "", sources=SOURCES,
                         journal=journal or "(empty)", part=self.data["part"],
                         questions="\n".join("- %s (%s)" % (q["q"], q.get("why") or "")
                                              for q in questions))
@@ -3260,6 +3269,30 @@ class Runner(object):
             return 1
         finally:
             self.set(pid=None)
+
+
+SOURCES = """The prototype is the source of truth. It decides what is built, and how each
+screen looks and behaves: its layout, its parts, their order, their text and their
+states. Only two things overrule it:
+
+1. The person's answers to questions. They overrule everything, the prototype too.
+2. The ticket's description, or a subtask's description, where it says explicitly
+   that it replaces the prototype, such as "X instead of the prototype" or "not as
+   in the prototype: X". Only such words count. When the ticket describes something
+   differently from the prototype, but does not say that it replaces the prototype,
+   the prototype wins. That is not a question for the person.
+
+Do not use one-pagers, PRDs or product specs, and do not open the product
+repository (such as `humanus-product`), even when the ticket links to them. They
+decide nothing. Other references, such as design records, attachments, branches and
+other tickets, give context only. They never overrule the prototype.
+
+When the ticket asks for something that the prototype does not show, or the
+prototype does not answer a question, the person decides. That is a question for
+them. When the ask has no prototype, the ticket's description decides what is
+built, and the person decides what it leaves open.
+
+The repository's conventions decide how the code is written, not what is built."""
 
 
 def render(path, **kwargs):

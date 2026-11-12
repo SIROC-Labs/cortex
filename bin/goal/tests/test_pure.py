@@ -194,6 +194,19 @@ class TestTheAsk(unittest.TestCase):
         self.assertNotIn("color:red", ask)
         self.assertNotIn("var x", ask)
 
+    def test_an_attached_one_pager_is_named_but_not_read(self):
+        ask = goal.ask_from_ticket({"ref": "1", "name": "Q"}, "u", (), (),
+                                   [{"path": "/s/attachments/Guided-call-one-pager.md", "inline": "Scope: X"}])
+        self.assertIn("a one-pager. It is not used", ask)
+        self.assertNotIn("Scope: X", ask)
+
+    def test_every_prompt_that_judges_the_work_gets_the_same_source_rule(self):
+        for name in ("lead.md", "check.md", "review.md", "consult.md"):
+            text = goal.render(os.path.join(goal.PROMPTS, name), sources=goal.SOURCES)
+            self.assertIn("explicitly", text, name)
+            self.assertNotIn("{{sources}}", text, name)
+            self.assertNotIn("the one-pager or spec does", text, name)
+
     def test_a_bare_ticket_is_just_its_name(self):
         self.assertEqual(goal.ask_from_ticket({"ref": "1", "name": "Queue"}, "u"), "# 1: Queue\nu\n")
 

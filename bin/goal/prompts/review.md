@@ -13,18 +13,15 @@ the most expensive in this work, so spend it only on that comparison.
 
 ## Which source wins
 
-1. The prototype always wins: what is built, and how each screen looks and
-   behaves.
-2. Where the prototype does not answer a question, the one-pager or spec does.
-3. Where neither answers it, the person decides.
+{{sources}}
 
-When the references contradict each other, the person decides which one to follow.
-A criterion or decision that resolves a contradiction without the person's answer
-is a question.
+A criterion or decision that settles what only the person can decide, without their
+answer, is a question.
 
 ## What to do
 
-1. Open every reference the ask names. For each screen the work touches, read the
+1. Open every reference the ask names, except one-pagers, PRDs and the product
+   repository. For each screen the work touches, read the
    prototype's source for it.
 2. Read the journal, `{{journal}}`: its `## References`, its `## Acceptance
    criteria`, its `## Plan`, and the decisions it wrote down.
@@ -32,7 +29,8 @@ is a question.
    - a screen, a part of a screen, a state, a rule or a field the references
      require, and no criterion covers;
    - a criterion that says something different from its source, or that follows
-     the one-pager where the prototype says otherwise;
+     the ticket or a one-pager where the prototype says otherwise, without an
+     explicit override in the ticket or an answer from the person;
    - a criterion too broad to check, such as "build the dashboard";
    - a reference the ask names that the journal does not list;
    - a decision in the journal that the references settle differently, or that
@@ -83,8 +81,8 @@ End your response with a fenced JSON block:
 ```
 
 Each gap is one fact, with the reference it comes from, such as
-`(prototype: inbox)` or `(one-pager §2)`. An empty list means the criteria are
-right. Put a conflict that the prototype and the one-pager do not settle, a
+`(prototype: inbox)` or `(ticket: Attachments)`. An empty list means the criteria are
+right. Put what only the person can decide, and has not, a
 reference that cannot be opened, or something the ask takes for granted that is
 not so, in `questions`, as
 `{"title": "A name for it in a few words, such as Quality review: who reviews a junior?", "q": "The question in plain words, answerable in a sentence.", "options": [{"label": "A. As in the prototype", "flow": ["Anna, a junior recruiter, reaches the quality review step.", "Every salesperson sees the review on the Quality reviews board.", "Tom opens it during the call and clicks Accepted or Rejected."], "means": "What choosing this changes in the build, in one sentence."}], "recommend": "The option the references point to, and why, in one sentence.", "why": "Which references disagree, or what is missing, in one sentence."}`.
@@ -101,4 +99,4 @@ Write each question so that the person can decide from it alone:
 - Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
 
 The person answers them. Do not ask the person to confirm what a reference already
-settles, such as something the one-pager puts out of scope: that is the answer.
+settles, such as something the ticket puts out of scope: that is the answer.

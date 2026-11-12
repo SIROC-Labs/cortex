@@ -43,10 +43,13 @@ A **lead agent** gets the ask and nothing more. It plans the work, keeps a journ
 starts its own sub-agents, reviewers and checkers as it sees fit. It commits on the goal's
 branch as it goes. Nobody breaks the work down for it.
 
-**Which source wins.** The ask points to references: a prototype, one-pagers, design
-records, attachments. The prototype always wins: it decides what is built and how each
-screen looks and behaves. Where it does not answer a question, the one-pager does. Where
-neither does, you decide. The lead, the reviewer and the checker all work to this rule.
+**Which source wins.** The prototype is the source of truth: it decides what is built and
+how each screen looks and behaves. Only your answers to questions overrule it, and the
+ticket where its description says explicitly that it replaces the prototype ("X instead
+of the prototype"). A ticket that only describes something differently does not. One-pagers,
+PRDs and the product repository are never used; an attached one-pager is left out of the
+ask. What the prototype does not show or answer, you decide. The rule is one text,
+`SOURCES` in `goal.py`, given to the lead, the reviewer, the checker and a part's consult.
 
 This program is the harness around the lead:
 
@@ -128,7 +131,7 @@ This program is the harness around the lead:
   The lead can still run git, commit, and edit its journal and technical plan. In the
   analysis it is told to learn the codebase through explorers too. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
-- **Questions.** The lead asks what the prototype and the one-pager do not settle, and what
+- **Questions.** The lead asks what the prototype and your answers do not settle, and what
   only you have, all at once in the analysis where it can. Each question is a subtask under
   Questions. Answer it in a comment and complete the subtask; the goal goes on when every
   question in the batch is complete, and the plan is approved only after its questions

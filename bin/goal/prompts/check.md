@@ -12,25 +12,17 @@ what is met and what is not.
 
 ## Which source wins
 
-The ask points to references: a prototype, one-pagers or specs, design records,
-attachments, branches. They define what the work must do. When a question comes
-up that one reference answers and another leaves open:
+{{sources}}
 
-1. The prototype always wins: what is built, and how each screen looks and
-   behaves.
-2. Where the prototype does not answer a question, the one-pager or spec does.
-3. Where neither answers it, the person decides. That is a question, not a gap.
-
-When the references contradict each other, the person decides which one to follow:
-the journal's answers say what they decided. A contradiction they have not decided
-is a question, not a gap.
-
-A branch that matches the prototype where the one-pager says otherwise is right,
+The journal's answers say what the person decided. A branch that matches the
+prototype where the ticket describes it differently, without an explicit override,
+is right, not a gap. What only the person can decide, and has not, is a question,
 not a gap.
 
 {{scope}}## What to do
 
-1. Read the ask, and open every reference it names. For each screen the work
+1. Read the ask, and open every reference it names, except the ones that are never
+   used: one-pagers, PRDs and the product repository. For each screen the work
    touches, read the prototype's source for it. List what they require.
 2. Read the lead's journal, `{{journal}}`: its references, its acceptance
    criteria, and the decisions it wrote down. Use the criteria as a checklist, but
@@ -88,11 +80,11 @@ or, when something is missing or broken:
 ```
 
 Each gap is one fact: the requirement that is not met, the file where it shows,
-and the reference it comes from, such as `(prototype: taskRow)` or `(one-pager §3)`.
+and the reference it comes from, such as `(prototype: taskRow)` or `(ticket: Attachments)`.
 Report a gap only when the references require it. Do not report style preferences
 or improvements that they do not need.
 
-Put a conflict that the prototype and the one-pager do not settle, or a
+Put what only the person can decide, and has not, or a
 reference you could not open, in `questions`, not in `gaps`, as
 `{"title": "A name for it in a few words, such as Quality review: who reviews a junior?", "q": "The question in plain words, answerable in a sentence.", "options": [{"label": "A. As in the prototype", "flow": ["Anna, a junior recruiter, reaches the quality review step.", "Every salesperson sees the review on the Quality reviews board.", "Tom opens it during the call and clicks Accepted or Rejected."], "means": "What choosing this changes in the build, in one sentence."}], "recommend": "The option the references point to, and why, in one sentence.", "why": "Which references disagree, or what is missing, in one sentence."}`.
 Write each question so that the person can decide from it alone:
@@ -108,4 +100,4 @@ Write each question so that the person can decide from it alone:
 - Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
 
 The person answers them. Do not ask the person to confirm what a reference already
-settles, such as something the one-pager puts out of scope: that is the answer.
+settles, such as something the ticket puts out of scope: that is the answer.
