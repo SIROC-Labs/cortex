@@ -506,6 +506,15 @@ def section_text(text, heading):
     return out
 
 
+def small_reason(block, part, split):
+    """Why the lead says the work needs no plan review, or None. A part or a split
+    goal is always reviewed."""
+    small = (block or {}).get("small")
+    if part or split or not isinstance(small, str) or not small.strip():
+        return None
+    return small.strip()
+
+
 def plan_problems(journal):
     """What the journal still lacks after the analysis: [] when it has references,
     acceptance criteria and a plan."""
@@ -2614,6 +2623,11 @@ class Runner(object):
             # The person's changes, applied: they approved the plan already.
             self.publish_plan()
             return self.after_plan()
+        if self.data.get("small"):
+            self.set(reviewed=True)
+            self.step("Small change: building without a plan review")
+            self.publish_plan(review=False)
+            return self.after_plan()
         gaps, questions = [], []
         if not self.data.get("reviewed") and not (self.data.get("parent") and self.waits_for_person()):
             gaps, questions = self.review()
@@ -2623,12 +2637,12 @@ class Runner(object):
             return review_prompt(gaps, answers, again=True)
         return self.plan_gate()
 
-    def publish_plan(self, before_build=True):
+    def publish_plan(self, before_build=True, review=True):
         """The plan on the ticket. Returns the parts, or False when Asana refused it."""
         parts = self.written_parts() if self.split_now() else None
         plan_file = self.technical_plan() if os.path.exists(self.technical_plan()) else None
         if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build,
-                                  plan_file, plan_links(parts)):
+                                  plan_file, plan_links(parts), review):
             return False
         return parts
 
@@ -3324,7 +3338,11 @@ class Runner(object):
                         with open(self.goal.state.path(PARTS_FILE)) as f:
                             problems += parts_problems(read_parts(f.read()),
                                                        checklist(journal, "Acceptance criteria"))
-                    if self.flow2() and self.board.on and not os.path.exists(self.technical_plan()):
+                    small = small_reason(block, bool(self.data.get("parent")), split)
+                    if small and self.flow2():
+                        self.set(small=small)
+                    if self.flow2() and self.board.on and not self.data.get("small") \
+                            and not os.path.exists(self.technical_plan()):
                         problems.append("the technical plan, `%s`" % self.technical_plan())
                     if problems:
                         prompt = planning_prompt(problems)

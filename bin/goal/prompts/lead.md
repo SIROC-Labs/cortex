@@ -165,6 +165,13 @@ criteria and the plan, and the person answered your questions:
 {"status": "planned", "summary": "What the work is, in one or two sentences."}
 ```
 
+When the work is tiny, such as a quick bug fix or one button on a screen, and
+nothing in it is unclear, it needs no plan review. Then add `"small": "Why, in
+one short sentence."` to the `planned` block, and write no technical plan. Nobody
+reviews the plan and the person does not approve it: the build starts at once.
+Ask your questions first, as always. Never do this when you split the work, or
+when your work is a part of a larger goal.
+
 In the build, to hand the runner the next tasks. It runs them all at the same time
 and calls you again, in a new session, with their reports. Write in the journal
 first what the next session needs: it gets the journal and the reports, nothing of

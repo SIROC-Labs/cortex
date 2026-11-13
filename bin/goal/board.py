@@ -334,7 +334,7 @@ class Board(object):
 
     # the plan
 
-    def publish(self, items, split, before_build=True, plan_file=None, after=None):
+    def publish(self, items, split, before_build=True, plan_file=None, after=None, review=True):
         """The plan's review under Review, and the plan under Execution. `items` are
         [(key, name, body)]: the steps, or the parts. A subtask of the person's
         with the same name is used as it is. Before the build, a step the plan no
@@ -342,23 +342,23 @@ class Board(object):
         if not self.on:
             return True
         return bool(self.safely("write the plan", self._publish, items, split, before_build,
-                                plan_file, after or {}))
+                                plan_file, after or {}, review))
 
     def has_plan(self):
         """Whether the plan and its review are on the ticket."""
         data = self.load()
         return bool(data.get("review") and data.get("published"))
 
-    def _publish(self, items, split, before_build, plan_file, after_keys):
+    def _publish(self, items, split, before_build, plan_file, after_keys, review=True):
         data = self.sections(self.load())
         rows = self.asana(["task", "subtasks", self.task]) or []
-        if not data.get("review"):
+        if review and not data.get("review"):
             # One made before a write that failed is used again, not made twice.
             data["review"] = next((r["ref"] for r in rows if r["ref"] in data.get("made", [])
                                    and r["name"] == st.GOAL_NAME + review_name(split)), None) or self.add(
                 data, review_name(split), review_body(split, plan_file), data["section_review"])
             self.save(data)
-        if plan_file:
+        if review and plan_file:
             self.attach_plan(data, plan_file)
         old = {i["key"]: i for i in data.get("items") or []}
         theirs = {r["name"].strip().lower(): r["ref"] for r in rows

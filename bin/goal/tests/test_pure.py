@@ -1638,6 +1638,13 @@ class TestBoard(unittest.TestCase):
         self.assertEqual(goal.plan_links([{"name": "A", "after": []}, {"name": "B", "after": ["A"]}]),
                          {"A": [], "B": ["A"], goal.bd.INTEGRATION: ["A", "B"]})
 
+    def test_a_plan_published_without_review_has_no_review_subtask(self):
+        self.assertTrue(self.board.publish([("api", "API", "The API.")], False, plan_file="/nope.md",
+                                           review=False))
+        self.assertIn("API", self.fake.names())
+        self.assertNotIn("Review the plan", self.fake.names())
+        self.assertIsNone(self.board.load().get("review"))
+
     def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
         self.fake.refuse = "Export"
         self.assertFalse(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
@@ -1752,10 +1759,10 @@ class TestPlanFlow(unittest.TestCase):
     def run_with(self, rounds, answer):
         def lead(prompt):
             self.prompts.append(prompt)
-            report, write = rounds.pop(0)
+            report, write, block = (rounds.pop(0) + ({"summary": "s"},))[:3]
             write()
             self.events.append("lead %s" % report)
-            return report, {"summary": "s"}
+            return report, block
         self.runner.lead = lead
         self.runner.review = lambda: self.events.append("review") or ([], [])
 
@@ -1777,6 +1784,40 @@ class TestPlanFlow(unittest.TestCase):
         self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
         self.assertEqual([n for n, _ in self.fake.tasks[self.fake.gid("Review the plan")]["files"].values()],
                          ["technical-plan.md"])
+
+    def test_small_work_skips_the_review_the_approval_and_the_technical_plan(self):
+        def no_plan():
+            self.journal(PLANNED)
+            os.remove(self.runner.technical_plan())
+        done = PLANNED.replace("- [ ]", "- [x]")
+        self.run_with([("planned", no_plan, {"summary": "s", "small": " One button. "}),
+                       ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
+        self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
+        self.assertIn("The plan is approved", self.prompts[1])
+        self.assertEqual(self.fake.names(), ["Questions", "Review", "Execution", "API", "Inbox"])
+        self.assertEqual(self.runner.data["small"], "One button.")
+
+    def test_a_small_goal_whose_plan_asana_refused_still_builds(self):
+        self.fake.refuse = "Inbox"
+        done = PLANNED.replace("- [ ]", "- [x]")
+        self.run_with([("planned", lambda: self.journal(PLANNED), {"summary": "s", "small": "One button."}),
+                       ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
+        self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
+
+    def test_a_resumed_small_goal_does_not_wait(self):
+        self.runner.set(small="One button.")
+        done = PLANNED.replace("- [ ]", "- [x]")
+        self.run_with([("planned", lambda: self.journal(PLANNED)),
+                       ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
+        self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
+
+    def test_small_is_only_taken_from_a_whole_goal_that_does_not_split(self):
+        self.assertEqual(goal.small_reason({"small": " One button. "}, False, False), "One button.")
+        self.assertIsNone(goal.small_reason({"small": "One button."}, True, False))
+        self.assertIsNone(goal.small_reason({"small": "One button."}, False, True))
+        self.assertIsNone(goal.small_reason({"small": "  "}, False, False))
+        self.assertIsNone(goal.small_reason({"small": True}, False, False))
+        self.assertIsNone(goal.small_reason({}, False, False))
 
     def test_the_build_starts_in_a_new_session(self):
         done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
