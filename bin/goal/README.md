@@ -146,13 +146,14 @@ This program is the harness around the lead:
   clean check is pushed: a gap found after CI would cost a second CI run. The runner then
   marks the PR ready for review and waits for its CI, as the merge step does for task runs. The runner waits for the whole CI run, even after a check
   fails, so a fix never starts CI over while a run still bills. Every failing check, with
-  the telling lines of its log, then goes at once to a fresh call on the sub-agent model
-  (Sonnet) to fix, with two tries before the lead takes it on. A fixer that commits
+  the telling lines of its log, then goes at once to a fresh call on the lead's model
+  (Opus) to fix, with two tries before the lead takes it on. The fixer works alone, with no
+  sub-agents, and opens only the files and lines the failures name. A fixer that commits
   nothing hands over without another CI run. When GitHub did not run the jobs at all (a
   spending limit or a failed payment), the runner asks you, and re-runs them once you
   answer: no fixer is called. A conflict goes to the lead. The full suites run only on CI, never on this
   machine. The checker runs no tests or CI at all: it judges only the code against the ticket.
-  A CI fix by the sub-agent model is pushed without another check; one by the lead is
+  A CI fix by the fixer is pushed without another check; one by the lead is
   checked again first. The PR comment lists what CI passed under **Checks**.
 - **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
   the checker and of every sub-agent it started, from Claude Code's transcripts. `u` on the
@@ -163,8 +164,13 @@ This program is the harness around the lead:
   of its own change, and they are not a gate. When the lead says it is done, the runner
   first runs the repo's own CI static checks here (a `ci-verify` make target at the root,
   and a `ci-verify` script in each package): they show in seconds whether the merged
-  pieces fit, before a push pays for CI. A failure goes to the sub-agent model's fixer,
-  twice, then to the lead. Then a separate checker agent compares the branch with the references and the lead's acceptance criteria, which
+  pieces fit, before a push pays for CI. Each step runs on its own, past a failure too:
+  every prerequisite of the make target, and each `&&` step of the script (an `npm run x`
+  in it is x's own steps). So every failure shows at once, not one per round. The
+  failures go to the fixer (the lead's model, Opus), twice, then to the lead; the fixer
+  runs only the failing steps again. Coding tasks format and lint the files they change.
+  A fix about other failures than the last one starts the tries again, since the last
+  fix made progress; after ten fixes in a row the runner asks you anyway. Then a separate checker agent compares the branch with the references and the lead's acceptance criteria, which
   it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by

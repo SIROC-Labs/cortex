@@ -31,6 +31,12 @@ worktree. When you finish, the runner merges your branch into the goal's branch.
 - Never run a check of the whole project: no type check (`tsc`, `npm run
   typecheck`), no lint of everything, no whole suite, build, CI or e2e tests. The
   runner, the checker and CI run those after you.
+- Before you commit, format and lint your files, and only them: the files of
+  `git diff --name-only {{start}}`. Use the repository's own tools with its own
+  config, such as `npx --no-install prettier --write <your files>` and
+  `npx --no-install eslint --fix <your files>` in their package, or
+  `uv run ruff format <your files>` and `uv run ruff check --fix <your files>`.
+  Fix what they report in your files. CI fails on any file that is not formatted.
 - Commit your work on this branch, with clear messages. Do not push.
 - Do not start sub-agents.
 

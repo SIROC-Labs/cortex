@@ -388,7 +388,7 @@ class TestGate(unittest.TestCase):
         self.assertIn("conflicts in:\n\n- `shared.txt`", fix)
         self.assertNotIn(["pr", "ready"], self.gh)
 
-    def test_failing_ci_goes_to_a_cheap_fixer_first(self):
+    def test_failing_ci_goes_to_the_fixer_on_the_lead_s_model_first(self):
         self.rollup = [self.check("test", "FAILURE")]
         calls = []
 
@@ -400,7 +400,8 @@ class TestGate(unittest.TestCase):
         self.runner.call = call
         self.assertEqual(self.runner.sync_and_ci(), (None, None))
         [(label, model, prompt)] = calls
-        self.assertEqual((label, model), ("ci-fix", "claude-sonnet-5-5"))
+        self.assertEqual((label, model), ("ci-fix", self.runner.data["model"]))
+        self.assertIn("Do not explore", prompt)
         self.assertIn("- `test` (https://github.com/o/r/actions/runs/1/job/2)", prompt)
         self.assertIn("Never weaken a check", prompt)
 
@@ -661,31 +662,56 @@ class TestLocalCI(unittest.TestCase):
         self.commit("apps/web/package.json", json.dumps({"scripts": {"ci-verify": "x"}}), "web")
         self.commit("apps/other.json", "{}", "other")
 
-    def test_ci_s_own_static_checks_are_found(self):
+    def test_ci_s_own_static_checks_are_found_as_steps(self):
         self.assertEqual(goal.ci_commands(self.work), [
             ("make ci-verify", "make ci-verify", None),
-            ("apps/web ci-verify", "npm run ci-verify", "apps/web")])
+            ("apps/web: x", "x", "apps/web")])
 
-    def test_a_failure_goes_to_the_fixer_then_to_the_lead(self):
-        results = [("make ci-verify", "make ci-verify", "2 errors")] * 3
-        goal.st.run_qa_gate = lambda commands, worktree: results.pop(0) if results else None
-        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+    def test_each_step_of_a_chain_is_its_own_step(self):
+        scripts = {"ci-verify": "npm audit && npm run verify:static && tools/x.sh",
+                   "verify:static": "tsc -b && npm run lint && npm run fmt",
+                   "lint": "NODE_OPTIONS=--max-old-space-size=4096 eslint .",
+                   "fmt": "prettier --check . || true"}
+        self.assertEqual(goal.script_steps(scripts, "ci-verify"), [
+            "npm audit", "tsc -b", "NODE_OPTIONS=--max-old-space-size=4096 eslint .",
+            "npm run fmt", "tools/x.sh"])
+
+    def test_a_make_target_s_prerequisites_are_steps(self):
+        self.commit("Makefile", "ci-verify: lint typecheck ## static\n\t@echo ok\n", "make")
+        self.assertEqual(goal.ci_commands(self.work)[:2], [
+            ("make lint", "make lint", None), ("make typecheck", "make typecheck", None)])
+
+    def test_every_step_runs_past_a_failure(self):
+        steps = [("one", "echo first; exit 1", None), ("two", "echo fine", None),
+                 ("three", "echo third >&2; exit 2", None)]
+        failures = goal.run_ci_steps(steps, self.work)
+        self.assertEqual([(f[0], f[2].strip()) for f in failures], [("one", "first"), ("three", "third")])
+
+    def test_every_failure_goes_to_the_fixer_at_once_then_to_the_lead(self):
+        results = [[("apps/web: x", "x", "2 errors"), ("make ci-verify", "make ci-verify", "a.ts")]] * 3
+        goal.run_ci_steps, run = (lambda steps, worktree: results.pop(0) if results else []), goal.run_ci_steps
+        self.addCleanup(setattr, goal, "run_ci_steps", run)
         fixes = []
 
         def call(prompt, session, resume, label, model=None, effort=None):
-            fixes.append(prompt)
+            fixes.append((prompt, model))
             self.commit("fix%d.txt" % len(fixes), "x\n", "fix")
             return None, None, None
         self.runner.call = call
         fix = self.runner.local_ci()
         self.assertEqual(len(fixes), 2)
-        self.assertIn("2 errors", fixes[0])
-        self.assertNotIn("gh run view", fixes[0])
-        self.assertIn("they fail", fix)
+        prompt, model = fixes[0]
+        self.assertEqual(model, self.runner.data["model"])
+        self.assertIn("2 errors", prompt)
+        self.assertIn("a.ts", prompt)
+        self.assertIn("  - `x` in `apps/web`\n  - `make ci-verify`\n", prompt)
+        self.assertIn("Do not explore", prompt)
+        self.assertIn("these fail", fix)
+        self.assertEqual(goal.fix_signature(fix), ["apps/web: x", "make ci-verify"])
 
     def test_passing_checks_go_on(self):
-        goal.st.run_qa_gate = lambda commands, worktree: None
-        self.addCleanup(setattr, goal.st, "run_qa_gate", goal.st.run_qa_gate)
+        goal.run_ci_steps, run = (lambda steps, worktree: []), goal.run_ci_steps
+        self.addCleanup(setattr, goal, "run_ci_steps", run)
         self.assertIsNone(self.runner.local_ci())
 
 
@@ -828,6 +854,43 @@ class TestFlow(unittest.TestCase):
         self.assertEqual(self.runner.run(), 0)
         self.assertEqual(self.events, ["lead", "sync", "check", "lead", "sync", "check",
                                        "push and CI", "finish"])
+
+
+    def test_a_fix_that_makes_progress_does_not_count_towards_asking_the_person(self):
+        done = JOURNAL.replace("- [ ] An empty", "- [x] An empty")
+        self.journal(done)
+        self.runner.set(phase="building", reviewed=True)
+        self.runner.lead = lambda prompt: ("done", {"summary": "s"})
+        self.runner.decide = lambda prompt: prompt
+        fails = ["- `make lint`, run here", "- `a: tsc -b`, run here", "- `a: prettier`, run here",
+                 "- `a: test import`, run here", "- `a: bundle size`, run here", None]
+        self.runner.sync = lambda: None
+        self.runner.local_ci = lambda: fails.pop(0)
+        self.runner.check = lambda: (True, [], [])
+        self.runner.sync_and_ci = lambda: (None, None)
+        self.runner.finish = lambda block: self.events.append("finish")
+        self.runner.watch_pr = lambda: None
+        self.runner.ask_problem = lambda *a: self.fail("progress is not a reason to ask")
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(self.events, ["finish"])
+
+    def test_the_same_failure_again_and_again_goes_to_the_person(self):
+        done = JOURNAL.replace("- [ ] An empty", "- [x] An empty")
+        self.journal(done)
+        self.runner.set(phase="building", reviewed=True)
+        self.runner.lead = lambda prompt: ("done", {"summary": "s"})
+        self.runner.decide = lambda prompt: prompt
+        fails = ["- `a: bundle size`, run here"] * goal.MAX_CHECKS + [None]
+        asked = []
+        self.runner.sync = lambda: None
+        self.runner.local_ci = lambda: fails.pop(0)
+        self.runner.check = lambda: (True, [], [])
+        self.runner.sync_and_ci = lambda: (None, None)
+        self.runner.finish = lambda block: None
+        self.runner.watch_pr = lambda: None
+        self.runner.ask_problem = lambda headline, detail: asked.append(headline) or "go on"
+        self.assertEqual(self.runner.run(), 0)
+        self.assertEqual(len(asked), 1)
 
 
 PARTS = {"parts": [

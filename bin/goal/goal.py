@@ -114,6 +114,8 @@ PAUSE_CHECK = 900
 STALL_ROUNDS = 3
 # Checks in a row that find gaps before the person is asked.
 MAX_CHECKS = 4
+# However much each fix changes, the person is asked after this many in a row.
+MAX_FIX_ROUNDS = 10
 ANSWER_CHECK = 2
 # How often CI is read while its checks run, how long a PR may go without any
 # check reporting before it counts as having no CI, and how long CI may take.
@@ -741,6 +743,8 @@ def ci_fix_prompt(branch, failures):
             "- Fix the cause in the code or the tests. Never weaken a check, skip a test, "
             "raise a budget, or add a baseline entry.\n"
             "- Change only what the failures need. Do not refactor or add features.\n"
+            "- Open only the files and lines the failures name, and the code they call where "
+            "the fix needs it. Do not explore or search the codebase beyond that.\n"
             "- Read why it fails from CI, not by running it here: `gh run view <run-id> "
             "--log-failed` gives the whole log of a failed job (the run id is in its URL).\n"
             "- This machine runs many agents at once. Run only single test files by their "
@@ -754,14 +758,57 @@ def ci_fix_prompt(branch, failures):
             % (branch, failures))
 
 
+def script_steps(scripts, name, depth=0):
+    """An npm script as its steps: `a && b` is two, and `npm run x` is x's own
+    steps. A script with other shell control, such as `||` or `;`, is one step."""
+    body = (scripts.get(name) or "").strip()
+    if depth > 5 or not body or re.search(r"\|\||;|\(|\)|`|\$\(", body):
+        return ["npm run %s" % name] if depth else ([body] if body else [])
+    out = []
+    for part in [p.strip() for p in body.split("&&") if p.strip()]:
+        m = re.fullmatch(r"npm\s+run\s+([\w:.-]+)", part)
+        out += script_steps(scripts, m.group(1), depth + 1) if m and m.group(1) in scripts else [part]
+    return out
+
+
+def local_ci_fix_prompt(branch, failures, steps):
+    """The CI fixer's brief for the static checks run here: every failing step at
+    once, and how to stay on them."""
+    rerun = "\n".join("  - `%s`%s" % (cmd, " in `%s`" % sub if sub else "") for _, cmd, sub in steps)
+    return ("You fix failing CI static checks on branch `%s`, in this worktree. Another "
+            "agent built the work; you only make these checks pass. The runner ran every "
+            "step of CI's static checks here, and these steps fail:\n\n%s\n\n"
+            "How to work:\n"
+            "- Fix every failing step in this one session, not only the first.\n"
+            "- Work from the output above. Open only the files and lines it names, and the "
+            "code they call where the fix needs it. Do not explore or search the codebase "
+            "beyond that. Do not read files to learn the project.\n"
+            "- When a failure names no file, such as a size budget, find its cause with the "
+            "fewest reads you can: `git diff` against the base for what the branch added.\n"
+            "- Fix the cause in the code or the tests. Never weaken a check, skip a test, "
+            "raise a budget, or add a baseline entry. Locking in a saving that a check asks "
+            "for, such as a budget that is now far under, is allowed.\n"
+            "- Change only what the failures need. Do not refactor or add features.\n"
+            "- After your fixes, run the failing steps again, and only them:\n%s\n"
+            "  Run no other suite, build or check.\n"
+            "- Commit with a clear message, then stop. Do not push, rebase, or merge.\n"
+            "- Do not run skills or slash commands, and do not start sub-agents."
+            % (branch, failures, rerun))
+
+
 def ci_commands(worktree):
-    """The repo's own commands for what CI checks, as [(name, command, cwd)]: a
-    `ci-verify` make target at the root, and a `ci-verify` script in each package."""
+    """The repo's own commands for what CI checks, as [(name, command, cwd)], one a
+    step, so that one failing step does not hide the ones after it: each target a
+    `ci-verify` make target at the root depends on, and each step of a `ci-verify`
+    script in each package."""
     out = []
     try:
         with open(os.path.join(worktree, "Makefile")) as f:
-            if re.search(r"^ci-verify:", f.read(), re.M):
-                out.append(("make ci-verify", "make ci-verify", None))
+            m = re.search(r"^ci-verify:([^#\n]*)", f.read(), re.M)
+        if m:
+            targets = m.group(1).split()
+            out += [("make %s" % t, "make %s" % t, None) for t in targets] or [
+                ("make ci-verify", "make ci-verify", None)]
     except (IOError, OSError):
         pass
     _, files, _ = st.git(["ls-files", "package.json", "*/package.json", "*/*/package.json"],
@@ -774,8 +821,40 @@ def ci_commands(worktree):
             continue
         if "ci-verify" in scripts:
             folder = os.path.dirname(rel)
-            out.append(("%s ci-verify" % (folder or "npm"), "npm run ci-verify", folder or None))
+            out += [("%s: %s" % (folder or "npm", step), step, folder or None)
+                    for step in script_steps(scripts, "ci-verify")]
     return out
+
+
+def run_ci_steps(steps, worktree):
+    """Run every step, past a failure too. Returns [(name, cmd, output)] of each
+    step that failed. A step runs as `npm run` would run it: with the package's and
+    the root's `node_modules/.bin` on the PATH."""
+    failures = []
+    for name, cmd, sub in steps:
+        cwd = os.path.join(worktree, sub) if sub else worktree
+        bins = [os.path.join(cwd, "node_modules", ".bin"), os.path.join(worktree, "node_modules", ".bin")]
+        env = dict(os.environ, PATH=os.pathsep.join(bins + [os.environ.get("PATH", "")]))
+        st.info("%s%s" % (cmd, " (in %s)" % sub if sub else ""))
+        proc = subprocess.run(cmd, cwd=cwd, shell=True, stdin=subprocess.DEVNULL, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proc.returncode != 0:
+            st.warn("%s failed (exit %d)" % (name, proc.returncode))
+            failures.append((name, cmd, proc.stdout.decode("utf-8", "replace")))
+    return failures
+
+
+def ci_failures_text(failures):
+    """Every failing step with the end of its output, the most telling part."""
+    each = max(1500, 16000 // max(1, len(failures)))
+    return "\n\n".join("- `%s`, run here as `%s`:\n\n```\n%s\n```" % (
+        name, cmd, output.strip()[-each:]) for name, cmd, output in failures)
+
+
+def fix_signature(text):
+    """What a fix is about, as the names it lists: two fixes with the same names are
+    the same failure again; different names mean the last fix made progress."""
+    return sorted(set(re.findall(r"^- `([^`]+)`", text or "", re.M)))
 
 
 def failed_ci_prompt(failing, excerpts):
@@ -1978,8 +2057,9 @@ class Runner(object):
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
         cmd += NO_MCP
-        if label == "lead" and self.data.get("phase") == "building":
+        if label == "lead" and self.data.get("phase") == "building" or label == "ci-fix":
             # In the build the runner starts the agents: the lead hands it their tasks.
+            # The CI fixer works alone, on what failed.
             cmd += ["--disallowedTools", "Agent,Task," + NO_WAITING]
         else:
             cmd += ["--disallowedTools", NO_WAITING]
@@ -2225,41 +2305,37 @@ class Runner(object):
 
     def local_ci(self):
         """The repo's own CI static checks (`ci-verify`), run here before the check
-        and the push: a failure goes to the cheap fixer, twice, then to the lead.
-        Returns None when they pass or the repo has none, else what the lead fixes."""
+        and the push, every step past a failure too: the failures go to the fixer,
+        twice, then to the lead. Returns None when they pass or the repo has none,
+        else what the lead fixes."""
         worktree = self.data["worktree"]
-        commands = ci_commands(worktree)
-        if not commands:
+        steps = ci_commands(worktree)
+        if not steps:
             return None
         attempt = 0
         while True:
             self.step("Running CI's static checks here" + (" again" if attempt else ""))
-            failure = None
-            for n, (name, cmd, cwd) in enumerate(commands, 1):
-                self.set(status="checking", doing="running CI's static checks here",
-                         runner_doing="%s (%d of %d): %s" % (name, n, len(commands), cmd),
-                         runner_since=time.time())
-                failure = st.run_qa_gate([(name, cmd, cwd)], worktree)
-                if failure:
-                    break
+            self.set(status="checking", doing="running CI's static checks here",
+                     runner_doing="%d step(s) of CI's static checks" % len(steps),
+                     runner_since=time.time())
+            failures = run_ci_steps(steps, worktree)
             self.set(runner_doing=None)
-            if not failure:
+            if not failures:
                 st.info("CI's static checks pass here")
                 return None
-            name, cmd, output = failure
-            text = "- `%s`, run here as `%s`:\n\n```\n%s\n```" % (name, cmd, output.strip()[-4000:])
+            st.info("%d of %d step(s) fail" % (len(failures), len(steps)))
+            text = ci_failures_text(failures)
             if attempt == CI_FIXES:
-                st.warn("%s still fails — over to the lead" % name)
-                return ("You reported done. The runner ran CI's static checks here, before "
-                        "the push, and they fail:\n\n%s\n\nHand over a task that fixes "
-                        "the cause, then report done again. Never weaken a check." % text)
+                st.warn("%d step(s) still fail — over to the lead" % len(failures))
+                return ("You reported done. The runner ran each step of CI's static checks "
+                        "here, before the push, and these fail:\n\n%s\n\nHand over the "
+                        "tasks that fix every cause at once, then report done again. Never "
+                        "weaken a check." % text)
             attempt += 1
-            model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
-            prompt = ci_fix_prompt(self.data["branch"], text).replace(
-                "Read why it fails from CI, not by running it here: `gh run view <run-id> "
-                "--log-failed` gives the whole log of a failed job (the run id is in its URL).",
-                "The failure above is from running the check here: its output is all you "
-                "need.")
+            model = self.data.get("model")
+            subs = {name: sub for name, _, sub in steps}
+            prompt = local_ci_fix_prompt(self.data["branch"], text,
+                                         [(name, cmd, subs.get(name)) for name, cmd, _ in failures])
             _, before, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
             self.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
             self.wait_for_usage()
@@ -2373,7 +2449,7 @@ class Runner(object):
             if kind != "ci" or attempt == CI_FIXES:
                 return kind, fix
             attempt += 1
-            model = self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL
+            model = self.data.get("model")
             prompt = ci_fix_prompt(self.data["branch"], fix.split("\n", 2)[2])
             _, before, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
             while True:
@@ -3273,17 +3349,27 @@ class Runner(object):
                         elif done:
                             _, fix = self.sync_and_ci()
                     if fix:
+                        # A fix about other failures than the last means the last one
+                        # made progress: the tries count again from there.
+                        signature = fix_signature(fix)
+                        if signature and signature != self.data.get("fix_signature"):
+                            if self.data.get("fix_signature") is not None:
+                                st.info("other failures than last time — the tries start again")
+                            checks = 0
+                        self.set(fix_signature=signature, fix_rounds=(self.data.get("fix_rounds") or 0) + 1)
                         checks += 1
-                        if checks >= MAX_CHECKS:
+                        if checks >= MAX_CHECKS or self.data["fix_rounds"] >= MAX_FIX_ROUNDS:
                             answer = self.ask_problem(
                                 "the branch still fails to sync or pass CI after %d tries"
                                 % checks, fix)
                             prompt, checks = "The person says:\n\n%s\n\n%s" % (answer, fix), 0
+                            self.set(fix_rounds=0)
                         else:
                             prompt = fix
                         prompt = self.decide(prompt)
                         continue
                     if done:
+                        self.set(fix_rounds=0, fix_signature=None)
                         self.finish(block)
                         prompt = self.watch_pr() if not self.data.get("parent") else None
                         if prompt is None:
