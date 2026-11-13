@@ -76,8 +76,8 @@ while IFS= read -r stale; do
   echo "      ${stale}"
 done < <(grep '^export PATH=".*CONDUCTOR_HOME' "$PROFILE" 2>/dev/null || true)
 
-# Before the rename this was cortex, set up by the cortex repo's own copy of this
-# script. Its lines still put the old `cortex` command on PATH.
+# Before the rename this script wrote CORTEX_HOME. Those lines still put the old
+# `cortex` command on PATH.
 while IFS= read -r old; do
   [ -n "$old" ] || continue
   warn "left by the old cortex CLI in ${PROFILE}, delete it:"
