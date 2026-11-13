@@ -1076,7 +1076,7 @@ def built_text(built):
 
 
 def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False,
-                  readonly=None, task=False, force_subagent=False):
+                  readonly=None, task=False, force_subagent=False, explore=False):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -1105,6 +1105,8 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
                     "hooks": [guard("readonly", readonly)]})
     if task:
         pre.append({"matcher": "Bash", "hooks": [guard("task")]})
+    if explore:
+        pre.append({"matcher": "Bash", "hooks": [guard("explore")]})
     out = {"hooks": {"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
     if allow:
@@ -2764,7 +2766,7 @@ class Runner(object):
         with open(settings, "w") as f:
             json.dump(hook_settings(self.goal.state.path(WIND_FILE), fence=self.data.get("fence") or (),
                                     allow=allow, readonly=cwd if explore else None,
-                                    task=not explore), f)
+                                    task=not explore, explore=explore), f)
         run["settings"] = settings
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,

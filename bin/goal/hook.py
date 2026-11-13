@@ -49,6 +49,10 @@ EXPLORE = ("Refused: in the build, explorers read the code for you. Every file y
            "and run git.")
 READONLY = ("Refused: you answer a question about the code, and change nothing. Read what "
             "you need, then answer.")
+EXPLORER_RUNS = ("Refused: an explorer runs no test suite and no check of the whole project, "
+                 "and does not wait with sleep or a loop: many agents share this machine. To see "
+                 "how a test fails, run that one test in the foreground, by its path, and read "
+                 "the output.")
 CHECKS = ("Refused: in the build you do not run tests, type checks, linters or builds. Tests "
           "guide the coding tasks while they code: each runs the tests of its own change. The "
           "checker and CI check the rest. To know whether a task's work is right, read its "
@@ -84,6 +88,8 @@ WAIT = ("Refused: do not wait for a sub-agent with sleep or a loop. Its report r
         "until a report arrives, end your reply with one short line, such as \"I wait for "
         "the reports\". You continue when the next report arrives.")
 SLEEP = re.compile(r"(?:^|[;&|(`\s])sleep\s")
+# `sleep` run as a command, not a word in a search.
+SLEEP_COMMAND = re.compile(r"(?:^|[;&|(`]|\b(?:do|then|else)\b)\s*sleep\s")
 # Fence texts that name a command: they fence off running it, not every mention.
 COMMANDS = ("cond", "cortex")
 
@@ -208,6 +214,11 @@ def main(argv):
             re.sub(r"'[^']*'|\"[^\"]*\"", "''", tool_input.get("command") or "")):
         sys.stderr.write(TASK_CHECKS + "\n")
         return 2
+    if argv[:1] == ["explore"] and call.get("tool_name") == "Bash":
+        command = re.sub(r"'[^']*'|\"[^\"]*\"", "''", tool_input.get("command") or "")
+        if WHOLE.search(command) or SLEEP_COMMAND.search(command):
+            sys.stderr.write(EXPLORER_RUNS + "\n")
+            return 2
     if argv[:1] == ["discuss"] and discussed(call):
         sys.stderr.write(DISCUSS % ", ".join("`%s`" % r for r in temp_roots()) + "\n")
         return 2

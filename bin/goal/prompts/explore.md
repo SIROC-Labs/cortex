@@ -11,6 +11,10 @@ Search and read what you need. Answer with facts only: the files, the lines, wha
 they do. Keep it short: the lead pays for every line of your answer. Do not plan
 changes or suggest fixes.
 
+You may run one test, or one test file, in the foreground, to see how it fails.
+Do not run a test suite, a test folder or a check of the whole project, and do
+not wait with `sleep` or a loop: many agents share this machine.
+
 ## Required output
 
 End with a fenced JSON block:

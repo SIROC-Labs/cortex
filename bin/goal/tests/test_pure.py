@@ -1185,6 +1185,29 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(run(["readonly", "/wt"], {"tool_name": "Bash", "tool_input": {
             "command": "git commit -qm 'fix the types'"}})[0], 0)
 
+    def test_an_explorer_runs_one_test_but_no_suite_and_does_not_sleep(self):
+        import importlib.util, io, contextlib
+        spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        pre = goal.hook_settings("/f", readonly="/wt", explore=True)["hooks"]["PreToolUse"]
+        self.assertTrue(pre[-1]["hooks"][0]["command"].endswith("hook.py explore"))
+        self.assertFalse(any(h["hooks"][0]["command"].endswith("hook.py explore")
+                             for h in goal.hook_settings("/f", readonly="/wt")["hooks"]["PreToolUse"]))
+
+        def run(command):
+            sys.stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}))
+            with contextlib.redirect_stderr(io.StringIO()):
+                return hook.main(["explore"])
+        self.addCleanup(setattr, sys, "stdin", sys.__stdin__)
+        for command in ("cd apps/core && pytest test/integration/x_test.py > /tmp/o.txt 2>&1 & sleep 100",
+                        "while ! grep -q passed /tmp/o.txt; do sleep 5; done",
+                        "npm run test", "npx --no-install vitest run", "npx tsc --noEmit"):
+            self.assertEqual(run(command), 2, command)
+        for command in ("cd apps/core && uv run pytest test/unit/test_sync.py -x",
+                        "npx --no-install vitest run src/a.test.ts", "grep -rn sleep src"):
+            self.assertEqual(run(command), 0, command)
+
     def test_the_bash_hook_refuses_pushes_and_ci_but_not_other_git(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
