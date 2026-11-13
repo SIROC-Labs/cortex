@@ -1225,5 +1225,23 @@ class TestWalkthroughComment(unittest.TestCase):
         self.assertEqual(start_task.walkthrough_comment({"summary": "x", "notes": ""}), "")
 
 
+class TestAsanaTimeout(unittest.TestCase):
+    def test_every_asana_request_gives_up_on_a_stalled_connection(self):
+        import asana
+        from unittest import mock
+        seen = []
+
+        def urlopen(req, timeout=None):
+            seen.append(timeout)
+            raise OSError("timed out")
+        with mock.patch.object(asana.urllib.request, "urlopen", urlopen):
+            for call in (lambda: asana.api_get("https://x/a", "t"),
+                         lambda: asana.api_json("https://x/a", "t", "PUT", {}),
+                         lambda: asana.api_delete("https://x/a", "t")):
+                with self.assertRaises(SystemExit):
+                    call()
+        self.assertEqual(seen, [asana.HTTP_TIMEOUT] * 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

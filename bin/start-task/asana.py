@@ -213,13 +213,18 @@ def resolve_token(key):
     return token
 
 
+# Seconds a request may wait on Asana: a stalled connection fails, and the caller
+# tries again, instead of hanging its caller for days.
+HTTP_TIMEOUT = 120
+
+
 # HTTP GET against the Asana API. Fails (exit 1) on transport error or non-2xx.
 # Returns the parsed JSON body.
 def api_get(url, token):
     req = urllib.request.Request(url, method="GET")
     req.add_header("Authorization", "Bearer " + token)
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
         status = resp.getcode()
         body = resp.read()
     except urllib.error.HTTPError as e:
@@ -246,7 +251,7 @@ def api_json(url, token, method, payload):
     req.add_header("Authorization", "Bearer " + token)
     req.add_header("Content-Type", "application/json")
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
         status = resp.getcode()
         body = resp.read()
     except urllib.error.HTTPError as e:
@@ -277,7 +282,7 @@ def api_delete(url, token):
     req = urllib.request.Request(url, method="DELETE")
     req.add_header("Authorization", "Bearer " + token)
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
         status = resp.getcode()
         body = resp.read()
     except urllib.error.HTTPError as e:
@@ -339,7 +344,7 @@ def api_multipart(url, token, fields, file_field):
     req.add_header("Authorization", "Bearer " + token)
     req.add_header("Content-Type", "multipart/form-data; boundary=" + boundary)
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
         status = resp.getcode()
         resp_body = resp.read()
     except urllib.error.HTTPError as e:
