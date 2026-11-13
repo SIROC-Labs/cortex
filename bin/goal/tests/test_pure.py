@@ -1804,12 +1804,16 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
         self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
 
-    def test_a_resumed_small_goal_does_not_wait(self):
-        self.runner.set(small="One button.")
+    def test_only_the_last_planned_report_decides_small(self):
+        def no_plan_section():
+            self.journal(PLANNED.replace("## Plan", "## Later"))
         done = PLANNED.replace("- [ ]", "- [x]")
-        self.run_with([("planned", lambda: self.journal(PLANNED)),
-                       ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
-        self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
+        self.run_with([("planned", no_plan_section, {"summary": "s", "small": "One button."}),
+                       ("planned", lambda: self.journal(PLANNED)),
+                       ("done", lambda: self.journal(done))], lambda record: "continue")
+        self.assertEqual(self.events, ["lead planned", "lead planned", "review", "waits for plan",
+                                       "lead done", "finish"])
+        self.assertIsNone(self.runner.data.get("small"))
 
     def test_small_is_only_taken_from_a_whole_goal_that_does_not_split(self):
         self.assertEqual(goal.small_reason({"small": " One button. "}, False, False), "One button.")

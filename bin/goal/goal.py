@@ -3336,9 +3336,8 @@ class Runner(object):
                         with open(self.goal.state.path(PARTS_FILE)) as f:
                             problems += parts_problems(read_parts(f.read()),
                                                        checklist(journal, "Acceptance criteria"))
-                    small = small_reason(block, bool(self.data.get("parent")), split)
-                    if small and self.flow2():
-                        self.set(small=small)
+                    self.set(small=small_reason(block, bool(self.data.get("parent")), split)
+                             if self.flow2() else None)
                     if self.flow2() and self.board.on and not self.data.get("small") \
                             and not os.path.exists(self.technical_plan()):
                         problems.append("the technical plan, `%s`" % self.technical_plan())
