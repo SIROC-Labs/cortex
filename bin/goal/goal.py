@@ -21,7 +21,7 @@
 #   cond goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
 #   cond goal run <id>                                              # run or resume it
 #
-# A goal's state is `.conductor/state/<id>/` — `goal.json`, the journal, its
+# A goal's state is `.cortex/state/<id>/` — `goal.json`, the journal, its
 # questions and answers — the same place a task's run keeps its own, so the TUI
 # answers both the same way.
 
@@ -939,7 +939,7 @@ def link_dependencies(source, target):
     linked = []
     for root, dirs, _ in os.walk(source):
         rel = os.path.relpath(root, source)
-        if rel.count(os.sep) >= 3 or any(p in (".git", ".conductor") for p in rel.split(os.sep)):
+        if rel.count(os.sep) >= 3 or any(p in (".git", ".cortex") for p in rel.split(os.sep)):
             dirs[:] = []
             continue
         for d in list(dirs):
@@ -1004,7 +1004,7 @@ def checks_section(checks):
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
-SKIP_DIRS = {".git", "node_modules", ".conductor", "dist", "build", ".venv", "venv", "vendor"}
+SKIP_DIRS = {".git", "node_modules", ".cortex", "dist", "build", ".venv", "venv", "vendor"}
 
 
 def testing_guides(root, depth=3):
@@ -1229,7 +1229,7 @@ def _cost(cost, estimated=False):
 
 # What each model costs per weighted token, learned from calls that reported their
 # cost, so a call that was cut off before it could can still be priced.
-RATES_FILE = os.path.join(os.path.expanduser("~"), ".conductor", "model-rates.json")
+RATES_FILE = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "model-rates.json")
 
 
 def normalise(calls):
@@ -1571,7 +1571,7 @@ def list_goals(main_root):
     for proc in list(_CHILDREN):
         if proc.poll() is not None:
             _CHILDREN.remove(proc)
-    root = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.STATE_DIRNAME)
+    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
     out = []
     for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         if not name.startswith("goal-"):
@@ -1619,7 +1619,7 @@ def mark_done(main_root, gid):
 
 def goal_and_parts(main_root, gid):
     """A goal and its parts, each as a Goal, the parts first; cleared ones too."""
-    root = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.STATE_DIRNAME)
+    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
     names = sorted(n for n in os.listdir(root) if n.startswith(gid + "--")) if os.path.isdir(root) else []
     return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
 
@@ -1984,7 +1984,7 @@ class Runner(object):
         """A value from the TUI's Setup tab, read each time so a change reaches a
         goal already running; None when the tab has none saved."""
         try:
-            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
                 return (json.load(f).get("models") or {}).get(key)
         except (IOError, OSError, ValueError, AttributeError):
             return None
@@ -1998,7 +1998,7 @@ class Runner(object):
         else the default, read each time so it reaches a goal already running. Not
         the goal's own: the tab must be true for every goal it lists."""
         try:
-            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
                 value = (json.load(f).get("models") or {}).get("check_effort")
         except (IOError, OSError, ValueError, AttributeError):
             value = None
@@ -2008,7 +2008,7 @@ class Runner(object):
         """The usage limit to pause at: the TUI's Setup tab's, read each time so a
         change reaches a goal already running, else the goal's own."""
         try:
-            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
                 value = json.load(f).get("usage_threshold")
         except (IOError, OSError, ValueError):
             value = None

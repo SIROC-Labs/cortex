@@ -7,7 +7,7 @@
 # is, and re-reads Asana in a thread behind it when the copy is older than that
 # view tolerates. Nothing waits on the network to draw.
 #
-# Lives in $XDG_CACHE_HOME/conductor (~/.cache/conductor by default): it is only ever
+# Lives in $XDG_CACHE_HOME/cortex (~/.cache/cortex by default): it is only ever
 # a copy, safe to delete.
 
 import json
@@ -21,7 +21,7 @@ SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 def cache_dir():
     base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
-    return os.path.join(base, "conductor", "asana")
+    return os.path.join(base, "cortex", "asana")
 
 
 # --- pure helpers (unit-tested) ---------------------------------------------

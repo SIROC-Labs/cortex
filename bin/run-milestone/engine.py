@@ -692,7 +692,7 @@ class Engine(object):
             return {"tasks": {}, "records": {}}
 
     def save(self):
-        st.ensure_conductor_dir(self.main_root)
+        st.ensure_cortex_dir(self.main_root)
         os.makedirs(self.dir, exist_ok=True)
         tmp = self.path("state.json.tmp")
         with open(tmp, "w") as f:

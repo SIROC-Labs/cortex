@@ -36,15 +36,13 @@ move or rename the clone, re-run it.
 
 ### Coming from `cortex`
 
-The command was `cortex`, and its state lived in `.cortex/`. It is now `cond`, with its
-state in `.conductor/`:
+The command was `cortex`; it is now `cond`. State stays where it was, in `<repo>/.cortex/`
+and `~/.cortex/cli/`, so queued and running work carries on:
 
-1. Stop the old daemons and runs (`cortex tui --stop` in each repo).
+1. Stop the old daemons (`cortex tui --stop` in each repo).
 2. Run `bash ../setup-path.sh`, delete the old `CORTEX_HOME` lines it points out, and
    open a new terminal.
-3. `cond migrate` shows what moves; `cond migrate --apply` moves it. Pass `--repo PATH`
-   for a repo no daemon registered.
-4. Start the daemon again from the new terminal (`cond tui`).
+3. Start the daemon again from the new terminal (`cond tui`).
 
 Comments the old runs posted (`🤖 cortex ·`) and subtasks the old goals planned are still
 recognised as the runs' own.
@@ -63,7 +61,6 @@ cond <tool> --help      # a tool's own arguments
 | [`tui`](tui/README.md) | Browse boards, queue tasks and watch the runs; a background daemon works the queue |
 | [`goal`](goal/README.md) | Implements an Asana ticket by itself — a lead agent with its own sub-agents — on one branch, into one PR |
 | [`queue`](queue/README.md) | Queues Asana tasks, milestones and goals from the command line, as the TUI does — for scripts and other agents |
-| `migrate` | Moves the state an older `cortex` install left in `~/.cortex/cli` and `<repo>/.cortex/` to conductor's folders |
 
 Run tools from inside the repo you want them to act on.
 

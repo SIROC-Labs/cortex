@@ -243,8 +243,8 @@ class TestUnmanaged(unittest.TestCase):
 
 
 class TestOrphanAgents(unittest.TestCase):
-    WT = "/repo/.conductor/worktrees"
-    AGENT = "claude -p --add-dir /repo/.conductor/worktrees/HCI-6+ci8-mailbox --model x"
+    WT = "/repo/.cortex/worktrees"
+    AGENT = "claude -p --add-dir /repo/.cortex/worktrees/HCI-6+ci8-mailbox --model x"
 
     def test_an_agent_whose_run_is_gone_is_found(self):
         rows = [(1, 0, "launchd"), (500, 1, self.AGENT)]
@@ -256,17 +256,17 @@ class TestOrphanAgents(unittest.TestCase):
 
     def test_only_the_top_of_a_stray_tree_is_listed(self):
         rows = [(500, 1, self.AGENT),
-                (501, 500, "bash -c cd /repo/.conductor/worktrees/HCI-6+ci8-mailbox && make")]
+                (501, 500, "bash -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && make")]
         self.assertEqual([pid for _, pid in dm.orphan_agents(rows, self.WT, [])], [500])
 
     def test_work_started_from_your_own_session_or_terminal_is_yours(self):
-        work = "/bin/zsh -c cd /repo/.conductor/worktrees/HCI-6+ci8-mailbox && uv run celery"
+        work = "/bin/zsh -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && uv run celery"
         for session in ("claude --resume 31ad", "node /usr/local/bin/claude", "-zsh"):
             rows = [(1, 0, "launchd"), (300, 1, session), (500, 300, work)]
             self.assertEqual(dm.orphan_agents(rows, self.WT, []), [], session)
 
     def test_other_repos_and_processes_are_not_ours(self):
-        rows = [(500, 1, "claude -p --add-dir /other/.conductor/worktrees/X+y"), (9, 1, "vim")]
+        rows = [(500, 1, "claude -p --add-dir /other/.cortex/worktrees/X+y"), (9, 1, "vim")]
         self.assertEqual(dm.orphan_agents(rows, self.WT, []), [])
 
 
@@ -275,14 +275,14 @@ class TestControlFile(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
 
-    def test_changes_are_written_back_and_conductor_ignores_itself(self):
+    def test_changes_are_written_back_and_cortex_ignores_itself(self):
         with dm.control_file(self.root) as c:
             dm.queue_add(c, [{"gid": "1", "name": "CI1"}])
             c["sprint"] = {"gid": "9", "name": "Sprint"}
         c = dm.read_control(self.root)
         self.assertEqual(c["queue"][0]["name"], "CI1")
         self.assertEqual(c["sprint"]["gid"], "9")
-        self.assertTrue(os.path.isfile(os.path.join(self.root, ".conductor", ".gitignore")))
+        self.assertTrue(os.path.isfile(os.path.join(self.root, ".cortex", ".gitignore")))
 
     def test_no_file_reads_as_empty(self):
         self.assertEqual(dm.read_control(self.root), dm.empty_control())
@@ -481,7 +481,7 @@ class TestCache(unittest.TestCase):
 
     def test_lives_under_xdg_cache_home(self):
         self.assertTrue(cache.cache_dir().startswith(os.environ["XDG_CACHE_HOME"]))
-        self.assertTrue(cache.cache_dir().endswith(os.path.join("conductor", "asana")))
+        self.assertTrue(cache.cache_dir().endswith(os.path.join("cortex", "asana")))
 
     def test_roundtrip_with_its_age(self):
         c = cache.Cache()

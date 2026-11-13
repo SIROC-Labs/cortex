@@ -3,7 +3,7 @@
 # daemon.py — the background half of `cond tui`: one daemon per repo that works
 # whatever is queued through the shared engine.
 #
-# The TUI and the daemon share nothing but files under `<repo>/.conductor/queue/`:
+# The TUI and the daemon share nothing but files under `<repo>/.cortex/queue/`:
 #
 #   control.json  written by the TUI — the queue, the sprint, and commands
 #                 (stop, retry) the daemon applies once each
@@ -11,7 +11,7 @@
 #   daemon.json   written by the daemon — its pid and a heartbeat
 #   daemon.log    the daemon's own output; each run logs under logs/
 #
-# Every live daemon also registers in `~/.conductor/daemons/`, so a TUI opened in
+# Every live daemon also registers in `~/.cortex/cli/daemons/`, so a TUI opened in
 # any terminal can find every one of them — and every start-task run still going
 # shows up in its repo whether or not a daemon owns it. Nothing runs unseen.
 
@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
 from engine import Engine, Stop, keep_tokens_fresh, kill_tree, log, st  # noqa: E402
 
 QUEUE_DIRNAME = "queue"
-REGISTRY = os.path.join(os.path.expanduser("~"), ".conductor", "daemons")
+REGISTRY = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "daemons")
 SERVE_TICK = 2
 # A daemon whose heartbeat is older than this is alive but not looping — stuck in
 # a slow call, or wedged.
@@ -326,7 +326,7 @@ def orphan_agents(rows, worktrees_dir, owners):
 # --- files ------------------------------------------------------------------
 
 def queue_dir(main_root):
-    return os.path.join(main_root, st.CONDUCTOR_DIRNAME, QUEUE_DIRNAME)
+    return os.path.join(main_root, st.CORTEX_DIRNAME, QUEUE_DIRNAME)
 
 
 def read_json(path, default=None):
@@ -351,7 +351,7 @@ def control_file(main_root):
     """The control file, read and written back under a lock — the TUI and the
     daemon both touch it."""
     qdir = queue_dir(main_root)
-    st.ensure_conductor_dir(main_root)
+    st.ensure_cortex_dir(main_root)
     os.makedirs(qdir, exist_ok=True)
     with open(os.path.join(qdir, "control.lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -393,7 +393,7 @@ def daemon_info(main_root):
 
 def live_runs(main_root):
     """Every start-task run in the repo whose pid is alive: [(task_id, pid)]."""
-    root = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.STATE_DIRNAME)
+    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
     out = []
     try:
         names = os.listdir(root)
@@ -444,7 +444,7 @@ def ps_rows():
 
 
 def live_agents(main_root, owners):
-    worktrees = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.WORKTREES_DIRNAME)
+    worktrees = os.path.join(main_root, st.CORTEX_DIRNAME, st.WORKTREES_DIRNAME)
     return orphan_agents(ps_rows(), worktrees, owners)
 
 

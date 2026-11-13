@@ -36,7 +36,7 @@ import subprocess
 
 # The CLI's own namespace. The skills keep theirs under ~/.cortex/cortex-workflow;
 # the two never read each other's files.
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".conductor")
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cortex", "cli")
 
 
 def _git_output(args):

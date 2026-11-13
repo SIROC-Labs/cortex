@@ -20,8 +20,8 @@ class TestGoalView(unittest.TestCase):
     def setUp(self):
         self.base = tempfile.mkdtemp()
         os.environ["CLAUDE_CONFIG_DIR"] = self.base
-        self.worktree = "/r/.conductor/worktrees/goal-1-x"
-        self.folder = os.path.join(self.base, "projects", "-r--conductor-worktrees-goal-1-x")
+        self.worktree = "/r/.cortex/worktrees/goal-1-x"
+        self.folder = os.path.join(self.base, "projects", "-r--cortex-worktrees-goal-1-x")
         os.makedirs(os.path.join(self.folder, "s1", "subagents"))
         self.goal = {"id": "goal-1-x", "worktree": self.worktree, "session": "s1",
                      "doing": "round 2", "round": 2, "cost": 1.5,

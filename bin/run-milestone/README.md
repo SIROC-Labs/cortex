@@ -33,7 +33,7 @@ Each pass:
    completed (inside the milestones or not), not canceled, unassigned or assigned to
    you, and not already run. Its status in Asana does not matter otherwise. It adds the task to the `--sprint` board,
    assigns it to you, and launches `start-task` on it. `start-task` takes the git setup
-   — fetch, worktree, draft PR — one run at a time under a lock in `.conductor/`.
+   — fetch, worktree, draft PR — one run at a time under a lock in `.cortex/`.
    Everything after that runs concurrently.
 3. **Watches each shipped PR**, backing off from one check a minute to one every ten
    while nothing changes:
@@ -73,7 +73,7 @@ is left (and why).
 
 ## State
 
-`<repo>/.conductor/milestones/<board-gid>/`:
+`<repo>/.cortex/milestones/<board-gid>/`:
 
 - `state.json` — the tasks in scope as last read, and a record per task: phase, PR,
   feedback already handled. Records are per task, so running a different set of

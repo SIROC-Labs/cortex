@@ -118,9 +118,9 @@ cond start-task <task-id>  --status           # progress, no work
 cond start-task --backends                    # which providers are usable here
 ```
 
-State lives in `.conductor/state/<task-id>/` at the **main repo root**, not in the worktree
+State lives in `.cortex/state/<task-id>/` at the **main repo root**, not in the worktree
 — the worktree does not exist yet when the prologue starts writing, and it may be removed
-after ship while the state is still wanted. `.conductor/` is the one directory the tool
+after ship while the state is still wanted. `.cortex/` is the one directory the tool
 writes into, and it ignores itself, so a repo being worked on never sees conductor files in
 its own diff; state written before the move, under a top-level `.start-task/`, is
 relocated on first touch rather than stranded. It holds `context.json`, `result.json`,
@@ -152,9 +152,9 @@ gate treats as non-blocking, so it genuinely can be absent.
    If found, attach to it rather than creating.
 8. Resolve base from `origin/main` via `git fetch origin` (never checks out a local
    base). Create worktree + branch: `git worktree add <path> -b <task-id>/<slug> <base>`
-   where `<path>` is `.conductor/worktrees/<task-id>+<slug>` inside the repo — one
+   where `<path>` is `.cortex/worktrees/<task-id>+<slug>` inside the repo — one
    directory holding every task's checkout, named so a human scanning it can tell
-   what each is for, and made invisible to git by a `.conductor/.gitignore`
+   what each is for, and made invisible to git by a `.cortex/.gitignore`
    containing `*` (which covers itself, so the repo's own `.gitignore` is never
    touched: nothing conductor writes should appear in the diff of the branch it is
    working on). A branch already checked out elsewhere is adopted rather than
@@ -305,7 +305,7 @@ screen look right" — is out of scope; see Non-goals.
   "external_links": ["https://figma.com/file/..."],
   "git": {
     "branch": "MT251-47/add-csv-export", "base": "origin/main",
-    "worktree": "/Users/.../repo/.conductor/worktrees/MT251-47+add-csv-export", "pr_url": "https://github.com/..."
+    "worktree": "/Users/.../repo/.cortex/worktrees/MT251-47+add-csv-export", "pr_url": "https://github.com/..."
   },
   "repo": {"root": "/Users/.../repo-MT251-47"}
 }

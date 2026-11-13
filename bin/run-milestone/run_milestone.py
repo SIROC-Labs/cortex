@@ -12,7 +12,7 @@
 # closed without merging stops it.
 #
 # Every run that is going, waiting on a human, or watching a PR is recorded under
-# `<repo>/.conductor/milestones/<board>/`, and a restart reconciles that record
+# `<repo>/.cortex/milestones/<board>/`, and a restart reconciles that record
 # against Asana, GitHub and start-task's own state rather than trusting it.
 #
 #   cond run-milestone <board-url> "M1" --sprint <sprint-url>   # until M1 is done
@@ -74,7 +74,7 @@ class BoardRun(Engine):
         self.wanted = milestones
         self.sprint_ref = sprint
         Engine.__init__(self, lambda root: os.path.join(
-            root, st.CONDUCTOR_DIRNAME, MILESTONES_DIRNAME, self.project), repo, forward)
+            root, st.CORTEX_DIRNAME, MILESTONES_DIRNAME, self.project), repo, forward)
 
     def resolve(self):
         """Who the tasks are assigned to, which sprint they go into and which

@@ -243,7 +243,7 @@ repo's goals that are not done, to pick from by number or key.
 
 ## Files
 
-A goal keeps its state in `.conductor/state/<id>/`:
+A goal keeps its state in `.cortex/state/<id>/`:
 
 | File | What |
 |---|---|
@@ -257,7 +257,7 @@ A goal keeps its state in `.conductor/state/<id>/`:
 | `usage.json` | the tokens of every call |
 | `calls.json`, `usage.txt` | each call's time, tokens and cost, by agent, and the report `u` shows |
 
-Its worktree is `.conductor/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
+Its worktree is `.cortex/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
 
 ## Tests
 

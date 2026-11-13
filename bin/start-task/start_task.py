@@ -53,10 +53,10 @@ from agent.base import USAGE_KEYS, usage_summary  # noqa: E402,F401
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASANA = os.path.join(HERE, "asana.py")
 PROMPTS = os.path.join(HERE, "prompts")
-# Everything conductor writes into a repo lives under .conductor/, which ignores itself
-# (see `ensure_conductor_dir`). Work happens on the branch being developed, so nothing
+# Everything conductor writes into a repo lives under .cortex/, which ignores itself
+# (see `ensure_cortex_dir`). Work happens on the branch being developed, so nothing
 # the tool leaves behind should ever turn up in that branch's diff.
-CONDUCTOR_DIRNAME = ".conductor"
+CORTEX_DIRNAME = ".cortex"
 WORKTREES_DIRNAME = "worktrees"
 STATE_DIRNAME = "state"
 # Where state used to live: a top-level directory that git could see. Runs that
@@ -371,25 +371,25 @@ class State(object):
     does not exist when the prologue starts writing and may be removed after ship."""
 
     def __init__(self, main_root, task_id):
-        self.dir = os.path.join(main_root, CONDUCTOR_DIRNAME, STATE_DIRNAME, task_id)
+        self.dir = os.path.join(main_root, CORTEX_DIRNAME, STATE_DIRNAME, task_id)
         self.legacy_dir = os.path.join(main_root, LEGACY_STATE_DIRNAME, task_id)
         self.main_root = main_root
         self.task_id = task_id
 
     def ensure(self):
         self.migrate_legacy()
-        # Via ensure_conductor_dir, so the ignore file is in place before anything
+        # Via ensure_cortex_dir, so the ignore file is in place before anything
         # is written under it — not one run later.
-        ensure_conductor_dir(self.main_root)
+        ensure_cortex_dir(self.main_root)
         os.makedirs(os.path.join(self.dir, "attachments"), exist_ok=True)
 
     def migrate_legacy(self):
-        """Move state written before it lived under `.conductor/`. A task in flight
+        """Move state written before it lived under `.cortex/`. A task in flight
         keeps its phases, its session and its answers; the alternative is a run
         that reports no state for work it did yesterday."""
         if os.path.isdir(self.dir) or not os.path.isdir(self.legacy_dir):
             return
-        ensure_conductor_dir(self.main_root)
+        ensure_cortex_dir(self.main_root)
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
         os.rename(self.legacy_dir, self.dir)
         info("moved %s state into %s" % (self.task_id, self.dir))
@@ -677,7 +677,7 @@ def set_up_branch(args, repo, main_root, tid, task):
     branches, existing_pr = find_existing_work(repo, tid)
     base = resolve_base(repo, args.base)
 
-    ensure_conductor_dir(main_root)
+    ensure_cortex_dir(main_root)
     worktree = worktree_path(main_root, tid, slug)
     reused = True
 
@@ -790,13 +790,13 @@ GITHUB_REFUSED = ("GitHub refused the credentials, so no PR can be opened — ch
 
 # --- worktrees --------------------------------------------------------------
 #
-# Worktrees live inside the repo, under .conductor/worktrees/<id>+<slug>. One
+# Worktrees live inside the repo, under .cortex/worktrees/<id>+<slug>. One
 # directory holds every task's checkout instead of scattering siblings beside the
 # clone, and one directory has to be ignored.
 
 
 def worktree_path(main_root, task_id, slug=None):
-    """Where a task's worktree belongs: `<repo>/.conductor/worktrees/<id>+<slug>`.
+    """Where a task's worktree belongs: `<repo>/.cortex/worktrees/<id>+<slug>`.
 
     The slug is in the name because a human scanning the directory should be able
     to tell what each worktree is for; the id alone does not say. Any separator in
@@ -807,7 +807,7 @@ def worktree_path(main_root, task_id, slug=None):
     if slug:
         name = "%s+%s" % (task_id, slug.replace("/", "-"))
     return os.path.abspath(
-        os.path.join(main_root, CONDUCTOR_DIRNAME, WORKTREES_DIRNAME, name))
+        os.path.join(main_root, CORTEX_DIRNAME, WORKTREES_DIRNAME, name))
 
 
 @contextlib.contextmanager
@@ -815,8 +815,8 @@ def repo_lock(main_root):
     """Hold the repo's git lock. Parallel runs share one object store and one set
     of refs; `fetch --prune` and `worktree add` racing each other is how a
     worktree ends up half-made, so those go through here one run at a time."""
-    ensure_conductor_dir(main_root)
-    with open(os.path.join(main_root, CONDUCTOR_DIRNAME, "git.lock"), "w") as f:
+    ensure_cortex_dir(main_root)
+    with open(os.path.join(main_root, CORTEX_DIRNAME, "git.lock"), "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             yield
@@ -824,15 +824,15 @@ def repo_lock(main_root):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def ensure_conductor_dir(main_root):
-    """Create `.conductor/` and make it ignore itself.
+def ensure_cortex_dir(main_root):
+    """Create `.cortex/` and make it ignore itself.
 
     A self-ignoring directory leaves the repo's own `.gitignore` untouched, which
     matters: conductor writes into the branch it is working on, and nothing it does
     should turn up in that branch's diff. `*` covers the .gitignore too, so the
     whole directory is invisible to git.
     """
-    root = os.path.join(main_root, CONDUCTOR_DIRNAME)
+    root = os.path.join(main_root, CORTEX_DIRNAME)
     os.makedirs(os.path.join(root, WORKTREES_DIRNAME), exist_ok=True)
     os.makedirs(os.path.join(root, STATE_DIRNAME), exist_ok=True)
     ignore = os.path.join(root, ".gitignore")

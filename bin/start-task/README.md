@@ -76,7 +76,7 @@ Without the file, QA runs only the tests that cover the files the branch changed
   it changed itself. Paths the `pytest.ini` leaves out with `--ignore` stay out.
 - Anything else, such as infrastructure or docs, runs no tests. CI runs the full suites.
 
-The CLI keeps its Asana cache in `~/.conductor/` — never the skills'
+The CLI keeps its Asana cache in `~/.cortex/cli/` — never the skills'
 `~/.cortex/cortex-workflow/`.
 
 ## Use
@@ -216,7 +216,7 @@ Done
   task MT251-47 shipped
 
   continue this session yourself (implement):
-    cd /…/.conductor/worktrees/MT251-47+csv-export && claude --resume 6f3a…
+    cd /…/.cortex/worktrees/MT251-47+csv-export && claude --resume 6f3a…
 ```
 
 It is the newest session — the implement call, or the last QA repair if one ran — and
@@ -237,7 +237,7 @@ still has that session is between you and it.
 | `--autonomy` | `full` | `read-only`, `edit`, `full` |
 | `--agent-cmd` | — | override the backend's command wholesale |
 | `--no-project-context` | off | skip the repo's CLAUDE.md / AGENTS.md |
-| `--no-worktree` | off | branch in the current directory instead of `.conductor/worktrees/` |
+| `--no-worktree` | off | branch in the current directory instead of `.cortex/worktrees/` |
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 | `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
@@ -254,13 +254,13 @@ appearing to have honoured it.
 
 | Phase | Model calls | What it does |
 |---|---|---|
-| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.conductor/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
+| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.cortex/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
 | `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, walkthrough, files_changed, notes}` block back |
 | `qa` | 0–2 | Runs the gates the change touches; on failure hands the output to a repair call, retries the gate, max 2 attempts before asking |
 | `ship` | 0 | Commits, pushes (checked), sets the PR body from `summary`, posts the `walkthrough` as a PR comment, marks it ready, status → In Review, 🚀 comment |
 | `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
-State lives in `<main-repo-root>/.conductor/state/<task-id>/` — `context.json`,
+State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `usage.json` (the tokens every agent call for the task has gone through — input,
 output, cache read and write — and their cost at API list price, added as each call
 comes back, with every call also kept on its own — time, kind, model, counts, cost), `timing.json`
@@ -273,7 +273,7 @@ outstanding, and `<phase>.failure.log`
 when a model call exits non-zero — that file is the only copy of what the provider
 printed, so it is written before the run dies.
 
-`.conductor/` ignores itself, so nothing the tool writes turns up in the diff of the branch
+`.cortex/` ignores itself, so nothing the tool writes turns up in the diff of the branch
 it is working on. State from before the move, in a top-level `.start-task/`, is
 relocated the first time a run touches that task.
 

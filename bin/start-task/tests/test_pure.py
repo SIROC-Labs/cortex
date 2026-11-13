@@ -24,7 +24,7 @@ from start_task import (  # noqa: E402
     State,
     build_outcome,
     checkpoint_problems,
-    ensure_conductor_dir,
+    ensure_cortex_dir,
     evaluate_gate,
     extract_external_links,
     extract_last_json_block,
@@ -360,27 +360,27 @@ class TestRecordSession(unittest.TestCase):
 
 
 class TestStateLocation(unittest.TestCase):
-    """Everything the tool writes belongs under `.conductor/`, which ignores itself.
+    """Everything the tool writes belongs under `.cortex/`, which ignores itself.
     The repo being worked in should never see a conductor file in its own diff."""
 
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
 
-    def test_state_lives_under_conductor(self):
+    def test_state_lives_under_cortex(self):
         self.assertEqual(State(self.root, "HGM-1").dir,
-                         os.path.join(self.root, ".conductor", "state", "HGM-1"))
+                         os.path.join(self.root, ".cortex", "state", "HGM-1"))
 
     def test_the_directory_ignores_itself_before_anything_is_written(self):
         State(self.root, "HGM-1").write("state.json", {"done": []})
-        ignore = os.path.join(self.root, ".conductor", ".gitignore")
+        ignore = os.path.join(self.root, ".cortex", ".gitignore")
         self.assertTrue(os.path.isfile(ignore))
         with open(ignore) as f:
             self.assertIn("*", f.read())
 
     def test_a_run_leaves_nothing_else_at_the_repo_root(self):
         State(self.root, "HGM-1").write("state.json", {"done": []})
-        self.assertEqual(os.listdir(self.root), [".conductor"])
+        self.assertEqual(os.listdir(self.root), [".cortex"])
 
 
 class TestStateMigration(unittest.TestCase):
@@ -402,7 +402,7 @@ class TestStateMigration(unittest.TestCase):
         self.legacy("HGM-1", ["prologue", "implement"])
         state = State.find(self.root, "HGM-1")
         self.assertEqual(state.dir,
-                         os.path.join(self.root, ".conductor", "state", "HGM-1"))
+                         os.path.join(self.root, ".cortex", "state", "HGM-1"))
         self.assertEqual(state.phases_done(), {"prologue", "implement"})
 
     def test_the_old_directory_is_cleaned_up_once_it_is_empty(self):
@@ -418,7 +418,7 @@ class TestStateMigration(unittest.TestCase):
             os.path.join(self.root, ".start-task", "HGM-2")))
 
     def test_current_state_is_never_overwritten_by_a_stale_legacy_copy(self):
-        current = os.path.join(self.root, ".conductor", "state", "HGM-1")
+        current = os.path.join(self.root, ".cortex", "state", "HGM-1")
         os.makedirs(current)
         with open(os.path.join(current, "state.json"), "w") as f:
             json.dump({"done": ["prologue", "implement", "qa", "ship"]}, f)
@@ -625,15 +625,15 @@ class TestWorktreePath(unittest.TestCase):
     `<id>+<slug>` convention already in these repos — a human reading a list of
     worktrees can tell what each one is for without opening it."""
 
-    def test_lives_under_conductor_worktrees_named_id_plus_slug(self):
+    def test_lives_under_cortex_worktrees_named_id_plus_slug(self):
         self.assertEqual(
             worktree_path("/repos/humanus-mono", "HGM-32", "i20-deploy-the-api"),
-            "/repos/humanus-mono/.conductor/worktrees/HGM-32+i20-deploy-the-api")
+            "/repos/humanus-mono/.cortex/worktrees/HGM-32+i20-deploy-the-api")
 
     def test_falls_back_to_the_bare_id_without_a_slug(self):
         for slug in (None, "", "   "):
             self.assertEqual(worktree_path("/repos/r", "HGM-32", slug),
-                             "/repos/r/.conductor/worktrees/HGM-32")
+                             "/repos/r/.cortex/worktrees/HGM-32")
 
     def test_is_absolute_and_normalised(self):
         path = worktree_path("/repos/humanus-mono/", "HGM-32", "slug")
@@ -642,36 +642,36 @@ class TestWorktreePath(unittest.TestCase):
 
     def test_a_slug_with_a_separator_cannot_escape_the_directory(self):
         path = worktree_path("/repos/r", "HGM-32", "a/../../etc")
-        self.assertTrue(path.startswith("/repos/r/.conductor/worktrees/"))
+        self.assertTrue(path.startswith("/repos/r/.cortex/worktrees/"))
 
 
-class TestEnsureConductorDir(unittest.TestCase):
+class TestEnsureCortexDir(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def test_creates_the_tree_and_a_self_ignoring_gitignore(self):
-        ensure_conductor_dir(self.root)
-        self.assertTrue(os.path.isdir(os.path.join(self.root, ".conductor", "worktrees")))
-        with open(os.path.join(self.root, ".conductor", ".gitignore")) as f:
+        ensure_cortex_dir(self.root)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".cortex", "worktrees")))
+        with open(os.path.join(self.root, ".cortex", ".gitignore")) as f:
             body = f.read()
         # `*` covers the .gitignore itself, so the whole directory is invisible and
         # the repo's own .gitignore is never touched.
         self.assertIn("*", body.split())
 
     def test_does_not_overwrite_an_existing_gitignore(self):
-        os.makedirs(os.path.join(self.root, ".conductor"))
-        path = os.path.join(self.root, ".conductor", ".gitignore")
+        os.makedirs(os.path.join(self.root, ".cortex"))
+        path = os.path.join(self.root, ".cortex", ".gitignore")
         with open(path, "w") as f:
             f.write("mine\n")
-        ensure_conductor_dir(self.root)
+        ensure_cortex_dir(self.root)
         with open(path) as f:
             self.assertEqual(f.read(), "mine\n")
 
     def test_is_idempotent(self):
-        ensure_conductor_dir(self.root)
-        ensure_conductor_dir(self.root)
-        self.assertTrue(os.path.isdir(os.path.join(self.root, ".conductor", "worktrees")))
+        ensure_cortex_dir(self.root)
+        ensure_cortex_dir(self.root)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".cortex", "worktrees")))
 
 
 class TestWorktreeForBranch(unittest.TestCase):
