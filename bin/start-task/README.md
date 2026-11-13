@@ -15,10 +15,10 @@ export ASANA_PERSONAL_ACCESS_TOKEN=...   # in ~/.zshrc
 
 Requires `git`, `gh` (authenticated), and `claude` on PATH. Nothing to install.
 
-To call it from anywhere, put the `cortex` dispatcher on your PATH:
+To call it from anywhere, put the `cond` dispatcher on your PATH:
 
 ```bash
-bash ../../setup-path.sh          # writes CORTEX_HOME + PATH to your shell profile
+bash ../../setup-path.sh          # writes CONDUCTOR_HOME + PATH to your shell profile
 bash ../../setup-path.sh --check  # report what is set, change nothing
 ```
 
@@ -30,12 +30,12 @@ python3 -m venv .venv
 ```
 
 The dispatcher resolves this directory's `.venv` when one exists, so the SDK
-backend is visible however `cortex` was reached.
+backend is visible however `cond` was reached.
 
 Check what's usable:
 
 ```bash
-cortex start-task --backends
+cond start-task --backends
 ```
 
 ```
@@ -76,7 +76,7 @@ Without the file, QA runs only the tests that cover the files the branch changed
   it changed itself. Paths the `pytest.ini` leaves out with `--ignore` stay out.
 - Anything else, such as infrastructure or docs, runs no tests. CI runs the full suites.
 
-The CLI keeps its Asana cache in `~/.cortex/cli/` — never the skills'
+The CLI keeps its Asana cache in `~/.conductor/` — never the skills'
 `~/.cortex/cortex-workflow/`.
 
 ## Use
@@ -84,7 +84,7 @@ The CLI keeps its Asana cache in `~/.cortex/cli/` — never the skills'
 From inside the target repository:
 
 ```bash
-cortex start-task https://app.asana.com/0/123/456
+cond start-task https://app.asana.com/0/123/456
 ```
 
 That runs every phase in order, skipping any already marked done in `state.json` —
@@ -96,11 +96,11 @@ Phases can also be run one at a time, taking the task id the prologue resolved. 
 `--phase` run is unconditional, which is how you redo a phase already marked done:
 
 ```bash
-cortex start-task https://app.asana.com/0/123/456 --phase prologue   # no model calls
-cortex start-task MT251-47 --phase implement
-cortex start-task MT251-47 --phase qa
-cortex start-task MT251-47 --phase ship
-cortex start-task MT251-47 --status                                  # no work
+cond start-task https://app.asana.com/0/123/456 --phase prologue   # no model calls
+cond start-task MT251-47 --phase implement
+cond start-task MT251-47 --phase qa
+cond start-task MT251-47 --phase ship
+cond start-task MT251-47 --status                                  # no work
 ```
 
 ### When the agent has a question
@@ -120,12 +120,12 @@ Blocked — asking 1217932680420187
 Any comment on the task after the question counts as the answer — there is no
 convention to remember, and a teammate can unblock a run that is not theirs — except
 the run's own posts. It posts as you, so every comment it writes, on the task or the
-PR, starts with `🤖 cortex ·`, and a comment carrying that mark is never an answer. The
+PR, starts with `🤖 conductor ·` (`🤖 cortex ·` before the rename), and a comment carrying either mark is never an answer. The
 wait is unbounded and costs one request every two minutes; Ctrl-C stops it and the
 pending question stays in `awaiting.json`, which `--status` prints. A rerun looks for
 the answer to that question before doing anything else, rather than asking again. An
 answer can also be handed over locally as `answer.json` in the task's state (that is
-how `cortex tui` answers); the wait looks for one every second, and takes it only when
+how `cond tui` answers); the wait looks for one every second, and takes it only when
 it answers the question actually pending.
 `--no-wait` posts and exits with code 3 instead of waiting.
 
@@ -153,7 +153,7 @@ was for.
 ### When the PR gets a review
 
 ```bash
-cortex start-task MT251-47 --phase revise --feedback-file review.md
+cond start-task MT251-47 --phase revise --feedback-file review.md
 ```
 
 Fetches, then applies review feedback in the task's worktree, resuming the agent's recorded session
@@ -216,7 +216,7 @@ Done
   task MT251-47 shipped
 
   continue this session yourself (implement):
-    cd /…/.cortex/worktrees/MT251-47+csv-export && claude --resume 6f3a…
+    cd /…/.conductor/worktrees/MT251-47+csv-export && claude --resume 6f3a…
 ```
 
 It is the newest session — the implement call, or the last QA repair if one ran — and
@@ -237,7 +237,7 @@ still has that session is between you and it.
 | `--autonomy` | `full` | `read-only`, `edit`, `full` |
 | `--agent-cmd` | — | override the backend's command wholesale |
 | `--no-project-context` | off | skip the repo's CLAUDE.md / AGENTS.md |
-| `--no-worktree` | off | branch in the current directory instead of `.cortex/worktrees/` |
+| `--no-worktree` | off | branch in the current directory instead of `.conductor/worktrees/` |
 | `--base` | `origin/main` | base branch |
 | `--strict` | off | Estimate and sprint membership become blocking |
 | `--ignore-deps` | off | incomplete dependencies warn instead of blocking |
@@ -254,13 +254,13 @@ appearing to have honoured it.
 
 | Phase | Model calls | What it does |
 |---|---|---|
-| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.cortex/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
+| `prologue` | 0 | Parse URL, fetch task + subtasks + deps + comments + attachments, gate, claim if unassigned, create worktree in `.conductor/worktrees/<task-id>+<slug>` + branch off `origin/main`, empty commit, push, draft PR, status → In Progress, 🏁 comment |
 | `implement` | 1 | Feeds the context bundle through the seam, expects a `{summary, walkthrough, files_changed, notes}` block back |
 | `qa` | 0–2 | Runs the gates the change touches; on failure hands the output to a repair call, retries the gate, max 2 attempts before asking |
 | `ship` | 0 | Commits, pushes (checked), sets the PR body from `summary`, posts the `walkthrough` as a PR comment, marks it ready, status → In Review, 🚀 comment |
 | `revise` | 1+ | Not part of a full run — applies PR feedback, QA, push, replies on the PR |
 
-State lives in `<main-repo-root>/.cortex/state/<task-id>/` — `context.json`,
+State lives in `<main-repo-root>/.conductor/state/<task-id>/` — `context.json`,
 `result.json`, `qa.json`, `state.json`, `outcome.json`, `revise.json`, `usage.json` (the tokens every agent call for the task has gone through — input,
 output, cache read and write — and their cost at API list price, added as each call
 comes back, with every call also kept on its own — time, kind, model, counts, cost), `timing.json`
@@ -273,7 +273,7 @@ outstanding, and `<phase>.failure.log`
 when a model call exits non-zero — that file is the only copy of what the provider
 printed, so it is written before the run dies.
 
-`.cortex/` ignores itself, so nothing the tool writes turns up in the diff of the branch
+`.conductor/` ignores itself, so nothing the tool writes turns up in the diff of the branch
 it is working on. State from before the move, in a top-level `.start-task/`, is
 relocated the first time a run touches that task.
 

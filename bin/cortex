@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# cortex — dispatcher for the tools in this directory.
+# cond — the conductor dispatcher for the tools in this directory.
 #
-#   cortex <tool> [args...]
+#   cond <tool> [args...]
 #
 # A tool is a subdirectory holding an entrypoint named after it with dashes
 # turned into underscores: bin/start-task/start_task.py. The dispatcher adds no
@@ -30,12 +30,12 @@ list_tools() {
 }
 
 if [ $# -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  echo "usage: cortex <tool> [args...]"
+  echo "usage: cond <tool> [args...]"
   echo ""
   echo "tools:"
   list_tools
   echo ""
-  echo "Run 'cortex <tool> --help' for a tool's own arguments."
+  echo "Run 'cond <tool> --help' for a tool's own arguments."
   exit 0
 fi
 
@@ -44,7 +44,7 @@ shift
 
 ENTRY="$BIN/$TOOL/${TOOL//-/_}.py"
 if [ ! -f "$ENTRY" ]; then
-  echo "cortex: unknown tool '$TOOL'" >&2
+  echo "cond: unknown tool '$TOOL'" >&2
   echo "" >&2
   echo "tools:" >&2
   list_tools >&2

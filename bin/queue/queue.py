@@ -5,11 +5,11 @@
 # Any agent or script on this machine can use it: it changes the same control
 # file the TUI changes, and this repo's daemon picks the change up the same way.
 #
-#   cortex queue add <task>... [--into BRANCH] [--checkpoint]   # a milestone queues its open subtasks
-#   cortex queue remove <task>...
-#   cortex queue undo <task>...                                 # discard a task's run, PR and branch
-#   cortex queue goal <task> [--into BRANCH]                     # run the ticket as a goal
-#   cortex queue list
+#   cond queue add <task>... [--into BRANCH] [--checkpoint]   # a milestone queues its open subtasks
+#   cond queue remove <task>...
+#   cond queue undo <task>...                                 # discard a task's run, PR and branch
+#   cond queue goal <task> [--into BRANCH]                     # run the ticket as a goal
+#   cond queue list
 #
 # <task> is an Asana task URL or gid. Without --into, work goes into the TUI's
 # Queue into branch.
@@ -94,7 +94,7 @@ def daemon_note(main_root):
     notes = []
     if not dm.daemon_info(main_root)[1]:
         notes.append("this repo's daemon is not running — nothing starts until it is "
-                     "(open the TUI, or `cortex tui` and press s on the Daemons tab)")
+                     "(open the TUI, or `cond tui` and press s on the Daemons tab)")
     if not dm.read_control(main_root).get("sprint"):
         notes.append("no sprint is picked — pick one in the TUI (Setup, tab 3) before tasks start")
     return notes
@@ -125,7 +125,7 @@ def add(main_root, refs, branch=None, checkpoint=False):
                 records.get(item["gid"]), st.State(main_root, key).read("context.json"))
             if left:
                 out.append("not queued: %s %s — an earlier run left work (%s). Undo it first "
-                           "with `cortex queue undo %s`, then queue it again"
+                           "with `cond queue undo %s`, then queue it again"
                            % (key, item["name"], left, item["gid"]))
             else:
                 items.append(dict(item, base=base))
@@ -184,7 +184,7 @@ def undo(main_root, refs, wait=600):
                 break
             time.sleep(2)
         else:
-            out.append("%s: the daemon has not done the undo yet — `cortex queue list` shows "
+            out.append("%s: the daemon has not done the undo yet — `cond queue list` shows "
                        "when it has" % key)
             continue
         result = next((r for r in data.get("results") or [] if r.get("id") == cid), {})
@@ -212,7 +212,7 @@ def goal(main_root, ref, branch=None):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(prog="cortex queue", description=(
+    parser = argparse.ArgumentParser(prog="cond queue", description=(
         "Queue Asana tasks, milestones and goals for this repo's daemon, as the TUI does. "
         "A task is its Asana URL or gid."))
     parser.add_argument("--repo", default=os.getcwd(), help="target repository (default: cwd)")

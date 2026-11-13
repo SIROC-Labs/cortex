@@ -9,10 +9,10 @@
 # working; opening it again, from any terminal, shows every daemon on the machine
 # and every run still going in this repo, owned or not.
 #
-#   cortex tui                    # the UI (run from inside the target repo)
-#   cortex tui --status           # the queue and the daemon, printed; no UI
-#   cortex tui --stop             # stop this repo's daemon and its runs
-#   cortex tui --backend echo     # anything else goes to start-task, via the daemon
+#   cond tui                    # the UI (run from inside the target repo)
+#   cond tui --status           # the queue and the daemon, printed; no UI
+#   cond tui --stop             # stop this repo's daemon and its runs
+#   cond tui --backend echo     # anything else goes to start-task, via the daemon
 #
 # Dependencies: Python 3 stdlib (curses), git, gh, and start-task / run-milestone
 # (sibling directories).
@@ -2245,7 +2245,7 @@ class App(object):
             self.control.get("merge_mode"), " · auto-merge: off the default branch")
         if health == "busy":
             health = "busy: %s" % "; ".join(self.daemon.get("busy") or [])
-        put(0, "cortex · %s · daemon %s%s · sprint: %s" % (
+        put(0, "conductor · %s · daemon %s%s · sprint: %s" % (
             os.path.basename(self.main_root), health,
             " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])
                              if self.daemon.get("forward") else "") if self.alive else "",
@@ -2558,7 +2558,7 @@ def applescript_text(text):
 
 def discuss_command_line(main_root, gid):
     """The shell line that opens the discussion, for a tab of its own."""
-    return " ".join(shlex.quote(a) for a in (os.path.join(os.path.dirname(HERE), "cortex"), "goal",
+    return " ".join(shlex.quote(a) for a in (os.path.join(os.path.dirname(HERE), "cond"), "goal",
                                              "discuss", gid, "--repo", main_root))
 
 
@@ -2595,7 +2595,7 @@ def edit_answer(scr, template):
     """Open $VISUAL / $EDITOR on the template and return the answer written, the
     way `git commit` does."""
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
-    fd, path = tempfile.mkstemp(prefix="cortex-answer-", suffix=".md")
+    fd, path = tempfile.mkstemp(prefix="conductor-answer-", suffix=".md")
     try:
         with os.fdopen(fd, "w") as f:
             f.write(template)
@@ -2627,7 +2627,7 @@ def print_status(main_root):
     if not rows:
         sys.stdout.write("\nnothing queued\n")
     if waits:
-        sys.stdout.write("\n⚑ %d waiting on you — answer in `cortex tui`, or on the task\n"
+        sys.stdout.write("\n⚑ %d waiting on you — answer in `cond tui`, or on the task\n"
                          % len(waits))
     for row in rows:
         sys.stdout.write("\n  %-8s %s\n           %s\n" % tuple(row["cols"]))
@@ -2644,7 +2644,7 @@ def print_status(main_root):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="cortex tui",
+        prog="cond tui",
         description="Browse boards, queue tasks, and watch the runs that work them. "
                     "Arguments not listed here are passed to every start-task run.")
     parser.add_argument("--repo", default=os.getcwd(), help="target repository (default: cwd)")

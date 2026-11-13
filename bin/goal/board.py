@@ -104,7 +104,7 @@ def question_body(q):
         lines += ["Why: " + q["why"], ""]
     return made(lines, "Answer in a comment on this subtask, then complete it. The goal goes "
                        "on when every question under Questions is complete. You can answer "
-                       "on the cortex TUI instead.")
+                       "on the conductor TUI instead.")
 
 
 def review_name(split):
@@ -214,7 +214,7 @@ def answers_text(questions, said):
 def comments_since(comments, since):
     """The texts of the comments a person made at or after `since` (an ISO time)."""
     return [c["text"].strip() for c in comments or []
-            if (c.get("text") or "").strip() and not c["text"].startswith(st.BOT_MARK)
+            if (c.get("text") or "").strip() and not st.is_marked(c["text"])
             and (c.get("created_at") or "") >= (since or "")]
 
 

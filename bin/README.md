@@ -1,14 +1,14 @@
-# cortex
+# cond
 
 A dispatcher for the command-line tools in this directory.
 
 ```
-cortex <tool> [args...]
+cond <tool> [args...]
 ```
 
 It adds no commands of its own — everything after the tool name belongs to the tool.
 Its one job is to find the tool and run it with the right Python, so a tool with its
-own `.venv` gets that interpreter no matter where you called `cortex` from.
+own `.venv` gets that interpreter no matter where you called `cond` from.
 
 ## Why
 
@@ -27,18 +27,33 @@ get tested.
 ## Install
 
 ```bash
-bash ../setup-path.sh          # adds CORTEX_HOME + PATH to ~/.zshrc (or ~/.bashrc)
+bash ../setup-path.sh          # adds CONDUCTOR_HOME + PATH to ~/.zshrc (or ~/.bashrc)
 bash ../setup-path.sh --check  # report what's set, change nothing
 ```
 
 Then reload your shell. Nothing is copied or symlinked outside the clone, so if you
 move or rename the clone, re-run it.
 
+### Coming from `cortex`
+
+The command was `cortex`, and its state lived in `.cortex/`. It is now `cond`, with its
+state in `.conductor/`:
+
+1. Stop the old daemons and runs (`cortex tui --stop` in each repo).
+2. Run `bash ../setup-path.sh`, delete the old `CORTEX_HOME` lines it points out, and
+   open a new terminal.
+3. `cond migrate` shows what moves; `cond migrate --apply` moves it. Pass `--repo PATH`
+   for a repo no daemon registered.
+4. Start the daemon again from the new terminal (`cond tui`).
+
+Comments the old runs posted (`🤖 cortex ·`) and subtasks the old goals planned are still
+recognised as the runs' own.
+
 ## Use
 
 ```bash
-cortex                  # list the tools
-cortex <tool> --help    # a tool's own arguments
+cond                    # list the tools
+cond <tool> --help      # a tool's own arguments
 ```
 
 | Tool | What it does |
@@ -48,6 +63,7 @@ cortex <tool> --help    # a tool's own arguments
 | [`tui`](tui/README.md) | Browse boards, queue tasks and watch the runs; a background daemon works the queue |
 | [`goal`](goal/README.md) | Implements an Asana ticket by itself — a lead agent with its own sub-agents — on one branch, into one PR |
 | [`queue`](queue/README.md) | Queues Asana tasks, milestones and goals from the command line, as the TUI does — for scripts and other agents |
+| `migrate` | Moves the state an older `cortex` install left in `~/.cortex/cli` and `<repo>/.cortex/` to conductor's folders |
 
 Run tools from inside the repo you want them to act on.
 
@@ -63,6 +79,6 @@ bin/my-tool/my_tool.py
 The dispatcher picks it up automatically. Two conventions:
 
 - **Summary line.** Put `# my-tool — one line about it` in the first few lines of the
-  entrypoint. That's what `cortex` prints in the tool list.
+  entrypoint. That's what `cond` prints in the tool list.
 - **Dependencies.** If the tool needs packages, create `bin/my-tool/.venv`. The
   dispatcher uses it when it exists and falls back to `python3` when it doesn't.

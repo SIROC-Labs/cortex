@@ -10,10 +10,10 @@ From inside the target repository, naming the board, the milestones on it to wor
 the sprint board the tasks go into:
 
 ```bash
-cortex run-milestone <board-url> M1 --sprint <sprint-url>
-cortex run-milestone <board-url> M1 M2 --sprint <sprint-url>       # several at once
-cortex run-milestone <board-url> --status                          # where every task stands
-cortex run-milestone <board-url> M1 --sprint <url> --backend echo  # other flags → start-task
+cond run-milestone <board-url> M1 --sprint <sprint-url>
+cond run-milestone <board-url> M1 M2 --sprint <sprint-url>       # several at once
+cond run-milestone <board-url> --status                          # where every task stands
+cond run-milestone <board-url> M1 --sprint <url> --backend echo  # other flags → start-task
 ```
 
 A milestone is named by its full name, the short name before ` :: ` (`M1`), or its
@@ -33,12 +33,12 @@ Each pass:
    completed (inside the milestones or not), not canceled, unassigned or assigned to
    you, and not already run. Its status in Asana does not matter otherwise. It adds the task to the `--sprint` board,
    assigns it to you, and launches `start-task` on it. `start-task` takes the git setup
-   — fetch, worktree, draft PR — one run at a time under a lock in `.cortex/`.
+   — fetch, worktree, draft PR — one run at a time under a lock in `.conductor/`.
    Everything after that runs concurrently.
 3. **Watches each shipped PR**, backing off from one check a minute to one every ten
    while nothing changes:
    - a review, inline comment or PR comment that is not the run's own (marked
-     `🤖 cortex ·`) and not from a bot account is handed to `start-task --phase revise`,
+     `🤖 conductor ·`) and not from a bot account is handed to `start-task --phase revise`,
      which applies it in the task's session, runs the gates the change touches, pushes
      and replies on the PR;
    - a merge completes the task in Asana, moves it to Done and removes its worktree;
@@ -59,7 +59,7 @@ Each pass:
      it; its dependents stay blocked.
 
 The engine can also drive a PR to merge — resolving conflicts and fixing failing checks
-on the way — when asked to; `cortex tui`'s `m` is how. `run-milestone` itself never
+on the way — when asked to; `cond tui`'s `m` is how. `run-milestone` itself never
 merges.
 
 A run that needs you — the agent's questions, QA still red, a refused push — waits on
@@ -73,7 +73,7 @@ is left (and why).
 
 ## State
 
-`<repo>/.cortex/milestones/<board-gid>/`:
+`<repo>/.conductor/milestones/<board-gid>/`:
 
 - `state.json` — the tasks in scope as last read, and a record per task: phase, PR,
   feedback already handled. Records are per task, so running a different set of

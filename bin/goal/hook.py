@@ -84,7 +84,8 @@ WAIT = ("Refused: do not wait for a sub-agent with sleep or a loop. Its report r
         "until a report arrives, end your reply with one short line, such as \"I wait for "
         "the reports\". You continue when the next report arrives.")
 SLEEP = re.compile(r"(?:^|[;&|(`\s])sleep\s")
-CORTEX = re.compile(r"(?:^|[;&|(`\s])cortex(?:\s|$)")
+# Fence texts that name a command: they fence off running it, not every mention.
+COMMANDS = ("cond", "cortex")
 
 
 DISCUSS = ("Refused: in a discussion you change nothing in the repository, the goal's files "
@@ -135,12 +136,13 @@ def blocked(command):
 
 
 def fenced(tool_input, texts):
-    """Whether a tool call names a fenced text, anywhere in its input. `cortex`
-    alone fences off running the cortex command."""
+    """Whether a tool call names a fenced text, anywhere in its input. A command
+    name alone (`cond`, `cortex`) fences off running that command."""
     flat = json.dumps(tool_input)
-    if "cortex" in texts and CORTEX.search(str(tool_input.get("command") or "")):
+    command = str(tool_input.get("command") or "")
+    if any(re.search(r"(?:^|[;&|(`\s])%s(?:\s|$)" % c, command) for c in COMMANDS if c in texts):
         return True
-    return any(t in flat for t in texts if t != "cortex")
+    return any(t in flat for t in texts if t not in COMMANDS)
 
 
 def inside(path, root):

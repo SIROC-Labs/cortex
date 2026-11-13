@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-spec = importlib.util.spec_from_file_location("cortex_queue", os.path.join(HERE, "queue.py"))
+spec = importlib.util.spec_from_file_location("conductor_queue", os.path.join(HERE, "queue.py"))
 q = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(q)
 
@@ -91,7 +91,7 @@ class TestCommands(unittest.TestCase):
         out = q.add(self.root, ["1", "9"])
         self.assertEqual(self.queued(), [])
         self.assertIn("not queued: A-1 one — an earlier run left work (PR u). Undo it first with "
-                      "`cortex queue undo 1`, then queue it again", out)
+                      "`cond queue undo 1`, then queue it again", out)
         self.assertTrue(any(line.startswith("not queued: 10 ten — an earlier run left work "
                                             "(it is merged, PR v)") for line in out))
 

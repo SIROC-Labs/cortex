@@ -6,12 +6,12 @@ TUI, and this repo's daemon picks the change up the same way. A TUI that is open
 at once.
 
 ```bash
-cortex queue add https://app.asana.com/0/0/1218985136116349   # a task, or a milestone's open subtasks
-cortex queue add 1218985136116349 1218985136116350 --into feature/m6 --checkpoint
-cortex queue remove 1218985136116349
-cortex queue undo 1218985136116349                            # discard its run, PR and branch first
-cortex queue goal https://app.asana.com/0/0/1218985136116349  # run the ticket as a goal
-cortex queue list                                             # the goals, the queue, the daemon
+cond queue add https://app.asana.com/0/0/1218985136116349   # a task, or a milestone's open subtasks
+cond queue add 1218985136116349 1218985136116350 --into feature/m6 --checkpoint
+cond queue remove 1218985136116349
+cond queue undo 1218985136116349                            # discard its run, PR and branch first
+cond queue goal https://app.asana.com/0/0/1218985136116349  # run the ticket as a goal
+cond queue list                                             # the goals, the queue, the daemon
 ```
 
 Run it in the repo the work is for, or in one of its worktrees, or give `--repo`. A task

@@ -3,10 +3,10 @@
 Browse boards, queue tasks, and watch the runs that work them — in the terminal.
 
 ```bash
-cortex tui                  # from inside the target repo
-cortex tui --status         # the queue and the daemon, printed; no UI
-cortex tui --stop           # stop this repo's daemon and the runs it launched
-cortex tui --backend echo   # any other flag goes to every start-task run
+cond tui                  # from inside the target repo
+cond tui --status         # the queue and the daemon, printed; no UI
+cond tui --stop           # stop this repo's daemon and the runs it launched
+cond tui --backend echo   # any other flag goes to every start-task run
 ```
 
 The work is done by a background daemon, one per repo, through the same engine as
@@ -51,7 +51,7 @@ will do, and which tasks that wait on it have already started, and asking:
 - **not merged:** its run is stopped, its PR closed with a note and its branch deleted
   (on GitHub and here), its worktree and saved state removed;
 - **merged:** a PR is opened reverting its merge from the branch it went into. It is
-  never merged by cortex, whatever Merging is set to — merge it yourself when you are
+  never merged by conductor, whatever Merging is set to — merge it yourself when you are
   sure. If the merge does not revert cleanly (later work builds on it), nothing is
   changed and it says so.
 
@@ -184,7 +184,7 @@ says what happened.
 
 ## Setup
 
-Settings are per repo: they live in the repo's `.cortex/queue/`, beside its queue and
+Settings are per repo: they live in the repo's `.conductor/queue/`, beside its queue and
 its daemon.
 
 - **Sprint** — the board queued tasks are added to.
@@ -312,7 +312,7 @@ did not run the checks (…): needs you*. Fix that, then re-run the checks on Gi
 ## Asana data and its cache
 
 Nothing waits on the network to draw. Boards and their sections are cached in
-`$XDG_CACHE_HOME/cortex/asana/` (`~/.cache/cortex/asana/` by default) and shown at
+`$XDG_CACHE_HOME/conductor/asana/` (`~/.cache/conductor/asana/` by default) and shown at
 once, with their age at the right of the breadcrumb (`updated 4m ago`). When the copy
 is older than the view tolerates, Asana is re-read in the background — a spinner says
 so, you can keep moving or leave the view, and the screen updates when it lands:
@@ -329,7 +329,7 @@ never stale. The cache is only ever a copy; deleting it costs one slower first l
 
 ## No ghost runs
 
-- Every daemon registers in `~/.cortex/cli/daemons/`, so the Daemons tab — from any
+- Every daemon registers in `~/.conductor/daemons/`, so the Daemons tab — from any
   terminal, in any repo — lists them all. A daemon that died uncleanly shows as
   `crashed`, with how many of its runs are still going.
 - Stopping a daemon stops the runs it launched.
@@ -358,7 +358,7 @@ longer set there is unset for the daemon too.
 
 ## Files
 
-`<repo>/.cortex/queue/`:
+`<repo>/.conductor/queue/`:
 
 - `control.json` — written by the TUI: the queue, the sprint, and stop/retry commands
 - `state.json` — written by the daemon: what it last read of each task, and each run's

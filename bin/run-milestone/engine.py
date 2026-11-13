@@ -602,7 +602,7 @@ def task_url(board, gid):
 
 TOKEN_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "ASANA_PERSONAL_ACCESS_TOKEN")
 TOKENS_EVERY = 60
-ENV_MARK = "__cortex_env__"
+ENV_MARK = "__conductor_env__"
 
 
 def parse_shell_env(out, names):
@@ -692,7 +692,7 @@ class Engine(object):
             return {"tasks": {}, "records": {}}
 
     def save(self):
-        st.ensure_cortex_dir(self.main_root)
+        st.ensure_conductor_dir(self.main_root)
         os.makedirs(self.dir, exist_ok=True)
         tmp = self.path("state.json.tmp")
         with open(tmp, "w") as f:
@@ -1226,7 +1226,7 @@ class Engine(object):
                 run(["git", "branch", "-D", branch], cwd=self.main_root)
         if pr:
             code, _, err = run(["gh", "pr", "close", pr, "--delete-branch", "--comment",
-                                st.mark("Undone from the cortex TUI — this work is discarded.")],
+                                st.mark("Undone from the conductor TUI — this work is discarded.")],
                                cwd=self.main_root)
             done.append("PR closed, branch deleted" if code == 0 else "PR not closed: %s" % err)
             if code != 0 and branch:
@@ -1284,7 +1284,7 @@ class Engine(object):
                 return False, "could not push the revert: %s" % err
             code, out, err = run(["gh", "pr", "create", "--base", base, "--head", branch,
                                   "--title", "Revert \u201c%s\u201d" % view.get("title", key),
-                                  "--body", st.mark("Reverts #%s — %s undone from the cortex TUI. "
+                                  "--body", st.mark("Reverts #%s — %s undone from the conductor TUI. "
                                                     "Not merged automatically: merge it when you "
                                                     "are sure." % (view.get("number"), key))],
                                  cwd=path)
@@ -1309,7 +1309,7 @@ class Engine(object):
             self.asana(["task", "remove-from-board", gid, sprint["gid"]], check=False)
         if task.get("assignee_gid") == (self.data.get("me") or {}).get("gid"):
             self.asana(["task", "unassign", gid], check=False)
-        self.asana(["comment", "add", gid, st.mark("Undone from the cortex TUI: %s. The task is "
+        self.asana(["comment", "add", gid, st.mark("Undone from the conductor TUI: %s. The task is "
                                                     "back to not started." % what)], check=False)
         self.note(gid, "Undone — %s" % what, ["Asana: reopened if it was done, taken off the "
                                                "sprint, unassigned"])

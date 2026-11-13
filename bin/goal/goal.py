@@ -18,10 +18,10 @@
 # pauses while the Claude subscription is at or over its usage threshold. It never
 # merges anything.
 #
-#   cortex goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
-#   cortex goal run <id>                                              # run or resume it
+#   cond goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
+#   cond goal run <id>                                              # run or resume it
 #
-# A goal's state is `.cortex/state/<id>/` — `goal.json`, the journal, its
+# A goal's state is `.conductor/state/<id>/` — `goal.json`, the journal, its
 # questions and answers — the same place a task's run keeps its own, so the TUI
 # answers both the same way.
 
@@ -313,7 +313,7 @@ def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
             if (t.get("description") or "").strip():
                 out += [t["description"].strip(), ""]
     said = [c for c in comments
-            if (c.get("text") or "").strip() and not c["text"].startswith(st.BOT_MARK)]
+            if (c.get("text") or "").strip() and not st.is_marked(c["text"])]
     if said:
         out += ["## Comments", ""]
         out += ["- %s: %s" % (c.get("author") or "someone", c["text"].strip()) for c in said]
@@ -939,7 +939,7 @@ def link_dependencies(source, target):
     linked = []
     for root, dirs, _ in os.walk(source):
         rel = os.path.relpath(root, source)
-        if rel.count(os.sep) >= 3 or any(p in (".git", ".cortex") for p in rel.split(os.sep)):
+        if rel.count(os.sep) >= 3 or any(p in (".git", ".conductor") for p in rel.split(os.sep)):
             dirs[:] = []
             continue
         for d in list(dirs):
@@ -1004,7 +1004,7 @@ def checks_section(checks):
     return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
 
 
-SKIP_DIRS = {".git", "node_modules", ".cortex", "dist", "build", ".venv", "venv", "vendor"}
+SKIP_DIRS = {".git", "node_modules", ".conductor", "dist", "build", ".venv", "venv", "vendor"}
 
 
 def testing_guides(root, depth=3):
@@ -1229,7 +1229,7 @@ def _cost(cost, estimated=False):
 
 # What each model costs per weighted token, learned from calls that reported their
 # cost, so a call that was cut off before it could can still be priced.
-RATES_FILE = os.path.join(os.path.expanduser("~"), ".cortex", "cli", "model-rates.json")
+RATES_FILE = os.path.join(os.path.expanduser("~"), ".conductor", "model-rates.json")
 
 
 def normalise(calls):
@@ -1571,7 +1571,7 @@ def list_goals(main_root):
     for proc in list(_CHILDREN):
         if proc.poll() is not None:
             _CHILDREN.remove(proc)
-    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
+    root = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.STATE_DIRNAME)
     out = []
     for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         if not name.startswith("goal-"):
@@ -1619,7 +1619,7 @@ def mark_done(main_root, gid):
 
 def goal_and_parts(main_root, gid):
     """A goal and its parts, each as a Goal, the parts first; cleared ones too."""
-    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
+    root = os.path.join(main_root, st.CONDUCTOR_DIRNAME, st.STATE_DIRNAME)
     names = sorted(n for n in os.listdir(root) if n.startswith(gid + "--")) if os.path.isdir(root) else []
     return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
 
@@ -1634,7 +1634,7 @@ DISCUSS_DENY = ["AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
                 "mcp__claude_ai_Asana__create_task_from_template",
                 "mcp__claude_ai_Asana__create_project_from_template"]
 
-DISCUSS = """You help the person who runs a cortex goal talk it through. A cortex goal
+DISCUSS = """You help the person who runs a conductor goal talk it through. A conductor goal
 is an autonomous run that implements an Asana ticket. Other agents analyse it, plan
 it, review the plan and build it. You change nothing in the repository, the goal's
 files or Asana.
@@ -1753,7 +1753,7 @@ def discuss_command(main_root, gid):
         tree = g.read().get("worktree")
         if g is not top and tree and os.path.isdir(tree):
             dirs.append(tree)
-    scratch = os.path.join(os.path.realpath(tempfile.gettempdir()), "cortex-discuss-%s" % gid)
+    scratch = os.path.join(os.path.realpath(tempfile.gettempdir()), "conductor-discuss-%s" % gid)
     os.makedirs(scratch, exist_ok=True)
     # Edits are accepted without a prompt, and the hook refuses any outside the temp
     # folders. A shell command still asks the person first.
@@ -1841,7 +1841,7 @@ def undo(main_root, gid, wait=20):
     done.append("worktrees and branches removed here")
     if pr:
         code, _, err = st.run(["gh", "pr", "close", pr, "--comment",
-                               st.mark("Undone from cortex — this goal's work is discarded.")],
+                               st.mark("Undone from conductor — this goal's work is discarded.")],
                               cwd=main_root, check=False)
         done.append("PR closed" if code == 0 else "PR not closed: %s" % err.strip())
     if branch:
@@ -1984,7 +1984,7 @@ class Runner(object):
         """A value from the TUI's Setup tab, read each time so a change reaches a
         goal already running; None when the tab has none saved."""
         try:
-            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
                 return (json.load(f).get("models") or {}).get(key)
         except (IOError, OSError, ValueError, AttributeError):
             return None
@@ -1998,7 +1998,7 @@ class Runner(object):
         else the default, read each time so it reaches a goal already running. Not
         the goal's own: the tab must be true for every goal it lists."""
         try:
-            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
                 value = (json.load(f).get("models") or {}).get("check_effort")
         except (IOError, OSError, ValueError, AttributeError):
             value = None
@@ -2008,7 +2008,7 @@ class Runner(object):
         """The usage limit to pause at: the TUI's Setup tab's, read each time so a
         change reaches a goal already running, else the goal's own."""
         try:
-            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+            with open(os.path.join(self.main_root, st.CONDUCTOR_DIRNAME, "queue", "control.json")) as f:
                 value = json.load(f).get("usage_threshold")
         except (IOError, OSError, ValueError):
             value = None
@@ -3457,7 +3457,7 @@ def render(path, **kwargs):
 # --- command line --------------------------------------------------------------
 
 def main(argv):
-    parser = argparse.ArgumentParser(prog="cortex goal", description=__doc__)
+    parser = argparse.ArgumentParser(prog="cond goal", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     new = sub.add_parser("new", help="make a goal from an Asana ticket")
     new.add_argument("task", help="the ticket: its URL or gid")

@@ -3,10 +3,10 @@
 An Asana ticket, implemented by itself, on one branch, into one PR.
 
 ```bash
-cortex goal new https://app.asana.com/0/0/1218985136116349 --base feature/m6 --start
-cortex goal new 1218985136116349               # build on the default branch; start it later
-cortex goal run goal-hrt1-519-recruiter-s-queue  # run or resume one in the foreground
-cortex goal undo goal-hrt1-519-recruiter-s-queue # take all of it back out
+cond goal new https://app.asana.com/0/0/1218985136116349 --base feature/m6 --start
+cond goal new 1218985136116349               # build on the default branch; start it later
+cond goal run goal-hrt1-519-recruiter-s-queue  # run or resume one in the foreground
+cond goal undo goal-hrt1-519-recruiter-s-queue # take all of it back out
 ```
 
 The usual way in is the TUI: on a board, select a task or a milestone and pick *Run … as
@@ -35,7 +35,7 @@ acceptance criteria. *Review the plan* approves how the work is built, with the 
 plan attached. A part does the same under its own subtask, so each part has its own
 questions, *Review the plan* and steps. A subtask of yours with the same name as a step or a part is used as it is,
 and moved into the Execution section. The steps and parts are ticked as they are done. The goal's own
-subtasks carry "Planned by a cortex goal" in their description, and the queue, the boards
+subtasks carry "Planned by a conductor goal" in their description, and the queue, the boards
 and the goal's ask leave them out. The description of a subtask of yours is never
 changed.
 
@@ -202,7 +202,7 @@ This program is the harness around the lead:
   effort. It only verifies and reports: it plans no fix and changes nothing, and leaves
   the legwork on a large diff to Sonnet sub-agents. So the
   strongest model costs little there. All four are on the TUI's Setup tab, and on
-  `cortex goal new` as `--model`, `--subagent-model` and `--check-model`, all but the effort.
+  `cond goal new` as `--model`, `--subagent-model` and `--check-model`, all but the effort.
   A goal keeps the lead's and the sub-agents' models it started with. The checker's model and
   effort are what the Setup tab shows, read at each check and review, so they hold for every
   goal, running ones too.
@@ -229,7 +229,7 @@ The goal never merges, rebases or force-pushes, and never touches another branch
 deletes its branches, here and on GitHub, removes its worktrees and its saved state, and
 deletes every subtask it made on the ticket, answered questions too. A subtask of yours
 that it used as a step and ticked is reopened. It is *Undo the goal* in the TUI's palette
-on the goal's row, `cortex queue undo <ticket>`, or `cortex goal undo <id>`.
+on the goal's row, `cond queue undo <ticket>`, or `cond goal undo <id>`.
 
 **Discuss** opens a Claude session to talk a goal through, in the goal's worktree. Its
 journal, its open questions and the end of its log are in the session's prompt. Of its
@@ -238,12 +238,12 @@ when the talk needs them, so a split goal's discussion stays small on every turn
 by saying in a few lines what it has loaded, then waits for you. It runs in plan
 mode, without the tools that edit files or write to Asana, and it is told to change
 nothing: answers and approvals still go through the ticket or the TUI. It is *Discuss the
-goal* in the TUI's palette, or `cortex goal discuss [<id>]`: without an id, it lists the
+goal* in the TUI's palette, or `cond goal discuss [<id>]`: without an id, it lists the
 repo's goals that are not done, to pick from by number or key.
 
 ## Files
 
-A goal keeps its state in `.cortex/state/<id>/`:
+A goal keeps its state in `.conductor/state/<id>/`:
 
 | File | What |
 |---|---|
@@ -257,7 +257,7 @@ A goal keeps its state in `.cortex/state/<id>/`:
 | `usage.json` | the tokens of every call |
 | `calls.json`, `usage.txt` | each call's time, tokens and cost, by agent, and the report `u` shows |
 
-Its worktree is `.cortex/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
+Its worktree is `.conductor/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
 
 ## Tests
 

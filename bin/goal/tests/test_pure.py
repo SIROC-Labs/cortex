@@ -1126,7 +1126,7 @@ class TestWindDown(unittest.TestCase):
     def test_the_limit_on_the_setup_tab_reaches_a_running_goal(self):
         import json
         self.assertEqual(self.runner.threshold(), 75)
-        path = os.path.join(self.dir, goal.st.CORTEX_DIRNAME, "queue", "control.json")
+        path = os.path.join(self.dir, goal.st.CONDUCTOR_DIRNAME, "queue", "control.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             json.dump({"usage_threshold": 90}, f)
@@ -1196,7 +1196,9 @@ class TestWindDown(unittest.TestCase):
         self.assertTrue(hook.fenced({"file_path": "/u/Coding/SIROC/cortex/bin/tui/tui.py"},
                                     ["SIROC/cortex", "cortex"]))
         self.assertTrue(hook.fenced({"command": "cd x && cortex tui --status"}, ["cortex"]))
-        self.assertFalse(hook.fenced({"command": "cat bin/cortex/README.md"}, ["cortex"]))
+        self.assertTrue(hook.fenced({"command": "cd x && cond tui --status"}, ["cond"]))
+        self.assertFalse(hook.fenced({"command": "cd x && cond tui --status"}, ["cortex"]))
+        self.assertFalse(hook.fenced({"command": "cat bin/cond/README.md"}, ["cond"]))
         self.assertFalse(hook.fenced({"pattern": "def main"}, ["SIROC/cortex", "cortex"]))
         fence = goal.hook_settings("/f", "sonnet", ["SIROC/cortex"])["hooks"]["PreToolUse"][2]
         self.assertEqual(fence["matcher"], "*")
@@ -1210,14 +1212,14 @@ class TestWindDown(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
-        wt = "/repo/.cortex/worktrees/g"
+        wt = "/repo/.conductor/worktrees/g"
 
         def lead(tool, **tool_input):
             return hook.delegated({"tool_name": tool, "tool_input": tool_input}, wt)
         self.assertTrue(lead("Edit", file_path=wt + "/apps/a.ts"))
         self.assertTrue(lead("Write", file_path=wt + "/apps/new.ts"))
-        self.assertFalse(lead("Edit", file_path="/repo/.cortex/state/g/journal.md"))
-        self.assertFalse(lead("Write", file_path="/repo/.cortex/worktrees/g2/a.ts"))
+        self.assertFalse(lead("Edit", file_path="/repo/.conductor/state/g/journal.md"))
+        self.assertFalse(lead("Write", file_path="/repo/.conductor/worktrees/g2/a.ts"))
         for command in ("cat > apps/a.ts <<'X'", "echo x >> a.py", "sed -i '' s/a/b/ a.ts",
                         "perl -pi -e s/a/b/ a.ts", "printf x | tee a.ts", "git apply fix.patch"):
             self.assertTrue(lead("Bash", command=command), command)
@@ -1231,7 +1233,7 @@ class TestWindDown(unittest.TestCase):
         for command in ("rg -n 'a' apps", "cat apps/a.ts", "cd apps && grep -rn x .", "sed -n 1,80p a.py"):
             self.assertEqual(lead("Bash", command=command), hook.EXPLORE, command)
         for command in ("sed -n 1,400p /Users/j/.claude/projects/x/tool-results/b0.txt | tail -c 32000",
-                        "cat /repo/.cortex/state/g/goal.log | tail -40"):
+                        "cat /repo/.conductor/state/g/goal.log | tail -40"):
             self.assertIsNone(lead("Bash", command=command), command)
         self.assertEqual(lead("Bash", command="cat %s/apps/a.ts" % wt), hook.EXPLORE)
         self.assertEqual(lead("Bash", command="grep -rn x apps/web /tmp/y"), hook.EXPLORE)
@@ -1254,10 +1256,10 @@ class TestWindDown(unittest.TestCase):
             sys.stdin = io.StringIO(json.dumps({"tool_name": tool, "tool_input": tool_input}))
             with contextlib.redirect_stderr(io.StringIO()):
                 return hook.main(["discuss"])
-        self.assertEqual(discuss("Write", file_path=tmp + "/cortex-discuss-g/a.py", content="x"), 0)
+        self.assertEqual(discuss("Write", file_path=tmp + "/conductor-discuss-g/a.py", content="x"), 0)
         self.assertEqual(discuss("Write", file_path="/tmp/a.md", content="x"), 0)
         self.assertEqual(discuss("Edit", file_path=wt + "/apps/a.ts"), 2)
-        for command in ("python3 %s/cortex-discuss-g/a.py > %s/out.txt" % (tmp, tmp),
+        for command in ("python3 %s/conductor-discuss-g/a.py > %s/out.txt" % (tmp, tmp),
                         "mkdir -p /tmp/x", "git log --oneline", "rg -n x apps", "cat apps/a.ts | head"):
             self.assertEqual(discuss("Bash", command=command), 0, command)
         for command in ("echo x > apps/a.ts", "git commit -qm x", "git checkout -b y", "rm -rf apps",
@@ -1278,7 +1280,7 @@ class TestWindDown(unittest.TestCase):
             self.assertEqual(task(command), 0, command)
         self.assertEqual(lead("Grep", pattern="x", path=wt + "/apps"), hook.EXPLORE)
         self.assertFalse(lead("Read", file_path=wt + "/docs/decisions/a.md"))
-        self.assertFalse(lead("Read", file_path="/repo/.cortex/state/g/journal.md"))
+        self.assertFalse(lead("Read", file_path="/repo/.conductor/state/g/journal.md"))
         self.assertFalse(hook.delegated({"tool_name": "Read", "agent_type": "Explore",
                                          "tool_input": {"file_path": wt + "/apps/a.ts"}}, wt))
         self.assertFalse(hook.delegated({"tool_name": "Edit", "agent_type": "general-purpose",
@@ -1529,7 +1531,7 @@ class TestQuestionSubtasks(unittest.TestCase):
         import asana
         html = asana.md_to_html(goal.bd.question_body({"q": "Stay active?", "why": "It archives."}))
         self.assertTrue(html.startswith("Stay active?\n\nWhy: It archives.<hr/><em>Answer"))
-        self.assertIn("Planned by a cortex goal", html)
+        self.assertIn("Planned by a conductor goal", html)
         self.assertIn("btrim&lt;&gt;''", asana.md_to_html("**SQL**: btrim<>''"))
         self.assertEqual(asana.render_body(asana.md_to_html("a < b & c")), (False, "a < b & c"))
 
@@ -1780,8 +1782,8 @@ class TestPlanFlow(unittest.TestCase):
         self.runner.set(check_effort="xhigh", check_model="claude-fable-5-1")
         self.assertEqual(self.runner.check_effort(), goal.DEFAULT_CHECK_EFFORT)
         self.assertEqual(self.runner.check_model(), "claude-fable-5-1")
-        os.makedirs(os.path.join(self.dir, ".cortex", "queue"), exist_ok=True)
-        with open(os.path.join(self.dir, ".cortex", "queue", "control.json"), "w") as f:
+        os.makedirs(os.path.join(self.dir, ".conductor", "queue"), exist_ok=True)
+        with open(os.path.join(self.dir, ".conductor", "queue", "control.json"), "w") as f:
             json.dump({"models": {"check_effort": "medium", "check": "claude-opus-5-5"}}, f)
         self.assertEqual(self.runner.check_effort(), "medium")
         self.assertEqual(self.runner.check_model(), "claude-opus-5-5")

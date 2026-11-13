@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SIROC Cortex — PATH Setup
-# Puts the `cortex` dispatcher on your PATH by adding two exports to your shell
+# Conductor — PATH Setup
+# Puts the `cond` dispatcher on your PATH by adding two exports to your shell
 # profile. No symlinks, nothing copied outside this clone — move or rename the
 # clone and you re-run this.
 #
@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# bin/ holds the `cortex` dispatcher, which routes to the tools beside it. One
+# bin/ holds the `cond` dispatcher, which routes to the tools beside it. One
 # PATH entry covers every tool, now and later.
 PATH_DIRS=("bin")
 
@@ -36,31 +36,31 @@ else
   PROFILE="$HOME/.zshrc"
 fi
 
-SECTION_HEADER="# ─── SIROC Cortex ───────────────────────────"
+SECTION_HEADER="# ─── Conductor ──────────────────────────────"
 SECTION_FOOTER="# ─────────────────────────────────────────────"
 
 CHECK_ONLY=false
 [ "${1:-}" = "--check" ] && CHECK_ONLY=true
 
-echo -e "${BOLD}SIROC Cortex — PATH Setup${NC}"
+echo -e "${BOLD}Conductor — PATH Setup${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 info "clone:   ${ROOT}"
 info "profile: ${PROFILE}"
 echo ""
 
-# Lines to ensure, in order. CORTEX_HOME first — the PATH entries reference it.
-LINES=("export CORTEX_HOME=\"${ROOT}\"")
+# Lines to ensure, in order. CONDUCTOR_HOME first — the PATH entries reference it.
+LINES=("export CONDUCTOR_HOME=\"${ROOT}\"")
 for dir in "${PATH_DIRS[@]}"; do
-  LINES+=("export PATH=\"\$CORTEX_HOME/${dir}:\$PATH\"")
+  LINES+=("export PATH=\"\$CONDUCTOR_HOME/${dir}:\$PATH\"")
 done
 
-# An existing CORTEX_HOME pointing at a different clone is the one case worth
+# An existing CONDUCTOR_HOME pointing at a different clone is the one case worth
 # stopping for: appending a second one silently shadows the first.
-EXISTING_HOME=$(grep '^export CORTEX_HOME=' "$PROFILE" 2>/dev/null \
-  | head -1 | sed 's/^export CORTEX_HOME="//' | sed 's/"$//' || true)
+EXISTING_HOME=$(grep '^export CONDUCTOR_HOME=' "$PROFILE" 2>/dev/null \
+  | head -1 | sed 's/^export CONDUCTOR_HOME="//' | sed 's/"$//' || true)
 if [ -n "$EXISTING_HOME" ] && [ "$EXISTING_HOME" != "$ROOT" ]; then
-  fail "CORTEX_HOME already points elsewhere: ${EXISTING_HOME}"
+  fail "CONDUCTOR_HOME already points elsewhere: ${EXISTING_HOME}"
   info "Edit ${PROFILE} by hand, or remove that line and re-run"
   exit 1
 fi
@@ -74,7 +74,15 @@ while IFS= read -r stale; do
   done
   warn "stale entry in ${PROFILE}, safe to delete:"
   echo "      ${stale}"
-done < <(grep '^export PATH=".*CORTEX_HOME' "$PROFILE" 2>/dev/null || true)
+done < <(grep '^export PATH=".*CONDUCTOR_HOME' "$PROFILE" 2>/dev/null || true)
+
+# Before the rename this was cortex, set up by the cortex repo's own copy of this
+# script. Its lines still put the old `cortex` command on PATH.
+while IFS= read -r old; do
+  [ -n "$old" ] || continue
+  warn "left by the old cortex CLI in ${PROFILE}, delete it:"
+  echo "      ${old}"
+done < <(grep '^export .*CORTEX_HOME' "$PROFILE" 2>/dev/null || true)
 
 CHANGED=false
 for line in "${LINES[@]}"; do
@@ -99,15 +107,15 @@ for line in "${LINES[@]}"; do
 done
 
 if [ "$CHECK_ONLY" = false ]; then
-  chmod +x "${ROOT}/bin/cortex" 2>/dev/null || true
+  chmod +x "${ROOT}/bin/cond" 2>/dev/null || true
 fi
 
 echo ""
 if [ "$CHECK_ONLY" = true ]; then
-  if command -v cortex &>/dev/null; then
-    pass "cortex resolves to $(command -v cortex)"
+  if command -v cond &>/dev/null; then
+    pass "cond resolves to $(command -v cond)"
   else
-    warn "cortex is not on PATH in this shell"
+    warn "cond is not on PATH in this shell"
   fi
   exit 0
 fi
@@ -121,10 +129,10 @@ if [ "$CHANGED" = true ]; then
   echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
   echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  info "Then, from inside any repo: cortex start-task <task-url>"
+  info "Then, from inside any repo: cond start-task <task-url>"
 else
   echo -e "${GREEN}Nothing to do — PATH already set up.${NC}"
   echo ""
-  info "From inside any repo: cortex start-task <task-url>"
+  info "From inside any repo: cond start-task <task-url>"
 fi
 echo ""

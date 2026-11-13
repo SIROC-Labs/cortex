@@ -12,13 +12,13 @@
 # closed without merging stops it.
 #
 # Every run that is going, waiting on a human, or watching a PR is recorded under
-# `<repo>/.cortex/milestones/<board>/`, and a restart reconciles that record
+# `<repo>/.conductor/milestones/<board>/`, and a restart reconciles that record
 # against Asana, GitHub and start-task's own state rather than trusting it.
 #
-#   cortex run-milestone <board-url> "M1" --sprint <sprint-url>   # until M1 is done
-#   cortex run-milestone <board-url> M1 M2 --sprint <sprint-url>  # several at once
-#   cortex run-milestone <board-url> --status                     # where every task stands
-#   cortex run-milestone <board-url> M1 --sprint <url> --backend echo  # rest → start-task
+#   cond run-milestone <board-url> "M1" --sprint <sprint-url>   # until M1 is done
+#   cond run-milestone <board-url> M1 M2 --sprint <sprint-url>  # several at once
+#   cond run-milestone <board-url> --status                     # where every task stands
+#   cond run-milestone <board-url> M1 --sprint <url> --backend echo  # rest → start-task
 #
 # Dependencies: Python 3 stdlib, git, gh, and start-task (sibling directory).
 
@@ -74,7 +74,7 @@ class BoardRun(Engine):
         self.wanted = milestones
         self.sprint_ref = sprint
         Engine.__init__(self, lambda root: os.path.join(
-            root, st.CORTEX_DIRNAME, MILESTONES_DIRNAME, self.project), repo, forward)
+            root, st.CONDUCTOR_DIRNAME, MILESTONES_DIRNAME, self.project), repo, forward)
 
     def resolve(self):
         """Who the tasks are assigned to, which sprint they go into and which
@@ -121,7 +121,7 @@ class BoardRun(Engine):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="cortex run-milestone",
+        prog="cond run-milestone",
         description="Work every task in the given milestones of an Asana board through "
                     "start-task, in parallel, until each is merged. Arguments not "
                     "listed here are passed to every start-task run (e.g. --backend "
