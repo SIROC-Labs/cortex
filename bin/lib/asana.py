@@ -1114,7 +1114,7 @@ def task_get(args):
     sys.exit(0)
 
 
-# --- read verbs added for start-task -----------------------------------------
+# --- read verbs ----------------------------------------------------------------
 #
 # The upstream tm.py scripts Asana WRITES but leaves these three reads to raw curl
 # recipes in the provider's references/rest.md, for an agent to hand-assemble. A

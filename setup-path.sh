@@ -129,10 +129,10 @@ if [ "$CHANGED" = true ]; then
   echo -e "${YELLOW}  Or simply open a new terminal window.${NC}"
   echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  info "Then, from inside any repo: cond start-task <task-url>"
+  info "Then, from inside any repo: cond tui"
 else
   echo -e "${GREEN}Nothing to do — PATH already set up.${NC}"
   echo ""
-  info "From inside any repo: cond start-task <task-url>"
+  info "From inside any repo: cond tui"
 fi
 echo ""

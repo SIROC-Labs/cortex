@@ -1550,7 +1550,7 @@ class TestQuestionSubtasks(unittest.TestCase):
                          "Sipgate: build on a simulator?")
 
     def test_how_to_answer_is_under_a_line_apart_from_the_question(self):
-        sys.path.insert(0, goal.START_TASK_DIR)
+        sys.path.insert(0, goal.LIB_DIR)
         import asana
         html = asana.md_to_html(goal.bd.question_body({"q": "Stay active?", "why": "It archives."}))
         self.assertTrue(html.startswith("Stay active?\n\nWhy: It archives.<hr/><em>Answer"))

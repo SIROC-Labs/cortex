@@ -30,10 +30,11 @@ import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import daemon as dm  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
+import control as dm  # noqa: E402
+import core as st  # noqa: E402
 from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
-from engine import ASANA, Stop, task_url  # noqa: E402
-from daemon import st  # noqa: E402
+from ci import ASANA, Stop, task_url  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "goal"))
 import goal as gl  # noqa: E402
 import goal_view as gv  # noqa: E402

@@ -22,11 +22,11 @@ import argparse  # noqa: E402
 import re  # noqa: E402
 
 BIN = os.path.dirname(HERE)
-for tool in ("tui", "goal"):
+for tool in ("tui", "goal", "lib"):
     sys.path.insert(0, os.path.join(BIN, tool))
-import daemon as dm  # noqa: E402
+import control as dm  # noqa: E402
+import core as st  # noqa: E402
 import goal as gl  # noqa: E402
-from daemon import st  # noqa: E402
 
 _URL_PROJECT = re.compile(r"/project/(\d+)/|app\.asana\.com/0/(\d+)/\d+")
 

@@ -20,7 +20,7 @@ import re
 import tempfile
 import time
 
-import start_task as st
+import core as st
 
 BOARD_FILE = "asana.json"
 QUESTIONS, REVIEW, EXECUTION = "Questions", "Review", "Execution"

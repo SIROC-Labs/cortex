@@ -19,10 +19,9 @@ Handing those to a model costs a round-trip each, and it gets them wrong often e
 that the skills are full of shouty warnings trying to talk it out of skipping steps.
 
 The tools here invert that. Control flow is code, so the deterministic parts are fast,
-free, and identical on every run. A model is called only where one is genuinely needed,
-and every such call goes through a backend seam — so the provider is a flag, not a
-rewrite, and the whole flow can be run with no model at all, which is how these tools
-get tested.
+free, and identical on every run. A model is called only where one is genuinely needed.
+Every ticket runs as a goal: a lead agent analyses it, plans it, and builds it through
+its own coding agents, on one branch, into one PR. Tiny work skips the plan review.
 
 ## Install
 
@@ -36,13 +35,15 @@ move or rename the clone, re-run it.
 
 ### Coming from `cortex`
 
-The command was `cortex`; it is now `cond`. State stays where it was, in `<repo>/.cortex/`
-and `~/.cortex/cli/`, so queued and running work carries on:
+The command was `cortex`; it is now `cond`. Goals' state stays where it was, in
+`<repo>/.cortex/`, so running goals carry on. start-task, run-milestone and the daemon
+are gone: every ticket runs as a goal.
 
-1. Stop the old daemons (`cortex tui --stop` in each repo).
+1. Stop the old daemons (`cortex tui --stop` in each repo). Tasks still in their queue
+   do not start; finish or close their open PRs by hand.
 2. Run `bash ../setup-path.sh`, delete the old `CORTEX_HOME` lines it points out, and
    open a new terminal.
-3. Start the daemon again from the new terminal (`cond tui`).
+3. Open the TUI from the new terminal (`cond tui`).
 
 Comments the old runs posted (`🤖 cortex ·`) and subtasks the old goals planned are still
 recognised as the runs' own.
@@ -56,13 +57,12 @@ cond <tool> --help      # a tool's own arguments
 
 | Tool | What it does |
 |---|---|
-| [`start-task`](start-task/README.md) | Runs the start-task lifecycle — ticket to draft PR — as a program rather than a skill |
-| [`run-milestone`](run-milestone/README.md) | Works a board's milestones through `start-task`, in parallel, to merge |
-| [`tui`](tui/README.md) | Browse boards, queue tasks and watch the runs; a background daemon works the queue |
 | [`goal`](goal/README.md) | Implements an Asana ticket by itself — a lead agent with its own sub-agents — on one branch, into one PR |
-| [`queue`](queue/README.md) | Queues Asana tasks, milestones and goals from the command line, as the TUI does — for scripts and other agents |
+| [`tui`](tui/README.md) | Browse boards, start goals on tickets and watch them work |
+| [`queue`](queue/README.md) | Starts goals from the command line, as the TUI does — for scripts and other agents |
 
-Run tools from inside the repo you want them to act on.
+Run tools from inside the repo you want them to act on. `lib/` is not a tool: it holds
+what the tools share (git, Asana, a goal's state, CI, the settings file).
 
 ## Adding a tool
 

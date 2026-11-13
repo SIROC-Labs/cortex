@@ -6,7 +6,7 @@ set -euo pipefail
 #   cond <tool> [args...]
 #
 # A tool is a subdirectory holding an entrypoint named after it with dashes
-# turned into underscores: bin/start-task/start_task.py. The dispatcher adds no
+# turned into underscores: bin/goal/goal.py. The dispatcher adds no
 # verb of its own — every argument after the tool name is the tool's.
 #
 # It also resolves the interpreter, which a bare shebang cannot: a tool with its

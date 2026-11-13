@@ -65,7 +65,7 @@ class TestCommands(unittest.TestCase):
         self.assertEqual({g["base"] for g in goals.values()}, {"feature/m1"})
         self.assertEqual(goals["A-9"]["url"], "https://app.asana.com/0/77/9")
         self.assertEqual(len(launched), 2)
-        self.assertEqual(q.dm.read_control(self.root)["queue"], [])
+        self.assertNotIn("queue", q.dm.read_control(self.root))
         self.assertTrue(all(line.startswith("started the goal") for line in out))
 
     def test_a_milestone_is_one_goal_not_its_subtasks(self):

@@ -82,6 +82,10 @@ This program is the harness around the lead:
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
   part (`wait`, the default); you for the goal and the reviewer for its parts (`top`); or
   the reviewer only (`auto`). A goal keeps the setting it started with.
+- **Tiny work.** When the lead finds the work tiny and clear, such as a quick bug fix or
+  one button on a screen, it says so with the plan. Then there is no review, no approval
+  and no technical plan, whatever *Plan approval* says: after its questions, if any, it
+  builds and opens the PR. A goal that splits, and a part, is always reviewed.
 - **Parts, for very large work.** One lead builds most goals: its tasks already run at the
   same time. Only work of more than about 60 criteria, in areas that can be built at the
   same time, is split, never into a chain of parts that wait for each other. It writes `parts.json` in the
@@ -144,7 +148,7 @@ This program is the harness around the lead:
 - **Check, then sync and CI, by the runner.** When the lead says it is done, the runner
   merges the base into the branch and has the checker check it, without pushing. Only a
   clean check is pushed: a gap found after CI would cost a second CI run. The runner then
-  marks the PR ready for review and waits for its CI, as the merge step does for task runs. The runner waits for the whole CI run, even after a check
+  marks the PR ready for review and waits for its CI. The runner waits for the whole CI run, even after a check
   fails, so a fix never starts CI over while a run still bills. Every failing check, with
   the telling lines of its log, then goes at once to a fresh call on the lead's model
   (Opus) to fix, with two tries before the lead takes it on. The fixer opens only the files

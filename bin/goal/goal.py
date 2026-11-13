@@ -22,8 +22,7 @@
 #   cond goal run <id>                                              # run or resume it
 #
 # A goal's state is `.cortex/state/<id>/` — `goal.json`, the journal, its
-# questions and answers — the same place a task's run keeps its own, so the TUI
-# answers both the same way.
+# questions and answers.
 
 import argparse
 import datetime
@@ -42,13 +41,12 @@ import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-START_TASK_DIR = os.path.join(os.path.dirname(HERE), "start-task")
-sys.path.insert(0, START_TASK_DIR)
-import start_task as st  # noqa: E402
+LIB_DIR = os.path.join(os.path.dirname(HERE), "lib")
+sys.path.insert(0, LIB_DIR)
+import core as st  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope, unattended  # noqa: E402
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), "run-milestone"))
-from engine import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
+from ci import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
                     failed_runs, failure_excerpt, render_feedback)
 sys.path.insert(0, HERE)
 import board as bd  # noqa: E402
@@ -3157,8 +3155,8 @@ class Runner(object):
                    for c in comments)
 
     def announce(self, summary):
-        """The ticket hears the goal is done, as it does from a task: In Review, and
-        a comment with the PR. Once."""
+        """The ticket hears the goal is done: In Review, and a comment with the PR.
+        Once."""
         ref, pr_url = self.data.get("ref"), self.data.get("pr_url")
         if not ref or self.data.get("announced"):
             return

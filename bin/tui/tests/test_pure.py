@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 #
-# Unit tests for the TUI's and the daemon's pure functions — the rows each tab
-# shows, the goals and what they wait on, and the keys. The curses layer and the
-# daemon loop are validated by running them.
+# Unit tests for the TUI's pure functions — the rows each tab shows, the goals and
+# what they wait on, and the keys. The curses layer is validated by running it.
 #
 #   python3 tests/test_pure.py
 
@@ -16,9 +15,10 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lib"))
 
 import cache  # noqa: E402
-import daemon as dm  # noqa: E402
+import control as dm  # noqa: E402
 import tui  # noqa: E402
 from tui import palette_matches  # noqa: E402,F401
 from tui import (  # noqa: E402
@@ -26,222 +26,13 @@ from tui import (  # noqa: E402
     decode_key, fit, log_line, matches, parse_answer, parse_ls_remote, setup_rows,
     valid_branch_name, wait_lines, wait_summary,
 )
-from daemon import st  # noqa: E402
-
-
-class TestQueue(unittest.TestCase):
-    def test_add_skips_what_is_already_queued_and_keeps_order(self):
-        c = dm.empty_control()
-        self.assertEqual(dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}]), ["1", "2"])
-        self.assertEqual(dm.queue_add(c, [{"gid": "2"}, {"gid": "3"}]), ["3"])
-        self.assertEqual([q["gid"] for q in c["queue"]], ["1", "2", "3"])
-
-    def test_remove(self):
-        c = dm.empty_control()
-        dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}])
-        dm.queue_remove(c, ["1"])
-        self.assertEqual([q["gid"] for q in c["queue"]], ["2"])
-
-
-class TestDependencies(unittest.TestCase):
-    TASKS = {"7": {"key": "T-7", "deps": [{"ref": "5", "name": "five", "completed": False},
-                                          {"ref": "4", "name": "four", "completed": True}]},
-             "9": {"key": "T-9", "deps": [{"ref": "5", "name": "five", "completed": False},
-                                          {"ref": "7", "name": "seven", "completed": False}]},
-             "3": {"key": "T-3", "deps": [{"ref": "1", "completed": False}]}}
-
-    def test_unfinished_unqueued_dependencies_of_queued_tasks_once_each(self):
-        missing = dm.missing_dependencies(self.TASKS, ["7", "9"])
-        self.assertEqual([(m["gid"], m["needed_by"], m["for"]) for m in missing], [("5", "T-7", "7")])
-
-    def test_they_go_in_just_before_the_task_that_needs_them(self):
-        c = dm.empty_control()
-        dm.queue_add(c, [{"gid": "6"}, {"gid": "8"}, {"gid": "9"}])
-        self.assertEqual(dm.queue_insert_before(c, [{"gid": "5", "needed_by": "T-9"},
-                                                    {"gid": "8"}], "9"), ["5"])
-        self.assertEqual([q["gid"] for q in c["queue"]], ["6", "8", "5", "9"])
-        self.assertEqual(c["queue"][2]["needed_by"], "T-9")
-
-
-class TestCheckpointGate(unittest.TestCase):
-    QUEUE = [{"gid": "7"}, {"gid": "8", "checkpoint": True}, {"gid": "9"},
-             {"gid": "10", "checkpoint": True}, {"gid": "11"}]
-
-    def gate(self, records=None, continued=(), tasks=None):
-        gates, held = dm.checkpoint_gates(self.QUEUE, tasks or {}, records or {}, list(continued))
-        return (gates.get(None) or {}).get("gid"), held
-
-    def test_nothing_after_a_checkpoint_starts_while_it_is_still_running(self):
-        self.assertEqual(self.gate({"8": {"phase": "running"}}), ("8", {"9", "10", "11"}))
-
-    def test_merged_is_not_enough_it_waits_for_continue(self):
-        self.assertEqual(self.gate({"8": {"phase": "merged"}}), ("8", {"9", "10", "11"}))
-
-    def test_continued_moves_the_gate_to_the_next_checkpoint(self):
-        self.assertEqual(self.gate({"8": {"phase": "merged"}}, ["8"]), ("10", {"11"}))
-
-    def test_continue_before_the_merge_does_not_open_it(self):
-        self.assertEqual(self.gate({}, ["8"]), ("8", {"9", "10", "11"}))
-
-    def test_what_a_task_before_it_needs_is_never_held(self):
-        tasks = {"7": {"deps": [{"ref": "11"}]}, "11": {"deps": [{"ref": "9"}]}}
-        self.assertEqual(self.gate(tasks=tasks), ("8", {"10"}))
-
-    def test_no_checkpoint_holds_nothing(self):
-        self.assertEqual(dm.checkpoint_gates([{"gid": "1"}], {}, {}, []), ({}, set()))
-
-    def test_a_checkpoint_holds_back_only_its_own_feature(self):
-        queue = [{"gid": "1", "base": "f/a", "checkpoint": True}, {"gid": "2", "base": "f/b"},
-                 {"gid": "3", "base": "f/a"}, {"gid": "4", "base": "f/b", "checkpoint": True},
-                 {"gid": "5", "base": "f/b"}]
-        gates, held = dm.checkpoint_gates(queue, {}, {}, [])
-        self.assertEqual({f: g["gid"] for f, g in gates.items()}, {"f/a": "1", "f/b": "4"})
-        self.assertEqual(held, {"3", "5"})
-
-    def test_what_another_feature_needs_is_let_through(self):
-        queue = [{"gid": "1", "base": "f/a", "checkpoint": True}, {"gid": "2", "base": "f/a"},
-                 {"gid": "3", "base": "f/b"}]
-        self.assertEqual(dm.checkpoint_gates(queue, {"3": {"deps": [{"ref": "2"}]}}, {}, [])[1],
-                         set())
-
-    def test_tasks_queued_before_features_follow_the_current_target(self):
-        queue = [{"gid": "1", "checkpoint": True}, {"gid": "2", "base": None}, {"gid": "3"}]
-        gates, held = dm.checkpoint_gates(queue, {}, {}, [], base="f/a")
-        self.assertEqual(set(gates), {"f/a"})
-        self.assertEqual(held, {"3"})
-
-    def test_flagging(self):
-        c = dm.empty_control()
-        dm.queue_add(c, [{"gid": "1"}])
-        dm.set_checkpoint(c, "1", True)
-        self.assertTrue(c["queue"][0]["checkpoint"])
-        dm.set_checkpoint(c, "1", False)
-        self.assertNotIn("checkpoint", c["queue"][0])
-
-    def test_flagged_before_queueing_it_is_a_checkpoint_once_queued(self):
-        c = dm.empty_control()
-        dm.set_checkpoint(c, "2", True)
-        self.assertEqual(c["queue"], [])
-        self.assertEqual(dm.planned_checkpoints(c), {"2"})
-        dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}, {"gid": "3"}])
-        self.assertEqual([q.get("checkpoint") for q in c["queue"]], [None, True, None])
-        self.assertEqual(c["checkpoints"], [])
-        dm.set_checkpoint(c, "4", True)
-        dm.set_checkpoint(c, "4", False)
-        self.assertEqual(c["checkpoints"], [])
-
-    def test_unqueueing_keeps_the_flag_but_clearing_does_not(self):
-        c = dm.empty_control()
-        dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}])
-        dm.set_checkpoint(c, "1", True)
-        dm.set_checkpoint(c, "2", True)
-        dm.queue_remove(c, ["1"], keep_checkpoints=True)
-        dm.queue_remove(c, ["2"])
-        self.assertEqual(dm.planned_checkpoints(c), {"1"})
-        dm.queue_insert_before(c, [{"gid": "1"}], None)
-        self.assertTrue(c["queue"][0]["checkpoint"])
-
-
-class TestFeatures(unittest.TestCase):
-    def test_changing_the_target_keeps_what_is_queued_where_it_was(self):
-        c = dm.empty_control()
-        c["base"] = "f/a"
-        dm.queue_add(c, [{"gid": "1"}, {"gid": "2", "base": "f/b"}])
-        dm.stamp_features(c)
-        c["base"] = "f/c"
-        self.assertEqual([dm.feature_of(q, c["base"]) for q in c["queue"]], ["f/a", "f/b"])
-
-    def test_a_dependency_joins_the_feature_of_the_task_that_needs_it(self):
-        c = dm.empty_control()
-        dm.queue_add(c, [{"gid": "1", "base": "f/a"}, {"gid": "9", "base": "f/b"}])
-        dm.queue_insert_before(c, [{"gid": "5"}], "9")
-        self.assertEqual([(q["gid"], q.get("base")) for q in c["queue"]],
-                         [("1", "f/a"), ("5", "f/b"), ("9", "f/b")])
-
-class TestCommands(unittest.TestCase):
-    def test_ids_grow_and_applied_ones_are_dropped(self):
-        c = dm.empty_control()
-        self.assertEqual(dm.add_command(c, "stop", "1"), 1)
-        self.assertEqual(dm.add_command(c, "retry", "1"), 2)
-        self.assertEqual(dm.add_command(c, "stop", "2", applied=2), 3)
-        self.assertEqual([x["id"] for x in c["commands"]], [3])
-
-    def test_a_command_can_carry_what_it_needs(self):
-        c = dm.empty_control()
-        dm.add_command(c, "retarget", "1", base="feature/x")
-        self.assertEqual(c["commands"][0], {"id": 1, "op": "retarget", "gid": "1", "base": "feature/x"})
-
-    def test_an_id_is_never_reused_after_everything_was_applied(self):
-        c = dm.empty_control()
-        dm.add_command(c, "stop", "1")
-        self.assertEqual(dm.add_command(c, "stop", "1", applied=5), 6)
-
-    def test_pending_is_what_the_daemon_has_not_applied_in_order(self):
-        c = {"commands": [{"id": 3, "op": "x", "gid": "a"}, {"id": 2, "op": "y", "gid": "b"},
-                          {"id": 1, "op": "z", "gid": "c"}]}
-        self.assertEqual([x["id"] for x in dm.pending_commands(c, 1)], [2, 3])
-
-
-class TestDaemonHealth(unittest.TestCase):
-    def test_busy_names_itself_and_a_wedged_loop_is_stale_even_if_beating(self):
-        self.assertEqual(dm.daemon_health({"beat": 99, "loop_at": 95, "busy": ["x"]}, True, 100),
-                         "busy")
-        self.assertEqual(dm.daemon_health({"beat": 99, "loop_at": 0}, True, 1000), "stale")
-
-    def test_states(self):
-        self.assertEqual(dm.daemon_health(None, False, 100), "stopped")
-        self.assertEqual(dm.daemon_health({"beat": 90}, False, 100), "crashed")
-        self.assertEqual(dm.daemon_health({"beat": 90}, True, 100), "running")
-        self.assertEqual(dm.daemon_health({"beat": 0}, True, 1000), "stale")
-
-
-class TestUnmanaged(unittest.TestCase):
-    def test_runs_nobody_here_launched_are_listed(self):
-        self.assertEqual(dm.unmanaged([("HCI-1", 10), ("HCI-2", 20)], [10]), [("HCI-2", 20)])
-        self.assertEqual(dm.unmanaged([], [10]), [])
-
-
-class TestOrphanAgents(unittest.TestCase):
-    WT = "/repo/.cortex/worktrees"
-    AGENT = "claude -p --add-dir /repo/.cortex/worktrees/HCI-6+ci8-mailbox --model x"
-
-    def test_an_agent_whose_run_is_gone_is_found(self):
-        rows = [(1, 0, "launchd"), (500, 1, self.AGENT)]
-        self.assertEqual(dm.orphan_agents(rows, self.WT, []), [("HCI-6+ci8-mailbox", 500)])
-
-    def test_an_agent_under_a_live_run_is_owned(self):
-        rows = [(1, 0, "launchd"), (400, 1, "python start_task.py ..."), (500, 400, self.AGENT)]
-        self.assertEqual(dm.orphan_agents(rows, self.WT, [400]), [])
-
-    def test_only_the_top_of_a_stray_tree_is_listed(self):
-        rows = [(500, 1, self.AGENT),
-                (501, 500, "bash -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && make")]
-        self.assertEqual([pid for _, pid in dm.orphan_agents(rows, self.WT, [])], [500])
-
-    def test_work_started_from_your_own_session_or_terminal_is_yours(self):
-        work = "/bin/zsh -c cd /repo/.cortex/worktrees/HCI-6+ci8-mailbox && uv run celery"
-        for session in ("claude --resume 31ad", "node /usr/local/bin/claude", "-zsh"):
-            rows = [(1, 0, "launchd"), (300, 1, session), (500, 300, work)]
-            self.assertEqual(dm.orphan_agents(rows, self.WT, []), [], session)
-
-    def test_other_repos_and_processes_are_not_ours(self):
-        rows = [(500, 1, "claude -p --add-dir /other/.cortex/worktrees/X+y"), (9, 1, "vim")]
-        self.assertEqual(dm.orphan_agents(rows, self.WT, []), [])
+import core as st  # noqa: E402
 
 
 class TestControlFile(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
-
-    def test_changes_are_written_back_and_cortex_ignores_itself(self):
-        with dm.control_file(self.root) as c:
-            dm.queue_add(c, [{"gid": "1", "name": "CI1"}])
-            c["sprint"] = {"gid": "9", "name": "Sprint"}
-        c = dm.read_control(self.root)
-        self.assertEqual(c["queue"][0]["name"], "CI1")
-        self.assertEqual(c["sprint"]["gid"], "9")
-        self.assertTrue(os.path.isfile(os.path.join(self.root, ".cortex", ".gitignore")))
 
     def test_no_file_reads_as_empty(self):
         self.assertEqual(dm.read_control(self.root), dm.empty_control())
@@ -1100,130 +891,6 @@ class TestAnswering(unittest.TestCase):
         self.assertEqual(sum("│ ▸ " in l for l in lines), 1)
 
 
-class TestCodeVersion(unittest.TestCase):
-    def test_changes_when_a_file_changes(self):
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        path = os.path.join(root, "engine.py")
-        with open(path, "w") as f:
-            f.write("x")
-        before = dm.code_version([path])
-        self.assertEqual(dm.code_version([path]), before)
-        os.utime(path, ns=(1, 1))
-        self.assertNotEqual(dm.code_version([path]), before)
-
-
-class TestCommandFeedback(unittest.TestCase):
-    SENT = {"id": 4, "op": "merge", "key": "HCI-26", "at": 100}
-
-    def test_applied_and_understood(self):
-        self.assertEqual(dm.command_feedback(self.SENT, 4, [{"id": 4, "ok": True}], True, 101),
-                         ("merging HCI-26 — the Runs tab shows each step", True))
-
-    def test_applied_but_not_understood_says_so(self):
-        message, settled = dm.command_feedback(
-            self.SENT, 4, [{"id": 4, "ok": False, "note": "this daemon does not know 'merge'"}],
-            True, 101)
-        self.assertTrue(settled)
-        self.assertIn("did not act on merge for HCI-26", message)
-
-    def test_a_busy_daemon_says_what_it_is_doing(self):
-        message, settled = dm.command_feedback(self.SENT, 3, [], True, 130,
-                                               ["removing HCI-26's worktree"])
-        self.assertFalse(settled)
-        self.assertIn("busy (removing HCI-26's worktree) — merge for HCI-26 is next", message)
-
-    def test_waiting_then_overdue_then_no_daemon(self):
-        self.assertEqual(dm.command_feedback(self.SENT, 3, [], True, 101),
-                         ("merge asked for HCI-26…", False))
-        self.assertIn("has not picked up", dm.command_feedback(self.SENT, 3, [], True, 130)[0])
-        self.assertIn("not running", dm.command_feedback(self.SENT, 3, [], False, 101)[0])
-
-
-class TestUnknownCommands(unittest.TestCase):
-    def test_a_command_the_daemon_does_not_know_is_recorded_not_dropped(self):
-        import subprocess
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        subprocess.run(["git", "init", "-q", root], check=True)
-        with dm.control_file(root) as c:
-            dm.add_command(c, "frobnicate", "1")
-            dm.add_command(c, "merge-cancel", "1")
-        run = dm.QueueRun(root, [])
-        run.apply_control()
-        self.assertEqual(run.data["applied"], 2)
-        self.assertEqual([(r["id"], r["ok"]) for r in run.data["results"]], [(1, False), (2, True)])
-
-
-class TestContinue(unittest.TestCase):
-    def test_continue_is_remembered_and_lifts_the_hold(self):
-        import subprocess
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        subprocess.run(["git", "init", "-q", root], check=True)
-        run = dm.QueueRun(root, [])
-        run.refresh = lambda only=None: None
-        run.data["tasks"] = {"1": {"key": "A-1", "deps": []}, "2": {"key": "A-2", "deps": []}}
-        with dm.control_file(root) as c:
-            dm.queue_add(c, [{"gid": "1"}, {"gid": "2"}])
-            dm.set_checkpoint(c, "1", True)
-        run.apply_control()
-        run.records["1"] = {"phase": "merged"}
-        self.assertEqual(run.held_back(), {"2"})
-        with dm.control_file(root) as c:
-            dm.add_command(c, "continue", "1")
-        run.apply_control()
-        self.assertEqual(run.data["continued"], ["1"])
-        self.assertEqual(run.held_back(), set())
-
-
-class TestPullInDependencies(unittest.TestCase):
-    def test_queueing_a_task_queues_its_whole_open_tree_ahead_of_it(self):
-        import subprocess
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        subprocess.run(["git", "init", "-q", root], check=True)
-        asana = {"9": {"key": "T-9", "deps": [{"ref": "5", "name": "five", "completed": False}]},
-                 "5": {"key": "T-5", "deps": [{"ref": "3", "name": "three", "completed": False},
-                                              {"ref": "2", "name": "two", "completed": True}]},
-                 "3": {"key": "T-3", "deps": []},
-                 "1": {"key": "T-1", "deps": []}}
-        run = dm.QueueRun(root, [])
-
-        def refresh(only=None):
-            for gid in (only or [q["gid"] for q in run.control["queue"]]):
-                run.data["tasks"][gid] = asana[gid]
-        run.refresh = refresh
-        with dm.control_file(root) as c:
-            dm.queue_add(c, [{"gid": "1"}, {"gid": "9"}])
-        run.apply_control()
-        queue = dm.read_control(root)["queue"]
-        self.assertEqual([q["gid"] for q in queue], ["1", "3", "5", "9"])
-        self.assertEqual([q.get("needed_by") for q in queue], [None, "T-5", "T-9", None])
-
-
-class TestQueueingDoesNotRelaunch(unittest.TestCase):
-    def test_a_run_just_launched_is_not_started_again_when_more_is_queued(self):
-        import subprocess
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        subprocess.run(["git", "init", "-q", root], check=True)
-        run = dm.QueueRun(root, [])
-        run.refresh = lambda only=None: run.data["tasks"].update(
-            {g: {"key": "A-" + g, "deps": []} for g in (only or [])})
-        with dm.control_file(root) as c:
-            dm.queue_add(c, [{"gid": "1"}])
-        run.apply_control()
-        proc = subprocess.Popen(["sleep", "5"])
-        self.addCleanup(proc.kill)
-        run.children["1"] = proc
-        run.records["1"] = {"phase": "running", "pid": proc.pid, "since": 1}
-        with dm.control_file(root) as c:
-            dm.queue_add(c, [{"gid": "2"}])
-        run.apply_control()
-        self.assertEqual(run.records["1"], {"phase": "running", "pid": proc.pid, "since": 1})
-
-
 class TestSetup(unittest.TestCase):
     def test_rows_say_what_is_set(self):
         rows = setup_rows({"base": None}, "main")
@@ -1270,18 +937,6 @@ class TestSetup(unittest.TestCase):
                          ["+new", "develop"])
         picked = branch_rows(["main", "develop"], "main", "", "develop")
         self.assertIn("← queueing here", picked[2]["cols"][1])
-
-    def test_the_daemon_launches_each_task_onto_its_own_feature(self):
-        import subprocess
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        subprocess.run(["git", "init", "-q", root], check=True)
-        with dm.control_file(root) as c:
-            c["base"] = "feature/b"
-            dm.queue_add(c, [{"gid": "1"}, {"gid": "2", "base": None}, {"gid": "3", "base": "feature/a"}])
-        run = dm.QueueRun(root, [])
-        run.control = dm.read_control(root)
-        self.assertEqual([run.launch_base(g) for g in "123"], ["feature/b", None, "feature/a"])
 
     def test_branch_names(self):
         for good in ("release/1.2", "milestone-m1", "HGM-1/x"):
