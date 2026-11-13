@@ -147,8 +147,10 @@ This program is the harness around the lead:
   marks the PR ready for review and waits for its CI, as the merge step does for task runs. The runner waits for the whole CI run, even after a check
   fails, so a fix never starts CI over while a run still bills. Every failing check, with
   the telling lines of its log, then goes at once to a fresh call on the lead's model
-  (Opus) to fix, with two tries before the lead takes it on. The fixer works alone, with no
-  sub-agents, and opens only the files and lines the failures name. A fixer that commits
+  (Opus) to fix, with two tries before the lead takes it on. The fixer opens only the files
+  and lines the failures name, decides each fix, and has sub-agents on the sub-agent model
+  (Sonnet) make the changes: a hook refuses its own edits and gives every sub-agent that
+  model. A fixer that commits
   nothing hands over without another CI run. When GitHub did not run the jobs at all (a
   spending limit or a failed payment), the runner asks you, and re-runs them once you
   answer: no fixer is called. A conflict goes to the lead. The full suites run only on CI, never on this
@@ -167,8 +169,8 @@ This program is the harness around the lead:
   pieces fit, before a push pays for CI. Each step runs on its own, past a failure too:
   every prerequisite of the make target, and each `&&` step of the script (an `npm run x`
   in it is x's own steps). So every failure shows at once, not one per round. The
-  failures go to the fixer (the lead's model, Opus), twice, then to the lead; the fixer
-  runs only the failing steps again. Coding tasks format and lint the files they change.
+  failures go to the fixer (Opus judges, Sonnet sub-agents change), twice, then to the
+  lead; the fixer runs only the failing steps again. Coding tasks format and lint the files they change.
   A fix about other failures than the last one starts the tries again, since the last
   fix made progress; after ten fixes in a row the runner asks you anyway. Then a separate checker agent compares the branch with the references and the lead's acceptance criteria, which
   it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks

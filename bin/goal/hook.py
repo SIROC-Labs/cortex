@@ -4,7 +4,8 @@
 #
 #   hook.py bash [lead]     # refuses a push, a CI run, or a change to the PR; for
 #                           # the lead, also a sleep: sub-agents' reports come by themselves
-#   hook.py agent <model>   # a sub-agent started without a model gets <model>
+#   hook.py agent <model> [force]  # a sub-agent started without a model gets
+#                           # <model>; with force, every sub-agent gets it
 #   hook.py fence <text>... # refuses any tool call that names one of the texts
 #   hook.py task            # refuses a coding task a whole-project check or an install
 #   hook.py readonly <dir>  # refuses any change to the code in <dir>: an explorer
@@ -215,7 +216,7 @@ def main(argv):
     if refusal:
         sys.stderr.write(refusal + "\n")
         return 2
-    if argv[:1] == ["agent"] and len(argv) > 1 and not tool_input.get("model"):
+    if argv[:1] == ["agent"] and len(argv) > 1 and (not tool_input.get("model") or argv[2:] == ["force"]):
         json.dump({"hookSpecificOutput": {
             "hookEventName": "PreToolUse", "permissionDecision": "allow",
             "updatedInput": dict(tool_input, model=argv[1])}}, sys.stdout)

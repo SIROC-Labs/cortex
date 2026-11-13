@@ -736,6 +736,17 @@ def conflict_prompt(base, files):
             % (base, "\n".join("- `%s`" % f for f in files)))
 
 
+CI_FIX_WORK = (
+    "- You find the cause; sub-agents make the changes. Decide each fix yourself: the "
+    "file, the lines and the change. Then start one sub-agent for each fix, or for each "
+    "group of fixes in the same files. Give each a precise brief: the files and lines, "
+    "the change, and the command that checks it. Start the ones that touch different "
+    "files at the same time. They run on the sub-agent model. A hook refuses your own "
+    "edits, so do not try.\n"
+    "- Check what each sub-agent did from its report and `git diff`. When a fix is "
+    "wrong or not complete, brief a sub-agent again.\n")
+
+
 def ci_fix_prompt(branch, failures):
     """The cheap fixer's whole brief: the failing checks, and the rules."""
     return ("You fix failing CI checks on branch `%s`, in this worktree. Another agent "
@@ -745,6 +756,7 @@ def ci_fix_prompt(branch, failures):
             "- Change only what the failures need. Do not refactor or add features.\n"
             "- Open only the files and lines the failures name, and the code they call where "
             "the fix needs it. Do not explore or search the codebase beyond that.\n"
+            "%s"
             "- Read why it fails from CI, not by running it here: `gh run view <run-id> "
             "--log-failed` gives the whole log of a failed job (the run id is in its URL).\n"
             "- This machine runs many agents at once. Run only single test files by their "
@@ -754,8 +766,8 @@ def ci_fix_prompt(branch, failures):
             "your fix.\n"
             "- Commit with a clear message, then stop. Do not push, rebase, or merge: the "
             "runner pushes, and CI checks the fix.\n"
-            "- Do not run skills or slash commands, and do not start sub-agents."
-            % (branch, failures))
+            "- Do not run skills or slash commands."
+            % (branch, failures, CI_FIX_WORK))
 
 
 def script_steps(scripts, name, depth=0):
@@ -789,11 +801,13 @@ def local_ci_fix_prompt(branch, failures, steps):
             "raise a budget, or add a baseline entry. Locking in a saving that a check asks "
             "for, such as a budget that is now far under, is allowed.\n"
             "- Change only what the failures need. Do not refactor or add features.\n"
-            "- After your fixes, run the failing steps again, and only them:\n%s\n"
-            "  Run no other suite, build or check.\n"
+            "%s"
+            "- After the fixes, run the failing steps again yourself, and only them:\n%s\n"
+            "  Run no other suite, build or check. Brief a sub-agent again for what still "
+            "fails.\n"
             "- Commit with a clear message, then stop. Do not push, rebase, or merge.\n"
-            "- Do not run skills or slash commands, and do not start sub-agents."
-            % (branch, failures, rerun))
+            "- Do not run skills or slash commands."
+            % (branch, failures, CI_FIX_WORK, rerun))
 
 
 def ci_commands(worktree):
@@ -1062,7 +1076,7 @@ def built_text(built):
 
 
 def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False,
-                  readonly=None, task=False):
+                  readonly=None, task=False, force_subagent=False):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
@@ -1077,7 +1091,8 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
     def guard(*args):
         return {"type": "command", "command": " ".join(
             shlex.quote(a) for a in (sys.executable, HOOK) + args)}
-    agent = hook + ([guard("agent", subagent)] if subagent else [])
+    agent = hook + ([guard(*(("agent", subagent, "force") if force_subagent else ("agent", subagent)))]
+                    if subagent else [])
     pre = [{"matcher": "Agent|Task", "hooks": agent},
            {"matcher": "Bash", "hooks": [guard(*(("bash", "lead") if lead else ("bash",)))]}]
     if fence:
@@ -2051,15 +2066,18 @@ class Runner(object):
         self.goal.state.write(SETTINGS_FILE, hook_settings(flag, short_model(
             self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL), self.data.get("fence") or (),
             allow, delegate=self.data["worktree"] if label == "lead" and self.data.get(
-                "phase") == "building" else None, lead=label == "lead"))
+                "phase") == "building" else None, lead=label == "lead",
+            # The CI fixer judges and briefs; its sub-agents, on the sub-agent model,
+            # make the changes.
+            readonly=self.data["worktree"] if label == "ci-fix" else None,
+            force_subagent=label == "ci-fix"))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
         cmd += NO_MCP
-        if label == "lead" and self.data.get("phase") == "building" or label == "ci-fix":
+        if label == "lead" and self.data.get("phase") == "building":
             # In the build the runner starts the agents: the lead hands it their tasks.
-            # The CI fixer works alone, on what failed.
             cmd += ["--disallowedTools", "Agent,Task," + NO_WAITING]
         else:
             cmd += ["--disallowedTools", NO_WAITING]

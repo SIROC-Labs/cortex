@@ -1160,6 +1160,31 @@ class TestWindDown(unittest.TestCase):
         self.assertEqual(hooks[1]["matcher"], "Bash")
         self.assertTrue(hooks[1]["hooks"][0]["command"].endswith("hook.py bash"))
 
+    def test_the_ci_fixer_briefs_sub_agents_on_the_cheap_model_and_cannot_edit_itself(self):
+        import importlib.util, io, contextlib
+        spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        pre = goal.hook_settings("/f", "sonnet", readonly="/wt", force_subagent=True)["hooks"]["PreToolUse"]
+        self.assertTrue(pre[0]["hooks"][1]["command"].endswith("hook.py agent sonnet force"))
+        self.assertTrue(any(h["hooks"][0]["command"].endswith("hook.py readonly /wt") for h in pre))
+
+        def run(argv, call):
+            sys.stdin, out = io.StringIO(json.dumps(call)), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                code = hook.main(argv)
+            return code, out.getvalue()
+        self.addCleanup(setattr, sys, "stdin", sys.__stdin__)
+        _, out = run(["agent", "sonnet", "force"], {"tool_name": "Agent", "tool_input": {"model": "opus"}})
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["updatedInput"]["model"], "sonnet")
+        _, out = run(["agent", "sonnet"], {"tool_name": "Agent", "tool_input": {"model": "opus"}})
+        self.assertEqual(out, "")
+        edit = {"tool_name": "Edit", "tool_input": {"file_path": "/wt/apps/a.ts"}}
+        self.assertEqual(run(["readonly", "/wt"], edit)[0], 2)
+        self.assertEqual(run(["readonly", "/wt"], dict(edit, agent_type="general-purpose"))[0], 0)
+        self.assertEqual(run(["readonly", "/wt"], {"tool_name": "Bash", "tool_input": {
+            "command": "git commit -qm 'fix the types'"}})[0], 0)
+
     def test_the_bash_hook_refuses_pushes_and_ci_but_not_other_git(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("hook", goal.HOOK)
