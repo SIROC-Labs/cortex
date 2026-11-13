@@ -114,16 +114,11 @@ class TestEvaluateGate(unittest.TestCase):
         self.assertEqual(verdict["warnings"], [])
         self.assertFalse(verdict["self_assign"])
 
-    def test_started_status_blocks(self):
-        verdict = evaluate_gate(task(status="In Progress"), [], "42")
-        self.assertEqual(len(verdict["blocking"]), 1)
-        self.assertIn("not a not-yet-started state", verdict["blocking"][0])
-
-    def test_status_match_is_case_insensitive(self):
-        self.assertEqual(evaluate_gate(task(status="ASSIGNED"), [], "42")["blocking"], [])
-
-    def test_missing_status_blocks(self):
-        self.assertTrue(evaluate_gate(task(status=None), [], "42")["blocking"])
+    def test_any_status_but_canceled_lets_it_start(self):
+        for status in ("In Progress", "In Review", "ASSIGNED", None, ""):
+            self.assertEqual(evaluate_gate(task(status=status), [], "42")["blocking"], [], status)
+        self.assertEqual(evaluate_gate(task(status="Canceled"), [], "42")["blocking"],
+                         ["the task is canceled"])
 
     def test_incomplete_dependency_blocks(self):
         deps = [{"name": "Build the API", "completed": False},
@@ -146,8 +141,8 @@ class TestEvaluateGate(unittest.TestCase):
 
     def test_ignore_deps_does_not_rescue_other_preconditions(self):
         deps = [{"name": "Build the API", "completed": False}]
-        verdict = evaluate_gate(task(status="Done"), deps, "42", ignore_deps=True)
-        self.assertTrue(any("Done" in b for b in verdict["blocking"]))
+        verdict = evaluate_gate(task(assignee="Maria", assignee_gid="99"), deps, "42", ignore_deps=True)
+        self.assertTrue(any("Maria" in b for b in verdict["blocking"]))
         self.assertFalse(any("Build the API" in b for b in verdict["blocking"]))
 
     def test_unassigned_requests_self_assign_not_block(self):
@@ -177,7 +172,6 @@ class TestEvaluateGate(unittest.TestCase):
     def test_a_resumed_run_passes_its_own_started_status(self):
         gate = evaluate_gate(task(status="In Progress"), [], "42", resuming=True)
         self.assertEqual(gate["blocking"], [])
-        self.assertTrue(any("resuming" in w for w in gate["warnings"]))
 
     def test_resuming_does_not_excuse_incomplete_dependencies(self):
         gate = evaluate_gate(task(status="In Progress"),
@@ -186,7 +180,7 @@ class TestEvaluateGate(unittest.TestCase):
 
     def test_reports_every_failure_at_once(self):
         verdict = evaluate_gate(
-            task(status="Done", assignee="Maria", assignee_gid="99"),
+            task(status="Canceled", assignee="Maria", assignee_gid="99"),
             [{"name": "Blocker", "completed": False}], "42")
         self.assertEqual(len(verdict["blocking"]), 3)
 

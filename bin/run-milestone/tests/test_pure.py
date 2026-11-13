@@ -132,9 +132,9 @@ class TestReadiness(unittest.TestCase):
     def test_a_record_reset_for_relaunch_is_ready_again(self):
         self.assertEqual(ready_tasks(self.graph(), {"1": {"phase": None}}, ME), ["1"])
 
-    def test_completed_and_started_tasks_are_not_ready(self):
-        g = {"1": t("a", completed=True), "2": t("b", status="In Progress")}
-        self.assertEqual(ready_tasks(g, {}, ME), [])
+    def test_a_completed_task_is_not_ready_whatever_the_status_of_the_others(self):
+        g = {"1": t("a", completed=True), "2": t("b", status="In Progress"), "3": t("c", status="")}
+        self.assertEqual(ready_tasks(g, {}, ME), ["2", "3"])
 
     def test_someone_elses_task_is_not_taken(self):
         g = {"1": t("a", assignee_gid="99"), "2": t("b", assignee_gid=ME)}

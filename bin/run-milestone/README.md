@@ -30,8 +30,8 @@ Each pass:
 1. **Reads the milestone** — its tasks, their status and their dependencies — every five
    minutes, and straight after a merge.
 2. **Starts every ready task at once.** Ready means not completed, every dependency
-   completed (inside the milestones or not), a not-yet-started status, unassigned or
-   assigned to you, and not already run. It adds the task to the `--sprint` board,
+   completed (inside the milestones or not), not canceled, unassigned or assigned to
+   you, and not already run. Its status in Asana does not matter otherwise. It adds the task to the `--sprint` board,
    assigns it to you, and launches `start-task` on it. `start-task` takes the git setup
    — fetch, worktree, draft PR — one run at a time under a lock in `.cortex/`.
    Everything after that runs concurrently.

@@ -110,8 +110,6 @@ def blockers(gid, tasks, records, me_gid):
     status = (task.get("status") or "").strip()
     if status.lower() == "canceled":
         return ["canceled"]
-    if status.lower() not in st.NOT_STARTED:
-        out.append("status is %s" % (status or "unset"))
     for dep in task.get("deps") or []:
         if dep.get("completed"):
             continue

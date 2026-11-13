@@ -319,7 +319,7 @@ implementation path.
 
 Blocking:
 
-- Task is in a not-yet-started status.
+- Task is not canceled. Its status does not gate it otherwise.
 - **No incomplete dependencies.** New — the current flow cannot see dependencies at
   all; the contract has `add_dependency` (write) with no read counterpart.
 - Assignee is the current user (self-assign when empty; fail when someone else's).

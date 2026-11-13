@@ -244,25 +244,15 @@ def evaluate_gate(task, dependencies, current_user_gid, strict=False, ignore_dep
     on `self_assign` (an unassigned task is claimed, not rejected) and refuses to
     proceed when `blocking` is non-empty.
 
-    `resuming` is a task this run already started: its status moved because of
-    us, so a started status is expected rather than a reason to stop.
+    The task's status does not gate it, except a canceled one: a task is started
+    whatever status Asana shows. `resuming` is kept for callers.
     """
     blocking = []
     warnings = []
     self_assign = False
 
-    status = (task.get("status") or "").strip().lower()
-    if not status:
-        if not resuming:
-            blocking.append("no status set — expected one of: %s"
-                            % ", ".join(sorted(NOT_STARTED)))
-    elif status not in NOT_STARTED:
-        if resuming:
-            warnings.append("status is %r — resuming a run already started"
-                            % task.get("status"))
-        else:
-            blocking.append("status is %r — not a not-yet-started state"
-                            % task.get("status"))
+    if (task.get("status") or "").strip().lower() == "canceled":
+        blocking.append("the task is canceled")
 
     incomplete = [d for d in (dependencies or []) if not d.get("completed")]
     if incomplete:
