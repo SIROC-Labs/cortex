@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 #
-# Unit tests for the TUI's and the daemon's pure functions — the queue and its
-# commands, daemon health, finding runs nothing owns, and the rows each tab
-# shows. The curses layer and the daemon loop are validated by running them.
+# Unit tests for the TUI's and the daemon's pure functions — the rows each tab
+# shows, the goals and what they wait on, and the keys. The curses layer and the
+# daemon loop are validated by running them.
 #
 #   python3 tests/test_pure.py
 
+import io
 import os
 import shutil
 import sys
@@ -22,8 +23,8 @@ import tui  # noqa: E402
 from tui import palette_matches  # noqa: E402,F401
 from tui import (  # noqa: E402
     NAV, App, answer_template, board_list_rows, board_rows, branch_rows, decode_escape,
-    decode_key, fit, log_line, matches, parse_answer, parse_ls_remote, read_waits, run_rows,
-    setup_rows, valid_branch_name, wait_lines, wait_summary,
+    decode_key, fit, log_line, matches, parse_answer, parse_ls_remote, setup_rows,
+    valid_branch_name, wait_lines, wait_summary,
 )
 from daemon import st  # noqa: E402
 
@@ -157,48 +158,6 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual([(q["gid"], q.get("base")) for q in c["queue"]],
                          [("1", "f/a"), ("5", "f/b"), ("9", "f/b")])
 
-    def test_runs_are_grouped_by_feature_once_there_are_two(self):
-        control = {"base": "f/b", "queue": [{"gid": "1", "base": None}, {"gid": "2", "base": "f/b"},
-                                            {"gid": "3", "base": None}]}
-        data = {"me": {"gid": "42"},
-                "tasks": {g: {"key": "A-" + g, "name": "n" + g, "completed": False,
-                              "status": "Unassigned", "deps": []} for g in "123"},
-                "records": {"1": {"phase": "running"}, "3": {"phase": "merged"}}}
-        rows = run_rows(control, data, [], default_branch="main")
-        self.assertEqual([(r["kind"], r["cols"][0]) for r in rows],
-                         [("feature", "main"), ("task", "A-1"), ("task", "A-3"),
-                          ("feature", "f/b"), ("task", "A-2")])
-        self.assertEqual(rows[0]["cols"][1:], ["1 running · 1 merged", ""])
-        self.assertEqual(rows[3]["cols"][1:], ["1 queued", "← queueing here"])
-
-    def test_o_on_a_merged_task_opens_what_it_changed(self):
-        row = {"pr_url": "https://github.com/o/r/pull/7", "links": ["https://github.com/o/r/pull/7", "t"]}
-        self.assertEqual(tui.open_link(dict(row, phase="merged")), "https://github.com/o/r/pull/7/files")
-        self.assertEqual(tui.open_link(dict(row, phase="pr_open")), "https://github.com/o/r/pull/7")
-        self.assertEqual(tui.open_link({"phase": "merged", "links": ["t"]}), "t")
-
-    def test_a_feature_heading_shows_its_whole_name(self):
-        line = tui.fit(["feature/recruiter-queue-M5", "1 queued", ""], 100, wide=True)
-        self.assertTrue(line.startswith("feature/recruiter-queue-M5  1 queued"))
-
-    def test_hiding_done_tasks_keeps_their_count_on_the_feature_line(self):
-        control = {"queue": [{"gid": "1", "base": None}, {"gid": "2", "base": None}]}
-        data = {"me": {"gid": "42"},
-                "tasks": {g: {"key": "A-" + g, "name": "n" + g, "completed": False,
-                              "status": "Unassigned", "deps": []} for g in "12"},
-                "records": {"1": {"phase": "merged"}, "2": {"phase": "running"}}}
-        rows = run_rows(control, data, [], default_branch="main", hide_done=True)
-        self.assertEqual([(r["kind"], r["id"]) for r in rows],
-                         [("feature", "feature:"), ("task", "2")])
-        self.assertEqual(rows[0]["cols"][1], "1 running · 1 merged")
-        self.assertEqual(len(run_rows(control, data, [], default_branch="main")), 2)
-
-    def test_one_feature_needs_no_heading(self):
-        control = {"queue": [{"gid": "1"}, {"gid": "2", "base": None}]}
-        rows = run_rows(control, {"tasks": {}, "records": {}}, [])
-        self.assertEqual([r["kind"] for r in rows], ["task", "task"])
-
-
 class TestCommands(unittest.TestCase):
     def test_ids_grow_and_applied_ones_are_dropped(self):
         c = dm.empty_control()
@@ -295,25 +254,6 @@ class TestMatches(unittest.TestCase):
         self.assertTrue(matches("anything", ""))
 
 
-class TestRunRows(unittest.TestCase):
-    def test_queued_tasks_in_order_then_runs_nobody_owns(self):
-        control = {"queue": [{"gid": "2", "board": "100", "name": "CI2"},
-                             {"gid": "1", "board": "100", "name": "CI1"}]}
-        data = {"me": {"gid": "42"},
-                "tasks": {"1": {"key": "HCI-1", "name": "CI1", "completed": False,
-                                "status": "Unassigned", "deps": []}},
-                "records": {"1": {"phase": "running", "pid": 10, "log": "/l"}}}
-        rows = run_rows(control, data, [("HCI-1", 10), ("HCI-7", 77)],
-                        agents=[("HCI-6+mailbox", 500)])
-        self.assertEqual([r["kind"] for r in rows], ["task", "task", "orphan", "orphan"])
-        self.assertIn("no run owns it", rows[3]["cols"][1])
-        self.assertEqual(rows[0]["cols"][2], "queued — not read yet")
-        self.assertEqual(rows[1]["cols"][:2], ["HCI-1", "CI1"])
-        self.assertEqual(rows[1]["style"], "ok")
-        self.assertIn("https://app.asana.com/0/100/1", rows[1]["links"])
-        self.assertEqual(rows[2]["id"], 77)
-
-
 class TestGoalRows(unittest.TestCase):
     def goal(self, **fields):
         return dict({"id": "goal-1027-1432-dark-mode", "key": "A-7", "name": "Add dark mode",
@@ -363,11 +303,11 @@ class TestGoalRows(unittest.TestCase):
         review = tui.goal_status(self.goal(status="review", alive=True))[0]
         self.assertTrue(review.startswith("ready to merge"))
 
-    def test_goals_come_before_the_queue_and_their_questions_are_waits(self):
+    def test_a_goal_s_questions_are_waits(self):
         g = self.goal(awaiting={"kind": "problem", "asked_at": "t", "headline": "push refused"})
         waits = tui.goal_waits([g])
         self.assertEqual(waits["goal:%s" % g["id"]]["key"], g["id"])
-        rows = tui.run_rows({"queue": []}, {}, [], waits=waits, goals=[g])
+        rows = tui.goal_rows([g], waits)
         self.assertEqual(rows[0]["kind"], "goal")
         self.assertTrue(rows[0]["cols"][2].startswith("⚑ push refused"))
 
@@ -383,71 +323,63 @@ class TestBoardRows(unittest.TestCase):
     ]
 
     def test_sections_then_their_tasks(self):
-        rows = board_rows("100", self.SECTIONS, {"2"}, {}, "")
+        rows = board_rows("100", self.SECTIONS, "")
         self.assertEqual([(r["kind"], r["id"]) for r in rows],
                          [("section", "s1"), ("task", "m"), ("task", "1"), ("task", "2"),
                           ("section", "s2"), ("task", "3")])
         self.assertEqual(rows[0]["cols"][1], "1 open")
-        self.assertIn("●", rows[3]["cols"][0])
         self.assertEqual(rows[2]["cols"][1], "done")
 
     def test_a_task_key_comes_before_its_name_faintly_and_can_be_filtered_on(self):
         sections = [{"gid": "s", "name": "S", "tasks": [
             {"gid": "1", "name": "Login", "key": "HRT1-7", "kind": "task"},
             {"gid": "2", "name": "Logout", "kind": "task"}]}]
-        rows = board_rows("100", sections, set(), {}, "")
+        rows = board_rows("100", sections, "")
         self.assertEqual(rows[1]["cols"][0], "    HRT1-7 Login")
         self.assertEqual(rows[1]["cols"][0][slice(rows[1]["faint"][0], sum(rows[1]["faint"]))], "HRT1-7")
         self.assertEqual(rows[2]["cols"][0], "    Logout")
         self.assertIsNone(rows[2]["faint"])
-        self.assertEqual([r["id"] for r in board_rows("100", sections, set(), {}, "hrt1-7")], ["s", "1"])
+        self.assertEqual([r["id"] for r in board_rows("100", sections, "hrt1-7")], ["s", "1"])
 
-    def test_a_milestone_shows_but_its_section_does_not_queue_it(self):
-        rows = board_rows("100", self.SECTIONS, set(), {}, "")
+    def test_a_milestone_shows_marked(self):
+        rows = board_rows("100", self.SECTIONS, "")
         self.assertTrue(rows[1]["milestone"])
         self.assertIn("◈", rows[1]["cols"][0])
-        self.assertNotIn("m", [t["gid"] for t in rows[0]["tasks"]])
 
     def test_filter_keeps_matching_tasks_under_their_section(self):
-        rows = board_rows("100", self.SECTIONS, set(), {}, "dto")
+        rows = board_rows("100", self.SECTIONS, "dto")
         self.assertEqual([r["id"] for r in rows], ["s1", "2"])
 
     def test_filter_on_a_section_name_keeps_all_of_it(self):
-        rows = board_rows("100", self.SECTIONS, set(), {}, "m2")
+        rows = board_rows("100", self.SECTIONS, "m2")
         self.assertEqual([r["id"] for r in rows], ["s2", "3"])
-
-    def test_a_task_shows_its_run_phase(self):
-        rows = board_rows("100", self.SECTIONS, {"2"}, {"2": {"phase": "pr_open"}}, "dto")
-        self.assertEqual(rows[1]["cols"][1], "pr_open")
 
     def test_hiding_done_leaves_out_completed_tasks_and_emptied_sections(self):
         sections = self.SECTIONS + [{"gid": "s3", "name": "Old", "tasks": [
             {"gid": "9", "name": "Finished", "kind": "task", "completed": True}]}]
-        rows = board_rows("100", sections, set(), {}, "", hide_done=True)
+        rows = board_rows("100", sections, "", hide_done=True)
         self.assertEqual([r["id"] for r in rows], ["s1", "m", "2", "s2", "3"])
 
     def test_a_task_says_how_many_subtasks_it_has_and_shows_them_when_open(self):
         sections = [{"gid": "s", "name": "M", "tasks": [
             {"gid": "1", "name": "Parent", "kind": "task", "subtasks": 2}]}]
-        rows = board_rows("100", sections, set(), {}, "")
+        rows = board_rows("100", sections, "")
         self.assertEqual(rows[1]["cols"][1], "▸ 2 subtasks")
-        rows = board_rows("100", sections, set(), {}, "", subtasks={"1": None})
+        rows = board_rows("100", sections, "", subtasks={"1": None})
         self.assertEqual(rows[2]["kind"], "loading")
-        rows = board_rows("100", sections, {"a"}, {}, "", subtasks={"1": [
+        rows = board_rows("100", sections, "", subtasks={"1": [
             {"gid": "a", "name": "first"}, {"gid": "b", "name": "second", "completed": True}]})
         self.assertIn("▾ 2 subtasks", rows[1]["cols"][1])
         self.assertEqual([(r["id"], r.get("parent")) for r in rows[2:]], [("a", "1"), ("b", "1")])
-        self.assertIn("●", rows[2]["cols"][0])
         self.assertEqual(rows[3]["cols"][1], "done")
 
 
 class TestBoardListRows(unittest.TestCase):
-    def test_marks_the_sprint_and_filters(self):
+    def test_filters(self):
         boards = [{"gid": "1", "name": "Humanus | Candidate Intake"},
                   {"gid": "2", "name": "Humanus | Sprint 26/2"}]
-        rows = board_list_rows(boards, "", {"gid": "2"})
-        self.assertEqual(rows[1]["cols"][1], "← sprint")
-        self.assertEqual([r["id"] for r in board_list_rows(boards, "intake", None)], ["1"])
+        self.assertEqual([r["id"] for r in board_list_rows(boards, "")], ["1", "2"])
+        self.assertEqual([r["id"] for r in board_list_rows(boards, "intake")], ["1"])
 
 
 class TestFit(unittest.TestCase):
@@ -549,7 +481,7 @@ class TestStaleWhileRevalidate(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         isolate_cache(self)
         self.fetches = []
-        self.app = App(self.root, [])
+        self.app = App(self.root)
         self.app.boards = [{"gid": "1", "name": "Alpha"}]
         self.app.boards_at = tui.time.time()
         self.app.fetch_sections = lambda gid: self.fetches.append(gid) or self.SECTIONS
@@ -594,10 +526,6 @@ class TestStaleWhileRevalidate(unittest.TestCase):
         self.app.key("R", self.app.view())
         self.settle()
         self.assertEqual(self.fetches, ["1"])
-
-    def test_the_daemons_view_of_a_task_overrides_the_cache(self):
-        rows = board_rows("1", self.SECTIONS, set(), {}, "", {"t1": {"completed": True}})
-        self.assertEqual(rows[1]["cols"][1], "done")
 
 
 class TestScrollTop(unittest.TestCase):
@@ -667,9 +595,10 @@ class TestNav(unittest.TestCase):
                 self.assertEqual(NAV[k], action, k)
 
     def test_numbers_and_alt_numbers_pick_a_tab(self):
-        for n in "1234":
+        for n in "123":
             self.assertEqual(NAV[n], "tab")
             self.assertEqual(NAV["alt-" + n], "tab")
+        self.assertNotIn("4", NAV)
 
 
 class TestAppKeys(unittest.TestCase):
@@ -688,7 +617,7 @@ class TestAppKeys(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
         isolate_cache(self)
-        self.app = App(self.root, [])
+        self.app = App(self.root)
         self.app.boards = list(self.BOARDS)
         self.app.sections = {"2": self.SECTIONS}
         self.app.sections_at = {"2": tui.time.time()}
@@ -697,6 +626,11 @@ class TestAppKeys(unittest.TestCase):
     def press(self, *keys):
         for k in keys:
             self.app.key(k, self.app.view())
+
+    def test_tabs_are_runs_boards_setup(self):
+        self.assertEqual(tui.TABS, ("Runs", "Boards", "Setup"))
+        self.press("3", "4")
+        self.assertEqual(tui.TABS[self.app.tab], "Setup")
 
     def test_a_number_goes_straight_to_its_tab(self):
         self.press("3")
@@ -707,8 +641,10 @@ class TestAppKeys(unittest.TestCase):
     def test_tab_and_shift_tab_cycle(self):
         self.press("tab", "tab")
         self.assertEqual(self.app.tab, 2)
-        self.press("btab", "btab", "btab")
-        self.assertEqual(self.app.tab, 3)
+        self.press("tab")
+        self.assertEqual(self.app.tab, 0)
+        self.press("btab")
+        self.assertEqual(self.app.tab, 2)
 
     def test_holding_ctrl_on_l_and_k_still_works(self):
         self.assertEqual(tui.decode_key(12), "ctrl-l")
@@ -746,8 +682,7 @@ class TestAppKeys(unittest.TestCase):
         self.press(":", *"show done", "enter")
         self.assertFalse(dm.read_control(self.root).get("hide_done"))
 
-    def test_subtasks_open_with_l_queue_on_their_own_and_close_with_h(self):
-        self.app.ensure_daemon = lambda: None
+    def test_subtasks_open_with_l_and_close_with_h(self):
         self.app.sections["2"][0]["tasks"][0]["subtasks"] = 2
         self.addCleanup(self.app.sections["2"][0]["tasks"][0].pop, "subtasks")
         self.app.asana = lambda args: [{"ref": "u1", "name": "sub one", "completed": False},
@@ -759,35 +694,12 @@ class TestAppKeys(unittest.TestCase):
                 break
             tui.time.sleep(0.01)
         self.assertEqual([r["id"] for r in self.app.view()], ["s", "t1", "u1", "u2", "t2"])
-        self.press("down", "down", " ")
-        self.assertEqual([q["gid"] for q in dm.read_control(self.root)["queue"]], ["u2"])
-        self.press("h")
+        self.press("down", "down", "h")
         self.assertEqual([r["id"] for r in self.app.view()], ["s", "t1", "t2"])
         self.assertEqual(self.app.selected(self.app.view())["id"], "t1")
         self.assertTrue(self.app.board)
         self.press("h")
         self.assertFalse(self.app.board)
-
-    def test_a_board_task_can_be_flagged_as_a_checkpoint_before_it_is_queued(self):
-        self.app.ensure_daemon = lambda: None
-        self.press("2", "down", "enter", "down")
-        self.press(":", *"checkpoint", "enter")
-        control = dm.read_control(self.root)
-        self.assertEqual(control["queue"], [])
-        self.assertEqual(control["checkpoints"], ["t1"])
-        self.assertIn("◇", self.app.view()[1]["cols"][0])
-        self.press(" ")
-        control = dm.read_control(self.root)
-        self.assertEqual([(q["gid"], q.get("checkpoint")) for q in control["queue"]], [("t1", True)])
-        self.assertEqual(control["checkpoints"], [])
-        self.assertIn("◆", self.app.view()[1]["cols"][0])
-        self.press(":", *"checkpoint")
-        titles = [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
-                                                          self.app.palette["query"])]
-        self.assertEqual(titles, ["one is no longer a checkpoint"])
-        self.press("esc", " ")
-        self.assertEqual(dm.read_control(self.root)["checkpoints"], ["t1"])
-        self.assertIn("◇", self.app.view()[1]["cols"][0])
 
     def test_a_board_ticket_runs_as_a_goal_once(self):
         launched = []
@@ -801,6 +713,47 @@ class TestAppKeys(unittest.TestCase):
         self.press(":", *"goal", "enter")
         self.assertEqual(len(tui.gl.list_goals(self.root)), 1)
         self.assertIn("already a goal", self.app.message)
+
+    def test_space_on_a_board_row_queues_nothing(self):
+        self.app.sections["2"] = [{"gid": "s", "name": "M1", "tasks": [
+            {"gid": "m", "name": "the milestone", "kind": "milestone"},
+            {"gid": "t1", "name": "one", "kind": "task"}]}]
+        self.press("2", "down", "enter")
+        for _ in range(3):
+            self.press(" ", "down")
+        self.assertFalse(dm.read_control(self.root).get("queue"))
+        self.assertEqual(tui.gl.list_goals(self.root), [])
+        for row in ("m", "t1"):
+            self.app.cursor["board:2"] = [r["id"] for r in self.app.view()].index(row)
+            self.press(":")
+            titles = [c["title"] for c in self.app.palette["commands"]]
+            self.assertTrue(any(t.startswith("Run ") and "as a goal" in t for t in titles), row)
+            self.press("esc")
+
+    def test_an_old_control_file_still_opens(self):
+        launched = []
+        launch, tui.gl.launch = tui.gl.launch, lambda root, gid: launched.append(gid)
+        self.addCleanup(setattr, tui.gl, "launch", launch)
+        old = {"queue": [{"gid": "t2", "board": "2", "name": "two", "checkpoint": True}],
+               "commands": [{"id": 1, "op": "merge", "gid": "t2"}], "checkpoints": ["t1"],
+               "sprint": {"gid": "9", "name": "Sprint 26/2"}, "merge_mode": "asked",
+               "base": "feature/x"}
+        with dm.control_file(self.root) as c:
+            c.update(old)
+        self.app = App(self.root)
+        self.app.boards, self.app.sections = list(self.BOARDS), {"2": self.SECTIONS}
+        self.app.sections_at = {"2": tui.time.time()}
+        self.assertEqual(self.app.view(), [])
+        self.press("3")
+        self.assertEqual(self.app.view()[0]["cols"], ["Queue into", "feature/x"])
+        self.press("2", "down", "enter", "down", ":", *"goal", "enter")
+        [goal] = tui.gl.list_goals(self.root)
+        self.assertEqual(goal["base"], "feature/x")
+        self.assertIn("goal started on feature/x", self.app.message)
+        self.press("3", "down", "enter")
+        saved = dm.read_control(self.root)
+        self.assertTrue(saved["hide_done"])
+        self.assertEqual({k: saved[k] for k in old}, old)
 
     def test_o_opens_the_task_or_the_board_in_asana(self):
         opened = []
@@ -849,21 +802,14 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.app.query["Boards"], "")
         self.assertFalse(self.app.typing)
 
-    def test_right_does_not_pick_the_sprint_enter_does(self):
-        self.press("3", "enter")
-        self.assertEqual(self.app.setup, "sprint")
-        self.press("down", "right")
-        self.assertIsNone(self.app.control.get("sprint"))
-        self.press("enter")
-        self.assertEqual(self.app.control["sprint"]["gid"], "2")
-        self.assertIsNone(self.app.setup)
-
     def test_target_branch_is_picked_from_the_list(self):
         self.app.branches, self.app.default_branch = ["main", "release/1.2"], "main"
         self.app.branches_at = tui.time.time()
-        self.press("3", "down", "enter")
+        self.press("3", "enter")
         self.assertEqual(self.app.setup, "base")
-        self.press("down", "enter")
+        self.press("down", "right")
+        self.assertIsNone(self.app.control.get("base"))
+        self.press("enter")
         self.assertEqual(self.app.control["base"], "release/1.2")
         self.press("enter")
         self.assertEqual(self.app.selected(self.app.view())["id"], "release/1.2")  # opens on it
@@ -875,7 +821,7 @@ class TestAppKeys(unittest.TestCase):
         self.app.branches, self.app.default_branch = ["main", "develop"], "main"
         self.app.branches_at = tui.time.time()
         self.app.create_branch = lambda name: self.created.append(name)
-        self.press("3", "down", "enter")
+        self.press("3", "enter")
 
     def test_the_new_branch_row_takes_a_name_with_slashes_and_asks_first(self):
         self.new_branch_setup()
@@ -902,36 +848,27 @@ class TestAppKeys(unittest.TestCase):
         self.assertEqual(self.created, [])
 
     def test_the_models_are_set_on_setup_and_a_new_goal_uses_them(self):
-        self.press("3", *["down"] * 4, "enter", "ctrl-u", *"82", "enter")
+        self.press("3", *["down"] * 2, "enter", "ctrl-u", *"82", "enter")
         self.assertEqual(self.app.control["usage_threshold"], 82)
         self.press("enter", "ctrl-u", *"150", "enter")
         self.assertEqual(self.app.control["usage_threshold"], 82)
         self.assertIn("1 to 100", self.app.message)
         self.press("down", "enter")
         self.assertEqual([r["cols"][0] for r in self.app.view()], ["haiku", "sonnet", "opus", "fable"])
-        self.press("down", "enter")
-        self.assertEqual(self.app.control["models"], {"task": "claude-opus-5-5"})
-        self.press(*["down"] * 3, "enter", "home", "enter", "down", "enter", "end", "enter")
+        self.press("up", "enter")
+        self.assertEqual(self.app.control["models"], {"lead": "claude-sonnet-5-5"})
+        self.press("down", "enter", "down", "enter")
+        self.press("down", "enter", "home", "enter", "down", "enter", "end", "enter")
         self.assertEqual(self.app.control["models"]["check"], "claude-haiku-4-5-20251001")
         self.assertEqual(self.app.control["models"]["check_effort"], "max")
         settings = tui.gl.settings_from(self.app.control)
-        self.assertEqual(settings, {"model": "claude-opus-5-5", "subagent_model": "claude-sonnet-5-5",
+        self.assertEqual(settings, {"model": "claude-sonnet-5-5", "subagent_model": "claude-opus-5-5",
                                     "check_model": "claude-haiku-4-5-20251001", "check_effort": "max",
                                     "threshold": 82, "gate": "wait"})
         self.press("down", "enter")
         self.assertEqual([r["id"] for r in self.app.view()], ["wait", "top", "auto"])
         self.press("down", "enter")
         self.assertEqual(tui.gl.settings_from(self.app.control)["gate"], "top")
-
-    def test_merging_is_picked_from_its_three_modes(self):
-        self.press("3", "down", "down", "enter")
-        self.assertEqual([r["id"] for r in self.app.view()], ["branches", "always", "asked"])
-        self.assertIn("← now", self.app.view()[0]["cols"][1])
-        self.press("down", "down", "enter")
-        self.assertEqual(self.app.control["merge_mode"], "asked")
-        self.assertIsNone(self.app.setup)
-        self.press("enter", "esc")
-        self.assertEqual((self.app.control["merge_mode"], self.app.setup), ("asked", None))
 
     def test_q_quits_and_help_closes_on_any_key(self):
         self.press("?")
@@ -955,7 +892,6 @@ class TestWaits(unittest.TestCase):
         self.assertEqual(wait_summary(QUESTION),
                          "has questions for you: Which VPC — nonprod or shared? (+1 more)")
         self.assertEqual(wait_summary(PROBLEM), "QA gate still failing at 'backend' — ⏎ to read, a to reply")
-        self.assertIn("a to have it resolved", wait_summary({"kind": "conflict"}))
         self.assertIn("c approves it", wait_summary({"kind": "plan"}))
         lines = " ".join(t for t, _ in wait_lines({"kind": "plan", "split": True,
                                                    "detail": "- API\n- Inbox"}, 80))
@@ -987,102 +923,9 @@ class TestWaits(unittest.TestCase):
         self.assertEqual(parse_answer("nonprod, and fail closed\n\n" + template),
                          "nonprod, and fail closed")
 
-    def test_waiting_tasks_sort_first_and_are_flagged(self):
-        control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
-        data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
-                          "2": {"key": "A-2", "name": "two", "deps": []}}, "records": {}}
-        rows = run_rows(control, data, [], waits={"2": QUESTION})
-        self.assertEqual([r["id"] for r in rows], ["2", "1"])
-        self.assertTrue(rows[0]["cols"][2].startswith("⚑ has questions for you: Which VPC"))
-        self.assertEqual(rows[0]["style"], "warn")
-
-
-class TestRowStatus(unittest.TestCase):
-    NOW = None
-
-    def setUp(self):
-        import time
-        lt = time.localtime()
-        self.at = lambda h, m, s=0: time.mktime(lt[:3] + (h, m, s) + lt[6:9])
-
     def test_a_wait_with_no_headline_still_says_what_it_asks_of_you(self):
-        self.assertIn("stopped on an error — reply to retry", wait_summary({"kind": "failure"}))
-        self.assertIn("QA is still failing", wait_summary({"kind": "qa"}))
+        self.assertIn("has questions for you", wait_summary({"kind": "questions"}))
         self.assertIn("waiting on a reply from you", wait_summary({"kind": "?"}))
-
-    def test_a_run_shows_its_step_what_it_waits_on_and_for_how_long(self):
-        log = ["━━ 2026-10-02 10:00:00 · start-task ━━", "10:00:00  Fetching task", "  HCI-1 — x",
-               "10:01:00  Implementing", "  implement: calling claude-cli"]
-        step = tui.last_step(log, self.at(10, 13))
-        self.assertEqual(step[:2], ("Implementing", "agent at work"))
-        self.assertEqual(round(step[2]), 12 * 60)
-
-    def test_a_finished_call_is_no_longer_at_work(self):
-        log = ["10:01:00  Implementing", "  implement: calling claude-cli",
-               "  implement: claude-cli · claude-opus-5 · 29 turns · 397.8s"]
-        self.assertIsNone(tui.last_step(log, self.at(10, 9))[1])
-
-    def test_qa_shows_the_gate_still_running(self):
-        log = ["10:01:00  QA", "  backend: make verify", "  backend ok",
-               "  frontend: [ -d node_modules ] || npm ci; npm run verify (in apps/frontend)"]
-        self.assertEqual(tui.last_step(log, self.at(10, 4))[1],
-                         "[ -d node_modules ] || npm ci; npm run verify")
-
-    def test_a_pending_command_comes_first_then_the_daemons_work_then_the_run(self):
-        pending = [{"id": 9, "op": "retarget", "gid": "1", "base": "feature/m1"}]
-        self.assertEqual(tui.row_activity({"phase": "pr_open"}, pending, None, None, 0),
-                         "base branch change to feature/m1 asked — waiting for the daemon")
-        self.assertEqual(tui.row_activity({"phase": "pr_open"}, [], "removing HCI-1's worktree",
-                                          None, 0), "removing HCI-1's worktree…")
-        running = tui.row_activity({"phase": "running"}, [], None,
-                                   ["10:01:00  Shipping"], self.at(10, 2))
-        self.assertEqual(running, "running — Shipping · 1m")
-        self.assertIsNone(tui.row_activity({"phase": "pr_open"}, [], None, None, 0))
-
-    def test_a_revising_row_says_what_it_is_revising(self):
-        status = tui.row_activity({"phase": "revising", "revise_why": "fixing failing checks (e2e), to merge"},
-                                  [], None, ["10:01:00  Applying the feedback",
-                                             "  revise: calling claude-cli"], self.at(10, 4))
-        self.assertEqual(status, "revising: fixing failing checks (e2e) — Applying the feedback · "
-                                 "agent at work · 3m")
-
-    def test_a_run_sitting_out_a_limit_says_so_and_when_it_resumes(self):
-        import time
-        until = self.at(21, 11)
-        status = tui.row_activity({"phase": "revising"}, [], None, ["18:08:00  Applying the feedback"],
-                                  self.at(18, 9), {"reason": "You've hit your session limit", "until": until})
-        self.assertEqual(status, "paused — You've hit your session limit · resumes by itself at 21:11")
-
-    def test_a_running_row_shows_the_tokens_so_far(self):
-        status = tui.row_activity({"phase": "running"}, [], None, ["10:01:00  QA"], self.at(10, 2),
-                                  usage={"input": 0, "output": 400, "cache_read": 12000, "cache_write": 0})
-        self.assertEqual(status, "running — QA · 1m · 12.4k tokens so far")
-
-    def test_rows_use_it_and_an_open_pr_says_what_it_waits_for(self):
-        control = {"queue": [{"gid": "1"}, {"gid": "2"}]}
-        data = {"tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
-                          "2": {"key": "A-2", "name": "two", "deps": []}},
-                "records": {"1": {"phase": "pr_open"}, "2": {"phase": "pr_open"}}}
-        rows = run_rows(control, data, [], activity={"2": "changing A-2's PR base branch…"})
-        self.assertEqual(rows[0]["cols"][2], "PR open — waiting for review; m merges")
-        self.assertEqual(rows[1]["cols"][2], "changing A-2's PR base branch…")
-
-
-class TestReadWaits(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, True)
-
-    def test_questions_problems_and_parked_conflicts_are_waits(self):
-        st.State(self.root, "A-1").write("awaiting.json", QUESTION)
-        control = {"queue": [{"gid": "1"}, {"gid": "2"}, {"gid": "3"}]}
-        data = {"tasks": {"1": {"key": "A-1"}, "2": {"key": "A-2"}, "3": {"key": "A-3"}},
-                "records": {"2": {"phase": "conflict"}, "3": {"phase": "running"}}}
-        waits = read_waits(self.root, control, data)
-        self.assertEqual(sorted(waits), ["1", "2"])
-        self.assertEqual(waits["1"]["key"], "A-1")
-        self.assertEqual(waits["2"]["kind"], "conflict")
-
 
 class TestAnswering(unittest.TestCase):
     def asked(self):
@@ -1093,48 +936,34 @@ class TestAnswering(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
         isolate_cache(self)
-        st.State(self.root, "A-1").write("awaiting.json", QUESTION)
-        with dm.control_file(self.root) as c:
-            dm.queue_add(c, [{"gid": "1", "board": "9", "name": "one"},
-                             {"gid": "2", "board": "9", "name": "two"}])
-        os.makedirs(dm.queue_dir(self.root), exist_ok=True)
-        dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), {
-            "tasks": {"1": {"key": "A-1", "name": "one", "deps": []},
-                      "2": {"key": "A-2", "name": "two", "deps": []}},
-            "records": {"1": {"phase": "awaiting"},
-                        "2": {"phase": "conflict", "pr_url": "https://github.com/o/r/pull/7"}}})
-        self.posted = []
-        self.app = App(self.root, [])
-        self.app.asana = lambda args: self.posted.append(args)
+        self.gid = tui.gl.create(self.root, "1", "A-1", "one", base="main")
+        tui.gl.Goal(self.root, self.gid).state.write("awaiting.json", QUESTION)
+        self.row = "goal:%s" % self.gid
+        self.app = App(self.root)
 
     def press(self, *keys):
         for k in keys:
             self.app.key(k, self.app.view())
 
     def handed_over(self):
-        return st.State(self.root, "A-1").read(st.ANSWER_FILE)
+        return st.State(self.root, self.gid).read(st.ANSWER_FILE)
 
-    def test_enter_on_a_waiting_task_opens_its_questions(self):
+    def test_enter_on_a_waiting_goal_opens_its_questions(self):
         self.press("1")
-        self.assertEqual(self.app.view()[0]["id"], "1")
+        self.assertEqual(self.app.view()[0]["id"], self.row)
         self.press("enter")
-        self.assertEqual(self.app.question, "1")
+        self.assertEqual(self.app.question, self.row)
         self.press("esc")
         self.assertIsNone(self.app.question)
 
-    def test_a_one_line_answer_reaches_the_run_and_the_task(self):
+    def test_a_one_line_answer_reaches_the_goal(self):
         self.press("1", "enter", "a")
         self.press(*"use nonprod")
         self.press("enter")
         handed = self.handed_over()
         self.assertEqual(handed["text"], "use nonprod")
         self.assertEqual(handed["asked_at"], QUESTION["asked_at"])
-        for _ in range(100):
-            self.app.sync()
-            if self.posted:
-                break
-            tui.time.sleep(0.01)
-        self.assertEqual(self.posted, [["comment", "add", "1", "use nonprod"]])
+        self.assertEqual(self.app.message, "answered — the goal carries on")
 
     def test_typing_an_answer_does_not_trigger_keys(self):
         self.press("1", "a", *"q2x")
@@ -1150,40 +979,19 @@ class TestAnswering(unittest.TestCase):
 
     def test_A_asks_for_the_editor(self):
         self.press("1", "A")
-        self.assertEqual(self.app.edit_request, "1")
+        self.assertEqual(self.app.edit_request, self.row)
 
-    def test_m_asks_then_tells_the_daemon_to_merge(self):
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press("m")
-        self.assertIn("merge A-2", self.asked())
-        self.press("y")
-        self.assertEqual([(c["op"], c["gid"]) for c in self.app.control["commands"]],
-                         [("merge", "2")])
-
-    def test_the_palette_moves_a_pr_counting_what_it_brings_then_asking(self):
-        st.State(self.root, "A-2").write("context.json", {"git": {
-            "branch": "A-2/x", "base": "origin/main", "pr_url": "https://github.com/o/r/pull/7"}})
-        with dm.control_file(self.root) as c:
-            c["base"] = "feature/m1"
+    def test_c_approves_a_plan_waiting_on_you(self):
+        self.press("c")
+        self.assertEqual(self.asked(), "")
+        self.assertIn("no plan waits on your approval", self.app.message)
+        tui.gl.Goal(self.root, self.gid).state.write(
+            "awaiting.json", {"kind": "plan", "asked_at": "2026-10-01T12:00:00.000Z"})
         self.app.snapshot()
-        seen = []
-        tui.extra_commits, saved = (lambda root, branch, old, new: seen.append((branch, old, new)) or 0,
-                                    tui.extra_commits)
-        self.addCleanup(setattr, tui, "extra_commits", saved)
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press(":", *"move", "enter")
-        for _ in range(100):
-            self.app.sync()
-            if self.app.confirm:
-                break
-            tui.time.sleep(0.01)
-        self.assertEqual(seen, [("A-2/x", "main", "feature/m1")])
-        self.assertIn("move A-2's PR from main onto feature/m1? (y/n)", self.asked())
+        self.press("c")
+        self.assertIn("approve the plan of \"A-1 one\"", self.asked())
         self.press("y")
-        self.assertEqual(self.app.control["commands"][-1],
-                         {"id": 1, "op": "retarget", "gid": "2", "base": "feature/m1"})
+        self.assertEqual(self.handed_over()["text"], "continue")
 
     def palette_titles(self):
         return [c["title"] for c in tui.palette_matches(self.app.palette["commands"],
@@ -1194,88 +1002,21 @@ class TestAnswering(unittest.TestCase):
         self.app.cursor["Runs"] = [r["id"] for r in rows].index(gid)
 
     def test_the_palette_has_only_what_no_key_below_does(self):
-        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
-        with dm.control_file(self.root) as c:
-            c["base"] = "feature/m1"
-        self.app.snapshot()
-        self.select("2")
+        self.select(self.row)
         self.press(":")
         self.assertEqual(self.palette_titles(),
-                         ["Change A-2's PR base branch to feature/m1", "Make A-2 a checkpoint",
-                          "Undo A-2", "Hide done tasks",
-                          "Start this repo's daemon"])
-
-    def test_c_continues_past_a_merged_checkpoint(self):
-        with dm.control_file(self.root) as c:
-            dm.set_checkpoint(c, "2", True)
-        state = dm.read_json(os.path.join(dm.queue_dir(self.root), "state.json"))
-        state["records"]["2"] = {"phase": "merged"}
-        dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), state)
-        self.app.snapshot()
-        self.press("c")
-        self.assertIn("continue past checkpoint A-2", self.asked())
-        self.press("y")
-        self.assertEqual(self.app.control["commands"][-1], {"id": 1, "op": "continue", "gid": "2"})
-
-    def test_c_does_nothing_before_the_checkpoint_merged(self):
-        with dm.control_file(self.root) as c:
-            dm.set_checkpoint(c, "2", True)
-        self.app.snapshot()
-        self.press("c")
-        self.assertFalse(self.app.control.get("commands"))
-
-    def test_c_on_a_held_back_task_offers_to_drop_the_checkpoint(self):
-        with dm.control_file(self.root) as c:
-            dm.set_checkpoint(c, "1", True)
-        self.app.snapshot()
-        self.select("2")
-        self.press("c")
-        self.assertIn("checkpoint A-1 has not merged yet — drop it", self.asked())
-        self.press("y")
-        self.assertFalse(dm.planned_checkpoints(dm.read_control(self.root)))
-
-    def test_a_stopped_checkpoint_can_still_be_dropped(self):
-        with dm.control_file(self.root) as c:
-            dm.set_checkpoint(c, "2", True)
-        state = dm.read_json(os.path.join(dm.queue_dir(self.root), "state.json"))
-        state["records"]["2"] = {"phase": "stopped"}
-        dm.write_json(os.path.join(dm.queue_dir(self.root), "state.json"), state)
-        self.app.snapshot()
-        self.select("2")
-        self.press(":", *"checkpoint")
-        self.assertEqual(self.palette_titles(), ["A-2 is no longer a checkpoint"])
-
-    def test_it_is_found_by_the_words_you_would_use(self):
-        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/main"}})
-        with dm.control_file(self.root) as c:
-            c["base"] = "feature/m1"
-        self.app.snapshot()
-        self.select("2")
-        for query in ("branch", "retarget", "update", "move pr"):
-            self.press(":", *query)
-            self.assertEqual(self.palette_titles()[:1], ["Change A-2's PR base branch to feature/m1"],
-                             query)
-            self.press("esc")
-
-    def test_a_pr_already_on_the_target_offers_no_move(self):
-        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/feature/m1"}})
-        with dm.control_file(self.root) as c:
-            c["base"] = "feature/m1"
-        self.app.snapshot()
-        self.select("2")
-        self.press(":")
-        self.assertNotIn("base branch", " ".join(self.palette_titles()))
+                         ["Discuss the goal A-1 one", "Undo the goal A-1 one", "Hide done tasks"])
 
     def test_typing_in_the_palette_does_not_trigger_hotkeys(self):
         self.press(":", *"xq2m")
         self.assertEqual(self.app.palette["query"], "xq2m")
         self.assertEqual(tui.TABS[self.app.tab], "Runs")
-        self.assertEqual(self.app.control.get("commands") or [], [])
+        self.assertIsNone(self.app.confirm)
         self.press("esc")
         self.assertIsNone(self.app.palette)
 
     def test_the_palette_line_takes_editing_keys(self):
-        self.press(":", *"daemon", "ctrl-a", "ctrl-k")
+        self.press(":", *"undo", "ctrl-a", "ctrl-k")
         self.assertEqual(self.app.palette["query"], "")
         self.press(*"stat", "ctrl-b", "r", "ctrl-e", "ctrl-n", "ctrl-p")
         self.assertEqual(self.app.palette["query"], "start")
@@ -1310,7 +1051,9 @@ class TestAnswering(unittest.TestCase):
         tui.gl.Goal(self.root, gid).update(status="working", round=2, doing="round 2",
                                            worktree="/nowhere")
         self.app.snapshot()
-        self.press("1", "home", "enter")
+        self.press("1")
+        self.select("goal:%s" % gid)
+        self.press("enter")
         self.assertEqual(self.app.goal_view, gid)
         lines = self.frame()
         self.assertIn("Runs › goal A-9 Queue", lines[2])
@@ -1323,26 +1066,26 @@ class TestAnswering(unittest.TestCase):
         self.assertIsNone(self.app.goal_view)
 
     def test_a_question_is_asked_in_the_dialog_box_not_the_bottom_line(self):
-        self.press("1", "down", "x")
+        self.press("1", "x")
         lines = self.frame()
         box = [l for l in lines if "│" in l]
         self.assertTrue(any("─ confirm" in l for l in lines))
-        self.assertTrue(any("stop and unqueue" in l for l in box))
+        self.assertTrue(any("take the goal" in l for l in box))
         self.assertTrue(any("y yes · any other key no" in l for l in box))
         self.assertNotIn("(y/n)", "\n".join(lines))
         self.press("n")
         self.assertFalse(any("─ confirm" in l for l in self.frame()))
 
     def test_typing_and_picking_happen_in_the_dialog_box(self):
-        self.press("3", *["down"] * 4, "enter")
+        self.press("3", *["down"] * 2, "enter")
         lines = self.frame()
         self.assertTrue(any("─ usage limit" in l for l in lines))
         self.assertTrue(any("› 75" in l for l in lines))
         self.press("esc", "down", "enter")
         lines = self.frame()
-        self.assertTrue(any("─ task model" in l for l in lines))
-        self.assertTrue(any("▸ sonnet" in l and "← now" in l for l in lines))
-        self.assertTrue(any("Checker effort" in l for l in lines))   # Setup stays behind it
+        self.assertTrue(any("─ goal lead" in l for l in lines))
+        self.assertTrue(any("▸ opus" in l and "← now" in l for l in lines))
+        self.assertIn("3 Setup", lines[1])   # Setup stays behind it
 
     def test_the_selected_row_is_marked_not_only_coloured(self):
         self.press("1")
@@ -1355,110 +1098,6 @@ class TestAnswering(unittest.TestCase):
         lines = self.frame()
         self.assertFalse(any(l.startswith("▸") for l in lines[3:10]))
         self.assertEqual(sum("│ ▸ " in l for l in lines), 1)
-
-    def finished_setup(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"] = {"phase": "merged", "actual_hours": 0.5}
-        dm.write_json(path, data)
-        self.app.snapshot()
-
-    def test_x_on_a_finished_task_only_removes_it(self):
-        self.finished_setup()
-        self.select("2")
-        self.press("x")
-        self.assertIsNone(self.app.confirm)
-        self.assertEqual([q["gid"] for q in self.app.control["queue"]], ["1"])
-        self.assertEqual(self.app.control.get("commands") or [], [])
-
-    def test_x_on_a_live_task_still_stops_it_after_asking(self):
-        self.select("1")
-        self.press("x")
-        self.assertIn("stop and unqueue", self.asked())
-
-    def test_the_palette_clears_every_finished_task_at_once(self):
-        self.finished_setup()
-        self.press(":", *"clear", "enter")
-        self.assertEqual([q["gid"] for q in self.app.control["queue"]], ["1"])
-        self.assertEqual(self.app.control.get("commands") or [], [])
-        self.assertIn("removed A-2 from the list", self.app.message)
-
-    def test_undo_says_what_it_will_do_and_asks_first(self):
-        st.State(self.root, "A-2").write("context.json", {"git": {
-            "branch": "A-2/x", "base": "origin/main", "worktree": "/wt"}})
-        self.app.snapshot()
-        self.select("2")
-        self.press(":", *"undo", "enter")
-        self.assertIn("undo A-2: close its PR and delete the branch, remove its worktree and "
-                      "saved state, take it off the sprint and unassign it? (y/n)", self.asked())
-        self.assertEqual(self.app.control.get("commands") or [], [])
-        self.press("y")
-        self.assertEqual(self.app.control["commands"][-1]["op"], "undo")
-
-    def test_undoing_a_merged_task_offers_a_revert_and_warns_of_started_dependents(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"] = {"phase": "merged", "pr_url": "https://github.com/o/r/pull/7"}
-        data["tasks"]["1"]["deps"] = [{"ref": "2", "completed": True}]
-        data["records"]["1"]["phase"] = "running"
-        dm.write_json(path, data)
-        st.State(self.root, "A-2").write("context.json", {"git": {"base": "origin/feature/m1"}})
-        self.app.snapshot()
-        self.select("2")
-        self.press(":", *"revert", "enter")
-        self.assertIn("open a PR reverting it from feature/m1 (it waits for you to merge it)",
-                      self.asked())
-        self.assertIn("A-1, which waits on it, already started", self.asked())
-
-    def test_m_on_a_merge_in_progress_calls_it_off(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"]["merge"] = {"stage": "checks running"}
-        dm.write_json(path, data)
-        self.app.snapshot()
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press("m", "y")
-        self.assertEqual(self.app.control["commands"][-1]["op"], "merge-cancel")
-
-    def test_a_blocked_merge_waits_on_you(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"]["merge"] = {"blocked": "checks still failing: e2e"}
-        dm.write_json(path, data)
-        self.app.snapshot()
-        self.assertEqual(self.app.waits["2"]["kind"], "merge")
-        self.assertIn("a to say what to do, m to just try again", wait_summary(self.app.waits["2"]))
-
-    def test_a_merge_that_went_through_anyway_waits_on_nothing(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"].update(phase="merged", merge={"blocked": "gh pr merge refused: timed out"})
-        dm.write_json(path, data)
-        self.app.snapshot()
-        self.assertNotIn("2", self.app.waits)
-
-    def test_a_on_a_blocked_merge_sends_your_instructions(self):
-        path = os.path.join(dm.queue_dir(self.root), "state.json")
-        data = dm.read_json(path)
-        data["records"]["2"]["merge"] = {"blocked": "checks still failing after 2 fix(es): verify"}
-        dm.write_json(path, data)
-        self.app.snapshot()
-        self.select("2")
-        self.press("a", *"bump source-map-js with npm audit fix", "enter")
-        self.assertEqual(self.app.control["commands"][-1],
-                         {"id": 1, "op": "instruct", "gid": "2",
-                          "text": "bump source-map-js with npm audit fix"})
-
-    def test_a_on_a_parked_conflict_asks_then_requests_a_resolve(self):
-        asked = []
-        self.app.resolve = lambda gid, url: asked.append((gid, url))
-        rows = self.app.view()
-        self.app.cursor["Runs"] = [r["id"] for r in rows].index("2")
-        self.press("a")
-        self.assertIn("please resolve", self.asked())
-        self.press("y")
-        self.assertEqual(asked, [("2", "https://github.com/o/r/pull/7")])
 
 
 class TestCodeVersion(unittest.TestCase):
@@ -1585,33 +1224,30 @@ class TestQueueingDoesNotRelaunch(unittest.TestCase):
         self.assertEqual(run.records["1"], {"phase": "running", "pid": proc.pid, "since": 1})
 
 
-class TestRunRowsCheckpoint(unittest.TestCase):
-    def test_held_back_tasks_say_which_checkpoint_holds_them(self):
-        control = {"queue": [{"gid": "1", "checkpoint": True}, {"gid": "2"},
-                             {"gid": "3", "needed_by": "A-2"}]}
-        data = {"me": {"gid": "42"}, "sprint": {"gid": "s"},
-                "tasks": {g: {"key": "A-" + g, "name": "n" + g, "completed": False,
-                              "status": "Unassigned", "deps": []} for g in "123"},
-                "records": {"1": {"phase": "running"}}}
-        rows = run_rows(control, data, [])
-        self.assertEqual(rows[0]["cols"][1], "◆ n1")
-        self.assertEqual(rows[1]["cols"][2], "held back until checkpoint A-1")
-        self.assertEqual(rows[2]["cols"][2], "held back until checkpoint A-1 · queued for A-2")
-
-
 class TestSetup(unittest.TestCase):
     def test_rows_say_what_is_set(self):
-        rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "base": None, "merge_mode": "always"},
-                          "main")
+        rows = setup_rows({"base": None}, "main")
         self.assertEqual([r["cols"][0] for r in rows],
-                         ["Sprint", "Queue into", "Merging", "Done tasks", "Usage limit", "Task model", "Goal lead",
+                         ["Queue into", "Done tasks", "Usage limit", "Goal lead",
                           "Goal sub-agents", "Goal checker", "Checker effort", "Plan approval"])
-        self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[4:]],
-                         ["75%", "sonnet", "opus", "sonnet", "fable", "high",
+        self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[2:]],
+                         ["75%", "opus", "sonnet", "fable", "high",
                           "you, for the goal and each of its parts (recommended)"])
-        self.assertEqual(rows[1]["cols"][1], "the default branch (main)")
-        self.assertIn("always", rows[2]["cols"][1])
-        self.assertEqual(setup_rows({}, None)[0]["style"], "warn")
+        self.assertEqual(rows[0]["cols"][1], "the default branch (main)")
+        self.assertEqual(setup_rows({"base": "feature/x"}, "main")[0]["cols"][1], "feature/x")
+
+    def test_setup_has_no_sprint_merging_or_task_model(self):
+        rows = setup_rows({"sprint": {"name": "Sprint 26/2"}, "merge_mode": "always",
+                           "models": {"task": "claude-opus-5-5"}}, "main")
+        names = [r["cols"][0] for r in rows]
+        for gone in ("Sprint", "Merging", "Task model"):
+            self.assertNotIn(gone, names)
+        for kept in ("Plan approval", "Queue into", "Goal lead", "Goal sub-agents", "Goal checker",
+                     "Checker effort", "Usage limit"):
+            self.assertIn(kept, names)
+        self.assertNotIn("merge", tui.PICKED)
+        self.assertNotIn("model-task", tui.PICKED)
+        self.assertFalse(hasattr(tui, "MERGE_LABELS"))
 
     def test_a_setting_s_choices_say_what_each_means_and_which_is_set(self):
         rows = tui.choice_rows("model-check", {})
@@ -1620,11 +1256,6 @@ class TestSetup(unittest.TestCase):
         efforts = tui.choice_rows("effort-check", {"models": {"check_effort": "high"}})
         self.assertEqual([r["cols"][0] for r in efforts], ["low", "medium", "high", "xhigh", "max"])
         self.assertEqual(efforts[2]["style"], "bold")
-
-    def test_merging_defaults_to_the_recommended_mode(self):
-        for control in ({}, {"merge_mode": "never"}):
-            self.assertIn("unless it targets the default branch (recommended)",
-                          setup_rows(control, "main")[2]["cols"][1])
 
     def test_ls_remote_gives_the_default_first(self):
         text = ("ref: refs/heads/main\tHEAD\nabc\tHEAD\nabc\trefs/heads/main\n"
@@ -1639,30 +1270,6 @@ class TestSetup(unittest.TestCase):
                          ["+new", "develop"])
         picked = branch_rows(["main", "develop"], "main", "", "develop")
         self.assertIn("← queueing here", picked[2]["cols"][1])
-
-    def test_features_with_work_come_first_and_say_how_they_stand(self):
-        rows = branch_rows(["main", "develop", "f/x"], "main", "", "f/x",
-                           {"f/x": "2 running", "main": "1 merged"})
-        self.assertEqual([r["id"] for r in rows], ["+new", "f/x", "main", "develop"])
-        self.assertEqual(rows[1]["cols"][1], "2 running · ← queueing here")
-        self.assertEqual(rows[2]["cols"][1], "default · 1 merged")
-
-    def test_queueing_goes_into_the_active_feature_and_switching_moves_nothing(self):
-        root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, root, True)
-        isolate_cache(self)
-        with dm.control_file(root) as c:
-            dm.queue_add(c, [{"gid": "1", "board": "9", "name": "one"}])
-        app = App(root, [])
-        app.ensure_daemon = lambda: None
-        app.default_branch = "main"
-        app.set_base("feature/b")
-        app.queue([{"gid": "2", "board": "9", "name": "two"}])
-        app.set_base("main")
-        app.queue([{"gid": "3", "board": "9", "name": "three"}])
-        queue = dm.read_control(root)["queue"]
-        self.assertEqual([(q["gid"], q["base"]) for q in queue],
-                         [("1", None), ("2", "feature/b"), ("3", None)])
 
     def test_the_daemon_launches_each_task_onto_its_own_feature(self):
         import subprocess
@@ -1681,37 +1288,6 @@ class TestSetup(unittest.TestCase):
             self.assertTrue(valid_branch_name(good), good)
         for bad in ("", "-x", "a..b", "a b", "x.lock", "a//b", "/x", "x/"):
             self.assertFalse(valid_branch_name(bad), bad)
-
-
-class TestExtraCommits(unittest.TestCase):
-    """Moving a PR to another base can drag in commits the old base had and the
-    new one does not; that has to be counted before anyone says yes."""
-
-    def git(self, cwd, *args):
-        import subprocess
-        subprocess.run(["git"] + list(args), cwd=cwd, check=True, capture_output=True)
-
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, True)
-        origin, work = os.path.join(self.root, "o.git"), os.path.join(self.root, "w")
-        self.git(self.root, "init", "-q", "--bare", "-b", "main", origin)
-        self.git(self.root, "clone", "-q", origin, work)
-        for args in (["commit", "--allow-empty", "-qm", "c1"], ["push", "-q", "origin", "main"],
-                     ["push", "-q", "origin", "main:feature/old"],
-                     ["push", "-q", "origin", "main:feature/same"],
-                     ["commit", "--allow-empty", "-qm", "c2 on main"], ["push", "-q", "origin", "main"],
-                     ["push", "-q", "origin", "main:feature/same"],
-                     ["checkout", "-qb", "task"], ["commit", "--allow-empty", "-qm", "c3 the task"],
-                     ["push", "-q", "origin", "task"]):
-            self.git(work, *args)
-        self.work = work
-
-    def test_a_base_behind_the_old_one_brings_its_commits(self):
-        self.assertEqual(tui.extra_commits(self.work, "task", "main", "feature/old"), 1)
-
-    def test_a_base_level_with_the_old_one_brings_nothing(self):
-        self.assertEqual(tui.extra_commits(self.work, "task", "main", "feature/same"), 0)
 
 
 class TestLineEdit(unittest.TestCase):
@@ -1756,17 +1332,18 @@ class TestHelpPage(unittest.TestCase):
         self.assertEqual(headings[:2], ["Moving around", "Setup   · this tab"])
         self.assertTrue(headings[-1].startswith("Typing"))
 
-    def test_palette_commands_and_checkpoints_are_explained(self):
+    def test_palette_commands_are_explained_and_tasks_are_gone(self):
         text = " ".join(t for _, t, _ in tui.help_lines(100, "Runs"))
-        for words in ("Checkpoints", "Make HCI-8 a checkpoint", "Undo HCI-8", "Discuss the goal",
-                      "Queue into"):
+        for words in ("Run HCI-8 as a goal", "Undo the goal", "Discuss the goal", "Queue into"):
             self.assertIn(words, text)
+        for words in ("Checkpoints", "Daemons", "checkpoint", "merge:", "space"):
+            self.assertNotIn(words, text)
 
     def test_keys_and_text_are_separate_columns_and_long_text_wraps_under_itself(self):
         lines = tui.help_lines(60, "Runs")
-        merge = [i for i, (k, t, s) in enumerate(lines) if k == "m"][0]
-        self.assertTrue(lines[merge][1].startswith("merge:"))
-        self.assertEqual(lines[merge + 1][0], "")          # the wrap has no key of its own
+        approve = [i for i, (k, t, s) in enumerate(lines) if k == "c"][0]
+        self.assertTrue(lines[approve][1].startswith("approve"))
+        self.assertEqual(lines[approve + 1][0], "")          # the wrap has no key of its own
         self.assertTrue(all(len(t) <= 60 - tui.HELP_KEYS_WIDTH - 6
                             for _, t, style in lines if style != "bold"))
 
@@ -1864,6 +1441,31 @@ class TestLogLine(unittest.TestCase):
     def test_colour_and_cursor_codes_go_too(self):
         self.assertEqual(log_line("\x1b[32mok\x1b[39m \x1b[2Kdone")[0], "ok done")
 
+
+
+class TestPrintStatus(unittest.TestCase):
+    def test_print_status_lists_goals_only(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        with dm.control_file(root) as c:
+            c.update(queue=[{"gid": "7", "name": "a queued task"}], sprint={"gid": "9", "name": "S"})
+        gid = tui.gl.create(root, "9", "A-9", "Dark mode", base="main")
+        tui.gl.Goal(root, gid).state.write("awaiting.json", QUESTION)
+        out = io.StringIO()
+        with mock.patch.object(tui.sys, "stdout", out):
+            tui.print_status(root)
+        text = out.getvalue()
+        self.assertIn("A-9 Dark mode", text)
+        self.assertIn("⚑ 1 waiting on you", text)
+        self.assertIn("Which VPC", text)
+        for gone in ("a queued task", "daemon", "sprint"):
+            self.assertNotIn(gone, text)
+        empty = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty)
+        out = io.StringIO()
+        with mock.patch.object(tui.sys, "stdout", out):
+            tui.print_status(empty)
+        self.assertEqual(out.getvalue(), "no goals\n")
 
 
 class TestSettleFinishedPRs(unittest.TestCase):

@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 #
-# tui — browse boards, queue tasks and watch the runs that work them.
+# tui — browse boards, start goals on tickets and watch them work.
 #
-# A terminal UI over a per-repo background daemon. Pick the sprint, browse any
-# board, queue tasks or whole sections whenever you like; the daemon starts each
-# one through start-task once its dependencies are done, and watches its PR to
-# merge — the same engine as `run-milestone`. Closing the TUI leaves the daemon
-# working; opening it again, from any terminal, shows every daemon on the machine
-# and every run still going in this repo, owned or not.
+# A terminal UI over this repo's goals. Browse any board and run a ticket or a
+# milestone as a goal: it works by itself, on its own branch, into one PR, and
+# asks you only what it cannot decide. The Runs tab shows every goal and its
+# parts, what each is doing, and what waits on you; the Setup tab picks the
+# branch goals go into, their models and who approves their plans. Goals run in
+# processes of their own: closing the TUI leaves them working.
 #
 #   cond tui                    # the UI (run from inside the target repo)
-#   cond tui --status           # the queue and the daemon, printed; no UI
-#   cond tui --stop             # stop this repo's daemon and its runs
-#   cond tui --backend echo     # anything else goes to start-task, via the daemon
+#   cond tui --status           # the goals, printed; no UI
 #
-# Dependencies: Python 3 stdlib (curses), git, gh, and start-task / run-milestone
-# (sibling directories).
+# Dependencies: Python 3 stdlib (curses), git, gh, and goal (a sibling directory).
 
 import argparse
 import curses
@@ -35,20 +32,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daemon as dm  # noqa: E402
 from cache import Cache, Loader, age_label, is_stale, spinner  # noqa: E402
-from engine import ASANA, Stop, describe, task_url  # noqa: E402
-from start_task import usage_summary  # noqa: E402
+from engine import ASANA, Stop, task_url  # noqa: E402
 from daemon import st  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "goal"))
 import goal as gl  # noqa: E402
 import goal_view as gv  # noqa: E402
-from agent.claude_cli import DEFAULT_MODEL as TASK_MODEL  # noqa: E402
 
-TABS = ("Runs", "Boards", "Setup", "Daemons")
-MERGE_LABELS = {
-    "branches": "automatically, unless it targets the default branch (recommended)",
-    "always": "always automatically, the default branch included",
-    "asked": "only when asked — m on a task",
-}
+TABS = ("Runs", "Boards", "Setup")
 # Who approves a goal's plan before it is built.
 GATE_LABELS = {
     "wait": "you, for the goal and each of its parts (recommended)",
@@ -61,7 +51,6 @@ MODELS = [("claude-haiku-4-5-20251001", "haiku"), ("claude-sonnet-5-5", "sonnet"
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 # The Setup tab's model rows: (id, label, key in control["models"], default, what it is).
 MODEL_SETTINGS = [
-    ("model-task", "Task model", "task", TASK_MODEL, "every task run: implement, QA and revise"),
     ("model-lead", "Goal lead", "lead", gl.DEFAULT_MODEL, "plans a goal and judges its sub-agents"),
     ("model-subagent", "Goal sub-agents", "subagent", gl.DEFAULT_SUBAGENT_MODEL,
      "the lead's narrow, well-briefed parts — it can ask for more"),
@@ -79,9 +68,8 @@ EFFORT_NOTES = {"low": "quick", "medium": "balanced", "high": "careful",
                 "xhigh": "very thorough", "max": "as hard as it can"}
 # How often the live goal view re-reads its transcripts.
 GOAL_VIEW_EVERY = 2
-# How often the UI re-reads the daemon's files, and scans for stray agents.
+# How often the UI re-reads the goals.
 STATE_EVERY = 1.0
-AGENTS_EVERY = 3.0
 # git run from the UI must never ask for anything: a prompt would take over the
 # terminal the UI is drawing on, and look like a hang. It fails instead, saying why.
 NO_PROMPT = dict(os.environ, GIT_TERMINAL_PROMPT="0",
@@ -90,16 +78,6 @@ NO_PROMPT = dict(os.environ, GIT_TERMINAL_PROMPT="0",
 BOARDS_MAX_AGE = 300
 BOARD_OPEN_MAX_AGE = 30
 BOARD_SHOWN_MAX_AGE = 60
-
-# A task in one of these has nothing left running for it: removing it from the
-# list leaves it — and its record — exactly as it is.
-FINISHED = ("merged", "stopped", "failed", "undone")
-
-PHASE_STYLE = {
-    "running": "ok", "revising": "ok", "pr_open": "ok", "merged": "dim",
-    "awaiting": "warn", "conflict": "warn", "failed": "bad", "stopped": "dim",
-}
-
 
 # --- pure helpers (unit-tested) ---------------------------------------------
 
@@ -112,24 +90,12 @@ def matches(text, query):
 # What each kind of wait asks of you, for when the run recorded no headline.
 WAIT_ASKS = {
     "questions": "has questions for you",
-    "qa": "QA is still failing after its repairs — tell it how to proceed",
-    "push": "could not push — fix it or say how, then reply",
-    "pr": "something is wrong with its PR — fix it or say how, then reply",
-    "stall": "the agent stopped making progress — tell it how to go on",
-    "agent": "the agent call failed — reply to retry",
-    "failure": "the run stopped on an error — reply to retry",
 }
 
 
 def wait_summary(wait):
-    """One line for what a task is waiting on you for — and what that asks of you."""
+    """One line for what a goal is waiting on you for — and what that asks of you."""
     kind = wait.get("kind")
-    if kind == "conflict":
-        return "PR conflicts with its base — a to have it resolved, m to merge"
-    if kind == "merge":
-        return wait["headline"] + " — a to say what to do, m to just try again"
-    if kind == "checkpoint":
-        return "checkpoint reached — c continues the queue"
     if kind == "plan" and wait.get("split"):
         return ("split into parts ready for your review — c approves it, a says what to "
                 "change; or complete “Review the split” in Asana")
@@ -146,97 +112,6 @@ def wait_summary(wait):
     return WAIT_ASKS.get(kind, "waiting on a reply from you") + " · ⏎ to read"
 
 
-_STEP = re.compile(r"^(\d\d):(\d\d):(\d\d)  (.+)$")
-_CALLING = re.compile(r"^  ([\w-]+): calling ")
-_DONE_CALL = re.compile(r"^  ([\w-]+): \S+ · ")
-_GATE = re.compile(r"^  ([\w./-]+): (.+?)(?: \(in .+\))?$")
-_GATE_OK = re.compile(r"^  ([\w./-]+) ok$")
-_GATE_FAILED = re.compile(r"^  ! ([\w./-]+) failed \(exit")
-
-
-def last_step(lines, now):
-    """What a run is doing, from the end of its task's log: (step, detail,
-    seconds at it), or None. The detail is an agent call still out, or a QA gate
-    still running."""
-    lines = [_ANSI.sub("", line) for line in lines]
-    for i in range(len(lines) - 1, -1, -1):
-        line = lines[i]
-        if not line.strip() or line[0].isspace() or line.startswith(("━━", "====")):
-            continue
-        m = _STEP.match(line)
-        started = None
-        step = m.group(4) if m else line.strip()
-        if m:
-            local = time.localtime(now)
-            started = time.mktime(local[:3] + tuple(int(m.group(n)) for n in (1, 2, 3))
-                                  + local[6:9])
-            if started > now:
-                started -= 86400
-        detail, calls, gates = None, {}, {}
-        for line in lines[i + 1:]:
-            called, answered = _CALLING.match(line), _DONE_CALL.match(line)
-            finished = _GATE_OK.match(line) or _GATE_FAILED.match(line)
-            gate = _GATE.match(line) if step == "QA" else None
-            if called:
-                calls[called.group(1)] = True
-            elif answered:
-                calls.pop(answered.group(1), None)
-            elif finished:
-                gates.pop(finished.group(1), None)
-            elif gate:
-                gates[gate.group(1)] = gate.group(2)
-        if calls:
-            detail = "agent at work"
-        elif gates:
-            detail = list(gates.values())[-1]
-        return step, detail, None if started is None else max(0, now - started)
-    return None
-
-
-def _ago(seconds):
-    if seconds < 60:
-        return "%ds" % seconds
-    if seconds < 3600:
-        return "%dm" % (seconds // 60)
-    return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
-
-
-PENDING_SAYS = {
-    "merge": "merge asked",
-    "merge-cancel": "calling the merge off",
-    "retarget": "base branch change to %(base)s asked",
-    "stop": "stop asked",
-    "retry": "retry asked",
-}
-
-
-def row_activity(record, pending, busy, log_lines, now, paused=None, usage=None):
-    """What is happening to one task right now, in a few words, or None to fall
-    back on its phase: a command of yours the daemon has not acted on yet, then
-    something the daemon is in the middle of for it, then a run sitting out a
-    usage limit, then where its run is."""
-    if pending:
-        cmd = pending[-1]
-        return "%s — waiting for the daemon" % (PENDING_SAYS.get(cmd["op"], cmd["op"]) % cmd)
-    if busy:
-        return "%s…" % busy
-    if paused and (record or {}).get("phase") in ("running", "revising"):
-        return "paused — %s · resumes by itself at %s" % (
-            paused.get("reason") or "usage limit",
-            time.strftime("%H:%M", time.localtime(paused.get("until") or now)))
-    if (record or {}).get("phase") in ("running", "revising"):
-        step = last_step(log_lines or [], now)
-        if step:
-            name, detail, seconds = step
-            what = ("revising: %s" % record["revise_why"].replace(", to merge", "")
-                    if record["phase"] == "revising" and record.get("revise_why")
-                    else "revising" if record["phase"] == "revising" else "running")
-            return "%s — %s%s%s%s" % (what, name, " · %s" % detail if detail else "",
-                                      " · %s" % _ago(seconds) if seconds is not None else "",
-                                      " · %s so far" % usage_summary(usage) if usage else "")
-    return None
-
-
 def wait_lines(wait, width):
     """The whole of a wait, wrapped to the screen, as [(text, style)]."""
     width = max(20, width - 4)
@@ -247,20 +122,6 @@ def wait_lines(wait, width):
             for piece in textwrap.wrap(line, width - len(indent)) or [""]:
                 out.append((indent + piece, style))
 
-    if wait.get("kind") == "conflict":
-        para("The PR conflicts with its base, most likely because a sibling task merged "
-             "first and touched the same files. The task is parked until you ask for "
-             "a resolve: the base is then merged in and the conflicts resolved — never "
-             "a rebase or force-push. Or press m to resolve and merge it in one go.",
-             "normal")
-        return out
-    if wait.get("kind") == "checkpoint":
-        para(wait.get("headline") or "", "bold")
-        out.append(("", "normal"))
-        para("This task is a checkpoint and has merged. Everything queued after it is held "
-             "back until you continue — nothing past it has started. Check what you need to, "
-             "then press c.", "normal")
-        return out
     if wait.get("kind") == "plan" and wait.get("split"):
         para("The split into parts is ready for your review", "bold")
         out.append(("", "normal"))
@@ -289,14 +150,6 @@ def wait_lines(wait, width):
             para("The %s:" % ("parts" if wait.get("split") else "steps"), "normal")
             for line in wait["detail"].splitlines():
                 para(line, "dim", "  ")
-        return out
-    if wait.get("kind") == "merge":
-        para(wait.get("headline") or "", "bold")
-        out.append(("", "normal"))
-        para("The merge stopped short. Press a (or A for $EDITOR) to tell the task's "
-             "agent what to do about it — or comment on the PR, which counts the same; "
-             "the merge then starts over. Or fix it yourself and press m to try again "
-             "from wherever the PR is.", "normal")
         return out
     for n, q in enumerate(wait.get("questions") or [], 1):
         para("%d. %s" % (n, q.get("q", "")), "bold")
@@ -329,36 +182,6 @@ def parse_answer(text):
     """The answer in an edited template, or None for an empty one."""
     kept = [line for line in (text or "").splitlines() if not line.lstrip().startswith("#")]
     return "\n".join(kept).strip() or None
-
-
-def gate_state(control, data):
-    """({feature: the checkpoint holding it}, held-back gids, [the checkpoints
-    that have merged and now only wait for you to continue])."""
-    tasks, records = data.get("tasks") or {}, data.get("records") or {}
-    gates, held = dm.checkpoint_gates(control.get("queue") or [], tasks, records,
-                                      data.get("continued") or [], control.get("base"))
-    reached = [item for item in gates.values()
-               if (records.get(item["gid"]) or {}).get("phase") == "merged"
-               or (tasks.get(item["gid"]) or {}).get("completed")]
-    return gates, held, reached
-
-
-def feature_label(feature, default_branch=None):
-    return feature or default_branch or "the default branch"
-
-
-def feature_summary(rows):
-    """How a feature stands, in a line: what runs, waits on you, is queued, landed."""
-    counts = {}
-    for r in rows:
-        phase = r.get("phase")
-        what = ("waiting on you" if r.get("wait") else "merged" if r.get("finished")
-                else "running" if phase in ("running", "revising", "awaiting")
-                else "PR open" if phase in ("pr_open", "conflict")
-                else "failed" if phase in ("failed", "stopped") else "queued")
-        counts[what] = counts.get(what, 0) + 1
-    order = ("running", "waiting on you", "PR open", "failed", "queued", "merged")
-    return " · ".join("%d %s" % (counts[w], w) for w in order if counts.get(w))
 
 
 def scroll_top(top, cur, body, count):
@@ -397,118 +220,6 @@ def settle_finished_prs(main_root, goals, now=None):
             if phase:
                 gl.Goal(main_root, gid).update(phase=phase)
         threading.Thread(target=look, daemon=True).start()
-
-
-def read_waits(main_root, control, data):
-    """What each queued task is waiting on you for: an outstanding question or
-    problem from its run (its `awaiting.json`), or a parked conflict."""
-    tasks, records = data.get("tasks") or {}, data.get("records") or {}
-    _, _, reached = gate_state(control, data)
-    reached = {item["gid"] for item in reached}
-    waits = {}
-    for item in control.get("queue") or []:
-        gid = item["gid"]
-        key = (tasks.get(gid) or {}).get("key")
-        awaiting = st.State(main_root, key).read("awaiting.json") if key else None
-        if awaiting and awaiting.get("asked_at"):
-            waits[gid] = dict(awaiting, key=key)
-        elif gid in reached:
-            waits[gid] = {"kind": "checkpoint", "key": key,
-                          "headline": "Checkpoint reached — what is queued after it waits for you"}
-        elif (((records.get(gid) or {}).get("merge") or {}).get("blocked")
-              and (records.get(gid) or {}).get("phase") != "merged"
-              and not (tasks.get(gid) or {}).get("completed")):
-            waits[gid] = {"kind": "merge", "key": key,
-                          "headline": "Merge blocked: %s" % records[gid]["merge"]["blocked"]}
-        elif (records.get(gid) or {}).get("phase") == "conflict":
-            waits[gid] = {"kind": "conflict", "key": key}
-    return waits
-
-
-def run_rows(control, data, live, me_gid=None, agents=(), waits=None, activity=None,
-             default_branch=None, hide_done=False, goals=()):
-    """The Runs tab: every task waiting on you first, then the rest of the queue
-    in its order — grouped by feature, under a line saying how each stands,
-    once there is more than one — then every live start-task run nothing here
-    owns, then every agent left working with no run at all. `hide_done` leaves
-    out the tasks that are done — merged or complete, and not waiting on you —
-    while the feature lines still count them."""
-    tasks, records = data.get("tasks") or {}, data.get("records") or {}
-    me_gid = me_gid or (data.get("me") or {}).get("gid")
-    waits = waits or {}
-    gates, held, _ = gate_state(control, data)
-    default_branch = default_branch or data.get("default_branch")
-    rows = []
-    for item in control.get("queue") or []:
-        gid = item["gid"]
-        feature = dm.feature_of(item, control.get("base"))
-        task = tasks.get(gid)
-        record = records.get(gid) or {}
-        if task is None:
-            key, name, status = "…", item.get("name") or gid, "queued — not read yet"
-        else:
-            key, name = task.get("key"), task.get("name")
-            status = describe(gid, tasks, records, me_gid)
-            if status == "ready" and not control.get("sprint"):
-                status = "ready — starts once a sprint is picked"
-            if gid in held and not record.get("phase"):
-                gate = gates.get(feature) or {}
-                status = "held back until checkpoint %s" % (
-                    (tasks.get(gate.get("gid")) or {}).get("key") or gate.get("name")
-                    or "in another feature")
-            if item.get("needed_by") and not record.get("phase"):
-                status += " · queued for %s" % item["needed_by"]
-        if item.get("checkpoint"):
-            name = "◆ " + (name or "")
-        style = PHASE_STYLE.get(record.get("phase"))
-        if not style:
-            style = "dim" if task and task.get("completed") else "normal"
-        wait = waits.get(gid)
-        now_doing = (activity or {}).get(gid)
-        if now_doing:
-            status = now_doing
-        elif record.get("phase") == "pr_open" and not record.get("merge"):
-            status = "PR open — waiting for review; m merges"
-        if wait:
-            status, style = "⚑ " + wait_summary(wait), "warn"
-        rows.append({"kind": "task", "id": gid, "cols": [key or "", name or "", status],
-                     "feature": feature,
-                     "style": style, "log": record.get("log"), "wait": wait,
-                     "pr_url": record.get("pr_url"), "phase": record.get("phase"),
-                     "finished": record.get("phase") in FINISHED
-                                 or bool(task and task.get("completed")),
-                     "done": record.get("phase") == "merged" or bool(task and task.get("completed")),
-                     "merge": record.get("merge"),
-                     "links": [u for u in (record.get("pr_url"),
-                                           task_url(item.get("board"), gid)) if u]})
-    rows.sort(key=lambda r: not r.get("wait"))
-    features = []
-    for item in control.get("queue") or []:
-        feature = dm.feature_of(item, control.get("base"))
-        if feature not in features:
-            features.append(feature)
-    if len(features) > 1 or hide_done:
-        grouped = []
-        for feature in features:
-            members = [r for r in rows if r["feature"] == feature]
-            here = feature == control.get("base")
-            grouped.append({"kind": "feature", "id": "feature:%s" % (feature or ""),
-                            "style": "bold", "links": [], "feature": feature,
-                            "cols": [feature_label(feature, default_branch),
-                                     feature_summary(members),
-                                     "← queueing here" if here else ""]})
-            grouped += [r for r in members if not (hide_done and r["done"] and not r.get("wait"))]
-        rows = grouped
-    managed = [r.get("pid") for r in records.values() if r.get("pid")]
-    for tid, pid in dm.unmanaged(live, managed):
-        rows.append({"kind": "orphan", "id": pid, "style": "warn", "links": [],
-                     "cols": [tid, "start-task pid %d" % pid,
-                              "not run by this repo's daemon — x stops it"]})
-    for tree, pid in agents:
-        rows.append({"kind": "orphan", "id": pid, "style": "bad", "links": [],
-                     "cols": [tree.split("+")[0], "agent pid %d, no run owns it" % pid,
-                              "still working in %s — x stops it" % tree]})
-    return goal_rows(goals, waits, hide_done) + rows
 
 
 def goal_status(g, wait=None):
@@ -609,20 +320,14 @@ def goal_waits(goals):
 
 
 def setup_rows(control, default_branch=None):
-    """The Setup tab: what new work goes into, and whether it is merged."""
-    sprint = (control.get("sprint") or {}).get("name")
+    """The Setup tab: the branch goals go into, and how they run."""
     base = control.get("base")
-    mode = control.get("merge_mode") if control.get("merge_mode") in MERGE_LABELS else "branches"
     return [
-        {"kind": "setting", "id": "sprint", "style": "normal" if sprint else "warn",
-         "cols": ["Sprint", sprint or "none — pick one; nothing starts until you do"]},
         {"kind": "setting", "id": "base", "style": "normal",
          "cols": ["Queue into", base or "the default branch%s"
                   % (" (%s)" % default_branch if default_branch else "")]},
-        {"kind": "setting", "id": "merge", "style": "normal",
-         "cols": ["Merging", MERGE_LABELS[mode]]},
         {"kind": "setting", "id": "done", "style": "normal",
-         "cols": ["Done tasks", "hidden — boards and Runs leave them out; Runs still counts them"
+         "cols": ["Done tasks", "hidden — boards and Runs leave them out"
                   if control.get("hide_done") else "shown"]},
         {"kind": "setting", "id": "threshold", "style": "normal",
          "cols": ["Usage limit", "%d%% — goals wind down and pause at this share of any Claude "
@@ -651,8 +356,6 @@ def model_label(value):
 
 def setting_choices(sid):
     """[(value, label, what it means)] for a Setup row picked from a list."""
-    if sid == "merge":
-        return [(mode, label, "") for mode, label in MERGE_LABELS.items()]
     if sid == "gate":
         return [(g, label, "") for g, label in GATE_LABELS.items()]
     if sid.startswith("effort-"):
@@ -662,9 +365,6 @@ def setting_choices(sid):
 
 def setting_value(sid, control):
     """What a Setup row picked from a list is set to now."""
-    if sid == "merge":
-        mode = control.get("merge_mode")
-        return mode if mode in MERGE_LABELS else "branches"
     if sid == "gate":
         return gate_of(control)
     _, _, key, default, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
@@ -679,7 +379,7 @@ def choice_rows(sid, control):
             for value, label, note in setting_choices(sid)]
 
 
-PICKED = ("merge", "gate") + tuple(m[0] for m in MODEL_SETTINGS)
+PICKED = ("gate",) + tuple(m[0] for m in MODEL_SETTINGS)
 
 
 def parse_ls_remote(text):
@@ -694,22 +394,19 @@ def parse_ls_remote(text):
     return default, sorted(branches, key=lambda b: (b != default, b.lower()))
 
 
-def branch_rows(branches, default, query, current, features=None):
+def branch_rows(branches, default, query, current):
     """Branches to queue into, filtered, after a row for starting a new one from
-    the default branch: first the features with work in them, saying how each
-    stands (`features`: {branch: summary}, in queue order), then the rest."""
-    features = features or {}
+    the default branch."""
     rows = [{"kind": "new", "id": "+new", "style": "warn",
              "cols": ["+ New branch…", "from origin/%s, as it is on GitHub now"
                       % (default or "the default branch")]}]
-    names = list(features) + [b for b in branches or [] if b not in features]
-    for b in names:
+    for b in branches or []:
         if not matches(b, query):
             continue
         picked = b == current or (current is None and b == default)
         rows.append({"kind": "branch", "id": b, "style": "bold" if picked else "normal",
                      "cols": [b, " · ".join(x for x in (
-                         "default" if b == default else "", features.get(b, ""),
+                         "default" if b == default else "",
                          "← queueing here" if picked else "") if x)]})
     return rows
 
@@ -721,68 +418,25 @@ def valid_branch_name(name):
         or ".." in name or "//" in name or "@{" in name)
 
 
-def undo_plan(row, git_info):
-    """What undoing a task will do, in a sentence, for the confirm prompt."""
-    if row.get("phase") == "merged":
-        base = (git_info.get("base") or "").replace("origin/", "", 1) or "its base"
-        return ("open a PR reverting it from %s (it waits for you to merge it), reopen it in "
-                "Asana, take it off the sprint and unassign it" % base)
-    steps = []
-    if row.get("phase") in ("running", "awaiting", "revising"):
-        steps.append("stop its run")
-    if row.get("pr_url"):
-        steps.append("close its PR and delete the branch")
-    elif git_info.get("branch"):
-        steps.append("delete its branch")
-    if git_info.get("worktree"):
-        steps.append("remove its worktree and saved state")
-    steps.append("take it off the sprint and unassign it")
-    return ", ".join(steps)
-
-
 def palette_matches(commands, query):
     """The palette's commands for a query: every word must appear in the title
     or the words it is also known by, in the order given."""
     return [c for c in commands if matches("%s %s" % (c["title"], c.get("words", "")), query)]
 
 
-def extra_commits(main_root, branch, old, new):
-    """How many commits a PR on `branch` would gain by moving from base `old` to
-    `new`: those it carries from `old` that `new` does not have. Fetches first."""
-    def git(*args):
-        done = subprocess.run(["git"] + list(args), cwd=main_root, stdin=subprocess.DEVNULL,
-                              env=NO_PROMPT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if done.returncode != 0:
-            raise Stop(done.stderr.decode("utf-8", "replace").strip().splitlines()[-1])
-        return done.stdout.decode().strip()
-    git("fetch", "origin", old, new, branch)
-    fork = git("merge-base", "origin/%s" % branch, "origin/%s" % old)
-    return int(git("rev-list", "--count", "origin/%s..%s" % (new, fork)))
-
-
-def board_list_rows(boards, query, sprint=None):
-    sprint_gid = (sprint or {}).get("gid")
-    return [{"kind": "board", "id": b["gid"], "name": b["name"], "style":
-             "bold" if b["gid"] == sprint_gid else "normal",
-             "cols": [b["name"], "← sprint" if b["gid"] == sprint_gid else ""]}
+def board_list_rows(boards, query):
+    return [{"kind": "board", "id": b["gid"], "name": b["name"], "style": "normal",
+             "cols": [b["name"], ""]}
             for b in boards or [] if matches(b["name"], query)]
 
 
-def board_rows(board_gid, sections, queued, records, query, live=None, checkpoints=(),
-               subtasks=None, hide_done=False):
+def board_rows(board_gid, sections, query, subtasks=None, hide_done=False):
     """A board as sections and their tasks. A section stays when its name or any of
-    its tasks match the query; a task when it matches or its section does. `live`
-    is what the daemon last read of a task, laid over the cached board — it is
-    newer for anything the daemon is working. `subtasks` holds the expanded
-    tasks' subtasks (None while they load), shown indented under them. A milestone
-    shows (◈) so its subtasks can be expanded and queued, but is not itself queued.
-    `hide_done` leaves out completed tasks, and sections with nothing else."""
+    its tasks match the query; a task when it matches or its section does.
+    `subtasks` holds the expanded tasks' subtasks (None while they load), shown
+    indented under them. A milestone shows (◈). `hide_done` leaves out completed
+    tasks, and sections with nothing else."""
     subtasks = subtasks or {}
-    live = live or {}
-    sections = [dict(sec, tasks=[dict(t, completed=t.get("completed")
-                                      or bool((live.get(t["gid"]) or {}).get("completed")))
-                                 for t in sec.get("tasks") or []])
-                for sec in sections or []]
     rows = []
     for section in sections or []:
         hit = matches(section["name"], query)
@@ -791,18 +445,15 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
                  and not (hide_done and t.get("completed"))]
         if not tasks and (not hit or hide_done):
             continue
-        runnable = [t for t in tasks if t.get("kind") != "milestone"]
-        open_count = sum(1 for t in runnable if not t.get("completed"))
+        open_count = sum(1 for t in tasks if t.get("kind") != "milestone" and not t.get("completed"))
         rows.append({"kind": "section", "id": section["gid"], "board": board_gid,
-                     "cols": [section["name"], "%d open" % open_count], "style": "bold",
-                     "tasks": runnable})
+                     "cols": [section["name"], "%d open" % open_count], "style": "bold"})
         for t in tasks:
             count = t.get("subtasks") or 0
             open_ = t["gid"] in subtasks
             fold = ("%s %d subtask%s" % ("▾" if open_ else "▸", count, "" if count == 1 else "s")
                     if count else "")
-            rows.append(task_row(board_gid, t, "  ", fold, queued, records, checkpoints,
-                                 subtasks=count))
+            rows.append(task_row(board_gid, t, "  ", fold, subtasks=count))
             if not open_:
                 continue
             if subtasks[t["gid"]] is None:
@@ -810,18 +461,14 @@ def board_rows(board_gid, sections, queued, records, query, live=None, checkpoin
                              "cols": ["        loading subtasks…", ""], "style": "dim"})
                 continue
             for sub in [x for x in subtasks[t["gid"]] if not (hide_done and x.get("completed"))]:
-                rows.append(task_row(board_gid, sub, "      ", "", queued, records, checkpoints,
-                                     parent=t["gid"]))
+                rows.append(task_row(board_gid, sub, "      ", "", parent=t["gid"]))
     return rows
 
 
-def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
-    phase = (records.get(t["gid"]) or {}).get("phase")
+def task_row(board_gid, t, indent, fold, **extra):
     milestone = t.get("kind") == "milestone"
-    mark = ("◈" if milestone
-            else ("◆" if t["gid"] in checkpoints else "●") if t["gid"] in queued
-            else "◇" if t["gid"] in checkpoints else " ")
-    state = "done" if t.get("completed") else (phase or ("queued" if t["gid"] in queued else ""))
+    mark = "◈" if milestone else " "
+    state = "done" if t.get("completed") else ""
     key = t.get("key") or ""
     lead = "%s%s " % (indent, mark)
     return dict({"kind": "task", "id": t["gid"], "board": board_gid, "name": t["name"], "key": key,
@@ -829,22 +476,8 @@ def task_row(board_gid, t, indent, fold, queued, records, checkpoints, **extra):
                  "faint": (len(lead), len(key)) if key else None,
                  "cols": ["%s%s%s" % (lead, key + " " if key else "", t["name"]),
                           "  ·  ".join(x for x in (state, fold) if x)],
-                 "style": "dim" if t.get("completed") else PHASE_STYLE.get(phase, "normal")},
+                 "style": "dim" if t.get("completed") else "normal"},
                 **extra)
-
-
-def daemon_rows(entries, now):
-    rows = []
-    for path, info, alive in entries:
-        root = info.get("main_root") or "?"
-        beat, _ = dm.daemon_info(root) if os.path.isdir(root) else (None, False)
-        health = dm.daemon_health(beat or info, alive, now) if alive else "crashed"
-        runs = len(dm.live_runs(root)) if os.path.isdir(root) else 0
-        rows.append({"kind": "daemon", "id": path, "info": info, "alive": alive,
-                     "style": {"running": "ok", "stale": "warn"}.get(health, "bad"),
-                     "cols": [root, health, "pid %s" % info.get("pid"),
-                              "%d live run(s)" % runs]})
-    return rows
 
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
@@ -861,19 +494,10 @@ def log_line(line):
     return text, "bold" if heading else "normal"
 
 
-def open_link(row):
-    """What o opens for a run: a merged task's changes on its PR, otherwise
-    its PR, or the task when it has none."""
-    if row.get("pr_url") and row.get("phase") == "merged":
-        return row["pr_url"].rstrip("/") + "/files"
-    return row["links"][0]
-
-
-def fit(cols, width, wide=False):
-    """One line from columns: the last column takes what is left. A wide row's
-    first column is as long as it needs."""
+def fit(cols, width):
+    """One line from columns: the last column takes what is left."""
     if len(cols) == 3:
-        widths = [max(10, len(str(cols[0]))) if wide else 10, 46, 0]
+        widths = [10, 46, 0]
     else:
         widths = [max(20, width // 2)] + [14] * (len(cols) - 2) + [0]
     parts = []
@@ -932,33 +556,27 @@ HELP = [
         ("PgDn PgUp   alt-N alt-B", "a page"),
         ("^D ^U", "half a page"),
         ("Home End   g G", "top / end"),
-        ("⏎   →   l ^L", "in: open a board, a task's question or log, a setting"),
+        ("⏎   →   l ^L", "in: open a board, a goal's question or live view, a setting"),
         ("←   h   esc   ⌫", "out: clear the filter first, then leave the board"),
-        ("1–4   alt-1–4", "go to a tab; its number again takes it back to its top"),
+        ("1–3   alt-1–3", "go to a tab; its number again takes it back to its top"),
         ("tab   shift-tab", "cycle the tabs"),
         ("/", "filter the list (⏎ keeps it, esc clears it) · ↑↓ ^N ^P PgDn PgUp alt-N still move"),
         (":", "commands that have no key of their own"),
         ("?", "this page"),
-        ("q", "quit — the daemon keeps working"),
+        ("q", "quit — the goals keep working"),
     ]),
     ("Runs", [
-        ("⏎", "on a ⚑ task, read what it is waiting on · on a goal, what it is doing now, "
-              "live · otherwise its log"),
-        ("a", "answer a ⚑ task in one line"),
+        ("⏎", "on a ⚑ goal, read what it is waiting on · otherwise what it is doing now, live"),
+        ("a", "answer a ⚑ goal in one line"),
         ("A", "answer it in $EDITOR"),
-        ("m", "merge: conflicts resolved and failing checks fixed on the way · "
-              "m again calls it off · on a blocked merge, tries again"),
-        ("x", "stop and unqueue · on a finished task, just remove it from the list"),
-        ("r", "retry a failed or stopped task"),
-        ("o", "open its PR (or the task) · on a merged task, what it changed"),
-        ("c", "continue past a reached checkpoint — its feature starts tasks again · "
-              "on a held-back task, drop the checkpoint holding it"),
-        ("x r o u", "on a goal: stop it (finished: remove it) · carry it on · open its PR · "
-                    "what each agent took: time, tokens, cost"),
-        ("d", "on a goal: mark it done by hand — it stops, and stops watching its PR"),
+        ("c", "approve the plan (or the split) of a goal waiting on your review"),
+        ("x", "stop a goal · on a finished one, remove it from the list"),
+        ("r", "carry a stopped or failed goal on from where it left off"),
+        ("o", "open its PR"),
+        ("u", "what each agent took: time, tokens, cost"),
+        ("d", "mark it done by hand — it stops, and stops watching its PR"),
     ]),
     ("Boards", [
-        ("space", "queue or unqueue a task or subtask · on a section, queue all of it"),
         ("→ l ⏎", "on a task or milestone (◈) with subtasks (▸ 3 subtasks): show them"),
         ("← h", "hide them again (on a subtask or its task) · then: leave the board"),
         ("o", "open the task (or the board) in Asana"),
@@ -969,41 +587,15 @@ HELP = [
     ("Setup", [
         ("⏎", "change the setting: pick from its list, type the usage limit, or show or "
               "hide done tasks"),
-        ("n", "new feature branch (in the branch list), created on origin"),
+        ("n", "new branch (in the branch list), created on origin"),
     ]),
-    ("Daemons", [
-        ("s", "start this repo's daemon"),
-        ("x", "stop one, with its runs"),
-        ("d", "clear a crashed one's entry"),
-    ]),
-    ("Commands — : opens them, on the Runs tab for the selected task", [
-        ("checkpoint", "Make HCI-8 a checkpoint (◆) · again: no longer a checkpoint · "
-                       "on Boards also before it is queued (◇)"),
-        ("undo", "Undo HCI-8 — take its work back out; says what it will do and asks first"),
+    ("Commands — : opens them, on the Runs tab for the selected goal", [
+        ("goal", "Run HCI-8 as a goal on the branch Setup → Queue into names (Boards)"),
         ("discuss", "Discuss the goal X — talk it through with Claude, which reads its "
                     "journal and code, and writes only scratch files in a temp folder; a new tab in Ghostty"),
-        ("base branch", "Change HCI-8's PR base branch to the feature you queue into"),
-        ("clear", "Clear the finished tasks from the list · Clear the done goals, shown or not"),
+        ("undo", "Undo the goal X — close its PR, delete its branch; says what it will do and asks first"),
+        ("clear", "Clear the done goals from the list, shown or not"),
         ("done", "Hide done tasks / Show done tasks — also Setup → Done tasks"),
-        ("daemon", "start or stop this repo's daemon"),
-    ]),
-    ("Checkpoints", [
-        ("what", "a gate in its feature's queue: nothing queued after it starts until it "
-                 "has merged and you press c — however long it takes"),
-        ("e.g.", "◆ HCI-8 and ◆ HCI-10: HCI-9 waits for HCI-8, HCI-11 for HCI-10; tasks "
-                 "before HCI-8, and what they depend on, are never held"),
-        ("set", ": on a task — Runs, or a board — then Make … a checkpoint"),
-        ("plan", "on a board, flag them before queueing (◇), then queue the milestone: "
-                 "each is a checkpoint (◆) once it is queued"),
-        ("c", "once it has merged (⚑, header ⏸) — let the queue past it, to the next one"),
-        ("drop", "c on a task it holds back, before it has merged — or : on it, then "
-                 "… is no longer a checkpoint"),
-    ]),
-    ("Features and dependencies", [
-        ("feature", "the branch work targets: Setup → Queue into picks where what you queue "
-                    "goes; queued tasks keep theirs; Runs groups by feature"),
-        ("deps", "queueing a task queues every unfinished task it depends on, ahead of it "
-                 "(· queued for HCI-9); a task starts once its dependencies are done"),
     ]),
     ("Typing — filter, answers, branch names, commands", [
         ("^A ^E", "start / end of the line"),
@@ -1154,9 +746,8 @@ def read_key(scr, idle=1000):
 # --- the app ----------------------------------------------------------------
 
 class App(object):
-    def __init__(self, main_root, forward):
+    def __init__(self, main_root):
         self.main_root = main_root
-        self.forward = forward
         self.tab = 0
         self.cursor = {}
         self.query = {}
@@ -1187,10 +778,7 @@ class App(object):
         self.compose = None
         self.edit_request = None
         self.discuss_request = None
-        self.posting = {}
-        self.sent = []
         self.creating = None
-        self.retargeting = None
         self.palette = None
         self.snapshot()
 
@@ -1205,14 +793,9 @@ class App(object):
                                             proc.stderr.decode("utf-8", "replace").strip()))
         return json.loads(proc.stdout.decode("utf-8", "replace") or "null")
 
-    def snapshot(self, agents=True):
-        """Re-read what the daemon and the runs left on disk. `agents` also scans
-        the machine's processes for stray agents — the slow part, so the loop
-        does it less often."""
+    def snapshot(self):
+        """Re-read the settings and what the goals left on disk."""
         self.control = dm.read_control(self.main_root)
-        self.data = dm.read_json(os.path.join(dm.queue_dir(self.main_root), "state.json")) or {}
-        self.daemon, self.alive = dm.daemon_info(self.main_root)
-        self.live = dm.live_runs(self.main_root)
         self.goals = gl.list_goals(self.main_root)
         rates = gl.repo_rates(self.main_root) if self.goals else {}
         processes = gv.claude_processes() if any(g.get("alive") for g in self.goals) else {}
@@ -1230,21 +813,14 @@ class App(object):
                 g["cost"] = (g.get("cost") or 0) + sum(p.get("cost") or 0 for p in parts)
                 g["agents_running"] = (g.get("agents_running") or 0) + sum(
                     p.get("agents_running") or 0 for p in parts)
-        self.waits = read_waits(self.main_root, self.control, self.data)
-        self.waits.update(goal_waits(self.goals))
-        self.activity = self.read_activity()
-        now = time.time()
-        self.snapped_at = now
-        if agents or not hasattr(self, "agents"):
-            self.agents = dm.live_agents(self.main_root, [pid for _, pid in self.live]
-                                         + [g["pid"] for g in self.goals if g.get("alive")])
-            self.agents_at = now
+        self.waits = goal_waits(self.goals)
+        self.snapped_at = time.time()
 
     def refresh_state(self, now):
         """Keep what is shown current on a clock, never on a keypress: a held-down
-        key must not wait on disk reads and a process scan each time."""
+        key must not wait on disk reads each time."""
         if now - getattr(self, "snapped_at", 0) >= STATE_EVERY:
-            self.snapshot(agents=now - getattr(self, "agents_at", 0) >= AGENTS_EVERY)
+            self.snapshot()
 
     def fetch_boards(self):
         me, _ = self.cache.get("me")
@@ -1271,30 +847,6 @@ class App(object):
             self.sections[gid], self.sections_at[gid] = self.cache.get("sections-%s" % gid)
         if is_stale(self.sections_at.get(gid), time.time(), max_age):
             self.loader.start("sections-%s" % gid, gid, lambda: self.fetch_sections(gid))
-
-    def read_activity(self):
-        """What is happening to each queued task right now: commands of yours not
-        yet acted on, the daemon's work on it, its run's current step."""
-        applied = self.data.get("applied", 0)
-        busy = (self.daemon or {}).get("busy_tasks") or {}
-        records = self.data.get("records") or {}
-        out = {}
-        for item in self.control.get("queue") or []:
-            gid = item["gid"]
-            record = records.get(gid) or {}
-            pending = [c for c in self.control.get("commands") or []
-                       if c.get("gid") == gid and c["id"] > applied]
-            lines = _tail(record["log"], 400) if record.get("phase") in ("running", "revising") \
-                and record.get("log") else None
-            key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key")
-            task_state = st.State(self.main_root, key) if key and lines else None
-            paused = task_state.read("paused.json") if task_state else None
-            usage = task_state.read(st.USAGE_FILE) if task_state else None
-            doing = row_activity(record, pending, busy.get(gid) if self.alive else None,
-                                 lines, time.time(), paused, usage)
-            if doing:
-                out[gid] = doing
-        return out
 
     def fetch_branches(self):
         code = subprocess.run(["git", "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*"],
@@ -1369,27 +921,6 @@ class App(object):
                     self.subtasks[gid] = [{"gid": t["ref"], "name": t["name"], "key": t.get("key"),
                                            "completed": t.get("completed")} for t in done[0] or []
                                           if not st.made_by_goal(t)]
-        if self.sent:
-            self.follow_commands()
-        for gid in list(self.posting):
-            done = self.loader.take("answer-%s" % gid)
-            if done:
-                kind = self.posting.pop(gid)
-                if done[1] and kind == "answer":
-                    self.message = ("could not copy the answer to Asana (%s) — the run "
-                                    "has it all the same" % done[1])
-                elif done[1]:
-                    self.message = "could not ask for the resolve: %s" % done[1]
-        done = self.loader.take("retarget")
-        if done and self.retargeting:
-            row, old, target = self.retargeting
-            self.retargeting = None
-            extra = done[0]
-            dragged = ("" if extra == 0 else " — it would bring %d commit(s) from %s that %s does "
-                       "not have" % (extra, old, target) if extra else
-                       " — could not tell what it brings (%s)" % (done[1] or "?"))
-            self.ask("move %s's PR from %s onto %s%s? (y/n)" % (row["cols"][0], old, target, dragged),
-                     lambda: self.command("retarget", row["id"], base=target))
         done = self.loader.take("branches")
         if done:
             if done[1]:
@@ -1406,7 +937,7 @@ class App(object):
                 self.set_base(name)
         if TABS[self.tab] == "Boards" and self.board:
             self.refresh_board(self.board[0], BOARD_SHOWN_MAX_AGE)
-        elif TABS[self.tab] == "Boards" or self.setup == "sprint":
+        elif TABS[self.tab] == "Boards":
             self.refresh_boards()
         elif TABS[self.tab] == "Setup":
             self.refresh_branches()
@@ -1417,7 +948,7 @@ class App(object):
         if TABS[self.tab] == "Boards" and self.board:
             gid = self.board[0]
             return self.loader.busy("sections-%s" % gid), self.sections_at.get(gid)
-        if TABS[self.tab] == "Boards" or self.setup == "sprint":
+        if TABS[self.tab] == "Boards":
             return self.loader.busy("boards"), self.boards_at
         if self.setup == "base":
             return (self.loader.busy("branches") or self.loader.busy("create-branch"),
@@ -1429,26 +960,17 @@ class App(object):
         name = TABS[self.tab]
         query = self.query.get(self.view_key(), "")
         if name == "Runs":
-            return run_rows(self.control, self.data, self.live, agents=self.agents,
-                            hide_done=bool(self.control.get("hide_done")),
-                            waits=self.waits, activity=self.activity,
-                            default_branch=self.default_branch, goals=self.goals)
+            return goal_rows(self.goals, self.waits, bool(self.control.get("hide_done")))
         if name == "Boards" and self.board:
-            queued = {q["gid"] for q in self.control["queue"]}
-            return board_rows(self.board[0], self.sections.get(self.board[0]), queued,
-                              self.data.get("records") or {}, query, self.data.get("tasks"),
-                              dm.planned_checkpoints(self.control), self.subtasks,
-                              bool(self.control.get("hide_done")))
-        if name == "Boards" or (name == "Setup" and self.setup == "sprint"):
-            return board_list_rows(self.boards, query, self.control.get("sprint"))
-        if name == "Setup" and self.setup in PICKED:
+            return board_rows(self.board[0], self.sections.get(self.board[0]), query,
+                              self.subtasks, bool(self.control.get("hide_done")))
+        if name == "Boards":
+            return board_list_rows(self.boards, query)
+        if self.setup in PICKED:
             return choice_rows(self.setup, self.control)
-        if name == "Setup" and self.setup == "base":
-            return branch_rows(self.branches, self.default_branch, query, self.control.get("base"),
-                               self.feature_summaries())
-        if name == "Setup":
-            return setup_rows(self.control, self.default_branch)
-        return daemon_rows(dm.registered(), time.time())
+        if self.setup == "base":
+            return branch_rows(self.branches, self.default_branch, query, self.control.get("base"))
+        return setup_rows(self.control, self.default_branch)
 
     def view_key(self):
         if TABS[self.tab] == "Boards" and self.board:
@@ -1471,19 +993,11 @@ class App(object):
 
     def set_base(self, name):
         base = None if name == self.default_branch else name
-        self.change_control(lambda c: (dm.stamp_features(c), c.update(base=base)))
+        self.change_control(lambda c: c.update(base=base))
         self.setup = None
-        self.message = ("queueing into %s — what you queue now branches off it and targets it; "
-                        "what is already queued keeps its feature" % (name if base else "the default (%s)" % name))
-
-    def feature_summaries(self):
-        """{branch: how it stands} for every feature with work queued."""
-        groups = {}
-        for row in run_rows(self.control, self.data, [], waits=self.waits):
-            if row["kind"] == "task":
-                name = feature_label(row["feature"], self.default_branch)
-                groups.setdefault(name, []).append(row)
-        return {name: feature_summary(rows) for name, rows in groups.items()}
+        self.message = ("queueing into %s — goals started now branch off it and open their PR "
+                        "into it; goals already started keep theirs"
+                        % (name if base else "the default (%s)" % name))
 
     def selected(self, rows):
         if not rows:
@@ -1499,86 +1013,23 @@ class App(object):
         self.snapshot()
         return result
 
-    def ensure_daemon(self):
-        if not self.alive:
-            pid = dm.start_daemon(self.main_root, self.forward)
-            self.message = "started the daemon (pid %d)" % pid
-
-    def queue(self, items):
-        items = [i for i in items if not i.get("completed")]
-        if not items:
-            self.message = "already complete — nothing to queue"
-            return
-        items = [dict(i, base=self.control.get("base")) for i in items]
-        added = self.change_control(lambda c: dm.queue_add(c, items))
-        started = ""
-        if added and not self.alive:
-            self.ensure_daemon()
-            started = " · " + self.message
-        self.message = ("queued %d task(s)" % len(added) if added else "already queued") + (
-            "" if self.control.get("sprint") else " — pick a sprint (Setup, tab 3) before they start"
-        ) + started
-
-    def instruct(self, gid, text):
-        """Tell a task with a blocked merge what to do: the daemon hands it to the
-        task's agent, then the merge starts over."""
-        self.command("instruct", gid, text=text)
-        self.question = None
-
     def answer(self, gid, text):
-        """Hand an answer to the task's waiting run. It goes in the run's state,
-        which the run looks at every second, and onto the task in Asana as your
-        comment, so the conversation stays where the question was asked."""
+        """Hand an answer to the goal waiting on it. It goes in the goal's state,
+        which the goal looks at every second."""
         wait = self.waits.get(gid) or {}
-        if wait.get("kind") == "merge":
-            return self.instruct(gid, text)
         if not wait.get("asked_at") or not wait.get("key"):
             self.message = "nothing is waiting on an answer there any more"
             return
         st.State(self.main_root, wait["key"]).write(
             st.ANSWER_FILE, {"asked_at": wait["asked_at"], "text": text, "at": time.time()})
-        if gid.startswith("goal:"):
-            self.question = None
-            self.message = "answered — the goal carries on"
-            self.snapshot()
-            return
-        self.posting[gid] = "answer"
-        self.loader.start("answer-%s" % gid, "answer",
-                          lambda: self.asana(["comment", "add", gid, text]))
         self.question = None
-        self.message = "answered %s — the run picks it up now" % wait["key"]
+        self.message = "answered — the goal carries on"
         self.snapshot()
-
-    def resolve(self, gid, pr_url):
-        """Ask for a parked conflict to be resolved, the way a person would: a
-        `please resolve` comment on the PR, which the loop looks for each minute."""
-        def post():
-            code = subprocess.run(["gh", "pr", "comment", pr_url, "--body", "please resolve"],
-                                  cwd=self.main_root, stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if code.returncode != 0:
-                raise Stop(code.stderr.decode("utf-8", "replace").strip() or "gh failed")
-        self.posting[gid] = "resolve"
-        self.loader.start("answer-%s" % gid, "resolve", post)
-        self.question = None
-        self.message = "asked for a resolve on %s — picked up within a minute" % pr_url
 
     def start_answer(self, row, editor=False):
         wait = (row or {}).get("wait")
         if not wait:
             self.message = "nothing is waiting on you there"
-        elif wait.get("kind") == "checkpoint":
-            self.message = "c continues the queue"
-        elif wait.get("kind") == "merge" and editor:
-            self.edit_request = row["id"]
-        elif wait.get("kind") == "merge":
-            self.compose = {"kind": "answer", "gid": row["id"], "text": "", "line": LineEdit()}
-        elif wait.get("kind") == "conflict":
-            if not row.get("pr_url"):
-                self.message = "no PR recorded for that task"
-                return
-            self.ask("post `please resolve` on %s? (y/n)" % row["pr_url"],
-                     lambda: self.resolve(row["id"], row["pr_url"]))
         elif editor:
             self.edit_request = row["id"]
         else:
@@ -1643,30 +1094,6 @@ class App(object):
         elif key == "u":
             self.message = "no call has finished yet"
 
-    def merge(self, row):
-        """Ask for a task to be got onto main: conflicts resolved, failing checks
-        fixed, merged. Asked again on a merge in progress, it is called off; on a
-        blocked one, it is tried again from where the PR stands."""
-        merge = row.get("merge")
-        name = row["cols"][0]
-        if row.get("phase") in ("merged", "stopped", "failed"):
-            self.message = "nothing to merge there"
-        elif merge and not merge.get("blocked"):
-            self.ask("stop trying to merge %s? (y/n)" % name,
-                     lambda: self.command("merge-cancel", row["id"]))
-        else:
-            when = "" if row.get("pr_url") else " once its PR is up"
-            self.ask("merge %s%s — resolving conflicts and fixing failing checks as needed? "
-                     "(y/n)" % (name, when), lambda: self.command("merge", row["id"]))
-
-    def clear(self, rows):
-        """Take finished tasks off the list. Nothing is stopped and nothing about
-        them changes; queue one again and its record is still there."""
-        gids = [r["id"] for r in rows]
-        self.change_control(lambda c: dm.queue_remove(c, gids))
-        self.message = ("removed %s from the list" % rows[0]["cols"][0] if len(rows) == 1
-                        else "removed %d finished tasks from the list" % len(rows))
-
     def clear_goals(self, goals):
         """Take done goals and their parts off the list. Their branches and PRs stay."""
         for g in goals:
@@ -1681,23 +1108,7 @@ class App(object):
         sight — none with a key shown in the line at the bottom — and only ones
         that can run right now."""
         out = []
-        if TABS[self.tab] == "Runs" and row and row["kind"] == "task":
-            target = self.control.get("base") or self.default_branch
-            git_info = (st.State(self.main_root, row["cols"][0]).read("context.json") or {}).get("git") or {}
-            old = (git_info.get("base") or "").replace("origin/", "", 1)
-            if (row.get("pr_url") and row.get("phase") in ("pr_open", "conflict")
-                    and target and old != target):
-                out.append({"title": "Change %s's PR base branch to %s" % (row["cols"][0], target),
-                            "words": "retarget move update base branch pr from %s" % old,
-                            "run": lambda: self.retarget(row)})
         if TABS[self.tab] == "Runs":
-            finished = [r for r in run_rows(self.control, self.data, [], waits=self.waits)
-                        if r["kind"] == "task" and r.get("finished")]
-            if finished:
-                out.append({"title": "Clear %d finished task%s from the list"
-                                     % (len(finished), "" if len(finished) == 1 else "s"),
-                            "words": "remove merged done acknowledge tidy clean",
-                            "run": lambda: self.clear(finished)})
             done = [g for g in self.goals if not g.get("parent") and g.get("status") == "done"
                     and not g.get("awaiting")]
             if done:
@@ -1705,27 +1116,6 @@ class App(object):
                                      % (len(done), "" if len(done) == 1 else "s"),
                             "words": "remove merged finished acknowledge tidy clean goals",
                             "run": lambda: self.clear_goals(done)})
-        if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
-                and (not row.get("finished") or row.get("phase") in ("stopped", "failed"))):
-            on = any(q["gid"] == row["id"] and q.get("checkpoint")
-                     for q in self.control.get("queue") or [])
-            out.append({"title": ("%s is no longer a checkpoint" if on else
-                                  "Make %s a checkpoint") % row["cols"][0],
-                        "words": "checkpoint pause stop after milestone gate",
-                        "run": lambda: self.toggle_checkpoint(row["id"], row["cols"][0], not on)})
-        if (TABS[self.tab] == "Boards" and self.board and row and row["kind"] == "task"
-                and not row.get("completed") and not row.get("milestone")):
-            label = row["name"] if len(row["name"]) <= 40 else row["name"][:39] + "…"
-            on = row["id"] in dm.planned_checkpoints(self.control)
-            out.append({"title": ("%s is no longer a checkpoint" if on else
-                                  "Make %s a checkpoint") % label,
-                        "words": "checkpoint pause stop after milestone gate",
-                        "run": lambda: self.toggle_checkpoint(row["id"], label, not on)})
-        if (TABS[self.tab] == "Runs" and row and row["kind"] == "task"
-                and row.get("phase") not in (None, "undone")):
-            out.append({"title": "Undo %s" % row["cols"][0],
-                        "words": "revert discard throw away back out cancel reset",
-                        "run": lambda: self.undo(row)})
         if TABS[self.tab] == "Runs" and row and row["kind"] == "goal" and row["cols"][0] == "goal":
             out.append({"title": "Discuss the goal %s" % row["cols"][1],
                         "words": "talk chat brainstorm ask claude think through read only",
@@ -1740,19 +1130,10 @@ class App(object):
             out.append({"title": "Run %s as a goal on %s" % (name, into),
                         "words": "goal autonomous run by itself agent swarm implement",
                         "run": lambda: self.new_goal(row)})
-        if TABS[self.tab] != "Daemons":
-            hidden = bool(self.control.get("hide_done"))
-            out.append({"title": "Show done tasks" if hidden else "Hide done tasks",
-                        "words": "filter completed merged finished hide show toggle",
-                        "run": self.toggle_done})
-        if TABS[self.tab] != "Daemons":
-            if not self.alive:
-                out.append({"title": "Start this repo's daemon", "words": "run begin",
-                            "run": self.ensure_daemon})
-            else:
-                out.append({"title": "Stop this repo's daemon and its runs", "words": "kill end",
-                            "run": lambda: self.ask("stop the daemon and its runs? (y/n)",
-                                                    lambda: dm.stop_daemon(self.daemon))})
+        hidden = bool(self.control.get("hide_done"))
+        out.append({"title": "Show done tasks" if hidden else "Hide done tasks",
+                    "words": "filter completed merged finished hide show toggle",
+                    "run": self.toggle_done})
         return out
 
     def palette_key(self, key):
@@ -1774,55 +1155,19 @@ class App(object):
             self.palette["cursor"] = 0
 
     def continue_key(self):
-        """c: continue past the selected reached checkpoint, or the only one.
-        On a task held back by a checkpoint that has not merged yet — or on that
-        checkpoint — offer to drop the checkpoint instead."""
+        """c: approve the plan (or the split) of the selected goal."""
         row = self.selected(self.view()) if TABS[self.tab] == "Runs" else None
         if row and row["kind"] == "goal" and (row.get("wait") or {}).get("kind") == "plan":
             split = (row.get("wait") or {}).get("split")
             self.ask(("approve the split of \"%s\", so its parts start to plan? (y/n)" if split else
                       "approve the plan of \"%s\", so it starts building? (y/n)") % row["cols"][1].strip(" └"),
                      lambda: self.answer(row["id"], "continue"))
-            return
-        gates, held, reached = gate_state(self.control, self.data)
-        row = row if row and row["kind"] == "task" else None
-        gate = next((g for g in reached if row and g["gid"] == row["id"]), None)
-        if gate is None and len(reached) == 1 and not (row and row["id"] in held):
-            gate = reached[0]
-        tasks = self.data.get("tasks") or {}
-        name_of = lambda g: (tasks.get(g["gid"]) or {}).get("key") or g.get("name")
-        if gate is not None:
-            self.ask("continue past checkpoint %s — what is queued after it can start? (y/n)"
-                     % name_of(gate), lambda: self.command("continue", gate["gid"]))
-            return
-        blocking = next((g for g in gates.values() if row and g not in reached
-                         and (g["gid"] == row["id"] or (row["id"] in held
-                                                        and g is gates.get(row.get("feature"))))),
-                        None)
-        if blocking is not None:
-            name = name_of(blocking)
-            self.ask("checkpoint %s has not merged yet — drop it, so what is queued after it "
-                     "can start? (y/n)" % name,
-                     lambda: self.toggle_checkpoint(blocking["gid"], name, False))
-        elif reached:
-            self.message = "%d checkpoints are reached — select one (Runs, ⚑) and press c" % len(reached)
         else:
-            self.message = "no checkpoint is holding anything back"
-
+            self.message = "no plan waits on your approval there"
     def toggle_done(self):
         hide = not self.control.get("hide_done")
         self.change_control(lambda c: c.update(hide_done=hide))
-        self.message = ("done tasks hidden — Runs still counts them" if hide
-                        else "done tasks shown")
-
-    def toggle_checkpoint(self, gid, label, on):
-        self.change_control(lambda c: dm.set_checkpoint(c, gid, on))
-        queued = any(q["gid"] == gid for q in self.control["queue"])
-        self.message = ("%s is a checkpoint: what is queued after it waits until it has "
-                        "merged and you continue" % label if on and queued
-                        else "%s is a checkpoint (◇) — it gates the queue once it is queued"
-                        % label if on
-                        else "%s is no longer a checkpoint" % label)
+        self.message = "done tasks hidden" if hide else "done tasks shown"
 
     def undo_goal(self, row):
         """Ask before undoing a goal, saying all it will do; then undo it in a
@@ -1840,80 +1185,13 @@ class App(object):
         self.ask("undo the goal \"%s\": %s? This cannot be undone (y/n)"
                  % (row["cols"][1], ", ".join(steps)), go)
 
-    def undo(self, row):
-        """Ask before undoing a task — saying exactly what will be done, and
-        which tasks that wait on it have already started."""
-        key = row["cols"][0]
-        git_info = (st.State(self.main_root, key).read("context.json") or {}).get("git") or {}
-        tasks, records = self.data.get("tasks") or {}, self.data.get("records") or {}
-        started = [t.get("key") for g, t in tasks.items()
-                   if any(d.get("ref") == row["id"] for d in t.get("deps") or [])
-                   and (records.get(g) or {}).get("phase") not in (None, "stopped", "undone")]
-        warning = (" — %s, which wait%s on it, already started" % (
-            ", ".join(started), "" if len(started) > 1 else "s") if started else "")
-        self.ask("undo %s: %s%s? (y/n)" % (key, undo_plan(row, git_info), warning),
-                 lambda: self.command("undo", row["id"]))
-
-    def retarget(self, row):
-        """Offer to move a task's open PR onto the current target branch — after
-        counting what the move would drag in with it."""
-        target = self.control.get("base") or self.default_branch
-        state = st.State(self.main_root, row["cols"][0])
-        git_info = (state.read("context.json") or {}).get("git") or {}
-        old = (git_info.get("base") or "").replace("origin/", "", 1)
-        if row.get("phase") not in ("pr_open", "conflict") or not row.get("pr_url"):
-            self.message = "b moves an open PR — %s has none" % row["cols"][0]
-        elif not target:
-            self.message = "no target branch known yet — open Setup once to read the branches"
-        elif old == target:
-            self.message = "%s's PR already targets %s" % (row["cols"][0], target)
-        else:
-            self.message = "checking what moving %s onto %s brings with it…" % (row["cols"][0], target)
-            self.loader.start("retarget", "retarget", lambda: extra_commits(
-                self.main_root, git_info.get("branch"), old, target))
-            self.retargeting = (row, old, target)
-
-    def command(self, op, gid, **extra):
-        applied = self.data.get("applied", 0)
-        cid = self.change_control(lambda c: dm.add_command(c, op, gid, applied, **extra))
-        key = ((self.data.get("tasks") or {}).get(gid) or {}).get("key") or gid
-        self.sent.append({"id": cid, "op": op, "key": key, "at": time.time()})
-        self.follow_commands()
-
-    def follow_commands(self):
-        """Say what became of each command sent: done, ignored, or still waiting."""
-        for sent in list(self.sent):
-            message, settled = dm.command_feedback(
-                sent, self.data.get("applied", 0), self.data.get("results"),
-                self.alive, time.time(), (self.daemon or {}).get("busy") or ())
-            self.message = message
-            if settled:
-                self.sent.remove(sent)
-
     def act(self, key, row):
         name = TABS[self.tab]
         if name == "Runs" and row:
-            if key in ("a", "A") and row["kind"] in ("task", "goal"):
+            if key in ("a", "A"):
                 self.start_answer(row, editor=key == "A")
-            elif row["kind"] == "goal" and key in ("x", "r", "o", "u", "d"):
+            elif key in ("x", "r", "o", "u", "d"):
                 self.goal_key(key, row)
-            elif key == "m" and row["kind"] == "task":
-                self.merge(row)
-            elif key == "x" and row["kind"] == "task" and row.get("finished"):
-                self.clear([row])
-            elif key == "x" and row["kind"] == "task":
-                self.ask("stop and unqueue %s? (y/n)" % row["cols"][0], lambda: (
-                    self.command("stop", row["id"]),
-                    self.change_control(lambda c: dm.queue_remove(c, [row["id"]],
-                                                                  keep_checkpoints=True))))
-            elif key == "x" and row["kind"] == "orphan":
-                self.ask("stop pid %d and what it started? (y/n)" % row["id"],
-                         lambda: dm.kill_pid(row["id"]))
-            elif key == "r" and row["kind"] == "task":
-                self.command("retry", row["id"])
-                self.message = "retry asked — a failed or stopped task starts again when ready"
-            elif key == "o" and row.get("links"):
-                webbrowser.open(open_link(row))
         elif name == "Boards" and key == "o" and row:
             if row["kind"] == "task":
                 webbrowser.open(task_url(row["board"], row["id"]))
@@ -1921,48 +1199,18 @@ class App(object):
                 webbrowser.open("https://app.asana.com/0/%s/list" % row["id"])
             elif self.board:
                 webbrowser.open("https://app.asana.com/0/%s/list" % self.board[0])
-        elif name == "Boards" and self.board:
-            if key == "R":
-                self.refresh_board(self.board[0], max_age=-1)
-            elif key == " " and row and row["kind"] == "section":
-                self.queue([{"gid": t["gid"], "board": row["board"], "name": t["name"],
-                             "completed": t.get("completed")} for t in row["tasks"]])
-            elif key == " " and row and row["kind"] == "task" and row.get("milestone"):
-                self.message = ("a milestone is not run itself — open it (→) and queue its "
-                                "subtasks" if row.get("subtasks") else "a milestone is not run itself")
-            elif key == " " and row and row["kind"] == "task":
-                if row["id"] in {q["gid"] for q in self.control["queue"]}:
-                    self.change_control(lambda c: dm.queue_remove(c, [row["id"]],
-                                                                  keep_checkpoints=True))
-                    self.message = ("unqueued — a run already going is left to finish; "
-                                    "x on the Runs tab stops it")
-                else:
-                    self.queue([{"gid": row["id"], "board": row["board"],
-                                 "name": row["name"], "completed": row.get("completed")}])
+        elif name == "Boards" and self.board and key == "R":
+            self.refresh_board(self.board[0], max_age=-1)
         elif name == "Boards" and key == "R":
             self.refresh_boards(max_age=-1)
         elif name == "Setup" and self.setup == "base" and key == "n":
             self.compose = {"kind": "branch", "text": "", "line": LineEdit()}
         elif name == "Setup" and self.setup == "base" and key == "R":
             self.refresh_branches(max_age=-1)
-        elif name == "Setup" and self.setup == "sprint" and key == "R":
-            self.refresh_boards(max_age=-1)
-        elif name == "Daemons":
-            if key == "s":
-                if self.alive:
-                    self.message = "this repo's daemon is already running"
-                else:
-                    self.ensure_daemon()
-            elif key == "x" and row and row["alive"]:
-                self.ask("stop the daemon for %s and its runs? (y/n)" % row["cols"][0],
-                         lambda: dm.stop_daemon(row["info"]))
-            elif key == "d" and row and not row["alive"]:
-                os.remove(row["id"])
-                self.message = "cleared the crashed daemon's entry"
 
     def open(self, row, key):
-        """Go into the selected row: a board's tasks, a run's log — or, with enter
-        only, pick the sprint."""
+        """Go into the selected row: a board's tasks, a goal's question or live
+        view — or, with enter only, pick a setting."""
         name = TABS[self.tab]
         if not row:
             return
@@ -1976,36 +1224,21 @@ class App(object):
                 self.loader.start("subtasks-%s" % row["id"], row["id"],
                                   lambda: self.asana(["task", "subtasks", row["id"]]))
         elif name == "Runs":
-            if row["kind"] == "feature":
-                self.message = "%s — %s" % (row["cols"][0], row["cols"][1])
-            elif row.get("wait"):
+            if row.get("wait"):
                 self.question = row["id"]
-            elif row["kind"] == "goal":
-                self.goal_view, self.goal_lines, self.log_scroll = row["goal"], (0, []), 0
-            elif row.get("log"):
-                self.log_path, self.log_scroll = row["log"], 0
             else:
-                self.message = "no log yet — the run has not started"
-        elif name == "Setup" and self.setup == "sprint" and key == "enter":
-            sprint = {"gid": row["id"], "name": row["name"]}
-            self.change_control(lambda c: c.update(sprint=sprint))
-            self.setup = None
-            self.message = "sprint: %s" % row["name"]
+                self.goal_view, self.goal_lines, self.log_scroll = row["goal"], (0, []), 0
         elif name == "Setup" and self.setup in PICKED and key == "enter":
             sid, value = self.setup, row["id"]
             self.setup = None
-            if sid == "merge":
-                self.change_control(lambda c: c.update(merge_mode=value))
-                self.message = "merging: %s" % MERGE_LABELS[value]
-            elif sid == "gate":
+            if sid == "gate":
                 self.change_control(lambda c: c.update(goal_gate=value))
                 self.message = "plan approval: %s — for goals started from now on" % GATE_LABELS[value]
             else:
                 _, label, mkey, _, _ = next(m for m in MODEL_SETTINGS if m[0] == sid)
                 self.change_control(lambda c: c.setdefault("models", {}).update({mkey: value}))
                 self.message = "%s: %s%s" % (label.lower(), model_label(value),
-                                             " — from the next run on" if mkey == "task"
-                                             else " — from each goal's next check on"
+                                             " — from each goal's next check on"
                                              if mkey == "check_effort"
                                              else " — for goals started from now on")
         elif name == "Setup" and self.setup == "base" and key == "enter":
@@ -2028,8 +1261,7 @@ class App(object):
                 self.setup = row["id"]
                 self.query[self.view_key()] = ""
                 rows = self.view()
-                current = (self.control.get("base") or self.default_branch) if self.setup == "base" \
-                    else (self.control.get("sprint") or {}).get("gid")
+                current = self.control.get("base") or self.default_branch
                 ids = [r["id"] for r in rows]
                 self.cursor[self.view_key()] = ids.index(current) if current in ids else 0
 
@@ -2126,8 +1358,6 @@ class App(object):
                 self.message = "answered — nothing waiting there now"
             elif key in ("a", "A"):
                 self.start_answer(row, editor=key == "A")
-            elif key == "m" and row["kind"] == "task":
-                self.merge(row)
             elif key == "l" and row.get("log"):
                 self.log_path, self.log_scroll = row["log"], 0
             elif key == "o" and row.get("links"):
@@ -2223,44 +1453,23 @@ class App(object):
                     "threshold": "type a percentage, 1 to 100 · enter set it · esc cancel"}.get(
                         self.compose.get("kind"), "enter send · esc cancel · ^U clear")
         if self.question:
-            return "a answer · A answer in $EDITOR · m merge · l log · o open the task · ←/esc back"
+            return "a answer · A answer in $EDITOR · l log · o open the PR · ←/esc back"
         return {
-            "Runs": ("c continue past the checkpoint · " if gate_state(self.control, self.data)[2] else "")
-                    + "⏎/→ question or log · a answer · A $EDITOR · m merge · x stop (finished: remove) · r retry · o PR · d goal done",
-            "Boards": ("space queue (on a section: all) · o open in Asana · ←/esc back · / filter · R reload"
+            "Runs": "⏎/→ question or live view · a answer · A $EDITOR · c approve the plan · "
+                    "x stop (finished: remove) · r carry on · o PR · u cost · d done",
+            "Boards": (": run as a goal · o open in Asana · ←/esc back · / filter · R reload"
                        if self.board else "⏎/→ open · o open in Asana · / filter · R reload"),
             "Setup": ("⏎ use it · n new branch · / search · ←/esc back" if self.setup == "base"
                       else "⏎ use it · / search · ←/esc back" if self.setup else "⏎ change it"),
-            "Daemons": "s start this repo's · x stop · d clear crashed",
-        }[name] + " · : commands · 1-4 tabs · ? keys · q quit"
+        }[name] + " · : commands · 1-3 tabs · ? keys · q quit"
 
     def draw(self, scr, styles):
         scr.erase()
         h, w = scr.getmaxyx()
         put = lambda y, text, style="normal": _put(scr, y, text, w, styles[style])  # noqa: E731
-        health = dm.daemon_health(self.daemon, self.alive, time.time())
-        sprint = (self.control.get("sprint") or {}).get("name") or "none — pick one in Setup"
-        sprint += " · queueing into %s" % feature_label(self.control.get("base"), self.default_branch)
-        sprint += {"always": " · auto-merge: always", "asked": " · merge: when asked"}.get(
-            self.control.get("merge_mode"), " · auto-merge: off the default branch")
-        if health == "busy":
-            health = "busy: %s" % "; ".join(self.daemon.get("busy") or [])
-        put(0, "conductor · %s · daemon %s%s · sprint: %s" % (
-            os.path.basename(self.main_root), health,
-            " (pid %s%s)" % (self.daemon.get("pid"), " " + " ".join(self.daemon.get("forward") or [])
-                             if self.daemon.get("forward") else "") if self.alive else "",
-            sprint), "bold")
-        if self.alive and self.daemon.get("code") != dm.code_version():
-            note = ("  daemon runs older code — x then s on the Daemons tab restarts it "
-                    if not self.daemon.get("code") else "  daemon updates once its runs finish ")
-            _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
-        reached = gate_state(self.control, self.data)[2]
-        if reached:
-            note = ("  ⏸ checkpoint %s reached — c continues " % (
-                ((self.data.get("tasks") or {}).get(reached[0]["gid"]) or {}).get("key")
-                or reached[0].get("name")) if len(reached) == 1
-                else "  ⏸ %d checkpoints reached — c on one continues it " % len(reached))
-            _put_at(scr, 1, max(0, w - len(note) - 1), note, w, styles["warn"])
+        put(0, "conductor · %s · queueing into %s" % (
+            os.path.basename(self.main_root),
+            self.control.get("base") or self.default_branch or "the default branch"), "bold")
         if self.waits:
             flag = "  ⚑ %d waiting on you " % len(self.waits)
             _put_at(scr, 0, max(0, w - len(flag) - 1), flag, w, styles["warn"])
@@ -2332,26 +1541,18 @@ class App(object):
             self.tops[self.view_key()] = top
             if not rows:
                 put(3, "%s loading from Asana…" % spinner(time.time()) if busy else
-                    {"Runs": "nothing queued — browse a board (tab 2) and press space on a task",
-                     "Daemons": "no daemon is running on this machine"}.get(TABS[self.tab], "nothing here"),
+                    {"Runs": "no goals — browse a board (tab 2), then : on a ticket runs it as a goal"}
+                    .get(TABS[self.tab], "nothing here"),
                     "warn" if busy else "dim")
             for i, row in enumerate(rows[top:top + body]):
                 picked = top + i == cur and not self.palette and not self.dialog_open()
                 style = "sel" if picked else row.get("style", "normal")
-                line = ("▸ " if picked else "  ") + fit(row["cols"], w - 2, row["kind"] == "feature")
+                line = ("▸ " if picked else "  ") + fit(row["cols"], w - 2)
                 put(3 + i, line, style)
                 if row.get("faint"):
                     start, length = row["faint"]
                     _put_at(scr, 3 + i, 2 + start, line[2 + start:2 + start + length], w,
                             styles[style] | curses.A_DIM)
-            row = rows[cur] if rows else None
-            detail = []
-            if row and TABS[self.tab] == "Runs" and row["kind"] == "task":
-                detail = [row["cols"][2]] + row.get("links", [])
-                if row.get("wait"):
-                    detail = ["⚑ waiting on you — ⏎ to read it all, a to answer"] + detail[1:]
-            for i, line in enumerate(detail[:4]):
-                put(h - 6 + i, "  " + line, "dim")
         put(h - 2, self.message, "warn")
         put(h - 1, self.help_line(), "dim")
         if self.palette is not None:
@@ -2400,7 +1601,7 @@ class App(object):
                      footer=self.help_line().split(" · : commands")[0])
             return True
         if TABS[self.tab] == "Setup" and self.setup in PICKED:
-            label = next((m[1] for m in MODEL_SETTINGS if m[0] == self.setup), "Merging")
+            label = next((m[1] for m in MODEL_SETTINGS if m[0] == self.setup), "Plan approval")
             rows = choice_rows(self.setup, self.control)
             cur = min(self.cursor.get(self.view_key(), 0), max(0, len(rows) - 1))
             items = ["%-7s %s" % (r["cols"][0], r["cols"][1]) for r in rows]
@@ -2475,7 +1676,7 @@ def _tail(path, n):
         return ["(no log yet at %s)" % path]
 
 
-def run_ui(main_root, forward):
+def run_ui(main_root):
     os.environ.setdefault("ESCDELAY", "25")
 
     def loop(scr):
@@ -2494,7 +1695,7 @@ def run_ui(main_root, forward):
                           bad=curses.color_pair(3) | curses.A_BOLD)
             curses.init_pair(4, curses.COLOR_CYAN, -1)
             styles["palette"] = curses.color_pair(4)
-        app = App(main_root, forward)
+        app = App(main_root)
         while True:
             app.refresh_state(time.time())
             app.sync()
@@ -2611,23 +1812,13 @@ def edit_answer(scr, template):
 
 
 def print_status(main_root):
-    control = dm.read_control(main_root)
-    data = dm.read_json(os.path.join(dm.queue_dir(main_root), "state.json")) or {}
-    info, alive = dm.daemon_info(main_root)
-    sys.stdout.write("daemon:  %s%s\n" % (dm.daemon_health(info, alive, time.time()),
-                                         " (pid %s)" % info.get("pid") if alive else ""))
-    sys.stdout.write("sprint:  %s\n" % ((control.get("sprint") or {}).get("name") or "none"))
-    live = dm.live_runs(main_root)
     goals = gl.list_goals(main_root)
-    waits = read_waits(main_root, control, data)
-    waits.update(goal_waits(goals))
-    rows = run_rows(control, data, live, agents=dm.live_agents(
-        main_root, [p for _, p in live] + [g["pid"] for g in goals if g.get("alive")]),
-        waits=waits, goals=goals)
+    waits = goal_waits(goals)
+    rows = goal_rows(goals, waits)
     if not rows:
-        sys.stdout.write("\nnothing queued\n")
+        sys.stdout.write("no goals\n")
     if waits:
-        sys.stdout.write("\n⚑ %d waiting on you — answer in `cond tui`, or on the task\n"
+        sys.stdout.write("⚑ %d waiting on you — answer in `cond tui`, or on the ticket\n"
                          % len(waits))
     for row in rows:
         sys.stdout.write("\n  %-8s %s\n           %s\n" % tuple(row["cols"]))
@@ -2635,54 +1826,29 @@ def print_status(main_root):
             sys.stdout.write("           %s\n" % text)
         for link in row.get("links") or []:
             sys.stdout.write("           %s\n" % link)
-    others = [(p, i, a) for p, i, a in dm.registered() if i.get("main_root") != main_root]
-    if others:
-        sys.stdout.write("\nother daemons:\n")
-        for row in daemon_rows(others, time.time()):
-            sys.stdout.write("  %s — %s, %s, %s\n" % tuple(row["cols"]))
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cond tui",
-        description="Browse boards, queue tasks, and watch the runs that work them. "
-                    "Arguments not listed here are passed to every start-task run.")
+        description="Browse boards, start goals on tickets, and watch them work.")
     parser.add_argument("--repo", default=os.getcwd(), help="target repository (default: cwd)")
-    parser.add_argument("--status", action="store_true",
-                        help="print the queue and the daemon; no UI")
-    parser.add_argument("--stop", action="store_true",
-                        help="stop this repo's daemon, and the runs it launched")
-    parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--status", action="store_true", help="print the goals; no UI")
     return parser
 
 
 def main(argv):
-    args, forward = build_parser().parse_known_args(argv)
-    if "--no-wait" in forward:
-        sys.stderr.write("tui: --no-wait does not apply — every run waits on its own "
-                         "questions\n")
-        return 2
+    args = build_parser().parse_args(argv)
     try:
         main_root = st.main_repo_root(os.path.abspath(args.repo))
     except st.Failure as e:
         sys.stderr.write("tui: %s\n" % e)
         return 1
     try:
-        if args.serve:
-            dm.QueueRun(main_root, forward).serve()
-            return 0
         if args.status:
             print_status(main_root)
             return 0
-        if args.stop:
-            info, alive = dm.daemon_info(main_root)
-            if not alive:
-                sys.stdout.write("no daemon running for %s\n" % main_root)
-                return 0
-            dm.stop_daemon(info)
-            sys.stdout.write("stopping the daemon (pid %s)\n" % info["pid"])
-            return 0
-        run_ui(main_root, forward)
+        run_ui(main_root)
         return 0
     except Stop as e:
         sys.stderr.write("\ntui: %s\n" % e)

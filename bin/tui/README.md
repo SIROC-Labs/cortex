@@ -1,19 +1,29 @@
 # tui
 
-Browse boards, queue tasks, and watch the runs that work them — in the terminal.
+Browse boards, start goals on tickets, and watch them work — in the terminal.
 
 ```bash
 cond tui                  # from inside the target repo
-cond tui --status         # the queue and the daemon, printed; no UI
-cond tui --stop           # stop this repo's daemon and the runs it launched
-cond tui --backend echo   # any other flag goes to every start-task run
+cond tui --status         # the goals, printed; no UI (`cond queue list` prints the same)
 ```
 
-The work is done by a background daemon, one per repo, through the same engine as
-[`run-milestone`](../run-milestone/README.md): a queued task starts through
-[`start-task`](../start-task/README.md) once every dependency is complete — queued or
-not — and its PR is watched to merge. Closing the TUI leaves the daemon working;
-opening it again, from any terminal, picks up where it is.
+A goal is a ticket that runs by itself, with no breakdown and no queue: it works on its
+own branch, into one PR, and asks you only what it cannot decide. Each goal runs in a
+process of its own, so closing the TUI leaves it working; opening it again, from any
+terminal, shows where it is. See [the goal tool](../goal/README.md) for how a goal works.
+
+## Tabs
+
+| Tab | What it shows | Keys |
+|---|---|---|
+| **1 Runs** | every goal and its parts — those waiting on you first, flagged ⚑ — with what each is doing, its round, its usage and cost, and how far its plan and criteria are | `⏎` what it is waiting on, or its live view · `a` answer · `A` answer in `$EDITOR` · `c` approve its plan · `x` stop — or, on a finished goal, remove it from the list · `r` carry it on · `o` open its PR · `u` what each agent cost · `d` mark it done |
+| **2 Boards** | every board in the workspace that is neither archived nor marked complete; open one to see its sections and tasks — each with its ID, faint, when it has one — and how many subtasks each has (▸ 3 subtasks); a milestone shows ◈ | `:` *Run … as a goal* on a task or a milestone · `→` `l` `⏎` on a task with subtasks shows them, `←` `h` hides them · `o` open the task (or board) in Asana · `R` reload |
+| **3 Setup** | the branch goals go into, whether done tasks show, the usage limit, the goals' models, and who approves their plans | `⏎` change one: pick it from a list, or type the usage limit · `n` new branch, in the branch list |
+
+Anything that waits on you opens in the same box as the command palette, in the middle
+of the screen: a yes/no question (`y` yes, any other key no), a line to type (an answer, a
+new branch, the usage limit), or a list to pick from (a Setup choice). The bottom line only
+says what happened.
 
 ## Keys
 
@@ -24,9 +34,9 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 | move | `↑` `↓` · `j` `k` · `Ctrl-N` `Ctrl-P` (`Ctrl-K` too) |
 | page / half page | `PgDn` `PgUp` · `Alt-N` `Alt-B` / `Ctrl-D` `Ctrl-U` |
 | top / end | `Home` `End` · `g` `G` |
-| in | `⏎` · `→` · `l` (`Ctrl-L` too) — open a board, a run's log |
+| in | `⏎` · `→` · `l` (`Ctrl-L` too) — open a board, a goal's question or live view, a setting |
 | out | `←` · `h` · `Esc` · `⌫` — clear the filter, then leave the board |
-| tabs | `1`–`4` (or `Alt-1`–`4`) straight to one; the current tab's number again takes it back to its top. `Tab` / `Shift-Tab` cycle |
+| tabs | `1`–`3` (or `Alt-1`–`3`) straight to one; the current tab's number again takes it back to its top. `Tab` / `Shift-Tab` cycle |
 | filter | `/`, then type — `⏎` keeps it, `Esc` clears it |
 | commands | `:` — the command palette (below) |
 | help | `?` |
@@ -35,80 +45,52 @@ The same everywhere a list is shown — arrows, vi and emacs keys all work:
 
 `:` opens it. It holds only the commands that are not already in plain sight — none
 whose key is shown in the line at the bottom of the screen — and only those that can
-run right now. On the Runs tab, with a task whose PR is not on the target branch, that
-is *Change HCI-8's PR base branch to feature/x* and, once some are done, *Clear N
-finished tasks from the list*; *Make HCI-8 a checkpoint* (or *HCI-8 is no longer a
-checkpoint*); from any tab but Daemons, starting or
-stopping this repo's daemon. Type to narrow it (it also matches the words you would use
-— *retarget*, *move*, *update*, *base*), `↑↓` or `^P ^N` to choose, `⏎` to run, `Esc`
-to close.
+run right now:
 
-### Undo
+- on a board's task or milestone, *Run … as a goal on …* — the branch is **Queue into**;
+- on a goal, *Discuss the goal …* and *Undo the goal …*;
+- on the Runs tab, once some are done, *Clear N done goals from the list*;
+- everywhere, *Hide done tasks* / *Show done tasks*.
 
-*Undo HCI-12* in the palette takes a task's work back out — after saying exactly what it
-will do, and which tasks that wait on it have already started, and asking:
-
-- **not merged:** its run is stopped, its PR closed with a note and its branch deleted
-  (on GitHub and here), its worktree and saved state removed;
-- **merged:** a PR is opened reverting its merge from the branch it went into. It is
-  never merged by conductor, whatever Merging is set to — merge it yourself when you are
-  sure. If the merge does not revert cleanly (later work builds on it), nothing is
-  changed and it says so.
-
-Either way the task is reopened if it was done, taken off the sprint, unassigned, and
-told on Asana what happened; it leaves the queue, and its log is kept. Queue it again
-and it starts fresh.
-
-## Features
-
-Work on several features at once from one TUI: each queued task belongs to the feature
-— target branch — it was queued into, and keeps it. Switching **Queue into** (Setup)
-only changes where what you queue next goes; nothing already queued moves. *Change
-HCI-8's PR base branch to …* in the palette moves a task (and its PR) to the feature
-you are queueing into.
-
-Once more than one feature has work, the Runs tab groups it under a line per feature
-saying how it stands:
-
-```
-feature/candidate-intake-M1   2 running · 1 waiting on you · 3 queued · 9 merged
-  ⚑ HCI-58  …
-    HCI-61  …
-feature/mailbox               1 running · 2 queued                    ← queueing here
-    HCI-70  …
-```
-
-Each feature's queue is its own: checkpoints gate only their feature, and merging goes
-by each PR's own target. Dependencies may cross features — a pulled-in dependency joins
-the feature of the task that needs it, and what a task needs is never held back.
+Type to narrow it (it also matches the words you would use), `↑↓` or `^P ^N` to choose,
+`⏎` to run, `Esc` to close.
 
 ## Goals
 
-A goal is a ticket that runs by itself, with no breakdown and no queue. On a board, select
-a task or a milestone and pick *Run … as a goal* in the palette (`:`). It starts at once,
-on its own branch made from **Queue into**, and ends as one PR into that branch. It reads
-the ticket, its open subtasks, its comments and its attachments once, when it starts. It
-puts its questions and its plan on the ticket as subtasks, in three sections,
-*Questions*, *Review* and *Execution*, and does not merge anything. See [the goal tool](../goal/README.md) for how it
-works.
+On a board, select a task or a milestone and pick *Run … as a goal* in the palette. It
+starts at once, on its own branch made from **Queue into**, and ends as one PR into that
+branch. A ticket that is already a goal says so instead. The goal reads the ticket, its
+open subtasks, its comments and its attachments once, when it starts. It puts its
+questions and its plan on the ticket as subtasks, in three sections, *Questions*,
+*Review* and *Execution*, and does not merge anything.
 
-A goal is the first row on the Runs tab: what it is doing, its round, and the highest
-usage of your Claude limits. It pauses by itself while any limit is at 75% or more, and
-carries on when the limit resets. It asks you only what it cannot decide: the row is then
-flagged ⚑, and `⏎`, `a` and `A` work as they do for a task; you can also answer in Asana,
-on each question's subtask. When its plan is ready, the row says so and nothing is built
-until you approve it: `c` approves it, `a` says what to change, or complete *Review the
-plan* in Asana. `x` stops a running goal and
-`r` carries it on from where it stopped; on a finished goal, `x` takes it off the list.
-`d` marks a goal done by hand: it and its parts stop, and it no longer watches its PR. Its
-branch, PR and ticket stay as they are.
-*Undo the goal* in the palette (`:`) takes all of it back out: its PR, its branches, its
-worktrees and state, and every subtask it made on the ticket. *Discuss the goal* opens a
-Claude session in its worktree that has read its journal, its open questions and its log,
-and says so in a few lines when it opens, to talk it through: it may write and run scratch files (scripts, drafts, diagrams) in a temp folder, and a hook refuses any other change: no repository files, no git writes, no Asana writes. Edits are accepted without asking; shell commands still ask you.
-In Ghostty on macOS it opens in a new tab; in another terminal it takes the TUI's screen,
-and the TUI comes back when you leave it.
-Closing the TUI leaves a goal running.
+A goal is a row on the Runs tab: what it is doing, its round, and the highest usage of
+your Claude limits. It pauses by itself while any limit is at the **Usage limit** or more,
+and carries on when the limit resets. When it asks you something, the row is flagged ⚑,
+and the header counts it:
+
+- `⏎` shows the whole of it: every question with its reasoning, or the problem with the
+  output that caused it.
+- `a` answers in one line; `A` opens `$VISUAL` / `$EDITOR` with the questions as `#`
+  comments, like `git commit`. The answer is handed straight to the goal, which looks for
+  one every second. You can also answer in Asana, on each question's subtask.
+- When its plan is ready, the row says so and nothing is built until you approve it: `c`
+  approves it, `a` says what to change, or complete *Review the plan* in Asana. A goal
+  split into parts asks for *Review the split* first, the same way.
+
+`x` stops a running goal and `r` carries it on from where it stopped; on a finished goal,
+`x` takes it off the list. `d` marks a goal done by hand: it and its parts stop, and it no
+longer watches its PR. Its branch, PR and ticket stay as they are.
+
+*Undo the goal* in the palette takes all of it back out — its PR, its branches, its
+worktrees and state, and every subtask it made on the ticket — after saying what it will
+do and asking. *Discuss the goal* opens a Claude session in its worktree that has read its
+journal, its open questions and its log, and says so in a few lines when it opens, to talk
+it through: it may write and run scratch files (scripts, drafts, diagrams) in a temp
+folder, and a hook refuses any other change: no repository files, no git writes, no Asana
+writes. Edits are accepted without asking; shell commands still ask you. In Ghostty on
+macOS it opens in a new tab; in another terminal it takes the TUI's screen, and the TUI
+comes back when you leave it.
 
 A goal split into parts has them on the rows below it, indented (`└ API`), each with its
 own state; the goal's row says how many parts are done and which are being built, and its
@@ -121,35 +103,39 @@ done), how many of the lead's acceptance criteria are met and which are not yet,
 the lead's checklist under `## Plan` in its journal is, with the next step, what the lead
 (or the reviewer, the checker, or a CI fix) is doing now and last said, each sub-agent with
 its task, model and time, the running ones with what they are doing, and the end of the
-goal's journal. `l` opens its log and `u` what each agent cost. The row itself says what
-the goal is doing, how many sub-agents are running, and how far its plan and its criteria
-are.
+goal's journal. `l` opens its log and `u` what each agent cost.
 
-## Dependencies
+A finished goal whose PR is merged or closed on GitHub learns so in the background and
+leaves the list as a watched one does.
 
-Queueing a task queues every unfinished task it depends on, down the whole tree — each
-one just ahead of the task that needs it, marked *queued for HCI-9* until it starts. A
-task still starts only once all its dependencies are complete. Unqueue a pulled-in
-dependency and the task that needs it waits until it is done some other way.
+## Setup
 
-## Checkpoints
+Settings are per repo: they live in the repo's `.cortex/queue/control.json`. Keys other
+tools left there are kept as they are.
 
-*Make HCI-8 a checkpoint* in the palette flags a task (◆ before its name) — on the Runs
-tab, or on a board. On a board it works before the task is queued, too (◇): flag the
-checkpoints first, then queue the milestone, and each is a checkpoint once it is queued.
-Unqueueing a checkpoint keeps the flag for when it is queued again. A
-checkpoint is a gate in its feature's queue: nothing queued after it starts until it has merged
-and you have pressed `c` — however long it takes. With checkpoints on HCI-8 and HCI-10,
-HCI-9 waits for HCI-8, and HCI-11 for HCI-10. Tasks held back say *held back until
-checkpoint HCI-8*; once HCI-8 merges it is flagged ⚑, the header says the checkpoint is
-reached, and `c` lets the queue past it, up to the next one. With checkpoints reached
-in more than one feature, select the one to continue and press `c`. To drop a checkpoint
-before it has merged, press `c` on a task it holds back (or on it), or use *HCI-8 is no
-longer a checkpoint* in the palette.
-
-What runs before the gate is not held: anything already going carries on, and a task
-after the checkpoint that something before it depends on is let through, since the
-checkpoint could never finish without it.
+- **Queue into** — the branch goals go into: a new goal branches off it and opens its PR
+  against it. The repo's default branch unless you pick another. A goal already started
+  keeps its own. The list is origin's branches (`/` searches it). Its first row, **+ New
+  branch…** (or `n`), asks for a name — any characters, `/` included — and creates it on
+  origin from `origin/<default>` once you confirm — fetched first, so it starts at what is
+  on GitHub, never at a local copy that may be behind or carry unpushed commits; it is a
+  push. The UI's git calls never prompt: if SSH needs a passphrase or a new host key, the
+  call fails and says so instead of taking over the terminal.
+- **Done tasks** — shown or hidden; `⏎` toggles, as do *Hide done tasks* / *Show done
+  tasks* in the palette. Hidden, boards leave out completed tasks (and sections with
+  nothing else), and Runs leaves out goals that are done — except one still waiting on you.
+- **Usage limit** — the share of any Claude usage limit at which goals wind down and
+  pause, until it resets: 75% by default; `⏎` and type a percentage, 1 to 100. Running
+  goals read it at their next usage check, so raising it lets one finish its work.
+- **Models** — `⏎` on each lists its choices, with what each is for (haiku, sonnet, opus,
+  fable; effort low to max), and `⏎` picks one: *Goal lead*, *Goal sub-agents*, *Goal
+  checker*, *Checker effort* — opus, sonnet, fable and high by default. A goal keeps the
+  models it started with; the checker effort applies from each goal's next check. The
+  checker only verifies and reports, so the strongest model costs little there; planning
+  and fixing stay with the lead and its sub-agents.
+- **Plan approval** — who approves a goal's plan before it is built: you, for the goal
+  and each of its parts (the default); you for the goal and the reviewer agent for its
+  parts; or the reviewer agent only. For goals started from then on.
 
 ## Typing
 
@@ -165,150 +151,6 @@ the usual line-editing keys, and none of them sets off a hotkey while you type:
 | delete the word before the cursor | `^W` |
 | delete forward / back | `^D` Delete / Backspace |
 
-## Tabs
-
-| Tab | What it shows | Keys |
-|---|---|---|
-| **1 Runs** | every goal, then every queued task — those waiting on you first, flagged ⚑ — with its state and PR and task links; then any live start-task run this repo's daemon does not own | `⏎` what it is waiting on (or its log) · `a` answer · `A` answer in `$EDITOR` · `m` merge · `c` continue past a reached checkpoint, or approve a goal's plan · `x` stop and unqueue — or, on a finished task, just remove it from the list · `r` retry a failed or stopped task · `o` open the PR (or task) — on a merged task, the PR's changed files |
-| **2 Boards** | every board in the workspace that is neither archived nor marked complete; open one to see its sections and tasks — each with its ID, faint, when it has one — and how many subtasks each has (▸ 3 subtasks); a milestone (◈) is not run itself, but its subtasks can be shown and queued | `space` queue or unqueue a task or subtask, or on a section queue all of it · `→` `l` `⏎` on a task with subtasks shows them, `←` `h` hides them · `o` open the task (or board) in Asana · `R` reload |
-| **3 Setup** | the sprint queued tasks are added to, the branch new work targets, whether PRs are merged, and the models for task runs and goals | `⏎` change one: pick it from a list, or type the usage limit |
-| **4 Daemons** | every daemon on this machine, with its health and live runs | `s` start this repo's · `x` stop one · `d` clear a crashed one's entry |
-
-Queueing the first task starts the daemon if it is not running. Nothing starts until
-a sprint is picked; nothing about the sprint is guessed.
-
-Anything that waits on you opens in the same box as the command palette, in the middle
-of the screen: a yes/no question (`y` yes, any other key no), a line to type (an answer, a
-new branch, the usage limit), or a list to pick from (a Setup choice). The bottom line only
-says what happened.
-
-## Setup
-
-Settings are per repo: they live in the repo's `.cortex/queue/`, beside its queue and
-its daemon.
-
-- **Sprint** — the board queued tasks are added to.
-- **Queue into** — the feature (target branch) what you queue goes into: it branches
-  off it and opens its PR against it. The repo's default branch unless you pick
-  another. The list starts with the features that have work queued, each saying how
-  it stands, then the rest of origin's branches (`/` searches it). Its first row, **+ New branch…** (or `n`), asks for a name — any
-  characters, `/` included — and creates it on origin from `origin/<default>` once you
-  confirm — fetched first, so it starts at what is on GitHub, never at a local copy
-  that may be behind or carry unpushed commits; it is a push. PRs already open keep the base they have — *Change …'s PR base branch to …* in
-  the command palette moves one onto the current target, after counting any commits the move would drag in (ones its
-  old base has that the target does not) and asking. From then on it merges by the
-  rules for its new base. The UI's git calls
-  never prompt: if SSH needs a passphrase or a new host key, the call fails and says
-  so instead of taking over the terminal.
-- **Merging** — when a shipped PR is merged without you asking; `⏎` lists the three:
-  - *automatically, unless it targets the default branch* (the default, and the
-    recommendation): a PR into `milestone/m1` lands by itself, one into `main` waits
-    for `m`;
-  - *always automatically*, the default branch included;
-  - *only when asked* — only `m` merges.
-
-  `m` works in every mode. An automatic merge is exactly what `m` does, conflicts and
-  failing checks included; `m` on one calls it off, and it stays off for that task.
-- **Done tasks** — shown or hidden; `⏎` toggles, as do *Hide done tasks* / *Show done
-  tasks* in the palette. Hidden, boards leave out completed tasks (and sections with
-  nothing else), and Runs leaves out merged or completed tasks — except one still
-  waiting on you, like a reached checkpoint — while each feature's line above them
-  still counts them.
-
-
-- **Usage limit** — the share of any Claude usage limit at which goals wind down and
-  pause, until it resets: 75% by default; `⏎` and type a percentage, 1 to 100. Running goals read it
-  at their next usage check, so raising it lets one finish its work.
-- **Models** — `⏎` on each lists its choices, with what each is for (haiku, sonnet, opus,
-  fable; effort low to max), and `⏎` picks one:
-  - *Task model* — every task run: implement, QA and revise. Sonnet by default. It takes
-    effect from the next run on, unless the daemon was started with a `--model` of its own.
-  - *Goal lead*, *Goal sub-agents*, *Goal checker*, *Checker effort* — opus, sonnet,
-    fable and xhigh by default. A goal keeps the models it started with. The checker
-    only verifies and reports, so the strongest model costs little there; planning and
-    fixing stay with the lead and its sub-agents.
-- **Plan approval** — who approves a goal's plan before it is built: you, for the goal
-  and each of its parts (the default); you for the goal and the reviewer agent for its
-  parts; or the reviewer agent only. For goals started from then on.
-## What each row says
-
-The status next to a task says what is happening to that task now, not just its phase:
-
-- a command of yours the daemon has not acted on yet — *base branch change to
-  feature/m1 asked — waiting for the daemon*;
-- something the daemon is in the middle of for it — *changing HCI-8's PR base branch to
-  feature/m1…*, *finishing HCI-8 in Asana…*, *removing HCI-8's worktree…*;
-- for a running task, its current step from its log, what it is waiting on and for how
-  long — *running — Implementing · agent at work · 12m*, *running — QA · make verify · 3m*;
-- for a revise, what it is revising — *revising: fixing failing checks (e2e) — Applying
-  the feedback · agent at work · 3m*; its log opens the section with the issues: each
-  review comment, or each failed check with the lines of its CI log that say what
-  failed (the agent is given those lines too);
-- for an open PR, what it waits for — *PR open — waiting for review; m merges*;
-- tokens: a running task shows what it has used so far, a merged one its total and run
-  time — *merged — 00:28 of run time · 1.24M tokens · ≈$3.40* (cost at API list price,
-  so on a subscription it is what the same work would cost on the API);
-- and when it waits on you, what that asks of you (below).
-
-## Waiting on you
-
-A run that needs you — the agent's questions, QA still red after its repairs, a refused
-push, a stalled call, a failed step — and a PR parked on a conflict all show on the Runs
-tab first, flagged ⚑, and the header counts them. `⏎` shows the whole of it: every
-question with its reasoning, or the problem with the output that caused it.
-
-- `a` answers in one line at the bottom of the screen; `A` opens `$VISUAL` / `$EDITOR`
-  with the questions as `#` comments, like `git commit`.
-- The answer is handed straight to the waiting run, which looks for one every second,
-  and is posted to the task in Asana as your comment, so the conversation stays where
-  it was asked. A run that is not alive when you answer finds it when it starts again.
-- On a parked conflict, `a` asks for a resolve: it posts `please resolve` on the PR,
-  which the loop picks up within a minute.
-
-Answering on the task in Asana still works exactly as before.
-
-## Merge
-
-`m` on a task means "get this onto its target branch". It can be pressed at any point — on an open
-PR, a parked conflict, or a run still going (it merges once the PR is up) — and from
-then on the PR is driven until it lands, checked every 15 seconds:
-
-| GitHub says | The run |
-|---|---|
-| ready to merge | merges, with a method the repo and its rules allow (squash first) |
-| conflicts with the base | revises: merges the base in and resolves them — never a rebase or force-push |
-| behind the base | updates the branch |
-| checks running, or required ones not started yet | waits — every check, not only the ones the branch's rules require |
-| holding it with no reason given (as right after a push) | waits up to 10 minutes before calling it blocked |
-| a check failed | revises to fix it, or re-runs it when it is plainly a flake |
-| a draft | marks it ready |
-
-Review comments that arrive after you press `m` are not acted on — you said go — until
-the merge is blocked: then `a` (or `A` for `$EDITOR`) on the task tells its agent what to
-do about it, and a comment on the PR counts the same. Your words go to the agent with the
-reason the merge was blocked; when it is done, the merge starts over with fresh
-attempts. When
-siblings are merged together, each one that lands may leave the next conflicting; that
-one resolves and goes on. A block is looked at again every two minutes and clears by itself once GitHub will
-merge. It stops and waits on you (⚑, with the reason) after three
-rounds of conflicts or two failed fixes of a check, or when something other than a check
-blocks it (a required review, say); `m` tries again from wherever the PR stands. `m` on
-a merge in progress calls it off.
-
-### Failing checks on an open PR
-
-A PR nobody is merging yet — one into the default branch, waiting for `m` — does not sit
-on failing checks either. When CI fails, the task revises to fix it, or re-runs a plain
-flake, exactly as on the way to a merge. Each set of failures is acted on once, and after
-two fixes that leave checks failing it stops and says *checks still failing after 2 fixes
-(…): needs you*. Green checks reset the count. Review comments still come first.
-
-Nothing is fixed while any check still runs, here or on the way to a merge: a fix pushes,
-and a push starts CI over while the run before it still bills. The task waits for the
-whole run, then fixes all its failures at once. When GitHub did not run the jobs at all —
-a spending limit, or a failed payment — no fix is tried or counted: the task says *GitHub
-did not run the checks (…): needs you*. Fix that, then re-run the checks on GitHub.
-
 ## Asana data and its cache
 
 Nothing waits on the network to draw. Boards and their sections are cached in
@@ -323,51 +165,11 @@ so, you can keep moving or leave the view, and the screen updates when it lands:
 | a board, while it is on screen | 1 minute |
 | the list of boards | 5 minutes |
 
-`R` re-reads whatever is shown, now. What the daemon knows — a task it merged, a
-run in flight — is laid over the cached board, so the parts that change most are
-never stale. The cache is only ever a copy; deleting it costs one slower first look.
-
-## No ghost runs
-
-- Every daemon registers in `~/.cortex/cli/daemons/`, so the Daemons tab — from any
-  terminal, in any repo — lists them all. A daemon that died uncleanly shows as
-  `crashed`, with how many of its runs are still going.
-- Stopping a daemon stops the runs it launched.
-- Every live `start-task` process in the repo shows on the Runs tab whether or not
-  the daemon owns it — a hand run, a `run-milestone` loop, an orphan of a crashed
-  daemon — and `x` stops it. A restarted daemon adopts an orphan of its own instead
-  of starting it again.
-- Every run is started in its own process group, and stopping it stops the group —
-  its agent and QA commands too, not just the run. An agent still working in one of
-  the repo's worktrees with no run over it (one left by a run killed some other way)
-  is listed on the Runs tab as well, and `x` stops it.
-
-## Updates
-
-The daemon restarts itself onto new code — after a `git pull`, say — at the first
-moment no run is in flight, so nothing is interrupted; until then the header says it
-will update once its runs finish. Every command the TUI sends (merge, stop, retry) is
-followed until the daemon acts on it, and the TUI says if it was not understood or not
-picked up.
-
-Tokens are re-read from your shell every minute — `GH_TOKEN`, `GITHUB_TOKEN` and
-`ASANA_PERSONAL_ACCESS_TOKEN`, as a fresh interactive shell sets them from `~/.zshrc` —
-and used for the daemon's own calls and every run it starts after. Replace an expired
-token there and the daemon picks it up within a minute; no restart. A variable no
-longer set there is unset for the daemon too.
-
-## Files
-
-`<repo>/.cortex/queue/`:
-
-- `control.json` — written by the TUI: the queue, the sprint, and stop/retry commands
-- `state.json` — written by the daemon: what it last read of each task, and each run's
-  record
-- `daemon.json` — the daemon's pid and heartbeat; `daemon.log` — its output
-- `logs/`, `results/`, `feedback/` — per run, as in `run-milestone`
+`R` re-reads whatever is shown, now. The cache is only ever a copy; deleting it costs one
+slower first look.
 
 ## Tests
 
 ```bash
-python3 tests/test_pure.py   # queue, daemon health, unowned runs, rows, keys, cache
+python3 -m unittest discover -s tests -q   # rows, goals, waits, keys, setup, cache
 ```
