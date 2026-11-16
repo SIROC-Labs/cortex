@@ -28,6 +28,17 @@
       "category": "Developer Tools"
     },
     {
+      "name": "product",
+      "source": {
+        "source": "local",
+        "path": "./plugins/product"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT"
+      },
+      "category": "Productivity"
+    },
+    {
       "name": "cortex-qa-web",
       "source": {
         "source": "local",

@@ -39,8 +39,8 @@ npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a o
 npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a opencode -y
 ```
 
-The `dev-toolkit` plugin ships in the same repo package — the adapter registers
-its skills automatically; no extra `plugin` entry is needed.
+The `dev-toolkit` and `product` plugins ship in the same repo package — the adapter registers
+their skills automatically; no extra `plugin` entry is needed.
 
 ### MCP servers for browser and mobile QA (per project)
 

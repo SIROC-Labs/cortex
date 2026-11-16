@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pluginsDir = path.resolve(__dirname, "../../plugins/cortex-workflow")
 const skillsDir = path.resolve(pluginsDir, "skills")
-// dev-toolkit ships in the same repo package, so this adapter registers it too.
+// dev-toolkit and product ship in the same repo package, so this adapter registers them too.
 const devToolkitDir = path.resolve(__dirname, "../../plugins/dev-toolkit")
 const devToolkitSkillsDir = path.resolve(devToolkitDir, "skills")
+const productDir = path.resolve(__dirname, "../../plugins/product")
+const productSkillsDir = path.resolve(productDir, "skills")
 
 const TOOL_MAPPING = `
 ## OpenCode Runtime — Tool Mapping
@@ -73,10 +75,13 @@ Skills live at: ${skillsDir}
 
 The dev-toolkit plugin (same repo) has its skills at: ${devToolkitSkillsDir}
 
+The product plugin (same repo) has its skills at: ${productSkillsDir}
+
 When a skill instructs you to read a reference file, resolve paths as follows:
 
 - Paths starting with \`plugins/cortex-workflow/\` are relative to the
   repository root. The plugin root maps to \`${pluginsDir}/\`.
+- Paths starting with \`plugins/product/\` map to \`${productDir}/\`.
 - Relative paths like \`references/xxx.md\` are relative to the current
   skill's own directory (e.g. \`.../skills/start-task/references/xxx.md\`).
 - State files (checkpoints, board cache) are at: ~/.cortex/cortex-workflow/
@@ -120,6 +125,7 @@ export const CortexWorkflowPlugin = async () => {
       config.skills.paths ??= []
       config.skills.paths.push(skillsDir)
       config.skills.paths.push(devToolkitSkillsDir)
+      config.skills.paths.push(productSkillsDir)
 
       config.permission ??= {}
       config.permission.external_directory ??= {}
@@ -130,6 +136,7 @@ export const CortexWorkflowPlugin = async () => {
       // ^ dependency check reads opencode.json to verify superpowers is installed
       config.permission.external_directory[`${pluginsDir}/*`] = "allow"
       config.permission.external_directory[`${devToolkitDir}/*`] = "allow"
+      config.permission.external_directory[`${productDir}/*`] = "allow"
       // ^ skill reference files live inside the plugin install (read at runtime by skills)
       config.permission.external_directory["/tmp/qa-evidence/*"] = "allow"
       // ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations

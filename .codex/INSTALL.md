@@ -20,7 +20,7 @@ instead).
 The setup script asks whether to install all plugins now or only register the
 marketplace so you can choose plugins yourself. When installing, it runs
 `codex plugin add` for you:
-`cortex-workflow` and `dev-toolkit` from the `siroc-cortex` marketplace, and the
+`cortex-workflow`, `dev-toolkit` and `product` from the `siroc-cortex` marketplace, and the
 required `superpowers` dependency from the official `openai-curated` catalog
 (its single canonical source — Codex does not dedupe identically named plugins
 across marketplaces, so it is not shipped in `siroc-cortex`), plus the
@@ -55,6 +55,7 @@ Then install the plugins from the shell:
 ```bash
 codex plugin add cortex-workflow@siroc-cortex
 codex plugin add dev-toolkit@siroc-cortex
+codex plugin add product@siroc-cortex
 codex plugin add superpowers@openai-curated
 ```
 

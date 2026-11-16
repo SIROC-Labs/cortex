@@ -113,7 +113,7 @@ Authoring convention is body fields first, then metadata fields, with `**Attachm
 ### (Optional) Contract Notes / Behavioral State Machines / Error Model / Non-Goals / Open Questions
 ```
 
-The Technical Spec section nests the create-spec 7-section structure as `###`-level subsections. Product Requirements and Acceptance Criteria sit above because they are milestone-level outcomes — the technical spec describes how to deliver them.
+The Technical Spec section nests the 7-section technical spec structure as `###`-level subsections. Product Requirements and Acceptance Criteria sit above because they are milestone-level outcomes — the technical spec describes how to deliver them.
 
 ## Allowed References
 
