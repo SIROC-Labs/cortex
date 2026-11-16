@@ -61,6 +61,7 @@ cond <tool> --help      # a tool's own arguments
 | [`goal`](goal/README.md) | Implements a prompt by itself — a lead agent with its own sub-agents — on one branch, into one PR |
 | [`tui`](tui/README.md) | Watch goals work, answer them, approve their plans |
 | [`queue`](queue/README.md) | Starts goals from the command line, as the TUI does — for scripts and other agents |
+| [`serve`](serve/README.md) | The service: goals over REST and MCP, on this machine only |
 
 Run tools from inside the repo you want them to act on. `lib/` is not a tool: it holds
 what the tools share (git, Asana, a goal's state, CI, the settings file).

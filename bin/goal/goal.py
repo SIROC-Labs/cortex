@@ -43,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(os.path.dirname(HERE), "lib")
 sys.path.insert(0, LIB_DIR)
 import core as st  # noqa: E402
+import repos  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope, unattended  # noqa: E402
 from ci import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
@@ -1646,6 +1647,7 @@ def launch(main_root, gid):
     goal = Goal(main_root, gid)
     if goal.runner_alive():
         return goal.read().get("pid")
+    repos.add(main_root)
     logfile = open(goal.log, "a")
     proc = subprocess.Popen([sys.executable, os.path.abspath(__file__), "run", gid,
                              "--repo", main_root], cwd=main_root, stdin=subprocess.DEVNULL,
