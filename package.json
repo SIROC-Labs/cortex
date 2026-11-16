@@ -1,6 +1,6 @@
 {
   "name": "cortex-workflow",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "description": "End-to-end development workflow",
   "main": ".opencode/plugins/cortex-workflow.js",
   "private": true
