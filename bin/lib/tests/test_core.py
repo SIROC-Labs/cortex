@@ -554,7 +554,7 @@ class TestGithubRefused(unittest.TestCase):
             return 1, "", "HTTP 401: Bad credentials"
         real, start_task.run = start_task.run, fake_run
         try:
-            self.assertEqual(start_task.create_draft_pr("T-1", "n", "u", "origin/main", "T-1/n", "/r"),
+            self.assertEqual(start_task.create_draft_pr("T-1 :: n", "u", "origin/main", "T-1/n", "/r"),
                              (None, "HTTP 401: Bad credentials"))
         finally:
             start_task.run = real

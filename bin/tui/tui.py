@@ -1038,13 +1038,9 @@ class App(object):
 
     def new_goal(self, row):
         """Start a goal for a board's ticket, on the branch new work goes into."""
-        existing = gl.find_goal(self.main_root, row["id"])
-        if existing:
-            self.message = "%s is already a goal — it is on the Runs tab" % gl.title_of(existing)
-            return
         base = self.control.get("base")
-        gid = gl.create(self.main_root, row["id"], row.get("key") or row["id"], row["name"],
-                        url=gl.task_url(row["id"], row["board"]), base=base,
+        gid = gl.create(self.main_root, task_url(row["board"], row["id"]), base=base,
+                        name=row["name"], key=row.get("key") or row["id"],
                         **gl.settings_from(self.control))
         gl.launch(self.main_root, gid)
         self.message = "goal started on %s — it is at the top of the Runs tab" % (

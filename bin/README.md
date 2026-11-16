@@ -20,8 +20,9 @@ that the skills are full of shouty warnings trying to talk it out of skipping st
 
 The tools here invert that. Control flow is code, so the deterministic parts are fast,
 free, and identical on every run. A model is called only where one is genuinely needed.
-Every ticket runs as a goal: a lead agent analyses it, plans it, and builds it through
-its own coding agents, on one branch, into one PR. Tiny work skips the plan review.
+Every piece of work runs as a goal, from a prompt: a lead agent analyses it, plans it,
+and builds it through its own coding agents, on one branch, into one PR. Tiny work skips
+the plan review.
 
 ## Install
 
@@ -57,8 +58,8 @@ cond <tool> --help      # a tool's own arguments
 
 | Tool | What it does |
 |---|---|
-| [`goal`](goal/README.md) | Implements an Asana ticket by itself — a lead agent with its own sub-agents — on one branch, into one PR |
-| [`tui`](tui/README.md) | Browse boards, start goals on tickets and watch them work |
+| [`goal`](goal/README.md) | Implements a prompt by itself — a lead agent with its own sub-agents — on one branch, into one PR |
+| [`tui`](tui/README.md) | Watch goals work, answer them, approve their plans |
 | [`queue`](queue/README.md) | Starts goals from the command line, as the TUI does — for scripts and other agents |
 
 Run tools from inside the repo you want them to act on. `lib/` is not a tool: it holds

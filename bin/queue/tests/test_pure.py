@@ -20,15 +20,6 @@ TASKS = {
 SUBTASKS = {"9": [{"ref": "10", "name": "ten"}, {"ref": "11", "name": "eleven", "completed": True}]}
 
 
-class TestPure(unittest.TestCase):
-    def test_the_board_is_the_url_s_project_else_the_task_s(self):
-        self.assertEqual(q.board_of(TASKS["1"], "https://app.asana.com/1/5/project/42/task/1"), "42")
-        self.assertEqual(q.board_of(TASKS["1"], "https://app.asana.com/0/43/1"), "43")
-        self.assertEqual(q.board_of(TASKS["1"], "https://app.asana.com/0/0/1"), "77")
-        self.assertEqual(q.board_of(TASKS["1"], "1"), "77")
-        self.assertIsNone(q.board_of({}, "1"))
-
-
 class TestCommands(unittest.TestCase):
     def setUp(self):
         self.root = os.path.realpath(tempfile.mkdtemp())
@@ -55,45 +46,56 @@ class TestCommands(unittest.TestCase):
         self.addCleanup(setattr, q.gl, "launch", launch)
         return launched
 
-    def test_add_starts_a_goal_per_ticket_into_the_queue_into_branch(self):
+    def test_add_starts_a_goal_on_the_prompt_into_the_queue_into_branch(self):
         launched = self.launched()
         with q.dm.control_file(self.root) as c:
             c["base"] = "feature/m1"
-        out = q.add(self.root, ["https://app.asana.com/0/0/1", "9"])
-        goals = {g["key"]: g for g in q.gl.list_goals(self.root)}
-        self.assertEqual(sorted(goals), ["A-1", "A-9"])
-        self.assertEqual({g["base"] for g in goals.values()}, {"feature/m1"})
-        self.assertEqual(goals["A-9"]["url"], "https://app.asana.com/0/77/9")
-        self.assertEqual(len(launched), 2)
-        self.assertNotIn("queue", q.dm.read_control(self.root))
-        self.assertTrue(all(line.startswith("started the goal") for line in out))
+        out = q.add(self.root, "Fix the inbox badge\n\nIt counts read items too.")
+        goals = q.gl.list_goals(self.root)
+        self.assertEqual([g["name"] for g in goals], ["Fix the inbox badge"])
+        self.assertEqual(goals[0]["base"], "feature/m1")
+        self.assertIsNone(goals[0]["key"])
+        self.assertEqual(len(launched), 1)
+        self.assertTrue(out[0].startswith("started the goal goal-fix-the-inbox-badge"))
 
-    def test_a_milestone_is_one_goal_not_its_subtasks(self):
+    def test_a_bare_ticket_link_names_the_goal_after_the_ticket(self):
         self.launched()
-        q.add(self.root, ["9"])
-        self.assertEqual([g["key"] for g in q.gl.list_goals(self.root)], ["A-9"])
+        q.add(self.root, "https://app.asana.com/0/77/9")
+        goal = q.gl.list_goals(self.root)[0]
+        self.assertEqual((goal["key"], goal["name"]), ("A-9", "milestone"))
+        self.assertEqual(goal["prompt"], "https://app.asana.com/0/77/9")
+
+    def test_files_are_copied_into_the_goal(self):
+        self.launched()
+        shot = os.path.join(self.root, "shot.png")
+        with open(shot, "wb") as f:
+            f.write(b"png")
+        q.add(self.root, "Match the screenshot", [shot])
+        goal = q.gl.list_goals(self.root)[0]
+        self.assertEqual(goal["files"], ["inputs/shot.png"])
+        with open(q.gl.Goal(self.root, goal["id"]).state.path("inputs/shot.png"), "rb") as f:
+            self.assertEqual(f.read(), b"png")
 
     def test_into_names_the_branch(self):
         self.launched()
-        q.add(self.root, ["1"], branch="feature/x")
+        q.add(self.root, "Do it", branch="feature/x")
         self.assertEqual(q.gl.list_goals(self.root)[0]["base"], "feature/x")
 
-    def test_a_ticket_that_is_already_a_goal_starts_nothing(self):
-        launched = self.launched()
-        q.add(self.root, ["9"])
-        self.assertIn("already the goal", q.add(self.root, ["9"])[0])
-        self.assertEqual(len(launched), 1)
+    def test_a_prompt_is_needed(self):
+        with self.assertRaises(q.st.Failure):
+            q.add(self.root, "  \n")
 
     def test_undo_undoes_the_goal(self):
         self.launched()
-        q.add(self.root, ["1"])
+        q.add(self.root, "Do it")
+        gid = q.gl.list_goals(self.root)[0]["id"]
         undone, q.gl.undo = q.gl.undo, lambda root, gid: ["PR closed"]
         self.addCleanup(setattr, q.gl, "undo", undone)
-        self.assertTrue(q.undo(self.root, ["1"])[0].endswith("undone — PR closed"))
-        self.assertEqual(q.undo(self.root, ["5"]), ["5: no goal to undo"])
+        self.assertTrue(q.undo(self.root, [gid])[0].endswith("undone — PR closed"))
+        self.assertEqual(q.undo(self.root, ["goal-nope"]), ["goal-nope: no goal to undo"])
 
     def test_only_add_undo_and_list(self):
-        for argv in (["remove", "1"], ["goal", "1"], ["add", "1", "--checkpoint"]):
+        for argv in (["remove", "1"], ["goal", "1"], ["add", "x", "--checkpoint"]):
             with self.assertRaises(SystemExit):
                 q.main(["--repo", self.root] + argv)
 

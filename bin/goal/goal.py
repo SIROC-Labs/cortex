@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 #
-# goal.py — an Asana ticket, implemented autonomously on one branch, into one PR.
+# goal.py — a prompt, implemented autonomously on one branch, into one PR.
 #
-# The ask is the ticket: its description, its subtasks, its comments and its
-# attachments, read once when the goal starts. The runner shows the goal's
-# questions and its plan on the ticket, as subtasks (board.py), and the person
-# answers and approves them there; no agent reads or writes Asana. A lead agent
-# gets the ask and nothing else. It first reads every reference the
-# ask names and writes the acceptance criteria and the plan into its journal; the
-# checker's model reviews those criteria against the references before anything
-# is built. Then the lead builds, starting its own sub-agents, and keeps the
-# journal so it can always pick the thread back up. This program is the harness
-# around it. It calls the lead in rounds on the same session, hands the person's
-# answers back when the lead has a question only they can answer, and pushes the
-# branch only when the lead reports done, because every push runs CI. It waits
-# for that CI, has an independent checker confirm "done" against the ask, and
-# pauses while the Claude subscription is at or over its usage threshold. It never
-# merges anything.
+# The ask is the person's prompt and the files they gave with it. Each Asana ticket
+# the prompt links to is read once, when the goal starts, with its subtasks,
+# comments and attachments; nothing is ever written to Asana. The person answers
+# the goal's questions and approves its plan through conductor: its service, web
+# page, TUI or `cond`. A lead agent gets the ask and nothing else. It first reads
+# every reference the ask names and writes the acceptance criteria and the plan
+# into its journal; the checker's model reviews those criteria against the
+# references before anything is built. Then the lead builds, and keeps the journal
+# so it can always pick the thread back up. This program is the harness around it.
+# It calls the lead in rounds, hands the person's answers back when the lead has a
+# question only they can answer, and pushes the branch only when the lead reports
+# done, because every push runs CI. It waits for that CI, has an independent
+# checker confirm "done" against the ask, and pauses while the Claude subscription
+# is at or over its usage threshold. It never merges anything.
 #
-#   cond goal new <task URL or gid> [--base feature/x] [--start]   # prints the goal's id
-#   cond goal run <id>                                              # run or resume it
+#   cond goal new "<prompt>" [-f FILE]... [--base BRANCH] [--start]   # prints the goal's id
+#   cond goal run <id>                                                # run or resume it
 #
 # A goal's state is `.cortex/state/<id>/` — `goal.json`, the journal, its
-# questions and answers.
+# questions and answers, and the files it was given.
 
 import argparse
 import datetime
@@ -49,7 +48,6 @@ from agent.claude_cli import parse_envelope, unattended  # noqa: E402
 from ci import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
                     failed_runs, failure_excerpt, render_feedback)
 sys.path.insert(0, HERE)
-import board as bd  # noqa: E402
 
 HOOK = os.path.join(HERE, "hook.py")
 
@@ -62,6 +60,9 @@ JOURNAL_FILE = "journal.md"
 LOG_FILE = "goal.log"
 CALLS_FILE = "calls.json"
 REPORT_FILE = "usage.txt"
+INPUTS_DIR = "inputs"
+PR_ASK_MAX = 3000
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg")
 
 DEFAULT_MODEL = "claude-opus-5-5"
 # The lead's sub-agents mostly do narrow, well-briefed parts of the work. The lead
@@ -162,7 +163,7 @@ SPLIT = """   Build the work yourself, as one goal, unless it is very large. In 
      as the data model and the API, and the parts that use them after. Parts with
      nothing between them run at the same time, so give them work that does not
      touch the same files.
-   - `summary`: for the person, who reads it in Asana to approve the split: two to
+   - `summary`: for the person, who reads it to approve the split: two to
      four short sentences in ASD-STE100 Simplified Technical English, about what
      the part builds and what changes for the users. No file paths, no code.
    - `brief`: about a dozen short lines, in Markdown, under these headings:
@@ -188,8 +189,8 @@ PLAN_AFTER = """   - `plan_after`: usually left out. Every part plans as soon as
 """
 TECHNICAL_FILE = "technical-plan.md"
 TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a technical person
-   who reviews how the work will be built. The person reads it next to your plan
-   in Asana. Write it in ASD-STE100 Simplified Technical English: short sentences,
+   who reviews how the work will be built. The person reads it next to your plan.
+   Write it in ASD-STE100 Simplified Technical English: short sentences,
    the active voice, one word for one meaning, and code names as they are in the
    code. Use tables for lists of things, and mermaid diagrams for structure and
    flow. In a diagram's labels and messages, never write `;` or `#`: mermaid reads
@@ -219,12 +220,12 @@ TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a techni
    Keep the technical plan in step with your journal: when the plan changes,
    change it too.
 """
-PLAN_NOTE = """   The person sees your questions and your plan in Asana, as subtasks of the
-   ticket, and approves the plan there before anything is built. So write each
-   step of the plan, and each part, as one line a person can follow. When the
-   ask's subtasks already break the work down, follow that breakdown: give each
-   step or part the exact name of its subtask, and add, merge or split only where
-   the work needs it, with the reason in the journal.
+PLAN_NOTE = """   The person reads your questions and your plan on the goal's page, and approves
+   the plan there before anything is built. So write each step of the plan, and
+   each part, as one line a person can follow. When a ticket's subtasks already
+   break the work down, follow that breakdown: give each step or part the exact
+   name of its subtask, and add, merge or split only where the work needs it, with
+   the reason in the journal.
 """
 TESTING = """   The repository's testing guide is %s. Read it in the analysis and list it
    under `## References`. Plan the tests by it, write them as it says, and give
@@ -282,12 +283,70 @@ FINISHED = ("done", "failed", "stopped")
 # --- pure helpers (unit-tested) ----------------------------------------------
 
 def goal_id(key, name):
-    """A goal's id: the ticket's key, and a few words of its name."""
+    """A goal's id: its ticket's key, when it has one, and a few words of its name."""
+    if not key:
+        return "goal-%s" % st.slugify(name, max_words=5)
     return "goal-%s-%s" % (st.slugify(key, max_words=3), st.slugify(name, max_words=4))
 
 
+ASANA_URL = re.compile(r"https?://app\.asana\.com/[^\s)>\]\"']+")
+NAME_WIDTH = 70
+
+
+def asana_urls(prompt):
+    """The Asana links in a prompt, each once, in order."""
+    out = []
+    for url in ASANA_URL.findall(prompt or ""):
+        url = url.rstrip(".,;:")
+        if url not in out:
+            out.append(url)
+    return out
+
+
+def prompt_name(prompt, width=NAME_WIDTH):
+    """A goal's name from its prompt: the first line with words in it, links left
+    out. None when the prompt is only links."""
+    for line in (prompt or "").splitlines():
+        line = re.sub(r"\s+", " ", re.sub(r"https?://\S+", "", line)).strip(" -*#>:")
+        if re.search(r"[A-Za-z0-9]", line):
+            return line if len(line) <= width else line[:width - 1].rstrip() + "…"
+    return None
+
+
+def files_lines(files):
+    """Files for the ask, as Markdown lines: each path, with a small text file's
+    text and an HTML prototype's text without its markup."""
+    out = []
+    for a in files:
+        if ONE_PAGER.search(os.path.basename(a["path"])):
+            out.append("- `%s`: a one-pager. It is not used, and it decides nothing." % a["path"])
+            continue
+        out.append("- `%s`%s" % (a["path"], " (an image)" if a.get("is_image") else ""))
+        inline = a.get("inline")
+        if inline and a["path"].lower().endswith((".html", ".htm")):
+            out += ["", "Its text is below, without the markup, styles and scripts. The file "
+                    "itself holds the prototype: read it for how each screen looks and "
+                    "behaves."]
+            inline = html_text(inline)
+        if inline:
+            out += ["", "```", inline.rstrip(), "```", ""]
+    return out
+
+
+def ask_from_prompt(prompt, files=(), tickets=()):
+    """The ask, as the lead reads it: the person's prompt, the files they gave with
+    it, and each ticket it links to (as `ask_from_ticket` writes it)."""
+    out = ["# The ask", "", (prompt or "").strip(), ""]
+    if files:
+        out += ["## Files given with it", ""] + files_lines(files) + [""]
+    text = "\n".join(out).rstrip() + "\n"
+    for ticket in tickets:
+        text += "\n" + ticket
+    return text
+
+
 def title_of(goal, width=70):
-    """The ticket's key and name, short enough for a row."""
+    """The goal's key, when it has one, and name, short enough for a row."""
     line = " ".join(x for x in ((goal or {}).get("key"), (goal or {}).get("name")) if x) or "goal"
     return line if len(line) <= width else line[:width - 1].rstrip() + "…"
 
@@ -316,21 +375,7 @@ def ask_from_ticket(task, url, subtasks=(), comments=(), attachments=()):
         out += ["- %s: %s" % (c.get("author") or "someone", c["text"].strip()) for c in said]
         out.append("")
     if attachments:
-        out += ["## Attachments", ""]
-        for a in attachments:
-            if ONE_PAGER.search(os.path.basename(a["path"])):
-                out.append("- `%s`: a one-pager. It is not used, and it decides nothing." % a["path"])
-                continue
-            out.append("- `%s`" % a["path"])
-            inline = a.get("inline")
-            if inline and a["path"].lower().endswith((".html", ".htm")):
-                out += ["", "Its text is below, without the markup, styles and scripts. The file "
-                        "itself holds the prototype: read it for how each screen looks and "
-                        "behaves."]
-                inline = html_text(inline)
-            if inline:
-                out += ["", "```", inline.rstrip(), "```", ""]
-        out.append("")
+        out += ["## Attachments", ""] + files_lines(attachments) + [""]
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -553,7 +598,7 @@ def review_prompt(gaps, answers, again=False):
         parts += ["- %s" % g for g in gaps] + [""]
         parts += ["Check each one against the references. Correct the criteria where it is "
                   "right. Where it is wrong, write why in the journal. The prototype wins, "
-                  "unless the ticket says explicitly that it replaces the prototype, or the "
+                  "unless the ask says explicitly that it replaces the prototype, or the "
                   "person's answers say otherwise. One-pagers decide nothing.", ""]
     if answers:
         parts += [answers, ""]
@@ -684,7 +729,7 @@ def gaps_prompt(gaps, answers=None):
     if answers:
         parts += [answers, ""]
     parts += ["Before you fix a gap, check it against the references. The prototype wins, "
-              "unless the ticket says explicitly that it replaces the prototype, or the "
+              "unless the ask says explicitly that it replaces the prototype, or the "
               "person's answers say otherwise. One-pagers decide nothing. Do not change what "
               "the prototype shows to satisfy a gap. If a gap is wrong, do not fix it: write "
               "why in the journal and say so in your summary, and the checker reads that. If "
@@ -1049,53 +1094,32 @@ def testing_guides(root, depth=3):
     return sorted(out, key=lambda f: (f.count(os.sep), f))
 
 
-def plan_items(journal, parts=None):
-    """What the plan shows on the ticket: [(key, name, body)], the parts when the
-    work is split, else the steps of the journal's `## Plan`."""
+def plan_names(journal, parts=None):
+    """The plan as the person reads it: the parts when the work is split, else the
+    first line of each step of the journal's `## Plan`."""
     if parts:
-        return [(p["name"], p["name"], bd.part_body(p)) for p in parts] + [
-            (bd.INTEGRATION, bd.INTEGRATION, bd.made(["The goal's lead puts the parts together "
-                                                      "and checks them end to end."]))]
-    return [(bd.step_key(text), bd.step_title(text), bd.step_body(text))
-            for _, text in checklist(journal, "Plan") or [] if bd.step_key(text)]
+        return [p["name"] for p in parts]
+    return [re.sub(r"\s+", " ", text.splitlines()[0]).strip()
+            for _, text in checklist(journal, "Plan") or [] if text.strip()]
 
 
-def plan_links(parts=None):
-    """{key: [keys]}: what each part builds after, and the integration after them all."""
-    if not parts:
-        return {}
-    return dict({p["name"]: p["after"] for p in parts}, **{bd.INTEGRATION: [p["name"] for p in parts]})
+_APPROVALS = {"", "c", "continue", "ok", "okay", "go", "go on", "yes", "y", "approve",
+              "approved", "lgtm"}
 
 
-def ticked_steps(journal):
-    return {bd.step_key(text) for ticked, text in checklist(journal, "Plan") or [] if ticked}
+def approves(text):
+    """Whether an answer to the plan's review only approves it, with nothing to change."""
+    return re.sub(r"[\s.!]+$", "", (text or "").strip().lower()) in _APPROVALS
 
 
-def replan_prompt(changes, notes):
-    """What the lead hears when the person approved the plan with changes."""
-    lines = ["The person reviewed your plan in Asana and approved it, with changes."]
-    if changes:
-        lines += ["", "They changed these subtasks:", ""] + changes
-    if notes:
-        lines += ["", "They said:", "", notes.strip()]
-    lines += ["", "Apply the changes to your journal: the acceptance criteria and the plan, "
-              "the technical plan, and the parts file if you split the work. Where a change is unclear or "
-              "conflicts with the prototype, ask. Do not build yet: report planned again."]
-    return "\n".join(lines)
-
-
-def revise_prompt(changes, notes):
-    """What the lead hears when the person commented on the plan, before approving it."""
-    lines = ["The person commented on your plan in Asana, before approving it."]
-    if changes:
-        lines += ["", "They changed these subtasks:", ""] + changes
-    lines += ["", "They said:", "", notes.strip(), "",
-              "Revise your journal to answer it: the acceptance criteria and the plan, the "
-              "technical plan, and the parts file if you split the work. Where a change is "
-              "unclear or conflicts with the prototype, ask. Do not build yet. Report planned "
-              "again, and in its summary tell the person, in a few sentences, what you changed "
-              "and why: it is posted as a reply to their comment."]
-    return "\n".join(lines)
+def revise_prompt(notes):
+    """What the lead hears when the person asked for changes to the plan."""
+    return "\n".join(["The person reviewed your plan and asked for changes:", "", notes.strip(), "",
+                      "Revise your journal to answer it: the acceptance criteria and the plan, the "
+                      "technical plan, and the parts file if you split the work. Where a change is "
+                      "unclear or conflicts with the prototype, ask. Do not build yet. Report planned "
+                      "again, and in its summary tell the person, in a few sentences, what you changed "
+                      "and why: they read it with the plan."])
 
 
 def built_text(built):
@@ -1518,10 +1542,6 @@ class Goal(object):
         return self.state.path(LOG_FILE)
 
 
-def task_url(gid, board=None):
-    return "https://app.asana.com/0/%s/%s" % (board or 0, gid)
-
-
 def settings_from(control):
     """The models a new goal uses, from the repo's control file (the TUI's Setup
     tab): {model, subagent_model, check_model, check_effort}."""
@@ -1535,19 +1555,39 @@ def settings_from(control):
             else DEFAULT_GATE}
 
 
-def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THRESHOLD,
-           model=DEFAULT_MODEL, subagent_model=DEFAULT_SUBAGENT_MODEL,
-           check_model=DEFAULT_CHECK_MODEL, check_effort=DEFAULT_CHECK_EFFORT, gate=DEFAULT_GATE,
-           now=None):
-    """Write a new goal for the ticket `ref`. Returns its id; nothing runs yet, and the
-    ticket itself is read when it starts."""
+def create(main_root, prompt, files=(), base=None, name=None, key=None,
+           threshold=DEFAULT_THRESHOLD, model=DEFAULT_MODEL,
+           subagent_model=DEFAULT_SUBAGENT_MODEL, check_model=DEFAULT_CHECK_MODEL,
+           check_effort=DEFAULT_CHECK_EFFORT, gate=DEFAULT_GATE, now=None):
+    """Write a new goal for a prompt and the files given with it, which are copied
+    into the goal. Returns its id; nothing runs yet, and the tickets the prompt
+    links to are read when it starts. `key` defaults to the first linked ticket's
+    key, and `name` to the prompt's first line, else that ticket's name."""
+    if not (prompt or "").strip():
+        raise st.Failure("a goal needs a prompt")
+    for path in files:
+        if not os.path.isfile(path):
+            raise st.Failure("no file %s" % path)
+    ticket = first_ticket(main_root, prompt) if not (name and key) else {}
+    key = key or (st.task_key(ticket) if ticket else None)
+    name = name or prompt_name(prompt) or ticket.get("name") or "goal"
     gid, n = goal_id(key, name), 1
     while os.path.isdir(Goal(main_root, gid).state.dir):
         n += 1
         gid = "%s-%d" % (goal_id(key, name), n)
     goal = Goal(main_root, gid)
     goal.state.ensure()
-    goal.update(id=gid, ref=ref, key=key, name=name, url=url or task_url(ref), base=base,
+    given = []
+    if files:
+        import shutil
+        os.makedirs(goal.state.path(INPUTS_DIR), exist_ok=True)
+        for path in files:
+            safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(path)) or "file"
+            while os.path.exists(goal.state.path(os.path.join(INPUTS_DIR, safe))):
+                safe = "_" + safe
+            shutil.copyfile(path, goal.state.path(os.path.join(INPUTS_DIR, safe)))
+            given.append(os.path.join(INPUTS_DIR, safe))
+    goal.update(id=gid, prompt=prompt.strip(), files=given, key=key, name=name, base=base,
                 threshold=threshold, model=model, subagent_model=subagent_model,
                 check_model=check_model or model, check_effort=check_effort,
                 created=now or time.time(), status="new", flow=FLOW, gate=gate,
@@ -1555,10 +1595,30 @@ def create(main_root, ref, key, name, url=None, base=None, threshold=DEFAULT_THR
     return gid
 
 
-def find_goal(main_root, ref):
-    """The goal on the list for the ticket `ref`, if there is one."""
-    return next((g for g in list_goals(main_root) if g.get("ref") == ref and not g.get("parent")),
-                None)
+def first_ticket(main_root, prompt):
+    """The first Asana ticket the prompt links to, as `asana task get` gives it, or
+    {} when it links to none or Asana cannot be read."""
+    for url in asana_urls(prompt):
+        try:
+            ref = st.asana(["ref", "parse", url], cwd=main_root)
+            if ref:
+                return st.asana(["task", "get", str(ref).strip()], cwd=main_root) or {}
+        except st.Failure:
+            continue
+    return {}
+
+
+def file_entry(path, rel):
+    """A file given with the prompt, as the ask lists it: an absolute path, whether
+    it is an image, and a small text file's text."""
+    entry = {"path": path, "is_image": rel.lower().endswith(IMAGE_EXTS)}
+    try:
+        if not entry["is_image"] and os.path.getsize(path) <= st.INLINE_ATTACHMENT_MAX_BYTES:
+            with open(path, "rb") as f:
+                entry["inline"] = f.read().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        pass
+    return entry
 
 
 def create_part(main_root, parent, part, index, built):
@@ -1570,14 +1630,13 @@ def create_part(main_root, parent, part, index, built):
         return gid
     goal.state.ensure()
     goal.update(id=gid, parent=parent["id"], part=part["name"], part_index=index,
-                depth=parent.get("depth", 0) + 1, ref=parent.get("ref"), key=parent.get("key"),
-                name="part: %s" % part["name"], url=parent.get("url"), base=parent["branch"],
+                depth=parent.get("depth", 0) + 1, key=parent.get("key"),
+                name="part: %s" % part["name"], base=parent["branch"],
                 ask=part_ask(parent, part, built), threshold=parent.get("threshold"),
                 model=parent.get("model"), subagent_model=parent.get("subagent_model"),
                 check_model=parent.get("check_model"), check_effort=parent.get("check_effort"),
                 fence=parent.get("fence"), created=time.time(), status="new", round=0,
-                phase="planning", flow=parent.get("flow"), gate=parent.get("gate"),
-                asana_task=part.get("subtask"))
+                phase="planning", flow=parent.get("flow"), gate=parent.get("gate"))
     return gid
 
 
@@ -1631,8 +1690,8 @@ MARKED = "marked"
 
 def mark_done(main_root, gid):
     """You mark a goal done by hand: it and its unfinished parts are stopped and
-    stay done, whatever their runners write as they end. Its branch, PR and
-    ticket stay as they are."""
+    stay done, whatever their runners write as they end. Its branch and PR stay
+    as they are."""
     for one in goal_and_parts(main_root, gid):
         data = one.read()
         if not data or (data.get("parent") and data.get("status") == "done"):
@@ -1667,9 +1726,9 @@ DISCUSS_DENY = ["AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
                 "mcp__claude_ai_Asana__create_project_from_template"]
 
 DISCUSS = """You help the person who runs a conductor goal talk it through. A conductor goal
-is an autonomous run that implements an Asana ticket. Other agents analyse it, plan
-it, review the plan and build it. You change nothing in the repository, the goal's
-files or Asana.
+is an autonomous run that implements what the person asked for. Other agents analyse
+it, plan it, review the plan and build it. You change nothing in the repository, the
+goal's files or Asana.
 
 How you talk:
 
@@ -1700,7 +1759,7 @@ asks for it, or when it answers their question better than reading does. Change 
 other file. Do not run commands that write elsewhere, such as `git commit`,
 `git checkout`, `git stash`, or any write to Asana; a hook refuses them. Do not answer the goal's
 questions or approve its plan. When the talk changes an answer, tell the person
-to give it on the question's subtask in Asana, or on the TUI.
+to give it in conductor: its web page, the TUI or `cond`.
 
 %s
 """
@@ -1814,17 +1873,13 @@ def undo_plan(main_root, gid):
     if len(goals) > 1:
         steps.append("delete its %s" % ("part's branch" if len(goals) == 2 else
                                          "%d parts' branches" % (len(goals) - 1)))
-    made = sum(len(g.state.read(bd.BOARD_FILE, {}).get("made") or []) for g in goals)
-    if made:
-        steps.append("delete the %d subtasks it made on the ticket, answered questions too, and "
-                     "reopen any of yours it ticked" % made)
     steps.append("remove its worktrees and saved state")
     return steps
 
 
 def undo(main_root, gid, wait=20):
     """Take a goal's work back out, all of it: its runs, its PR and branches, its
-    worktrees and state, and what it wrote on the ticket. Returns what was done."""
+    worktrees and state. Returns what was done."""
     goals = goal_and_parts(main_root, gid)
     done = []
     pids = [g.read().get("pid") for g in goals]
@@ -1840,25 +1895,6 @@ def undo(main_root, gid, wait=20):
         raise st.Failure("the goal did not stop within %d seconds — try again" % wait)
     if any(pids):
         done.append("stopped")
-    deleted = reopened = 0
-    for g in goals:
-        board = g.state.read(bd.BOARD_FILE, {}) or {}
-        for item in board.get("items") or []:
-            if not item.get("made") and item.get("done"):
-                try:
-                    st.asana(["task", "reopen", item["gid"]], cwd=main_root)
-                    reopened += 1
-                except st.Failure:
-                    pass
-        for task in reversed(board.get("made") or []):
-            try:
-                st.asana(["task", "delete", task], cwd=main_root)
-                deleted += 1
-            except st.Failure:
-                pass  # gone already, with the part's subtask it was under
-    if deleted or reopened:
-        done.append("%d subtasks deleted on the ticket%s" % (
-            deleted, ", %d of yours reopened" % reopened if reopened else ""))
     data = goals[-1].read()
     pr, branch = data.get("pr_url"), data.get("branch")
     # The worktrees go first: a branch a worktree still uses cannot be deleted.
@@ -1932,14 +1968,6 @@ class Runner(object):
     def flow2(self):
         return (self.data.get("flow") or 0) >= FLOW
 
-    @property
-    def board(self):
-        """The goal's subtasks on Asana: under the ticket, or under a part's own
-        subtask. Off for goals of the older flow."""
-        task = self.data.get("asana_task") if self.data.get("parent") else self.data.get("ref")
-        return bd.Board(self.main_root, self.goal.state, task if self.flow2() else None,
-                        part=bool(self.data.get("parent")))
-
     def waits_for_person(self):
         """Whether this goal's plan waits for the person's approval."""
         gate = self.data.get("gate") or DEFAULT_GATE
@@ -1955,30 +1983,55 @@ class Runner(object):
 
     # setup
 
-    def read_ticket(self):
-        """The ask, from the ticket as it is now. Read once, when the goal starts."""
-        self.step("Reading the ticket")
-        ref = self.data["ref"]
-        task = st.asana(["task", "get", ref], cwd=self.main_root)
-        subtasks = [dict(st.asana(["task", "get", t["ref"]], cwd=self.main_root) or {},
-                         completed=t.get("completed"))
-                    for t in st.asana(["task", "subtasks", ref], cwd=self.main_root) or []
-                    if not t.get("completed")]
-        comments = st.asana(["comment", "list", ref], cwd=self.main_root) or []
-        attachments = []
-        for att in st.asana(["task", "attachments", ref], cwd=self.main_root) or []:
-            entry = st.download_attachment(att, self.goal.state.path("attachments"))
-            if entry:
-                attachments.append(dict(entry, path=self.goal.state.path(entry["path"])))
-        st.info("%d subtask(s) · %d comment(s) · %d attachment(s)"
-                % (len(subtasks), len(comments), len(attachments)))
-        self.set(ask=ask_from_ticket(task, self.data["url"], subtasks, comments, attachments),
-                 name=task.get("name") or self.data.get("name"))
+    def read_ask(self):
+        """The ask: the prompt, its files, and each ticket it links to as it is now.
+        Read once, when the goal starts. A goal made from a ticket before goals took
+        a prompt has the ticket's URL for its prompt."""
+        self.step("Reading the ask")
+        prompt = self.data.get("prompt") or self.data.get("url") or ""
+        files = [file_entry(self.goal.state.path(rel), rel) for rel in self.data.get("files") or []]
+        tickets = [t for t in (self.read_ticket(url) for url in asana_urls(prompt)) if t]
+        st.info("%d file(s) · %d ticket(s)" % (len(files), len(tickets)))
+        self.set(ask=ask_from_prompt(prompt, files, tickets))
+
+    def read_ticket(self, url):
+        """One ticket the prompt links to, as the ask shows it, or None when it is not
+        a task or cannot be read."""
+        try:
+            ref = st.asana(["ref", "parse", url], cwd=self.main_root)
+            if not ref:
+                return None
+            ref = str(ref).strip()
+            task = st.asana(["task", "get", ref], cwd=self.main_root)
+            subtasks = [dict(st.asana(["task", "get", t["ref"]], cwd=self.main_root) or {},
+                             completed=t.get("completed"))
+                        for t in st.asana(["task", "subtasks", ref], cwd=self.main_root) or []
+                        if not t.get("completed")]
+            comments = st.asana(["comment", "list", ref], cwd=self.main_root) or []
+            attachments = []
+            for att in st.asana(["task", "attachments", ref], cwd=self.main_root) or []:
+                entry = st.download_attachment(att, self.goal.state.path("attachments"))
+                if entry:
+                    attachments.append(dict(entry, path=self.goal.state.path(entry["path"])))
+        except st.Failure as e:
+            st.warn("could not read %s: %s" % (url, e))
+            return None
+        st.info("%s: %d subtask(s) · %d comment(s) · %d attachment(s)"
+                % (st.task_key(task), len(subtasks), len(comments), len(attachments)))
+        return ask_from_ticket(task, url, subtasks, comments, attachments)
+
+    def pr_ask(self):
+        """The ask, as the PR's description opens: the prompt, or the ticket of a goal
+        made from one before goals took a prompt."""
+        prompt = (self.data.get("prompt") or self.data.get("url") or "").strip()
+        if len(prompt) > PR_ASK_MAX:
+            prompt = prompt[:PR_ASK_MAX].rstrip() + "…"
+        return "## Ask\n\n%s" % prompt
 
     def set_up(self):
         if not self.data.get("ask"):
             os.makedirs(self.goal.state.path("attachments"), exist_ok=True)
-            self.read_ticket()
+            self.read_ask()
         if self.data.get("worktree") and os.path.isdir(self.data["worktree"]):
             return
         self.step("Setting up")
@@ -1992,17 +2045,19 @@ class Runner(object):
             st.info("created %s off %s in %s" % (branch, parent["branch"], worktree))
             self.set(branch=branch, worktree=worktree, parent_worktree=parent["worktree"])
             return
-        key, name = self.data["key"], self.data["name"]
+        key, name = self.data.get("key"), self.data["name"]
         base = st.resolve_base(self.main_root, self.data.get("base"))
-        branch = "%s/goal-%s" % (key, st.slugify(name))
+        branch = "%s/goal-%s" % (key, st.slugify(name)) if key else "goal/%s" % st.slugify(name)
         worktree = st.worktree_path(self.main_root, self.goal.id)
         with st.repo_lock(self.main_root):
             st.git(["fetch", "origin"], cwd=self.main_root, check=False)
             st.git(["worktree", "add", worktree, "-b", branch, base], cwd=self.main_root)
-        st.git(["commit", "--allow-empty", "-m", "%s :: start the goal" % key], cwd=worktree)
+        st.git(["commit", "--allow-empty", "-m", "%s :: start the goal" % (key or "goal")],
+               cwd=worktree)
         st.git(["push", "-u", "origin", branch], cwd=worktree)
         st.info("created %s off %s in %s" % (branch, base, worktree))
-        pr_url, error = st.create_draft_pr(key, name, self.data["url"], base, branch, worktree)
+        pr_url, error = st.create_draft_pr("%s :: %s" % (key, name) if key else name,
+                                           self.pr_ask(), base, branch, worktree)
         if pr_url:
             st.info("draft PR: %s" % pr_url)
         else:
@@ -2127,7 +2182,6 @@ class Runner(object):
                 out, err = self.child.communicate(timeout=WIND_CHECK if winding else USAGE_CHECK)
                 break
             except subprocess.TimeoutExpired:
-                self.progress()
                 limits = self.usage()
                 threshold = self.threshold()
                 hard = over_threshold(limits, threshold + HARD_MARGIN)
@@ -2563,8 +2617,6 @@ class Runner(object):
             alive = {p["name"] for p in parts if Goal(self.main_root, p["id"]).runner_alive()}
             done = [p for p in parts if goals[p["name"]].get("status") == "done"]
             flow2 = self.flow2()
-            if flow2:
-                self.board.tick({p["name"] for p in done})
             if len(done) == len(parts):
                 st.info("every part is done — the integration starts in a new session")
                 _, merged, _ = st.git(["rev-parse", "HEAD"], cwd=self.data["worktree"], check=False)
@@ -2616,14 +2668,13 @@ class Runner(object):
             return None
         with open(self.goal.state.path(PARTS_FILE)) as f:
             parts = read_parts(f.read())
-        parts = [dict(p, id=part_id(self.goal.id, p["name"]), subtask=self.board.gid_of(p["name"]))
-                 for p in parts]
+        parts = [dict(p, id=part_id(self.goal.id, p["name"])) for p in parts]
         order = part_order(parts)
         parts.sort(key=lambda p: order.index(p["name"]))
         _, dirty, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
         if dirty.strip():
             st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
-            st.git(["commit", "-m", "%s :: work before the parts" % self.data["key"]],
+            st.git(["commit", "-m", "%s :: work before the parts" % (self.data.get("key") or "goal")],
                    cwd=self.data["worktree"], check=False)
         self.step("Splitting into %d parts" % len(parts))
         for p in parts:
@@ -2631,23 +2682,21 @@ class Runner(object):
         self.set(parts=parts, phase="parts")
         return parts
 
-    # the plan, on the ticket
+    # the plan, for the person
 
     def planned(self, summary=None):
         """The lead's plan is complete: reviewed, corrected, then put to the
         person. Returns the lead's next prompt."""
         if self.data.get("revising"):
-            # Revised after the person's comment: on the ticket again, for them.
+            # Revised after the person asked for changes: to them again.
             self.set(revising=False)
             return self.plan_gate(reply=summary)
         if self.data.get("replanning"):
-            # The person's changes, applied: they approved the plan already.
-            self.publish_plan()
+            # A goal from before: the person approved the plan with changes, applied now.
             return self.after_plan()
         if self.data.get("small"):
             self.set(reviewed=True)
             self.step("Small change: building without a plan review")
-            self.publish_plan(review=False)
             return self.after_plan()
         gaps, questions = [], []
         if not self.data.get("reviewed") and not (self.data.get("parent") and self.waits_for_person()):
@@ -2658,51 +2707,29 @@ class Runner(object):
             return review_prompt(gaps, answers, again=True)
         return self.plan_gate()
 
-    def publish_plan(self, before_build=True, review=True):
-        """The plan on the ticket. Returns the parts, or False when Asana refused it."""
-        parts = self.written_parts() if self.split_now() else None
-        plan_file = self.technical_plan() if os.path.exists(self.technical_plan()) else None
-        if not self.board.publish(plan_items(self.read_journal(), parts), bool(parts), before_build,
-                                  plan_file, plan_links(parts), review):
-            return False
-        return parts
-
     def plan_gate(self, reply=None):
-        """After the review: the plan on the ticket, approved by the person when the
-        goal waits for them. Returns the lead's next prompt."""
-        parts = self.publish_plan()
-        on_ticket = parts is not False
-        if on_ticket and reply:
-            self.board.reply(reply)
-        parts = parts or (self.written_parts() if self.split_now() else None)
+        """After the review: the plan, approved by the person when the goal waits for
+        them. Returns the lead's next prompt."""
         if not self.waits_for_person():
-            self.board.approve()
             return self.after_plan()
+        parts = self.written_parts() if self.split_now() else None
         what = "split" if parts else "plan"
         self.step("The %s is ready for your review" % what)
-        if not on_ticket:
-            st.warn("the plan is not on the ticket yet: it is tried again every minute, "
-                    "and you can approve it on the TUI")
-        names = [name for _, name, _ in plan_items(self.read_journal(), parts)]
+        names = plan_names(self.read_journal(), parts)
+        detail = "\n".join("- %s" % n for n in names) or None
+        if reply:
+            detail = "What changed: %s\n\n%s" % (reply.strip(), detail or "")
         return self.await_plan({"kind": "plan", "headline": "%s ready for your review" % what,
-                                "split": bool(parts),
-                                "detail": "\n".join("- %s" % n for n in names) or None})
+                                "split": bool(parts), "detail": detail})
 
     def await_plan(self, record):
+        """Approval goes on to the build; anything else the person says is changes
+        the lead makes before the plan comes back to them."""
         text = self.wait_for_answer(record)
-        if isinstance(text, bd.Feedback):
-            changes = self.board.changes()
-            st.info("you commented on the review — back to the lead")
+        if not approves(text):
+            st.info("you asked for changes — back to the lead")
             self.set(revising=True, phase="planning")
-            return revise_prompt(changes, text)
-        self.board.approve()
-        changes = self.board.changes()
-        notes = "" if bd.approves(text) else text
-        if changes or notes:
-            st.info("approved, with %d change(s) to the subtasks%s" % (
-                len(changes), " and a note" if notes else ""))
-            self.set(replanning=True, phase="planning")
-            return replan_prompt(changes, notes)
+            return revise_prompt(text)
         st.info("the plan is approved")
         return self.after_plan()
 
@@ -2844,7 +2871,6 @@ class Runner(object):
                 break
             if time.time() - checked >= USAGE_CHECK:
                 checked = time.time()
-                self.progress()
                 hard = over_threshold(self.usage(), self.threshold() + HARD_MARGIN)
                 if hard:
                     st.warn("%s at %d%% — stopping the tasks; the lead starts them again later"
@@ -2949,18 +2975,6 @@ class Runner(object):
                 "waits for a free slot: %d parts build at a time" % PARALLEL_PARTS))
             time.sleep(PARTS_CHECK)
 
-    def progress(self):
-        """The plan's ticks, onto the ticket. A step the lead added after the
-        approval gets a subtask of its own."""
-        if not (self.flow2() and self.data.get("approved") and self.board.on):
-            return
-        journal = self.read_journal()
-        if not self.split_now():
-            known = [i["key"] for i in self.board.load().get("items") or []]
-            if any(not any(bd.same_step(k, old) for old in known) for k, _, _ in plan_items(journal)):
-                self.publish_plan(before_build=False)
-        self.board.tick(ticked_steps(journal))
-
     def ci_excerpts(self, failing):
         """For each failed check, the telling lines of its job's log: {name: [lines]}."""
         out = {}
@@ -3000,8 +3014,8 @@ class Runner(object):
                 "testing_check": (" Judge the tests against the repository's testing guide, "
                                   "%s: a test it requires that is missing, or one written "
                                   "against it, is a gap." % guides) if guides else "",
-                "plan_note": (PLAN_NOTE + (TECHNICAL.replace("{{technical_plan}}", self.technical_plan())
-                                           if self.flow2() else "")) if self.board.on else "",
+                "plan_note": PLAN_NOTE + (TECHNICAL.replace("{{technical_plan}}", self.technical_plan())
+                                          if self.flow2() else ""),
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
@@ -3028,7 +3042,8 @@ class Runner(object):
     # the person
 
     def wait_for_answer(self, record):
-        """Leave a question for the person and wait for their answer from the TUI."""
+        """Leave a question for the person and wait for their answer, which conductor
+        writes to the goal's answer file."""
         asked_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         pending = self.goal.state.read("awaiting.json") or {}
         if pending.get("asked_at") and pending.get("kind") == record["kind"]:
@@ -3036,33 +3051,14 @@ class Runner(object):
         else:
             self.goal.state.write("awaiting.json", dict(record, asked_at=asked_at))
         self.set(status="waiting", doing="waiting on you")
-        board = self.board
-        poll = None
-        if board.on and record["kind"] == "plan":
-            # A plan that could not go on the ticket is written again first.
-            poll = lambda: board.approval() if board.has_plan() or self.publish_plan(
-            ) is not False else None  # noqa: E731
-        elif board.on and record.get("asana"):
-            poll = lambda: board.answers(record["questions"], record["asana"], asked_at)  # noqa: E731
-        st.info("waiting on you — %s" % ("in Asana, or on the TUI's Runs tab" if poll
-                                         else "the question is on the TUI's Runs tab"))
-        polled = 0
+        st.info("waiting on you")
         while True:
             text = st.local_answer(self.goal.state.read(st.ANSWER_FILE), asked_at)
             if text:
                 self.goal.state.remove(st.ANSWER_FILE)
                 self.goal.state.remove("awaiting.json")
-                if record.get("asana"):
-                    board.answered(record["asana"], text)
                 st.info("answered")
                 return text
-            if poll and time.time() - polled >= bd.POLL:
-                polled = time.time()
-                text = poll()
-                if text:
-                    self.goal.state.remove("awaiting.json")
-                    st.info("answered in Asana")
-                    return text
             time.sleep(ANSWER_CHECK)
 
     def ask_questions(self, questions, label="lead"):
@@ -3108,9 +3104,7 @@ class Runner(object):
         self.step("Asking you")
         for q in questions:
             st.info("Q: %s" % q["q"])
-        gids = self.board.ask(questions) if self.board.on else []
-        return self.wait_for_answer({"kind": "questions", "label": label, "questions": questions,
-                                     "asana": gids})
+        return self.wait_for_answer({"kind": "questions", "label": label, "questions": questions})
 
     def ask_problem(self, headline, detail=None):
         self.step("Stopped — %s" % headline)
@@ -3133,9 +3127,6 @@ class Runner(object):
 
     def finish(self, block):
         self.step("Finishing")
-        self.progress()
-        if self.flow2() and self.split_now():
-            self.board.tick({bd.INTEGRATION})
         if self.data.get("parent"):
             self.set(status="done", doing=block.get("summary") or "done",
                      summary=block.get("summary"), finished=time.time())
@@ -3148,7 +3139,7 @@ class Runner(object):
                 comment = "%s\n\n%s" % (ADDRESSED, (block.get("walkthrough") or "").strip()
                                           or block.get("summary") or "")
             else:
-                body = "## Task\n%s\n\n%s\n" % (self.data["url"], block.get("summary") or "")
+                body = "%s\n\n%s\n" % (self.pr_ask(), block.get("summary") or "")
                 st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
                 comment = "" if self.walked_through(pr_url) else (block.get("walkthrough") or "").strip()
             if comment:
@@ -3177,21 +3168,6 @@ class Runner(object):
         return any(st.is_marked(c.get("body")) and st.mark(ADDRESSED) not in c.get("body", "")
                    for c in comments)
 
-    def announce(self, summary):
-        """The ticket hears the goal is done: In Review, and a comment with the PR.
-        Once."""
-        ref, pr_url = self.data.get("ref"), self.data.get("pr_url")
-        if not ref or self.data.get("announced"):
-            return
-        self.set(announced=True)
-        st.run([sys.executable, st.ASANA, "task", "set-status", ref, "In Review"],
-               cwd=self.main_root, check=False)
-        text = "🚀 Ready for review — %s\n\n%s" % (pr_url or "(no PR)", summary or "")
-        code, _, err = st.run([sys.executable, st.ASANA, "comment", "add", ref, st.mark(text.strip())],
-                              cwd=self.main_root, check=False)
-        if code != 0:
-            st.warn("Asana: could not post the ready comment: %s" % err.strip()[:200])
-
     def watching(self):
         """Whether the goal is done and watches its PR. A goal that finished before
         goals watched their PR counts too, until its PR is merged or closed."""
@@ -3211,7 +3187,6 @@ class Runner(object):
             return None
         if not self.data.get("watch_from"):
             self.set(watch_from=self.data.get("finished") or time.time())
-        self.announce(self.data.get("summary") or self.data.get("doing"))
         self.step("Watching the PR for review comments and the merge")
         while True:
             state = self.pr_state(pr_url)
@@ -3326,7 +3301,6 @@ class Runner(object):
                 report, block = self.lead(prompt)
                 if block.get("summary"):
                     st.info(block["summary"])
-                self.progress()
                 # Nothing is pushed until the lead reports done: every push runs CI.
                 after = self.head()
                 unchanged = unchanged + 1 if after == before and self.data.get(
@@ -3361,7 +3335,7 @@ class Runner(object):
                                                        checklist(journal, "Acceptance criteria"))
                     self.set(small=small_reason(block, bool(self.data.get("parent")), split)
                              if self.flow2() else None)
-                    if self.flow2() and self.board.on and not self.data.get("small") \
+                    if self.flow2() and not self.data.get("small") \
                             and not os.path.exists(self.technical_plan()):
                         problems.append("the technical plan, `%s`" % self.technical_plan())
                     if problems:
@@ -3467,21 +3441,22 @@ screen looks and behaves: its layout, its parts, their order, their text and the
 states. Only two things overrule it:
 
 1. The person's answers to questions. They overrule everything, the prototype too.
-2. The ticket's description, or a subtask's description, where it says explicitly
-   that it replaces the prototype, such as "X instead of the prototype" or "not as
-   in the prototype: X". Only such words count. When the ticket describes something
-   differently from the prototype, but does not say that it replaces the prototype,
-   the prototype wins. That is not a question for the person.
+2. The ask, where it says explicitly that it replaces the prototype, such as "X
+   instead of the prototype" or "not as in the prototype: X". The ask is what the
+   person wrote and the description of each ticket or subtask in it. Only such
+   words count. When the ask describes something differently from the prototype,
+   but does not say that it replaces the prototype, the prototype wins. That is not
+   a question for the person.
 
 Do not use one-pagers, PRDs or product specs, and do not open the product
-repository (such as `humanus-product`), even when the ticket links to them. They
+repository (such as `humanus-product`), even when the ask links to them. They
 decide nothing. Other references, such as design records, attachments, branches and
 other tickets, give context only. They never overrule the prototype.
 
-When the ticket asks for something that the prototype does not show, or the
-prototype does not answer a question, the person decides. That is a question for
-them. When the ask has no prototype, the ticket's description decides what is
-built, and the person decides what it leaves open.
+When the ask wants something that the prototype does not show, or the prototype
+does not answer a question, the person decides. That is a question for them. When
+the ask has no prototype, the ask decides what is built, and the person decides
+what it leaves open.
 
 The repository's conventions decide how the code is written, not what is built."""
 
@@ -3499,9 +3474,13 @@ def render(path, **kwargs):
 def main(argv):
     parser = argparse.ArgumentParser(prog="cond goal", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    new = sub.add_parser("new", help="make a goal from an Asana ticket")
-    new.add_argument("task", help="the ticket: its URL or gid")
-    new.add_argument("--base", help="the branch to build on and open the PR into")
+    new = sub.add_parser("new", help="make a goal from a prompt")
+    new.add_argument("prompt", nargs="?", default="-",
+                     help="what to build: text, Asana ticket links, or both; - (the default) "
+                          "reads it from stdin")
+    new.add_argument("-f", "--file", action="append", default=[], dest="files",
+                     help="a file to give with the prompt, such as an image; repeat for more")
+    new.add_argument("--base", help="the branch to build on and open the PR into (default: main)")
     new.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                      help="pause while any usage limit is at or over this percentage")
     new.add_argument("--model", default=DEFAULT_MODEL, help="the lead's model")
@@ -3516,8 +3495,8 @@ def main(argv):
     run = sub.add_parser("run", help="run or resume a goal in the foreground")
     run.add_argument("id")
     run.add_argument("--repo", default=".")
-    back = sub.add_parser("undo", help="take a goal's work back out: its PR, branches, worktrees, "
-                                       "state and the subtasks it made")
+    back = sub.add_parser("undo", help="take a goal's work back out: its PR, branches, worktrees "
+                                       "and state")
     back.add_argument("id")
     back.add_argument("--repo", default=".")
     talk = sub.add_parser("discuss", help="talk a goal through with Claude, which writes only in a temp folder")
@@ -3536,18 +3515,14 @@ def main(argv):
             print(line)
         return 0
     if args.cmd == "new":
-        ref = st.asana(["ref", "parse", args.task], cwd=main_root)
-        if not ref:
-            parser.error("%r is not an Asana task" % args.task)
-        ref = str(ref).strip()
-        existing = find_goal(main_root, ref)
-        if existing:
-            parser.error("the ticket is already the goal %s" % existing["id"])
-        task = st.asana(["task", "get", ref], cwd=main_root)
-        gid = create(main_root, ref, st.task_key(task), task.get("name"), base=args.base,
-                     threshold=args.threshold, model=args.model,
-                     subagent_model=args.subagent_model, check_model=args.check_model,
-                     gate=args.gate)
+        prompt = sys.stdin.read() if args.prompt == "-" else args.prompt
+        try:
+            gid = create(main_root, prompt, [os.path.abspath(f) for f in args.files],
+                         base=args.base, threshold=args.threshold, model=args.model,
+                         subagent_model=args.subagent_model, check_model=args.check_model,
+                         gate=args.gate)
+        except st.Failure as e:
+            parser.error(str(e))
         if args.start:
             launch(main_root, gid)
         print(gid)

@@ -29,8 +29,8 @@ answer, is a question.
    - a screen, a part of a screen, a state, a rule or a field the references
      require, and no criterion covers;
    - a criterion that says something different from its source, or that follows
-     the ticket or a one-pager where the prototype says otherwise, without an
-     explicit override in the ticket or an answer from the person;
+     the ask or a one-pager where the prototype says otherwise, without an
+     explicit override in the ask or an answer from the person;
    - a criterion too broad to check, such as "build the dashboard";
    - a reference the ask names that the journal does not list;
    - a decision in the journal that the references settle differently, or that
@@ -99,4 +99,4 @@ Write each question so that the person can decide from it alone:
 - Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
 
 The person answers them. Do not ask the person to confirm what a reference already
-settles, such as something the ticket puts out of scope: that is the answer.
+settles, such as something the ask puts out of scope: that is the answer.

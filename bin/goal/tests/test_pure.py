@@ -147,18 +147,33 @@ class TestGoals(unittest.TestCase):
         shutil.rmtree(self.root)
 
     def test_a_new_goal_is_listed_and_not_running(self):
-        gid = goal.create(self.root, "123", "HRT1-519", "Recruiter's queue, first cut", base="feature/x")
-        self.assertEqual(gid, "goal-hrt1-519-recruiter-s-queue-first")
+        gid = goal.create(self.root, "Recruiter's queue, first cut\n\nMore detail.", base="feature/x")
+        self.assertEqual(gid, "goal-recruiter-s-queue-first-cut")
         [listed] = goal.list_goals(self.root)
         self.assertEqual((listed["id"], listed["status"], listed["alive"]), (gid, "new", False))
-        self.assertEqual((listed["base"], listed["url"]), ("feature/x", "https://app.asana.com/0/0/123"))
-        self.assertEqual(goal.find_goal(self.root, "123")["id"], gid)
-        self.assertIsNone(goal.find_goal(self.root, "456"))
+        self.assertEqual((listed["base"], listed["name"], listed["key"]),
+                         ("feature/x", "Recruiter's queue, first cut", None))
+        self.assertEqual(listed["prompt"], "Recruiter's queue, first cut\n\nMore detail.")
+
+    def test_a_ticket_s_key_comes_into_the_id(self):
+        gid = goal.create(self.root, "Recruiter's queue", key="HRT1-519")
+        self.assertEqual(gid, "goal-hrt1-519-recruiter-s-queue")
+
+    def test_the_name_is_the_first_line_with_words_links_left_out(self):
+        self.assertEqual(goal.prompt_name("\n## https://app.asana.com/0/1/2 Fix the badge\nmore"),
+                         "Fix the badge")
+        self.assertIsNone(goal.prompt_name("https://app.asana.com/0/1/2\n"))
+        self.assertEqual(len(goal.prompt_name("word " * 40)), goal.NAME_WIDTH)
+
+    def test_asana_links_are_found_once_each(self):
+        self.assertEqual(goal.asana_urls("See https://app.asana.com/0/1/2. And (https://app.asana.com/0/1/3) "
+                                         "and https://app.asana.com/0/1/2 again"),
+                         ["https://app.asana.com/0/1/2", "https://app.asana.com/0/1/3"])
 
     def test_the_same_ticket_again_gets_its_own_id(self):
-        first = goal.create(self.root, "123", "A-1", "Thing")
+        first = goal.create(self.root, "Thing", key="A-1", name="Thing")
         goal.Goal(self.root, first).update(cleared=True)
-        self.assertEqual(goal.create(self.root, "123", "A-1", "Thing"), first + "-2")
+        self.assertEqual(goal.create(self.root, "Thing", key="A-1", name="Thing"), first + "-2")
 
     def test_the_title_is_the_key_and_the_name(self):
         self.assertEqual(goal.title_of({"key": "A-1", "name": "Do the thing"}), "A-1 Do the thing")
@@ -209,6 +224,27 @@ class TestTheAsk(unittest.TestCase):
 
     def test_a_bare_ticket_is_just_its_name(self):
         self.assertEqual(goal.ask_from_ticket({"ref": "1", "name": "Queue"}, "u"), "# 1: Queue\nu\n")
+
+    def test_the_ask_is_the_prompt_its_files_and_its_tickets(self):
+        files = [{"path": "/s/inputs/shot.png", "is_image": True},
+                 {"path": "/s/inputs/notes.md", "inline": "- keep it short"}]
+        ask = goal.ask_from_prompt("Fix the badge.\nhttps://app.asana.com/0/1/2\n", files,
+                                   ["# A-1: Badge\nhttps://app.asana.com/0/1/2\n"])
+        self.assertTrue(ask.startswith("# The ask\n\nFix the badge.\nhttps://app.asana.com/0/1/2\n\n"
+                                       "## Files given with it\n\n- `/s/inputs/shot.png` (an image)\n"))
+        self.assertIn("- `/s/inputs/notes.md`\n\n```\n- keep it short\n```", ask)
+        self.assertTrue(ask.endswith("\n# A-1: Badge\nhttps://app.asana.com/0/1/2\n"))
+
+    def test_a_given_file_says_whether_it_is_an_image_and_inlines_small_text(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        for name, body in (("a.PNG", b"\x89PNG"), ("b.txt", b"hello"), ("c.bin", b"\xff\xfe")):
+            with open(os.path.join(d, name), "wb") as f:
+                f.write(body)
+        self.assertEqual(goal.file_entry(os.path.join(d, "a.PNG"), "inputs/a.PNG"),
+                         {"path": os.path.join(d, "a.PNG"), "is_image": True})
+        self.assertEqual(goal.file_entry(os.path.join(d, "b.txt"), "inputs/b.txt")["inline"], "hello")
+        self.assertNotIn("inline", goal.file_entry(os.path.join(d, "c.bin"), "inputs/c.bin"))
 
 def msg(at, mid, model, out, cache_read=0):
     import json
@@ -271,7 +307,7 @@ class TestGate(unittest.TestCase):
         self.commit("shared.txt", "base\n", "base")
         self.git("push", "-q", "origin", "main")
         self.git("checkout", "-q", "-b", "A-1/goal-x")
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         goal.Goal(self.dir, gid).update(worktree=self.work, branch="A-1/goal-x", pr_url="https://gh/pr/1")
         self.runner = goal.Runner(self.dir, gid)
         self.runner.wait_for_usage = lambda: None
@@ -636,7 +672,7 @@ print(json.dumps({"type": "result", "subtype": "success", "result": "```json\\n"
 
 
 class TestQuestionOptions(unittest.TestCase):
-    def test_a_question_s_options_reach_the_ticket_and_the_lead(self):
+    def test_a_question_s_options_reach_the_lead(self):
         qs = goal.st.parse_agent_questions({"questions": [{
             "title": "Quality review: who reviews a junior?", "q": "Who reviews a junior's call?",
             "options": [{"label": "A. As in the prototype", "flow": ["Anna reaches the review step.",
@@ -644,10 +680,6 @@ class TestQuestionOptions(unittest.TestCase):
                          "means": "Drops the extra routing."}, {"label": ""}, "junk"],
             "recommend": "A: the prototype decides the UI.", "why": "The references disagree."}]})
         self.assertEqual([o["label"] for o in qs[0]["options"]], ["A. As in the prototype"])
-        body = goal.bd.question_body(qs[0])
-        self.assertIn("A. As in the prototype\n   1. Anna reaches the review step.\n   2. Tom clicks Accepted.", body)
-        self.assertIn("→ Drops the extra routing.", body)
-        self.assertIn("Suggested: A: the prototype decides the UI.", body)
         self.assertIn("(options: A. As in the prototype)", goal.answer_prompt(qs, "A"))
 
 
@@ -715,19 +747,11 @@ class TestLocalCI(unittest.TestCase):
         self.assertIsNone(self.runner.local_ci())
 
 
-class TestMermaid(unittest.TestCase):
-    def test_a_semicolon_in_a_diagram_label_becomes_a_comma(self):
-        text = ("Before; kept.\n```mermaid\nsequenceDiagram\n  I->>I: refuse big; type from bytes\n"
-                "  A->>B: ok;\n```\nAfter; kept.")
-        self.assertEqual(goal.bd.fix_mermaid(text), "Before; kept.\n```mermaid\nsequenceDiagram\n"
-                         "  I->>I: refuse big, type from bytes\n  A->>B: ok;\n```\nAfter; kept.")
-
-
 class TestPause(unittest.TestCase):
     def test_a_goal_goes_back_to_what_it_was_doing_after_a_pause(self):
         d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d)
-        gid = goal.create(d, "1", "A-1", "x", base="main")
+        gid = goal.create(d, "x", key="A-1", name="x", base="main")
         runner = goal.Runner(d, gid)
         runner.set(status="checking", doing="checking the branch against the ask")
         readings = [[{"name": "Current session", "used": 80, "resets_at": time.time()}], []]
@@ -743,7 +767,7 @@ class TestPause(unittest.TestCase):
 class TestFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1: x",
                                         session="s", session_used=True, flow=None)
         self.runner = goal.Runner(self.dir, gid)
@@ -939,7 +963,7 @@ class TestParts(unittest.TestCase):
     def test_only_a_goal_splits_and_a_part_does_not(self):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)
-        gid = goal.create(d, "1", "A-1", "x", base="main")
+        gid = goal.create(d, "x", key="A-1", name="x", base="main")
         g = goal.Goal(d, gid)
         g.update(worktree=d, branch="A-1/goal-x", ask="# A-1")
         self.assertIn("Split only when", goal.Runner(d, gid).fields()["split"])
@@ -951,14 +975,13 @@ class TestParts(unittest.TestCase):
         self.assertIn("no CI runs for a part", fields["delivery"])
         self.assertIn("has run no CI", fields["checks"])
         self.assertEqual([x["id"] for x in goal.list_goals(d)], [gid, pid])
-        self.assertEqual(goal.find_goal(d, "1")["id"], gid)
 
 
 class TestSplitFlow(unittest.TestCase):
     def setUp(self):
         import json
         self.dir = tempfile.mkdtemp()
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         self.goal = goal.Goal(self.dir, gid)
         self.goal.update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1", session="s",
                          session_used=True, flow=None)
@@ -1032,7 +1055,7 @@ class TestPartBranches(unittest.TestCase):
         self.git("commit", "-q", "-m", "base", cwd=self.dir)
         self.goal_tree = os.path.join(self.dir, "goal-tree")
         self.git("worktree", "add", "-q", self.goal_tree, "-b", "A-1/goal-x", cwd=self.dir)
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         self.parent = goal.Goal(self.dir, gid)
         self.parent.update(worktree=self.goal_tree, branch="A-1/goal-x", ask="# A-1")
         os.environ["GIT_AUTHOR_NAME"] = os.environ["GIT_COMMITTER_NAME"] = "t"
@@ -1076,7 +1099,7 @@ class TestWindDown(unittest.TestCase):
     def setUp(self):
         import subprocess
         self.dir = tempfile.mkdtemp()
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x")
         self.runner = goal.Runner(self.dir, gid)
         self.runner.record_call = lambda *a, **k: None
@@ -1361,92 +1384,15 @@ class TestEstimates(unittest.TestCase):
         self.assertIn("cost unknown", goal.usage_report([priced]))
 
 
-class FakeAsana(object):
-    """Asana as the board uses it: tasks, their subtasks in order, comments."""
+class NoAsana(object):
+    """Asana, which a goal never writes to: every call is recorded."""
 
-    def __init__(self, ticket="1", subtasks=()):
-        self.tasks = {ticket: {"ref": ticket, "name": "ticket", "description": "",
-                               "completed": False, "subtasks": [], "parent": None}}
-        self.comments, self.n = {}, 1000
-        for name in reversed(subtasks):
-            self.new(ticket, name, "Theirs.")
-
-    def new(self, parent, name, description):
-        self.n += 1
-        gid = str(self.n)
-        self.tasks[gid] = {"ref": gid, "name": name, "description": description,
-                           "completed": False, "subtasks": [], "parent": parent}
-        self.tasks[parent]["subtasks"].insert(0, gid)
-        return gid
-
-    def row(self, gid):
-        t = self.tasks[gid]
-        return {k: t[k] for k in ("ref", "name", "description", "completed")}
-
-    def names(self, parent="1"):
-        return [self.tasks[g]["name"].replace(goal.st.GOAL_NAME, "", 1)
-                for g in self.tasks[parent]["subtasks"]]
-
-    def gid(self, name):
-        return next(g for g, t in self.tasks.items()
-                    if t["name"] in (name, goal.st.GOAL_NAME + name))
+    def __init__(self):
+        self.calls = []
 
     def __call__(self, args, cwd=None):
-        family, verb, rest = args[0], args[1], args[2:]
-        if verb == "add-subtask":
-            if getattr(self, "refuse", None) and self.refuse in rest[2]:
-                raise goal.st.Failure("asana.py task add-subtask failed (exit 1)\nHTTP 400: Malformed rich text")
-            section = "--section" in rest
-            rest = [r for r in rest if r != "--section"]
-            body = ""
-            if "--body-file" in rest:
-                with open(rest[rest.index("--body-file") + 1]) as f:
-                    body = f.read()
-            gid = self.new(rest[0], rest[2], body)
-            self.tasks[gid]["section"] = section
-            return {"ref": gid}
-        if verb == "set-parent":
-            gid, parent = rest[0], rest[1]
-            self.tasks[self.tasks[gid]["parent"]]["subtasks"].remove(gid)
-            subs = self.tasks[parent]["subtasks"]
-            subs.insert(subs.index(rest[3]) + 1 if "--after" in rest else len(subs), gid)
-            self.tasks[gid]["parent"] = parent
-            return {"ref": gid}
-        if verb == "subtasks":
-            return [self.row(g) for g in self.tasks[rest[0]]["subtasks"]]
-        if family == "task" and verb == "get":
-            return self.row(rest[0])
-        if verb in ("complete", "reopen"):
-            self.tasks[rest[0]]["completed"] = verb == "complete"
-            return {}
-        if verb == "delete":
-            t = self.tasks.pop(rest[0])
-            self.tasks[t["parent"]]["subtasks"].remove(rest[0])
-            return {}
-        if family == "comment" and verb == "list":
-            return self.comments.get(rest[0], [])
-        if verb == "attach":
-            self.n += 1
-            with open(rest[1]) as f:
-                self.tasks[rest[0]].setdefault("files", {})[str(self.n)] = (os.path.basename(rest[1]), f.read())
-            return {"gid": str(self.n)}
-        if verb in ("add-dependency", "remove-dependency"):
-            deps = self.tasks[rest[0]].setdefault("deps", [])
-            (deps.append if verb == "add-dependency" else deps.remove)(rest[1])
-            return {}
-        if verb == "detach":
-            for t in self.tasks.values():
-                t.get("files", {}).pop(rest[0], None)
-            return {}
-        if family == "comment" and verb == "add":
-            self.say(rest[0], rest[1])
-            return {}
-        raise AssertionError(args)
-
-    def say(self, gid, text):
-        self.n += 1
-        self.comments.setdefault(gid, []).append(
-            {"author": "me", "text": text, "created_at": "2099-01-01T00:00:%02dZ" % (self.n % 60)})
+        self.calls.append(args)
+        return {}
 
 
 def fake_asana(test, fake):
@@ -1456,280 +1402,6 @@ def fake_asana(test, fake):
     return fake
 
 
-class TestBoardPure(unittest.TestCase):
-    def test_what_approves_a_plan(self):
-        for text in ("", "continue", "Continue.", "ok", "LGTM!", "go"):
-            self.assertTrue(goal.bd.approves(text), text)
-        self.assertFalse(goal.bd.approves("continue, but drop the export step"))
-
-    def test_a_step_keeps_its_name_when_the_lead_notes_the_file(self):
-        self.assertEqual(goal.bd.title("- [x] Inbox screen (prototype: inbox)"),
-                         "Inbox screen (prototype: inbox)")
-        self.assertTrue(goal.bd.same_step(goal.bd.step_key("1. [ ] Inbox screen, empty state"),
-                                          goal.bd.step_key("- [x] Inbox screen, empty state — apps/inbox.tsx")))
-        self.assertFalse(goal.bd.same_step("inbox", "api"))
-
-    def test_a_step_s_title_is_its_name_and_the_rest_is_its_description(self):
-        text = "- [ ] 2. Step codes: `CALL_STEPS` as the seven codes, labels in en, de and pl"
-        self.assertEqual(goal.bd.step_title(text), "Step codes")
-        self.assertIn("`CALL_STEPS` as the seven codes", goal.bd.step_body(text))
-        long = "- [ ] " + "word " * 40
-        self.assertLessEqual(len(goal.bd.step_title(long)), goal.bd.QUESTION_TITLE + 1)
-        self.assertIn("word " * 39, goal.bd.step_body(long))
-        self.assertEqual(goal.bd.step_title("- [ ] `inbox` route (`/inbox`, tabs)"), "inbox route")
-        self.assertEqual(goal.bd.step_title("- [ ] Tests, run file by file; lint"), "Tests, run file by file")
-        self.assertEqual(goal.bd.step_title("- [ ] Inbox"), "Inbox")
-        self.assertNotIn("Inbox", goal.bd.step_body("- [ ] Inbox"))
-
-    def test_the_plan_on_the_ticket_is_the_steps_or_the_parts(self):
-        items = goal.plan_items(JOURNAL)
-        self.assertEqual([name for _, name, _ in items], ["API", "Inbox"])
-        self.assertEqual(goal.ticked_steps(JOURNAL), {"api"})
-        parts = goal.read_parts(__import__("json").dumps(PARTS))
-        names = [name for _, name, _ in goal.plan_items(JOURNAL, parts)]
-        self.assertEqual(names, ["API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
-        body = goal.plan_items(JOURNAL, parts)[1][2]
-        self.assertNotIn("Builds after", body)
-        self.assertIn("- An empty Inbox", body)
-        self.assertIn(goal.st.GOAL_MADE, body)
-
-    def test_what_the_person_changed_under_plan(self):
-        snapshot = {"1": {"name": "API", "description": "a", "completed": False},
-                    "2": {"name": "Inbox", "description": "b", "completed": False},
-                    "3": {"name": "Export", "description": "c", "completed": False}}
-        rows = [{"ref": "1", "name": "API", "description": "a", "completed": False},
-                {"ref": "2", "name": "Inbox screen", "description": "b, no badge", "completed": False},
-                {"ref": "9", "name": "Search", "description": "Find tasks by name.", "completed": False},
-                {"ref": "8", "name": "Review the plan", "description": "", "completed": True}]
-        changes = "\n".join(goal.bd.plan_changes(snapshot, rows, {"8"}))
-        self.assertIn('Deleted: "Export"', changes)
-        self.assertIn('Renamed: "Inbox" is now "Inbox screen"', changes)
-        self.assertIn("> b, no badge", changes)
-        self.assertIn('Added: "Search"', changes)
-        self.assertNotIn("API", changes)
-        self.assertNotIn("Review the plan", changes)
-
-    def test_parts_may_wait_to_plan(self):
-        import json
-        parts = json.loads(json.dumps(PARTS))
-        parts["parts"][2]["plan_after"] = ["Inbox"]
-        read = goal.read_parts(json.dumps(parts))
-        self.assertEqual(goal.parts_problems(read, CRITERIA), [])
-        self.assertEqual(goal.part_order(read), ["API", "Inbox", "Dashboard"])
-        parts["parts"][2]["plan_after"] = ["Billing"]
-        self.assertIn("which is not a part", " ".join(goal.parts_problems(
-            goal.read_parts(json.dumps(parts)), CRITERIA)))
-
-    def test_the_goal_s_own_subtasks_are_not_part_of_the_ask(self):
-        ask = goal.ask_from_ticket({"name": "T"}, "u", [
-            {"name": "Inbox", "description": "Theirs."},
-            {"name": "Questions:", "description": goal.bd.made([])}])
-        self.assertIn("Inbox", ask)
-        self.assertNotIn("Questions:", ask)
-
-    def test_the_testing_guides_are_found(self):
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d)
-        for path in ("TESTING.md", "apps/web/TESTING.md", "node_modules/x/TESTING.md"):
-            os.makedirs(os.path.dirname(os.path.join(d, path)), exist_ok=True)
-            open(os.path.join(d, path), "w").close()
-        self.assertEqual(goal.testing_guides(d), ["TESTING.md", os.path.join("apps", "web", "TESTING.md")])
-        self.assertEqual(goal.testing_guides(os.path.join(d, "apps", "web", "..", "..", "node_modules")), ["x/TESTING.md"])
-
-
-class TestQuestionSubtasks(unittest.TestCase):
-    def test_a_long_question_gets_a_short_name_and_is_whole_in_the_description(self):
-        q = {"q": "There is no Sipgate token here. " * 10 + "Can I build on a simulator?", "why": "No access."}
-        name = goal.bd.question_title(q)
-        self.assertLessEqual(len(name), goal.bd.QUESTION_TITLE + 1)
-        self.assertTrue(name.endswith("…"))
-        body = goal.bd.question_body(q)
-        self.assertIn(q["q"], body)
-        self.assertIn("Why: No access.", body)
-        self.assertEqual(goal.bd.question_title(dict(q, title="Sipgate: build on a simulator?")),
-                         "Sipgate: build on a simulator?")
-
-    def test_how_to_answer_is_under_a_line_apart_from_the_question(self):
-        sys.path.insert(0, goal.LIB_DIR)
-        import asana
-        html = asana.md_to_html(goal.bd.question_body({"q": "Stay active?", "why": "It archives."}))
-        self.assertTrue(html.startswith("Stay active?\n\nWhy: It archives.<hr/><em>Answer"))
-        self.assertIn("Planned by a conductor goal", html)
-        self.assertIn("btrim&lt;&gt;''", asana.md_to_html("**SQL**: btrim<>''"))
-        self.assertEqual(asana.render_body(asana.md_to_html("a < b & c")), (False, "a < b & c"))
-
-    def test_the_name_the_agent_gives_survives_parsing(self):
-        parsed = goal.st.parse_agent_questions({"questions": [{"title": "T", "q": "Q?", "why": "W"}]})
-        self.assertEqual(parsed, [{"q": "Q?", "why": "W", "title": "T"}])
-
-
-class TestBoard(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.dir)
-        self.fake = fake_asana(self, FakeAsana(subtasks=["Inbox"]))
-        self.board = goal.bd.Board(self.dir, goal.st.State(self.dir, "goal-x"), "1")
-        self.board.state.ensure()
-
-    def test_a_reworded_step_keeps_its_subtask(self):
-        self.board.publish([("nav dot and sse count from the reviews query", "Nav dot and SSE", "b")], False)
-        gid = self.fake.gid("Nav dot and SSE")
-        self.board.publish([("nav dot and sse count done in 3c5b60f0", "Nav dot and SSE", "b")], False,
-                           before_build=False)
-        self.assertEqual(self.fake.names().count("Nav dot and SSE"), 1)
-        self.board.tick({"nav dot and sse count done in 3c5b60f0"})
-        self.assertTrue(self.fake.tasks[gid]["completed"])
-
-    def test_sections_questions_review_then_plan(self):
-        self.board.ask([{"q": "Which colour?", "why": "The two disagree."}])
-        self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Review",
-                                             "Review the plan", "Execution", "API", "Inbox"])
-        inbox = self.fake.tasks[self.fake.gid("Inbox")]
-        self.assertEqual(inbox["description"], "Theirs.")
-        self.assertIn(goal.st.GOAL_MADE, self.fake.tasks[self.fake.gid("Review the plan")]["description"])
-        self.assertTrue(goal.st.made_by_goal(self.fake.row(self.fake.gid("Execution"))))
-        self.assertEqual([n for n in self.fake.names() if self.fake.tasks[self.fake.gid(n)].get("section")],
-                         ["Questions", "Review", "Execution"])
-        self.assertTrue(self.fake.tasks[self.fake.gid("Execution")]["name"].startswith("\U0001f916 "))
-        self.assertTrue(goal.st.made_by_goal({"name": "\U0001f916 Review the plan"}))
-        self.assertFalse(goal.st.made_by_goal(self.fake.row(inbox["ref"])))
-
-    def test_a_part_says_its_summary_and_criteria_but_not_its_brief(self):
-        part = {"name": "Call records API", "after": ["Data"], "summary": "The API keeps each call.",
-                "brief": "Build `core/calls` with btrim<>''.", "criteria": ["POST /calls opens a call"]}
-        self.board.publish([("Call records API", "Call records API", goal.bd.part_body(part))], True)
-        task = self.fake.tasks[self.fake.gid("Call records API")]
-        self.assertTrue(task["description"].startswith("The API keeps each call."))
-        self.assertNotIn("core/calls", task["description"])
-        self.assertIn("- POST /calls opens a call", task["description"])
-        self.assertNotIn("files", task)
-
-    def test_the_technical_plan_is_on_the_review_once_and_a_changed_one_replaces_it(self):
-        path = os.path.join(self.dir, "technical-plan.md")
-        with open(path, "w") as f:
-            f.write("# Plan\n")
-        self.board.publish([("api", "API", "b")], False, plan_file=path)
-        self.board.publish([("api", "API", "b")], False, plan_file=path)
-        review = self.fake.tasks[self.fake.gid("Review the plan")]
-        self.assertEqual([n for n, _ in review["files"].values()], ["technical-plan.md"])
-        self.assertIn("technical-plan.md", review["description"])
-        with open(path, "w") as f:
-            f.write("# Plan, changed\n")
-        self.board.publish([("api", "API", "b")], False, plan_file=path)
-        self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
-
-    def test_a_split_and_a_plan_are_reviewed_under_different_names(self):
-        self.assertIn("not how the work is built", goal.bd.review_body(True))
-        self.assertIn("technical-plan.md", goal.bd.review_body(False, "/x/technical-plan.md"))
-        self.board.publish([("api", "API", "b")], True)
-        self.assertIn("Review the split", self.fake.names())
-
-    def test_a_part_depends_in_asana_on_the_parts_it_builds_after(self):
-        items = [("api", "API", "b"), ("ui", "UI", "b"), ("x", "Export", "b")]
-        self.board.publish(items, True, after={"ui": ["api"], "x": ["api", "ui"]})
-        gid = self.fake.gid
-        self.assertEqual(self.fake.tasks[gid("UI")]["deps"], [gid("API")])
-        self.assertEqual(sorted(self.fake.tasks[gid("Export")]["deps"]), sorted([gid("API"), gid("UI")]))
-        self.board.publish(items, True, after={"ui": ["api"], "x": ["ui"]})
-        self.assertEqual(self.fake.tasks[gid("Export")]["deps"], [gid("UI")])
-        self.assertEqual(self.fake.tasks[gid("UI")]["deps"], [gid("API")])
-        self.assertNotIn("Builds after", self.fake.tasks[gid("UI")]["description"])
-        self.assertEqual(goal.plan_links([{"name": "A", "after": []}, {"name": "B", "after": ["A"]}]),
-                         {"A": [], "B": ["A"], goal.bd.INTEGRATION: ["A", "B"]})
-
-    def test_a_plan_published_without_review_has_no_review_subtask(self):
-        self.assertTrue(self.board.publish([("api", "API", "The API.")], False, plan_file="/nope.md",
-                                           review=False))
-        self.assertIn("API", self.fake.names())
-        self.assertNotIn("Review the plan", self.fake.names())
-        self.assertIsNone(self.board.load().get("review"))
-
-    def test_a_plan_asana_refused_halfway_is_finished_later_without_twins(self):
-        self.fake.refuse = "Export"
-        self.assertFalse(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
-        self.assertFalse(self.board.has_plan())
-        self.fake.refuse = None
-        self.assertTrue(self.board.publish([("api", "API", "b"), ("x", "Export", "b")], False))
-        self.assertTrue(self.board.has_plan())
-        names = self.fake.names()
-        self.assertEqual(names.count("Review the plan"), 1)
-        self.assertEqual(names.count("API"), 1)
-        self.assertEqual(names[-2:], ["API", "Export"])
-
-    def test_a_step_gone_before_the_build_is_deleted_but_never_one_of_theirs(self):
-        self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b"), ("x", "Export", "b")], False)
-        self.board.publish([("api", "API", "b")], False)
-        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
-                                             "API", "Inbox"])
-        self.assertEqual([i["key"] for i in self.board.load()["items"]], ["api"])
-
-    def test_answers_come_once_every_question_is_complete(self):
-        qs = [{"q": "Colour?"}, {"q": "Copy?"}]
-        gids = self.board.ask(qs)
-        self.fake.say(gids[0], "Blue.")
-        self.fake.tasks[gids[0]]["completed"] = True
-        self.assertIsNone(self.board.answers(qs, gids, "2026-01-01"))
-        self.fake.tasks[gids[1]]["completed"] = True
-        self.assertEqual(self.board.answers(qs, gids, "2026-01-01"),
-                         "- Colour?\n  Blue.\n- Copy?\n  (completed with no comment)")
-        self.board.answered(gids, "Red.")
-        self.assertEqual(self.fake.comments[gids[1]][-1]["text"], "Red.")
-
-    def test_approval_with_comments_and_changes(self):
-        self.board.publish([("api", "API", "b")], False)
-        self.assertIsNone(self.board.approval())
-        review = self.fake.gid("Review the plan")
-        self.fake.tasks[review]["completed"] = True
-        self.assertEqual(self.board.approval(), goal.bd.APPROVED)
-        self.fake.say(review, "Drop the export.")
-        self.assertEqual(self.board.approval(), "Drop the export.")
-        self.fake.tasks[self.fake.gid("API")]["name"] = "\U0001f916 Tasks API"
-        self.assertEqual(self.board.changes(), ['- Renamed: "\U0001f916 API" is now "\U0001f916 Tasks API"'])
-
-    def test_a_comment_before_approval_is_feedback_heard_once(self):
-        self.board.publish([("api", "API", "b")], False)
-        review = self.fake.gid("Review the plan")
-        self.fake.say(review, "Support neo too.")
-        said = self.board.approval()
-        self.assertIsInstance(said, goal.bd.Feedback)
-        self.assertEqual(said, "Support neo too.")
-        self.assertIsNone(self.board.approval())
-        self.board.reply("Added the neo flow.")
-        self.assertTrue(goal.st.is_marked(self.fake.comments[review][-1]["text"]))
-        self.assertIsNone(self.board.approval())
-        self.fake.tasks[review]["completed"] = True
-        self.assertEqual(self.board.approval(), goal.bd.APPROVED)
-
-    def test_a_part_s_technical_plan_is_on_the_part_too(self):
-        board = goal.bd.Board(self.dir, self.board.state, "1", part=True)
-        path = os.path.join(self.dir, "technical-plan.md")
-        with open(path, "w") as f:
-            f.write("# Plan\n")
-        board.publish([("api", "API", "b")], False, plan_file=path)
-        review = self.fake.tasks[self.fake.gid("Review the plan")]
-        self.assertEqual([n for n, _ in review["files"].values()], ["technical-plan.md"])
-        self.assertEqual([n for n, _ in self.fake.tasks["1"]["files"].values()], ["technical-plan.md"])
-        with open(path, "w") as f:
-            f.write("# Plan, changed\n")
-        board.publish([("api", "API", "b")], False, plan_file=path)
-        self.assertEqual([t for _, t in self.fake.tasks["1"]["files"].values()], ["# Plan, changed\n"])
-        self.assertEqual([t for _, t in review["files"].values()], ["# Plan, changed\n"])
-
-    def test_steps_done_are_ticked_once(self):
-        self.board.publish([("api", "API", "b"), ("inbox", "Inbox", "b")], False)
-        self.board.tick({"api"})
-        self.assertTrue(self.fake.tasks[self.fake.gid("API")]["completed"])
-        self.assertFalse(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
-
-    def test_asana_failing_never_stops_the_goal(self):
-        def broken(args, cwd=None):
-            raise goal.st.Failure("Asana is down")
-        goal.st.asana = broken
-        self.assertEqual(self.board.ask([{"q": "x"}]), [])
-        self.assertIsNone(self.board.approval())
-
-
 PLANNED = JOURNAL.replace("## Plan\n1. [x] API\n2. [ ] Inbox", "## Plan\n1. [ ] API\n2. [ ] Inbox")
 
 
@@ -1737,8 +1409,8 @@ class TestPlanFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir)
-        self.fake = fake_asana(self, FakeAsana())
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        self.fake = fake_asana(self, NoAsana())
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1: x",
                                         session="s", session_used=True)
         self.runner = goal.Runner(self.dir, gid)
@@ -1778,12 +1450,7 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: "continue")
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead done", "finish"])
         self.assertIn("The plan is approved", self.prompts[1])
-        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the plan", "Execution",
-                                             "API", "Inbox"])
-        self.assertTrue(self.fake.tasks[self.fake.gid("Review the plan")]["completed"])
-        self.assertTrue(self.fake.tasks[self.fake.gid("Inbox")]["completed"])
-        self.assertEqual([n for n, _ in self.fake.tasks[self.fake.gid("Review the plan")]["files"].values()],
-                         ["technical-plan.md"])
+        self.assertEqual(self.fake.calls, [])
 
     def test_small_work_skips_the_review_the_approval_and_the_technical_plan(self):
         def no_plan():
@@ -1794,15 +1461,7 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
         self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
         self.assertIn("The plan is approved", self.prompts[1])
-        self.assertEqual(self.fake.names(), ["Questions", "Review", "Execution", "API", "Inbox"])
         self.assertEqual(self.runner.data["small"], "One button.")
-
-    def test_a_small_goal_whose_plan_asana_refused_still_builds(self):
-        self.fake.refuse = "Inbox"
-        done = PLANNED.replace("- [ ]", "- [x]")
-        self.run_with([("planned", lambda: self.journal(PLANNED), {"summary": "s", "small": "One button."}),
-                       ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
-        self.assertEqual(self.events, ["lead planned", "lead done", "finish"])
 
     def test_only_the_last_planned_report_decides_small(self):
         def no_plan_section():
@@ -1865,34 +1524,23 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: "continue")
         self.assertIn("technical plan", self.prompts[1])
 
-    def test_the_person_s_changes_go_back_to_the_lead_before_the_build(self):
-        def answer(record):
-            self.fake.tasks[self.fake.gid("Inbox")]["name"] = "\U0001f916 Inbox, without badges"
-            return "Also drop the export."
-        done = PLANNED.replace("- [ ]", "- [x]")
-        self.run_with([("planned", lambda: self.journal(PLANNED)),
-                       ("planned", lambda: None),
-                       ("done", lambda: self.journal(done))], answer)
-        self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead planned",
-                                       "lead done", "finish"])
-        self.assertIn('Renamed: "\U0001f916 Inbox" is now "\U0001f916 Inbox, without badges"', self.prompts[1])
-        self.assertIn("Also drop the export.", self.prompts[1])
-        self.assertIn("Do not build yet", self.prompts[1])
-        self.assertIn("The plan is approved", self.prompts[2])
+    def test_changes_to_the_plan_go_back_to_the_lead_and_to_the_person_again(self):
+        answers, records = ["Support neo too.", "continue"], []
 
-    def test_a_comment_on_the_review_sends_the_plan_back_and_to_the_person_again(self):
-        answers = [goal.bd.Feedback("Support neo too."), "continue"]
+        def answer(record):
+            records.append(record)
+            return answers.pop(0)
         done = PLANNED.replace("- [ ]", "- [x]")
         self.run_with([("planned", lambda: self.journal(PLANNED)),
-                       ("planned", lambda: None),
-                       ("done", lambda: self.journal(done))], lambda record: answers.pop(0))
+                       ("planned", lambda: None, {"summary": "Added neo."}),
+                       ("done", lambda: self.journal(done))], answer)
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead planned",
                                        "waits for plan", "lead done", "finish"])
         self.assertIn("Support neo too.", self.prompts[1])
         self.assertIn("Do not build yet", self.prompts[1])
         self.assertIn("The plan is approved", self.prompts[2])
-        review = self.fake.gid("Review the plan")
-        self.assertEqual(self.fake.comments[review][-1]["text"], goal.st.mark("s"))
+        self.assertEqual(records[0]["detail"], "- API\n- Inbox")
+        self.assertEqual(records[1]["detail"], "What changed: Added neo.\n\n- API\n- Inbox")
 
     def test_with_the_reviewer_approving_the_goal_does_not_wait(self):
         self.runner.set(gate="auto")
@@ -1901,26 +1549,21 @@ class TestPlanFlow(unittest.TestCase):
                        ("done", lambda: self.journal(done))], lambda record: self.fail("waited"))
         self.assertEqual(self.events, ["lead planned", "review", "lead done", "finish"])
 
-    def test_questions_are_subtasks_answered_in_asana(self):
-        import json
+    def test_questions_wait_for_the_person_s_answer(self):
         self.runner.wait_for_answer = goal.Runner.wait_for_answer.__get__(self.runner)
-        poll, sleep = goal.bd.POLL, goal.time.sleep
-        goal.bd.POLL = 0
-        self.addCleanup(setattr, goal.bd, "POLL", poll)
+        sleep = goal.time.sleep
         self.addCleanup(setattr, goal.time, "sleep", sleep)
 
-        def answer_in_asana(_):
-            gid = self.fake.gid("Which colour?")
-            self.fake.say(gid, "Blue, as in the prototype.")
-            self.fake.tasks[gid]["completed"] = True
-        goal.time.sleep = answer_in_asana
+        def answer(_):
+            asked = self.runner.goal.state.read("awaiting.json")
+            self.runner.goal.state.write(goal.st.ANSWER_FILE, {"text": "Blue.", "asked_at": asked["asked_at"]})
+        goal.time.sleep = answer
         text = self.runner.ask_person([{"q": "Which colour?", "why": "They disagree."}])
-        self.assertEqual(text, "- Which colour?\n  Blue, as in the prototype.")
-        self.assertEqual(self.fake.names(), ["Questions", "Which colour?", "Review", "Execution"])
+        self.assertEqual(text, "Blue.")
         self.assertIsNone(self.runner.goal.state.read("awaiting.json"))
         self.assertIn("Do not read or change Asana", self.runner.first_prompt())
-        self.assertIn("approves the plan there", self.runner.first_prompt())
-        json.dumps(self.runner.data)
+        self.assertIn("approves\n   the plan there", self.runner.first_prompt())
+        self.assertEqual(self.fake.calls, [])
 
 
 class TestPartsPlanEarly(unittest.TestCase):
@@ -1928,8 +1571,8 @@ class TestPartsPlanEarly(unittest.TestCase):
         import json
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir)
-        self.fake = fake_asana(self, FakeAsana())
-        gid = goal.create(self.dir, "1", "A-1", "x", base="main")
+        self.fake = fake_asana(self, NoAsana())
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
         self.goal = goal.Goal(self.dir, gid)
         self.goal.update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1", session="s",
                          session_used=True)
@@ -1982,12 +1625,7 @@ class TestPartsPlanEarly(unittest.TestCase):
         self.assertIn(goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).journal, integration)
         self.assertIn("## The ask", integration)
         self.assertEqual(self.launched[3], ["Dashboard"])
-        inbox = goal.Goal(self.dir, goal.part_id(self.goal.id, "Inbox")).read()
-        self.assertEqual(inbox["asana_task"], self.fake.gid("Inbox"))
-        self.assertEqual(self.fake.names(), ["Questions", "Review", "Review the split", "Execution",
-                                             "API", "Inbox", "Dashboard", goal.bd.INTEGRATION])
-        self.assertTrue(all(self.fake.tasks[self.fake.gid(n)]["completed"]
-                            for n in ("API", "Inbox", "Dashboard")))
+        self.assertEqual(self.fake.calls, [])
 
     def test_an_approved_part_builds_after_its_parts_and_in_a_free_slot(self):
         import json
@@ -2014,7 +1652,7 @@ class TestDiscuss(unittest.TestCase):
     def test_a_read_only_session_with_the_goal_and_its_parts(self):
         d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d)
-        gid = goal.create(d, "1", "A-1", "x", base="main")
+        gid = goal.create(d, "x", key="A-1", name="x", base="main")
         g = goal.Goal(d, gid)
         tree = os.path.join(d, "tree")
         os.makedirs(tree)
@@ -2048,7 +1686,7 @@ class TestOneRunner(unittest.TestCase):
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.d)
-        self.gid = goal.create(self.d, "1", "A-1", "x", base="main")
+        self.gid = goal.create(self.d, "x", key="A-1", name="x", base="main")
         self.addCleanup(goal._RUN_LOCK.clear)
 
     def test_a_goal_has_one_runner_and_launch_leaves_it_be(self):
@@ -2082,7 +1720,7 @@ class TestWatchPR(unittest.TestCase):
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.d)
-        gid = goal.create(self.d, "77", "A-1", "x", base="main")
+        gid = goal.create(self.d, "x", key="A-1", name="x", base="main")
         goal.Goal(self.d, gid).update(pr_url="https://github.com/o/r/pull/5", status="done",
                                       phase="building", finished=1000.0, doing="all built")
         self.runner = goal.Runner(self.d, gid)
@@ -2115,14 +1753,11 @@ class TestWatchPR(unittest.TestCase):
         self.assertNotIn("the runner's own", prompt)
         self.assertEqual(self.runner.data["status"], "working")
         self.assertTrue(self.runner.data["revising_pr"])
-        asana = [c for c in self.calls if c[0] == sys.executable]
-        self.assertEqual([c[2:4] for c in asana], [["task", "set-status"], ["comment", "add"]])
-        self.assertIn("Ready for review — https://github.com/o/r/pull/5", asana[1][-1])
         self.state = "MERGED"
         self.assertIsNone(self.runner.watch_pr())
         self.assertEqual((self.runner.data["status"], self.runner.data["phase"]), ("done", "merged"))
         self.assertFalse(self.runner.watching())
-        self.assertEqual(len([c for c in self.calls if c[0] == sys.executable]), 2)
+        self.assertEqual([c for c in self.calls if c[0] == sys.executable], [])
 
     def test_a_pr_github_refuses_shows_as_an_error_and_clears_once_read(self):
         fake = goal.st.run
@@ -2189,9 +1824,9 @@ class TestPickGoal(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d)
         said = []
         self.assertIsNone(goal.pick_goal(d, say=said.append))
-        first = goal.create(d, "1", "A-1", "inbox", base="main")
+        first = goal.create(d, "inbox", key="A-1", name="inbox", base="main")
         self.assertEqual(goal.pick_goal(d, ask=lambda _: self.fail("asked"), say=said.append), first)
-        second = goal.create(d, "2", "A-2", "api", base="main")
+        second = goal.create(d, "api", key="A-2", name="api", base="main")
         self.assertIn(goal.pick_goal(d, ask=lambda _: "1", say=said.append), (first, second))
         self.assertEqual(goal.pick_goal(d, ask=lambda _: "A-2", say=said.append), second)
         self.assertIsNone(goal.pick_goal(d, ask=lambda _: "9", say=said.append))
@@ -2211,27 +1846,21 @@ class TestUndo(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d)
         self.git("init", "-q", "-b", "main", cwd=d)
         self.git("commit", "-q", "--allow-empty", "-m", "base", cwd=d)
-        fake = fake_asana(self, FakeAsana(subtasks=["Inbox"]))
-        gid = goal.create(d, "1", "A-1", "x", base="main")
+        gid = goal.create(d, "x", key="A-1", name="x", base="main")
         g = goal.Goal(d, gid)
         tree = os.path.join(d, "tree")
         self.git("worktree", "add", "-q", tree, "-b", "A-1/goal-x", cwd=d)
         g.update(worktree=tree, branch="A-1/goal-x", pr_url="https://github.com/o/r/pull/9")
-        board = goal.bd.Board(d, g.state, "1")
-        board.ask([{"q": "Colour?"}])
-        board.publish([("inbox", "Inbox", "b"), ("api", "API", "b")], True)
-        board.tick({"inbox"})
-        pid = goal.create_part(d, g.read(), dict(PARTS["parts"][0], subtask=board.gid_of("api")), 0, [])
-        goal.bd.Board(d, goal.Goal(d, pid).state, board.gid_of("api")).ask([{"q": "Paging?"}])
-        self.assertIn("delete the 10 subtasks it made", " ".join(goal.undo_plan(d, gid)))
+        pid = goal.create_part(d, g.read(), PARTS["parts"][0], 0, [])
+        self.assertEqual(goal.undo_plan(d, gid), ["close its PR and delete its branch, on GitHub and here",
+                                                  "delete its part's branch",
+                                                  "remove its worktrees and saved state"])
         run = goal.st.run
         calls = []
         goal.st.run = lambda cmd, **kw: (calls.append((cmd[:3], os.path.exists(tree))) or (0, "", "")) if (
             cmd[0] == "gh" or "push" in cmd) else run(cmd, **kw)
         self.addCleanup(setattr, goal.st, "run", run)
         done = goal.undo(d, gid)
-        self.assertEqual(fake.names(), ["Inbox"])
-        self.assertFalse(fake.tasks[fake.gid("Inbox")]["completed"])
         self.assertIn("worktrees and branches removed here", done)
         self.assertFalse(os.path.exists(g.state.dir) or os.path.exists(goal.Goal(d, pid).state.dir))
         self.assertFalse(os.path.exists(tree))

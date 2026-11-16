@@ -1,24 +1,25 @@
 # queue
 
-Start goals on Asana tickets from the command line, as the TUI does. Use it from a script,
-or from any agent you work with. A TUI that is open shows the new goals at once.
+Start goals from the command line, as the TUI does. Use it from a script, or from any
+agent you work with. A TUI that is open shows the new goals at once.
 
 ```bash
-cond queue add https://app.asana.com/0/0/1218985136116349   # a goal on the ticket
-cond queue add 1218985136116349 1218985136116350 --into feature/m6
-cond queue undo 1218985136116349                            # discard its goal, PR and branch
-cond queue list                                             # the goals
+cond queue add "Fix the inbox badge: it counts read items"     # a goal on the prompt
+cond queue add https://app.asana.com/0/0/1218985136116349 -f mock.png --into feature/m6
+cond queue add < prompt.md                                     # the prompt from stdin
+cond queue undo goal-fix-the-inbox-badge                       # discard it, its PR and branch
+cond queue list                                                # the goals
 ```
 
-Run it in the repo the work is for, or in one of its worktrees, or give `--repo`. A ticket
-is its Asana URL or gid.
+Run it in the repo the work is for, or in one of its worktrees, or give `--repo`.
 
-- **Into.** The PR goes into the TUI's **Queue into** branch, unless `--into` names another.
-- **Milestones.** `add` on a milestone runs all of it as one goal.
-- **Several tickets.** Each ticket starts its own goal, at once. A ticket that is already
-  a goal starts nothing.
-- **Undo.** `undo` discards a ticket's goal: its PR, branch, worktree, and the subtasks it
-  made on the ticket.
+- **The prompt** is what to build: text, Asana ticket links, or both. Each linked ticket
+  is read when the goal starts, a milestone with its subtasks; nothing is written to
+  Asana. `-f` gives a file with it, such as a screenshot; repeat it for more.
+- **Into.** The PR goes into the TUI's **Queue into** branch, else `main`, unless `--into`
+  names another.
+- **Undo.** `undo` discards a goal: its PR, branch and worktree. It takes the goal's id,
+  as `list` shows it.
 
 ## Tests
 

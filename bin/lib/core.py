@@ -335,12 +335,11 @@ def resolve_base(repo, explicit):
     die("could not resolve a base branch (no origin/main, no origin/HEAD)")
 
 
-def create_draft_pr(tid, name, task_url, base, branch, cwd):
-    """Open the task's draft PR. (url, None), or (None, what gh said)."""
+def create_draft_pr(title, body, base, branch, cwd):
+    """Open a draft PR. (url, None), or (None, what gh said)."""
     code, out, errout = run(
         ["gh", "pr", "create", "--draft", "--base", base.replace("origin/", ""),
-         "--head", branch, "--title", "%s :: %s" % (tid, name),
-         "--body", "## Task\n%s\n" % task_url], cwd=cwd, check=False)
+         "--head", branch, "--title", title, "--body", body], cwd=cwd, check=False)
     if code == 0 and out.strip():
         return out.strip().splitlines()[-1], None
     return None, (errout or out or "gh pr create failed").strip()

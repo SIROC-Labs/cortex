@@ -492,18 +492,16 @@ class TestAppKeys(unittest.TestCase):
         self.press("h")
         self.assertFalse(self.app.board)
 
-    def test_a_board_ticket_runs_as_a_goal_once(self):
+    def test_a_board_ticket_runs_as_a_goal_on_its_link(self):
         launched = []
         launch, tui.gl.launch = tui.gl.launch, lambda root, gid: launched.append(gid)
         self.addCleanup(setattr, tui.gl, "launch", launch)
         self.press("2", "down", "enter", "down")
         self.press(":", *"goal", "enter")
         [goal] = tui.gl.list_goals(self.root)
-        self.assertEqual((goal["ref"], goal["name"], goal["status"]), ("t1", "one", "new"))
+        self.assertEqual((goal["prompt"], goal["name"], goal["status"]),
+                         (tui.task_url("2", "t1"), "one", "new"))
         self.assertEqual(launched, [goal["id"]])
-        self.press(":", *"goal", "enter")
-        self.assertEqual(len(tui.gl.list_goals(self.root)), 1)
-        self.assertIn("already a goal", self.app.message)
 
     def test_space_on_a_board_row_queues_nothing(self):
         self.app.sections["2"] = [{"gid": "s", "name": "M1", "tasks": [
@@ -727,7 +725,7 @@ class TestAnswering(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, True)
         isolate_cache(self)
-        self.gid = tui.gl.create(self.root, "1", "A-1", "one", base="main")
+        self.gid = tui.gl.create(self.root, "one", key="A-1", name="one", base="main")
         tui.gl.Goal(self.root, self.gid).state.write("awaiting.json", QUESTION)
         self.row = "goal:%s" % self.gid
         self.app = App(self.root)
@@ -838,7 +836,7 @@ class TestAnswering(unittest.TestCase):
         return ["".join(r).rstrip() for r in scr.grid]
 
     def test_enter_on_a_goal_opens_its_live_view(self):
-        gid = tui.gl.create(self.root, "9", "A-9", "Queue", base="main")
+        gid = tui.gl.create(self.root, "Queue", key="A-9", name="Queue", base="main")
         tui.gl.Goal(self.root, gid).update(status="working", round=2, doing="round 2",
                                            worktree="/nowhere")
         self.app.snapshot()
@@ -1024,7 +1022,7 @@ class TestMarkGoalDone(unittest.TestCase):
     def test_a_goal_marked_done_stays_done_and_leaves_a_hidden_list(self):
         d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d)
-        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        gid = tui.gl.create(d, "x", key="A-1", name="x", base="main")
         tui.gl.Goal(d, gid).update(status="done", phase="review", pr_url="https://github.com/o/r/pull/1")
         tui.gl.mark_done(d, gid)
         tui.gl.Goal(d, gid).update(status="stopped", reason="stopped", doing="stopped")
@@ -1038,7 +1036,7 @@ class TestMarkGoalDone(unittest.TestCase):
     def test_a_part_already_merged_keeps_its_status(self):
         d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d)
-        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        gid = tui.gl.create(d, "x", key="A-1", name="x", base="main")
         tui.gl.Goal(d, gid).update(status="parts", branch="A-1/goal-x", worktree=d)
         brief = {"brief": "b", "criteria": [], "after": []}
         done = tui.gl.create_part(d, tui.gl.Goal(d, gid).read(), dict(brief, name="API"), 0, [])
@@ -1054,11 +1052,11 @@ class TestClearGoals(unittest.TestCase):
     def test_done_goals_and_their_parts_leave_the_list(self):
         d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d)
-        gid = tui.gl.create(d, "1", "A-1", "x", base="main")
+        gid = tui.gl.create(d, "x", key="A-1", name="x", base="main")
         tui.gl.Goal(d, gid).update(status="done", branch="A-1/goal-x", worktree=d)
         part = tui.gl.create_part(d, tui.gl.Goal(d, gid).read(), {"name": "API", "brief": "b",
                                                                   "criteria": [], "after": []}, 0, [])
-        other = tui.gl.create(d, "2", "A-2", "y", base="main")
+        other = tui.gl.create(d, "y", key="A-2", name="y", base="main")
         app = type("App", (), {"main_root": d, "snapshot": lambda self: None})()
         tui.App.clear_goals(app, [g for g in tui.gl.list_goals(d) if g["id"] == gid])
         self.assertEqual([g["id"] for g in tui.gl.list_goals(d)], [other])
@@ -1104,7 +1102,7 @@ class TestPrintStatus(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root)
         with dm.control_file(root) as c:
             c.update(queue=[{"gid": "7", "name": "a queued task"}], sprint={"gid": "9", "name": "S"})
-        gid = tui.gl.create(root, "9", "A-9", "Dark mode", base="main")
+        gid = tui.gl.create(root, "Dark mode", key="A-9", name="Dark mode", base="main")
         tui.gl.Goal(root, gid).state.write("awaiting.json", QUESTION)
         out = io.StringIO()
         with mock.patch.object(tui.sys, "stdout", out):
@@ -1127,7 +1125,7 @@ class TestSettleFinishedPRs(unittest.TestCase):
     def test_a_finished_goal_learns_its_pr_was_closed(self):
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root)
-        gid = tui.gl.create(root, "9", "A-9", "Old", base="main")
+        gid = tui.gl.create(root, "Old", key="A-9", name="Old", base="main")
         tui.gl.Goal(root, gid).update(status="done", pr_url="https://github.com/o/r/pull/5")
         run = tui.subprocess.run
         tui.subprocess.run = lambda *a, **k: tui.subprocess.CompletedProcess(a, 0, "CLOSED\n", "")

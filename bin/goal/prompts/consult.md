@@ -27,8 +27,8 @@ they can decide.
   parts, yourself, in line with your decisions.
 - Leave for the person what changes what gets built and that the references do
   not settle, a reference nobody can open, and anything only they have.
-- What the prototype or the ticket settles is not for the person, scope too: what
-  the ticket puts out of scope, or gives to another ticket, stays out. Answer it
+- What the prototype or the ask settles is not for the person, scope too: what
+  the ask puts out of scope, or gives to another ticket, stays out. Answer it
   yourself.
 - Do not change any file, and do not commit.
 

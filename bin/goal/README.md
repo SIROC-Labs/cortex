@@ -1,43 +1,30 @@
 # goal
 
-An Asana ticket, implemented by itself, on one branch, into one PR.
+A prompt, implemented by itself, on one branch, into one PR.
 
 ```bash
-cond goal new https://app.asana.com/0/0/1218985136116349 --base feature/m6 --start
-cond goal new 1218985136116349               # build on the default branch; start it later
-cond goal run goal-hrt1-519-recruiter-s-queue  # run or resume one in the foreground
-cond goal undo goal-hrt1-519-recruiter-s-queue # take all of it back out
+cond goal new "Fix the inbox badge: it counts read items" --start
+cond goal new https://app.asana.com/0/0/1218985136116349 -f mock.png --base feature/m6
+echo "Long prompt..." | cond goal new          # the prompt from stdin; start it later
+cond goal run goal-fix-the-inbox-badge        # run or resume one in the foreground
+cond goal undo goal-fix-the-inbox-badge       # take all of it back out
 ```
 
-The usual way in is the TUI: on a board, select a task or a milestone and pick *Run … as
-a goal* in the palette (`:`). The goal then shows on the Runs tab, where you answer it,
-stop it and carry it on.
+The usual way in is `cond queue add`, or the TUI. The goal then shows on the TUI's Runs
+tab, where you answer it, approve its plan, stop it and carry it on.
 
 ## How it works
 
-The ask is the ticket: its description, its open subtasks, its comments and its
-attachments, read once when the goal starts (an HTML attachment as its text, with the file
-kept for its prototype). A milestone works well: its subtasks become
-parts of one piece of work.
+The ask is the prompt: what you wrote, and the files you gave with it (`-f`, an image
+too), copied into the goal. Each Asana ticket the prompt links to is read once, when the
+goal starts: its description, its open subtasks, its comments and its attachments (an
+HTML attachment as its text, with the file kept for its prototype). A milestone works
+well: its subtasks become parts of one piece of work. Nothing is ever written to Asana:
+questions, the plan and its approval are in conductor.
 
-**On the ticket.** The runner, never an agent, shows the goal's questions and its plan on
-the ticket, as subtasks in three sections, after any subtasks already there (each section
-is a subtask Asana shows as a section header):
-
-```
-🤖 Questions       one subtask for each question only you can answer
-🤖 Review          🤖 Review the plan, or 🤖 Review the split when the work is split
-🤖 Execution       the plan's steps, or the parts, in order; then 🤖 Integration
-```
-
-*Review the split* approves only the parts: their boundaries, their order, and their
-acceptance criteria. *Review the plan* approves how the work is built, with the technical
-plan attached. A part does the same under its own subtask, so each part has its own
-questions, *Review the plan* and steps. A subtask of yours with the same name as a step or a part is used as it is,
-and moved into the Execution section. The steps and parts are ticked as they are done. The goal's own
-subtasks carry "Planned by a conductor goal" in their description, and the queue, the boards
-and the goal's ask leave them out. The description of a subtask of yours is never
-changed.
+The goal's name is the prompt's first line, or the ticket's name when the prompt is only
+a link; a linked ticket's key goes into its id and branch. Without `--base`, the PR goes
+into `main`.
 
 A **lead agent** gets the ask and nothing more. It plans the work, keeps a journal, and
 starts its own sub-agents, reviewers and checkers as it sees fit. It commits on the goal's
@@ -45,8 +32,8 @@ branch as it goes. Nobody breaks the work down for it.
 
 **Which source wins.** The prototype is the source of truth: it decides what is built and
 how each screen looks and behaves. Only your answers to questions overrule it, and the
-ticket where its description says explicitly that it replaces the prototype ("X instead
-of the prototype"). A ticket that only describes something differently does not. One-pagers,
+ask where it says explicitly that it replaces the prototype ("X instead of the
+prototype"). An ask that only describes something differently does not. One-pagers,
 PRDs and the product repository are never used; an attached one-pager is left out of the
 ask. What the prototype does not show or answer, you decide. The rule is one text,
 `SOURCES` in `goal.py`, given to the lead, the reviewer, the checker and a part's consult.
@@ -69,16 +56,12 @@ This program is the harness around the lead:
 - **Criteria review.** The checker's model then compares the criteria with the references,
   before anything is built: criteria that are missing, wrong, or too broad, and questions
   only you can answer. The lead corrects the criteria and the plan.
-- **Your approval.** Then the plan goes onto the ticket, and nothing is built until you
-  approve it. The steps or parts, with their acceptance criteria, are under Execution, and
-  the technical plan is attached to *Review the plan* (and, for a part, to the part's
-  subtask too): review the criteria alone to move fast, and the technical plan when the
-  design needs care. To approve, complete *Review the plan* in Asana, or press `c` on the
-  goal's row on the TUI. To change it first, say what to change in a comment on the review,
-  without completing it: the lead revises the plan, the runner puts it on the ticket again
-  and replies under your comment with what changed, and the plan waits for you again. Edits
-  to the subtasks under Execution go to the lead with your comment, or with your approval;
-  what you say on approving (or with `a` on the TUI) the lead applies before it builds. *Plan
+- **Your approval.** Then nothing is built until you approve the plan. It waits on you
+  with its steps or parts listed, and its technical plan in the goal's state: review the
+  criteria alone to move fast, and the technical plan when the design needs care. To
+  approve, press `c` on the goal's row on the TUI, or answer it with an approval (`ok`,
+  `continue`, `lgtm`). Anything else you answer is changes: the lead revises the plan and
+  it waits for you again, with what changed at the top. *Plan
   approval* on the Setup tab (or `--gate`) sets who approves: you, for the goal and each
   part (`wait`, the default); you for the goal and the reviewer for its parts (`top`); or
   the reviewer only (`auto`). A goal keeps the setting it started with.
@@ -136,11 +119,9 @@ This program is the harness around the lead:
   analysis it is told to learn the codebase through explorers too. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and your answers do not settle, and what
-  only you have, all at once in the analysis where it can. Each question is a subtask under
-  Questions. Answer it in a comment and complete the subtask; the goal goes on when every
-  question in the batch is complete, and the plan is approved only after its questions
-  are answered. The questions also wait on the TUI's Runs tab, and an answer there is
-  written onto each question's subtask, which it completes.
+  only you have, all at once in the analysis where it can. They wait on the TUI's Runs
+  tab, and the goal goes on once you answer them. The plan is approved only after its
+  questions are answered.
 - **One push, at the end.** Every push runs CI, and CI costs money. So nothing is pushed
   while the lead works: the runner pushes once the lead reports done. Through a Claude Code
   hook, every agent's `git push`, `gh pr ready|merge|create`, `gh workflow run` and
@@ -158,7 +139,7 @@ This program is the harness around the lead:
   nothing hands over without another CI run. When GitHub did not run the jobs at all (a
   spending limit or a failed payment), the runner asks you, and re-runs them once you
   answer: no fixer is called. A conflict goes to the lead. The full suites run only on CI, never on this
-  machine. The checker runs no tests or CI at all: it judges only the code against the ticket.
+  machine. The checker runs no tests or CI at all: it judges only the code against the ask.
   A CI fix by the fixer is pushed without another check; one by the lead is
   checked again first. The PR comment lists what CI passed under **Checks**.
 - **What it cost.** After each call, the goal notes the time, tokens and cost of the lead or
@@ -181,9 +162,8 @@ This program is the harness around the lead:
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by
   the usage limit, or fails, runs again: only a real verdict counts. Only a clean check
-  finishes the goal: the PR gets the ticket link and the lead's summary, a comment with its
-  walkthrough, and is marked ready for review. The ticket is set to In Review, with a
-  comment that links the PR.
+  finishes the goal: the PR gets the ask and the lead's summary, a comment with its
+  walkthrough, and is marked ready for review.
 - **Re-checks are scoped.** The first check reads the whole branch. After it, a check
   covers only the last check's gaps, the review comments of a PR revision, and the
   branch's own commits since the last check. A split goal's first check skips the parts'
@@ -229,10 +209,9 @@ This program is the harness around the lead:
 The goal never merges, rebases or force-pushes, and never touches another branch.
 
 **Undo** takes all of a goal back out: it stops the goal and its parts, closes its PR and
-deletes its branches, here and on GitHub, removes its worktrees and its saved state, and
-deletes every subtask it made on the ticket, answered questions too. A subtask of yours
-that it used as a step and ticked is reopened. It is *Undo the goal* in the TUI's palette
-on the goal's row, `cond queue undo <ticket>`, or `cond goal undo <id>`.
+deletes its branches, here and on GitHub, and removes its worktrees and its saved state.
+It is *Undo the goal* in the TUI's palette on the goal's row, `cond queue undo <id>`, or
+`cond goal undo <id>`.
 
 **Discuss** opens a Claude session to talk a goal through, in the goal's worktree. Its
 journal, its open questions and the end of its log are in the session's prompt. Of its
@@ -240,7 +219,7 @@ parts, only their state and the paths of their files are: the session reads a pa
 when the talk needs them, so a split goal's discussion stays small on every turn. It opens
 by saying in a few lines what it has loaded, then waits for you. It runs in plan
 mode, without the tools that edit files or write to Asana, and it is told to change
-nothing: answers and approvals still go through the ticket or the TUI. It is *Discuss the
+nothing: answers and approvals still go through the TUI or `cond`. It is *Discuss the
 goal* in the TUI's palette, or `cond goal discuss [<id>]`: without an id, it lists the
 repo's goals that are not done, to pick from by number or key.
 
@@ -250,17 +229,18 @@ A goal keeps its state in `.cortex/state/<id>/`:
 
 | File | What |
 |---|---|
-| `goal.json` | the ticket, the ask, the branch, the PR, the status, the round, the last usage read |
-| `attachments/` | the ticket's attachments |
+| `goal.json` | the prompt, the ask, the branch, the PR, the status, the round, the last usage read |
+| `inputs/` | the files given with the prompt |
+| `attachments/` | the linked tickets' attachments |
 | `journal.md` | the lead's references, acceptance criteria, plan, progress and decisions |
 | `parts.json` | the parts, when the lead split the work; each part's own state is `<id>--<part>/` |
 | `goal.log` | everything the harness did |
 | `awaiting.json` | the question, or the plan, waiting on you, while there is one |
-| `asana.json` | the goal's subtasks on the ticket: its sections, questions, review and steps |
 | `usage.json` | the tokens of every call |
 | `calls.json`, `usage.txt` | each call's time, tokens and cost, by agent, and the report `u` shows |
 
-Its worktree is `.cortex/worktrees/<id>`, on the branch `<ticket key>/goal-<slug>`.
+Its worktree is `.cortex/worktrees/<id>`, on the branch `goal/<slug>`, or
+`<ticket key>/goal-<slug>` when it links to a ticket.
 
 ## Tests
 

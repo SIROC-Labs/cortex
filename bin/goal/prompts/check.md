@@ -15,7 +15,7 @@ what is met and what is not.
 {{sources}}
 
 The journal's answers say what the person decided. A branch that matches the
-prototype where the ticket describes it differently, without an explicit override,
+prototype where the ask describes it differently, without an explicit override,
 is right, not a gap. What only the person can decide, and has not, is a question,
 not a gap.
 
@@ -100,4 +100,4 @@ Write each question so that the person can decide from it alone:
 - Keep `q` to one sentence and `why` to one sentence. The options carry the detail.
 
 The person answers them. Do not ask the person to confirm what a reference already
-settles, such as something the ticket puts out of scope: that is the answer.
+settles, such as something the ask puts out of scope: that is the answer.
