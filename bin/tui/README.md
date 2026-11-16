@@ -129,10 +129,10 @@ tools left there are kept as they are.
   goals read it at their next usage check, so raising it lets one finish its work.
 - **Models** — `⏎` on each lists its choices, with what each is for (haiku, sonnet, opus,
   fable; effort low to max), and `⏎` picks one: *Goal lead*, *Goal sub-agents*, *Goal
-  checker*, *Checker effort* — opus, sonnet, fable and high by default. A goal keeps the
-  models it started with; the checker effort applies from each goal's next check. The
-  checker only verifies and reports, so the strongest model costs little there; planning
-  and fixing stay with the lead and its sub-agents.
+  checker*, *Checker effort* — opus, sonnet, opus and high by default. The checker also
+  reviews each plan before it is built. A goal keeps the models it started with; the checker
+  effort applies from each goal's next check. Planning and fixing stay with the lead and its
+  sub-agents.
 - **Plan approval** — who approves a goal's plan before it is built: you, for the goal
   and each of its parts (the default); you for the goal and the reviewer agent for its
   parts; or the reviewer agent only. For goals started from then on.

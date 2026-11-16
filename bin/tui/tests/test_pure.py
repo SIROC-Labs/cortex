@@ -898,7 +898,7 @@ class TestSetup(unittest.TestCase):
                          ["Queue into", "Done tasks", "Usage limit", "Goal lead",
                           "Goal sub-agents", "Goal checker", "Checker effort", "Plan approval"])
         self.assertEqual([r["cols"][1].split(" — ")[0] for r in rows[2:]],
-                         ["75%", "opus", "sonnet", "fable", "high",
+                         ["75%", "opus", "sonnet", "opus", "high",
                           "you, for the goal and each of its parts (recommended)"])
         self.assertEqual(rows[0]["cols"][1], "the default branch (main)")
         self.assertEqual(setup_rows({"base": "feature/x"}, "main")[0]["cols"][1], "feature/x")
@@ -918,7 +918,7 @@ class TestSetup(unittest.TestCase):
 
     def test_a_setting_s_choices_say_what_each_means_and_which_is_set(self):
         rows = tui.choice_rows("model-check", {})
-        self.assertEqual([r["id"] for r in rows if "← now" in r["cols"][1]], ["claude-fable-5-1"])
+        self.assertEqual([r["id"] for r in rows if "← now" in r["cols"][1]], ["claude-opus-5-5"])
         self.assertIn("narrow, well-briefed work", rows[1]["cols"][1])
         efforts = tui.choice_rows("effort-check", {"models": {"check_effort": "high"}})
         self.assertEqual([r["cols"][0] for r in efforts], ["low", "medium", "high", "xhigh", "max"])

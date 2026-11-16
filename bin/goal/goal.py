@@ -67,9 +67,8 @@ DEFAULT_MODEL = "claude-opus-5-5"
 # The lead's sub-agents mostly do narrow, well-briefed parts of the work. The lead
 # can still ask for a stronger model for one that needs it.
 DEFAULT_SUBAGENT_MODEL = "claude-sonnet-5-5"
-# The checker only verifies and reports, and runs only when the lead says it is
-# done: the one place where the strongest model costs little and catches most.
-DEFAULT_CHECK_MODEL = "claude-fable-5-1"
+# The checker reviews the plan before the build and verifies the branch after it.
+DEFAULT_CHECK_MODEL = "claude-opus-5-5"
 DEFAULT_CHECK_EFFORT = "high"
 DEFAULT_THRESHOLD = 75
 # Goals made from now on run this flow: the plan is approved before it is built,

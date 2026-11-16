@@ -202,10 +202,9 @@ This program is the harness around the lead:
 - **Models.** The lead runs on Opus. Its sub-agents run on Sonnet by default
   (`CLAUDE_CODE_SUBAGENT_MODEL`, and a hook gives it to each one started without a model,
   since built-in types such as Explore otherwise take the lead's model), as most of them do narrow, well-briefed work;
-  the reasoning is the lead's, so no task or sub-agent runs on Opus. The checker runs on Fable at `high`
-  effort. It only verifies and reports: it plans no fix and changes nothing, and leaves
-  the legwork on a large diff to Sonnet sub-agents. So the
-  strongest model costs little there. All four are on the TUI's Setup tab, and on
+  the reasoning is the lead's, so no task or sub-agent runs on Opus. The checker runs on Opus at `high`
+  effort, and so does the review of the plan. It only verifies and reports: it plans no fix
+  and changes nothing, and leaves the legwork on a large diff to Sonnet sub-agents. All four are on the TUI's Setup tab, and on
   `cond goal new` as `--model`, `--subagent-model` and `--check-model`, all but the effort.
   A goal keeps the lead's and the sub-agents' models it started with. The checker's model and
   effort are what the Setup tab shows, read at each check and review, so they hold for every

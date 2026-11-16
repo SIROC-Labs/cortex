@@ -56,7 +56,7 @@ MODEL_SETTINGS = [
     ("model-subagent", "Goal sub-agents", "subagent", gl.DEFAULT_SUBAGENT_MODEL,
      "the lead's narrow, well-briefed parts — it can ask for more"),
     ("model-check", "Goal checker", "check", gl.DEFAULT_CHECK_MODEL,
-     "only verifies the branch against the ask, and reports"),
+     "reviews the plan before the build, and verifies the branch after"),
     ("effort-check", "Checker effort", "check_effort", gl.DEFAULT_CHECK_EFFORT,
      "how hard the checker thinks"),
 ]
