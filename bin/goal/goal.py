@@ -975,6 +975,27 @@ def link_dependencies(source, target):
     return linked
 
 
+def tests_line(tests):
+    """A coding task's tests, in one line for the lead: the command and how it went,
+    the names of at most five failing tests, or why none ran."""
+    if not isinstance(tests, dict):
+        return None
+    command = str(tests.get("command") or "").strip()
+    result = str(tests.get("result") or "").strip().lower()
+    if result == "none" or not command:
+        return "none run" + (": %s" % str(tests["why"]).strip() if tests.get("why") else "")
+    line = "`%s` %s" % (command, result or "ran")
+    count = tests.get("count")
+    if result == "passed" and isinstance(count, int):
+        line += " (%d)" % count
+    failed = [str(f) for f in tests.get("failed") or [] if str(f).strip()]
+    if failed:
+        line += ": " + ", ".join(failed[:5])
+        if len(failed) > 5:
+            line += " and %d more" % (len(failed) - 5)
+    return line
+
+
 def dispatched_prompt(reports):
     """What the lead gets back from its tasks, in a new session."""
     lines = ["The runner ran your tasks. Their reports, in your order:", ""]
@@ -984,8 +1005,11 @@ def dispatched_prompt(reports):
         lines.append("### %s (%s): %s" % (r["name"], "question" if r["kind"] == "explore"
                                            else "coding task", r["status"]))
         for key, label in (("summary", "Did"), ("answer", "Answer"), ("files", "Files"),
-                           ("notes", "Notes"), ("merge", "Branch")):
-            if r.get(key):
+                           ("tests", "Tests"), ("notes", "Notes"), ("merge", "Branch")):
+            if key == "tests":
+                if tests_line(r.get(key)):
+                    lines.append("- Tests: %s" % tests_line(r[key]))
+            elif r.get(key):
                 value = ", ".join("`%s`" % f for f in r[key]) if isinstance(r[key], list) else r[key]
                 lines.append("- %s: %s" % (label, value))
         lines.append("")
@@ -2854,7 +2878,7 @@ class Runner(object):
                 "utf-8", "replace").strip())[-1500:]
         else:
             report["status"] = block.get("status") or "done"
-        for key in ("summary", "answer", "notes", "files"):
+        for key in ("summary", "answer", "notes", "files", "tests"):
             if block.get(key):
                 report[key] = block[key]
         if not run["explore"]:

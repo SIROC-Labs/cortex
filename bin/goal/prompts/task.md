@@ -45,8 +45,12 @@ worktree. When you finish, the runner merges your branch into the goal's branch.
 End with a fenced JSON block:
 
 ```json
-{"status": "done", "summary": "What you changed, in one or two sentences.", "files": ["path/of/each/file/you/changed"], "notes": "What the lead must know: a decision the brief did not make, something left open, a test that fails and why."}
+{"status": "done", "summary": "What you changed, in one or two sentences.", "files": ["path/of/each/file/you/changed"], "tests": {"command": "the last test command you ran", "result": "passed", "count": 14, "failed": []}, "notes": "What the lead must know: a decision the brief did not make, something left open, a test that fails and why."}
 ```
+
+In `tests`, give the last run of your tests: `result` is `passed` or `failed`,
+`count` is how many tests ran, and `failed` names each test that fails. When you
+ran no tests, write `{"result": "none", "why": "The reason."}`.
 
 When something stops you from doing the brief:
 

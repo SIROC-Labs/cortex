@@ -2242,5 +2242,34 @@ class TestUndo(unittest.TestCase):
         self.assertIn("PR closed", done)
 
 
+class TestTestsLine(unittest.TestCase):
+    def test_passed_tests_give_the_command_and_the_count(self):
+        self.assertEqual(goal.tests_line({"command": "npx vitest related --run a.ts", "result": "passed",
+                                          "count": 14, "failed": []}),
+                         "`npx vitest related --run a.ts` passed (14)")
+
+    def test_failed_tests_name_at_most_five(self):
+        failed = ["t%d" % n for n in range(7)]
+        self.assertEqual(goal.tests_line({"command": "uv run pytest x.py", "result": "failed",
+                                          "count": 9, "failed": failed}),
+                         "`uv run pytest x.py` failed: t0, t1, t2, t3, t4 and 2 more")
+
+    def test_no_tests_say_why(self):
+        self.assertEqual(goal.tests_line({"result": "none", "why": "No test covers the copy."}),
+                         "none run: No test covers the copy.")
+
+    def test_a_report_without_tests_adds_no_line(self):
+        self.assertIsNone(goal.tests_line(None))
+        self.assertIsNone(goal.tests_line("passed"))
+
+    def test_the_lead_gets_one_tests_line_per_coding_task(self):
+        prompt = goal.dispatched_prompt([
+            {"name": "One", "kind": "code", "status": "done", "summary": "Did it.",
+             "tests": {"command": "uv run pytest x.py", "result": "failed", "failed": ["test_a"]}},
+            {"name": "Two", "kind": "explore", "status": "done", "answer": "Here."}])
+        self.assertIn("- Tests: `uv run pytest x.py` failed: test_a", prompt)
+        self.assertEqual(prompt.count("- Tests:"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
