@@ -39,7 +39,7 @@ Inspect each argument (or the current working directory if no argument was given
 
 | Source type | How to detect | How to ingest |
 |---|---|---|
-| Task in the task manager | URL/id that resolves to a task | Fetch it through the **task manager**: `get_task(task)`, plus `get_subtasks`, `get_comments`, and `get_attachments` as needed |
+| Task in the task manager | URL/id that resolves to a task | Fetch it through the `READ_TASK` capability: the task, plus its subtasks, comments, and attachments as needed |
 | Notion page | `notion.so` or `notion.site` in URL | Use Notion MCP |
 | Confluence page | `atlassian.net/wiki/` in URL | Use Confluence MCP |
 | Google Drive doc | `drive.google.com` or `docs.google.com` in URL | Use Google Drive MCP |
@@ -52,7 +52,7 @@ Inspect each argument (or the current working directory if no argument was given
 | Free-text seed | non-empty text not matching any rule above | Treat as a problem-statement seed. Ask the user whether to also inspect the current working directory |
 | No argument given | — | Inspect the current working directory and read what looks relevant |
 
-To fetch a task, go through the **task manager** interface — resolve the input with `find_task(ref)`, then read it with the neutral operations (`get_task`, `get_subtasks`, `get_comments`, `get_attachments`). Never call a task-tracking provider or its API directly, and never name one in the spec.
+`READ_TASK` is resolved per runtime from `plugins/product/references/runtime-bindings.md`. Never call a task-tracking provider or its API directly, and never name one in the spec.
 
 If multiple sources are given (e.g. a PRD path + a Figma URL + a task URL), ingest all of them before continuing.
 
@@ -118,9 +118,9 @@ This sets expectations and gives the user a chance to push back if your read is 
 
 ---
 
-## Phase 3: Interview (via `superpowers:brainstorming`)
+## Phase 3: Interview (via `RUN_INTERVIEW`)
 
-Drive the interview by invoking the `superpowers:brainstorming` skill. It already provides the right mechanic — one question at a time, multiple-choice with a recommended option — and there is no reason to reinvent it.
+Drive the interview through the `RUN_INTERVIEW` capability, resolved per runtime from `plugins/product/references/runtime-bindings.md`. It already provides the right mechanic — one question at a time, multiple-choice with a recommended option — and there is no reason to reinvent it.
 
 When invoking brainstorming, frame it as a **technical interview with a technical expert**, and pass through the context already discovered. The interview has two jobs:
 
@@ -300,7 +300,7 @@ Wait for explicit feedback.
 | Treating the interview as a transcription of the user's framing | The interview has two jobs — resolve what the user knows AND surface what they didn't raise. Probe for edge cases, failure modes, rollout, and cross-cutting concerns the input didn't name. |
 | Asking implementation-level questions | "Would the implementer have to ask this anyway, later?" If the answer is yes (framework default, in-repo convention, routine engineering choice), skip it. The spec captures shape, not detail. |
 | Writing the spec straight after the interview, without synthesis | Phase 4 is non-optional. Present the strategy as a structured synthesis, surface the items you added beyond the user's framing, wait for explicit approval, then write. |
-| Reinventing the interview mechanic | Use `superpowers:brainstorming`. It already does one-question-at-a-time with recommended options. |
+| Reinventing the interview mechanic | Use `RUN_INTERVIEW`. It already does one-question-at-a-time with recommended options. |
 | Treating the interviewee like a beginner | Frame technically. They know the stack. |
 | Linking the PRD as the source of truth | Restate the rule inline. The spec is self-contained. |
 | Drifting into implementation steps | The spec describes shape, not build order. Lift back to abstraction. |

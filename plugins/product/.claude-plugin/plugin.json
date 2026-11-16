@@ -1,0 +1,8 @@
+{
+  "name": "product",
+  "description": "Product definition skills: one-pagers, PRDs, and technical specs",
+  "version": "0.1.0",
+  "author": {
+    "name": "SIROC Team"
+  }
+}

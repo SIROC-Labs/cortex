@@ -113,6 +113,7 @@ Upgrading from a `cortex-workflow` that bundled these servers: QA keeps working 
 /plugin marketplace update siroc-cortex
 /plugin update cortex-workflow@siroc-cortex
 /plugin update dev-toolkit@siroc-cortex
+/plugin update product@siroc-cortex
 /plugin update cortex-qa-web@siroc-cortex      # where enabled
 /plugin update cortex-qa-mobile@siroc-cortex   # where enabled
 ```
@@ -133,6 +134,7 @@ Update with the Codex CLI:
 codex plugin marketplace upgrade siroc-cortex
 codex plugin add cortex-workflow@siroc-cortex
 codex plugin add dev-toolkit@siroc-cortex
+codex plugin add product@siroc-cortex
 codex plugin add cortex-qa-web@siroc-cortex      # if you use it
 codex plugin add cortex-qa-mobile@siroc-cortex   # if you use it
 ```

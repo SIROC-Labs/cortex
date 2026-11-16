@@ -1,0 +1,37 @@
+{
+  "name": "product",
+  "version": "0.1.0",
+  "description": "Product definition skills: one-pagers, PRDs, and technical specs",
+  "author": {
+    "name": "SIROC Team",
+    "url": "https://github.com/SIROC-Labs"
+  },
+  "homepage": "https://github.com/SIROC-Labs/cortex",
+  "repository": "https://github.com/SIROC-Labs/cortex",
+  "license": "Proprietary",
+  "keywords": [
+    "product",
+    "prd",
+    "spec",
+    "one-pager"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Product",
+    "shortDescription": "Write one-pagers, PRDs, and technical specs.",
+    "longDescription": "Product definition skills that turn raw material into a one-pager, a Product Requirements Document, or a technical specification.",
+    "developerName": "SIROC Team",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/SIROC-Labs/cortex",
+    "defaultPrompt": [
+      "Draft a one-pager from these notes.",
+      "Create a PRD from this source.",
+      "Write a technical spec for this feature."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

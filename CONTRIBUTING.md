@@ -16,6 +16,7 @@
      /plugin marketplace add /path/to/cortex
      /plugin install cortex-workflow@siroc-cortex
      /plugin install dev-toolkit@siroc-cortex
+     /plugin install product@siroc-cortex
      ```
    - **OpenCode:** Point your `opencode.json` at the local clone:
      ```json
@@ -26,6 +27,7 @@
      codex plugin marketplace add /path/to/cortex
      codex plugin add cortex-workflow@siroc-cortex
      codex plugin add dev-toolkit@siroc-cortex
+     codex plugin add product@siroc-cortex
      codex plugin add superpowers@openai-curated
      ```
      `superpowers` comes from the official `openai-curated` catalog, not from `siroc-cortex`.

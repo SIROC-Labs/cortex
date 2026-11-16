@@ -75,7 +75,7 @@ See `references/output-format.md` → "breakdown.md template".
 
 ### Phase 6 — Extract per-milestone specs
 
-For each milestone, automatically generate `M{N}-milestone-spec.md` from the ingested material plus interview answers. Template: Product Requirements + Acceptance Criteria + Technical Spec (nested create-spec 7-section structure). Copy-paste verbatim subsections from inputs where appropriate. Inline product rules where they motivate technical choices. References allowed: codebase paths, public URLs, Figma URLs only. If material is genuinely missing for a milestone, add an explicit `### Open Questions` section to the spec — do not loop back into another interview round.
+For each milestone, automatically generate `M{N}-milestone-spec.md` from the ingested material plus interview answers. Template: Product Requirements + Acceptance Criteria + Technical Spec (nested 7-section technical spec structure). Copy-paste verbatim subsections from inputs where appropriate. Inline product rules where they motivate technical choices. References allowed: codebase paths, public URLs, Figma URLs only. If material is genuinely missing for a milestone, add an explicit `### Open Questions` section to the spec — do not loop back into another interview round.
 
 See `references/output-format.md` → "M{N}-milestone-spec.md template".
 

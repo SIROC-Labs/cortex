@@ -30,10 +30,6 @@ cortex-workflow/
     ├── backend-testing/   ← Backend testing patterns & infrastructure (bundled — extends generic-testing)
     ├── create-pr/         ← PR creation (bundled)
     ├── documentation/     ← Doc refresh for finished work, run by ship-it before the PR (bundled)
-    ├── create-prd/        ← PRD generation from a task URL, Notion, Figma, local files, or any URL (bundled)
-    ├── create-spec/       ← Technical spec authoring from any source (interview-driven → docs/cortex/specs/) (bundled)
-    ├── product-one-pager/ ← Product one-pager/brief generation & review against a senior-PM + product-owner bar (bundled)
-    │   └── references/    ← MCP integration state machine, acceptance rubric
     ├── fix-bug/           ← Bug-fix lifecycle orchestrator (bundled)
     ├── git-check/         ← Git state validation (bundled)
     ├── implement-feature/ ← Non-bug routing orchestrator: plan detection + runtime-bindings resolution (bundled)
@@ -99,17 +95,6 @@ pre-ship-check
 log-task
   ├── task-manager       (create task, set fields, add to boards)
   └── → hands off to start-task (Plan Only) or ship-it (Fix Done) depending on whether the work was planned vs already done
-
-product-one-pager      (standalone: generate or review a product one-pager/brief; no skill dependencies)
-  └── → hands off to create-prd (optional: turn the one-pager into a full PRD)
-
-create-prd             (standalone: reads sources, interviews user, writes PRD — no skill dependencies)
-  ├── task-manager       (optional: fetch task + attachments when a task URL is provided)
-  └── (external MCPs)    (Notion, Figma, Google Drive, WebFetch — used when relevant source URLs are present)
-
-create-spec            (standalone: reads any source, interviews user, writes docs/cortex/specs/…md — no tracker writes)
-  ├── task-manager       (optional: fetch task + subtasks + comments + attachments when a task URL is the source)
-  └── (external MCPs)    (Notion, Figma, Drive, Loom, WebFetch — source ingestion)
 
 milestone-breakdown        (milestone-level roadmap → docs/cortex/milestone-breakdown/…; no tracker writes)
   ├── task-manager       (read the existing milestone landscape: list_milestones / milestone_tasks; expanded milestones are read-only)

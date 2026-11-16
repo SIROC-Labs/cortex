@@ -35,6 +35,12 @@
       "version": "0.4.1"
     },
     {
+      "name": "product",
+      "source": "./plugins/product",
+      "description": "Product definition skills: one-pagers, PRDs, and technical specs",
+      "version": "0.1.0"
+    },
+    {
       "name": "cortex-qa-web",
       "source": "./plugins/cortex-qa-web",
       "description": "Chrome DevTools MCP server for cortex-workflow web QA (web-qa). Enable per project.",

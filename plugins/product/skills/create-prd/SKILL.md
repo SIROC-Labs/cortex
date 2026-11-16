@@ -29,7 +29,7 @@ Inspect each argument or input for its type and fetch accordingly:
 
 | Source type | How to detect | How to ingest |
 |---|---|---|
-| Task-manager task or project | a task-manager task/project URL | Use the `task-manager` interface (`find_task(ref)` / `get_task(task)`) to fetch the task/project and all subtasks |
+| Task-manager task or project | a task-manager task/project URL | Use the `READ_TASK` capability, resolved per runtime from `plugins/product/references/runtime-bindings.md`, to fetch the task/project and all subtasks |
 | Jira issue or board | `atlassian.net/browse/` or `atlassian.net/jira/` | Use Atlassian MCP tools to fetch the issue and linked items |
 | Notion page or database | `notion.so` or `notion.site` in URL | Use Notion MCP tools to fetch the page or database content |
 | Google Drive file or folder | `drive.google.com` or `docs.google.com` | Use Google Drive MCP tools to fetch the document or list the folder |
