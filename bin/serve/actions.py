@@ -190,7 +190,10 @@ def goals(main_root):
     rates = gl.repo_rates(main_root) if listed else {}
     processes = gv.claude_processes() if any(g.get("alive") for g in listed) else {}
     out = [summary(main_root, g, rates, processes) for g in listed]
+    titles = {g["id"]: g["title"] for g in out}
     for g in out:
+        if g.get("parent"):
+            g["parent_title"] = titles.get(g["parent"])
         parts = [p for p in out if p.get("parent") == g["id"]]
         if parts:
             g["cost"] = (g.get("cost") or 0) + sum(p.get("cost") or 0 for p in parts)

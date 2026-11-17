@@ -11,9 +11,8 @@ cond tui --status   # the goals, printed (`cond queue list` prints the same, wit
 It needs `cond serve` running (`cond serve install` starts it at login). `COND_URL` or
 `COND_PORT` points it at another one.
 
-**The list** shows every repo's goals: what each is doing, its plan, round and cost.
+**The list** shows every repo's goals and parts, a part marked with its goal: what each is doing, its plan, round and cost.
 Those waiting on you come first, then the running ones; `f` shows the finished ones too.
-A goal's parts follow it.
 
 **A goal** shows what it waits on you for (its questions with their options, or its plan),
 the agents running now, and its timeline in phases: each step from its log, with a

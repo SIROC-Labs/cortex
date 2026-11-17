@@ -17,7 +17,7 @@ GOALS = [
     goal("done-1", finished=True, status="done", created=NOW - 50,
          state={"text": "merged", "tone": "", "label": "merged"}),
     goal("busy", round=3, cost=4.5, plan={"done": 2, "total": 5}, created=NOW - 40),
-    goal("busy--api", parent="busy", part="API"),
+    goal("busy--api", parent="busy", part="API", parent_title="busy"),
     goal("asks", waiting=True, created=NOW - 300, pr_url="https://gh/pr/7",
          awaiting={"asked_at": "t", "kind": "plan", "detail": "- API\n- UI"},
          state={"text": "the plan waits on your review", "tone": "warn", "label": "waiting on you"}),
@@ -52,7 +52,7 @@ class FakeClient(object):
 
 
 class TestHelpers(unittest.TestCase):
-    def test_waiting_goals_first_then_running_then_finished_with_parts_after_their_goal(self):
+    def test_goals_and_parts_are_runs_waiting_first_then_running_then_finished(self):
         self.assertEqual([(g["id"], part) for g, part in tui.ordered(GOALS)],
                          [("asks", False), ("busy", False), ("busy--api", True), ("done-1", False)])
         self.assertNotIn("done-1", [g["id"] for g, _ in tui.ordered(GOALS, show_finished=False)])
@@ -63,7 +63,7 @@ class TestHelpers(unittest.TestCase):
         self.assertIn("the plan waits on your review", lines[0])
         self.assertTrue(lines[0].endswith("https://gh/pr/7"))
         self.assertIn("busy — working  ·  plan 2/5  round 3  $4.50  now", lines[1])
-        self.assertIn("└ API", lines[2])
+        self.assertIn("API  (part of busy)", lines[2])
         self.assertEqual(tui.status_lines([]), ["no goals"])
 
     def test_a_plan_s_wait_says_how_to_approve_and_questions_show_their_options(self):

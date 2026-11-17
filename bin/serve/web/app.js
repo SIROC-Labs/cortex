@@ -224,7 +224,8 @@ async function runsPage() {
   };
   const render = (goals) => {
     last = goals;
-    const tops = goals.filter((g) => !g.parent);
+    const tops = goals.slice();
+    const byId = Object.fromEntries(goals.map((g) => [g.id, g]));
     const rank = (g) => (g.waiting ? 0 : !g.finished ? 1 : 2);
     tops.sort((a, b) => rank(a) - rank(b) || (b.created || 0) - (a.created || 0));
     const finishedCount = tops.filter((g) => g.finished).length;
@@ -235,13 +236,15 @@ async function runsPage() {
       $("#list").innerHTML = `<div class="panel empty">${tops.length ? "No goal is running." : "No goals yet."} Write a prompt above to start one.</div>`;
       return;
     }
-    const row = (g, part) => {
+    const row = (g) => {
       const st = state(g);
-      return `<div class="goal-row${part ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
+      const parent = g.parent && byId[g.parent];
+      return `<div class="goal-row" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title">${esc(part ? g.part || g.name : g.title || g.name)}
-            ${many && !part ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
+          <div class="title">${esc(g.parent ? g.part || g.name : g.title || g.name)}
+            ${g.parent ? `<span class="badge">part of ${esc(parent ? parent.title || parent.name : g.parent)}</span>` : ""}
+            ${many ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>
         <div class="meta">
@@ -253,8 +256,7 @@ async function runsPage() {
           <span class="faint">${esc(ago(g.updated || g.created))}</span>
         </div></div>`;
     };
-    $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + goals
-      .filter((p) => p.parent === g.id && !g.finished).map((p) => row(p, true)).join("")).join("")}</div>`;
+    $("#list").innerHTML = `<div class="panel goals">${shown.map(row).join("")}</div>`;
     document.querySelectorAll(".goal-row").forEach((el) => {
       el.onclick = () => { location.hash = `#/g/${encodeURIComponent(el.dataset.repo)}/${encodeURIComponent(el.dataset.id)}`; };
     });
