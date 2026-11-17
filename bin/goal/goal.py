@@ -112,6 +112,11 @@ WIND_DOWN = ("WIND DOWN: the person's Claude usage limit is reached, so this wor
 PAUSE_CHECK = 900
 # Rounds in a row that change nothing before the person is asked.
 STALL_ROUNDS = 3
+# Over this, the journal is compacted before the next session, by the sub-agent model.
+JOURNAL_MAX = 40 * 1024
+# After a compaction that failed, how much more it grows before one is tried again.
+JOURNAL_REGROW = 20 * 1024
+ARCHIVE_DIR = "journal-archive"
 # Checks in a row that find gaps before the person is asked.
 MAX_CHECKS = 4
 # However much each fix changes, the person is asked after this many in a row.
@@ -126,7 +131,7 @@ CI_TIMEOUT = 2 * 3600
 # Tries a cheap fixer gets at failing CI before the lead takes it on.
 CI_FIXES = 2
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes", "review": "reviewer",
-         "task": "coding tasks", "explore": "explorers"}
+         "task": "coding tasks", "explore": "explorers", "compact": "journal compaction"}
 
 # A large goal is split into parts, each a goal of its own on a branch off the
 # goal's, merged back into it when done. A part does not split again.
@@ -255,8 +260,9 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "coding task. "
          "Brief each task completely, because it knows only its brief: the step, what to "
          "change and where, the parts of the technical plan it needs, the prototype file and "
-         "lines for a screen, the tests to write, and what done means. Record in the journal "
-         "what each batch did and decided, and tick the steps and criteria it meets. You can "
+         "lines for a screen, the tests to write, and what done means. In the journal, tick "
+         "the steps and criteria a batch meets, record what it decided as one line under "
+         "Decisions, and update the Status: no build log, the runner keeps one. You can "
          "run git, read Markdown documents, and edit your journal and the technical plan. "
          "You do not run tests, type checks or builds. Tests guide the coding tasks while "
          "they code: each runs the tests of its own change. When you report done, the runner "
@@ -1094,6 +1100,23 @@ def testing_guides(root, depth=3):
             if level < depth else []
         out += [os.path.normpath(os.path.join(rel, f)) for f in files if f.lower() == "testing.md"]
     return sorted(out, key=lambda f: (f.count(os.sep), f))
+
+
+def journal_lost(before, after):
+    """What a compacted journal lost that it must keep, or None: every acceptance
+    criterion and plan step with its tick, word for word, and every section of the
+    person's answers."""
+    if not (after or "").strip():
+        return "it is empty"
+    for heading in ("Acceptance criteria", "Plan"):
+        if (checklist(before, heading) or []) != (checklist(after, heading) or []):
+            return "its %s changed" % heading.lower()
+    for heading in re.findall(r"^## +(.*answer.*?)\s*$", before or "", re.M | re.I):
+        if section_text(before, heading) != section_text(after, heading):
+            return "it changed \"%s\"" % heading
+    if len(after) >= len(before) * 0.9:
+        return "it is not smaller"
+    return None
 
 
 def plan_names(journal, parts=None):
@@ -2852,9 +2875,53 @@ class Runner(object):
         self.set(phase="building", status="working")
         return self.fresh(prompt + "\n\n" + CONTINUE)
 
+    def compact_journal(self):
+        """Before a new session reads it, a journal over JOURNAL_MAX is rewritten by the
+        sub-agent model to what is true now. The runner keeps the rewrite only when
+        it keeps every criterion, step and answer and is smaller; the old one goes
+        to the archive. Returns the archived copy's path, or None."""
+        try:
+            with open(self.goal.journal) as f:
+                before = f.read()
+        except (IOError, OSError):
+            return None
+        size = len(before.encode())
+        if size <= JOURNAL_MAX or size < (self.data.get("compact_after") or 0):
+            return None
+        self.step("Compacting the journal (%d KB)" % (size // 1024))
+        target = self.goal.state.path("journal.compact.md")
+        self.goal.state.remove("journal.compact.md")
+        self.wait_for_usage()
+        _, _, error = self.call(render(os.path.join(PROMPTS, "compact.md"), source=self.goal.journal,
+                                       target=target), str(uuid.uuid4()), False, "compact",
+                                self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL)
+        try:
+            with open(target) as f:
+                after = f.read()
+        except (IOError, OSError):
+            after = ""
+        problem = error or journal_lost(before, after)
+        if problem:
+            st.warn("the compacted journal is not kept: %s" % problem)
+            self.goal.state.remove("journal.compact.md")
+            self.set(compact_after=size + JOURNAL_REGROW)
+            return None
+        os.makedirs(self.goal.state.path(ARCHIVE_DIR), exist_ok=True)
+        archived = self.goal.state.path(os.path.join(ARCHIVE_DIR, "round-%s.md" % self.data.get("round", 0)))
+        with open(archived, "w") as f:
+            f.write(before)
+        os.replace(target, self.goal.journal)
+        st.info("journal: %d KB → %d KB" % (size // 1024, len(after.encode()) // 1024))
+        self.set(compact_after=None)
+        return archived
+
     def fresh(self, prompt):
         """The build starts, or carries on after a pause or a restart, in a new
         session: the lead's context is the journal and the branch, not history."""
+        archived = self.compact_journal()
+        if archived:
+            prompt += ("\n\nThe runner compacted your journal to what is true now. The journal "
+                       "before it is `%s`: read it only for something the new one dropped." % archived)
         self.set(session=None, session_used=False)
         _, dirty, _ = st.git(["status", "--porcelain"], cwd=self.data["worktree"], check=False)
         left = ("\n\nThe worktree has changes that are not committed, from a session that was "

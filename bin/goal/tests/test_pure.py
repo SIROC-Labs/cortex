@@ -1871,6 +1871,76 @@ class TestUndo(unittest.TestCase):
         self.assertIn("PR closed", done)
 
 
+BIG = ("## Status\nBuilding step 2.\n\n## Answers from the person\n- Q1: blue.\n\n"
+       "## Acceptance criteria\n### UI\n- [x] The badge is blue — a.ts\n- [ ] Zero hides it\n\n"
+       "## Plan\n1. [x] Badge: blue (after: none)\n2. [ ] Zero (after: 1)\n\n"
+       "## Build log\n" + "- batch notes that nobody needs again\n" * 2000)
+SMALL = BIG[:BIG.index("## Build log")] + "## Decisions\n- D1: blue, from Q1.\n"
+
+
+class TestCompactJournal(unittest.TestCase):
+    def setUp(self):
+        self.dir = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
+        goal.Goal(self.dir, gid).update(worktree=self.dir, phase="building", round=7)
+        self.runner = goal.Runner(self.dir, gid)
+        self.runner.wait_for_usage = lambda: None
+        with open(self.runner.goal.journal, "w") as f:
+            f.write(BIG)
+        self.calls = []
+
+    def rewrite(self, text):
+        def call(prompt, session, resume, label, model=None, effort=None):
+            self.calls.append((label, model))
+            with open(self.runner.goal.state.path("journal.compact.md"), "w") as f:
+                f.write(text)
+            return {"status": "done"}, "complete", None
+        self.runner.call = call
+
+    def test_what_it_must_keep_is_checked(self):
+        self.assertIsNone(goal.journal_lost(BIG, SMALL))
+        self.assertIn("acceptance criteria", goal.journal_lost(BIG, SMALL.replace("[x] The badge", "[ ] The badge")))
+        self.assertIn("plan", goal.journal_lost(BIG, SMALL.replace("2. [ ] Zero (after: 1)\n", "")))
+        self.assertIn("Answers from the person", goal.journal_lost(BIG, SMALL.replace("Q1: blue", "Q1: red")))
+        self.assertEqual(goal.journal_lost(BIG, ""), "it is empty")
+        self.assertEqual(goal.journal_lost(SMALL, SMALL), "it is not smaller")
+
+    def test_a_large_journal_is_compacted_by_the_sub_agent_model_and_archived(self):
+        self.rewrite(SMALL)
+        archived = self.runner.compact_journal()
+        self.assertEqual(self.calls, [("compact", goal.DEFAULT_SUBAGENT_MODEL)])
+        with open(self.runner.goal.journal) as f:
+            self.assertEqual(f.read(), SMALL)
+        with open(archived) as f:
+            self.assertEqual(f.read(), BIG)
+        self.assertTrue(archived.endswith("journal-archive/round-7.md"))
+
+    def test_a_new_session_after_a_compaction_hears_where_the_old_journal_is(self):
+        self.runner.set(branch="A-1/goal-x", base="main", ask="# The ask")
+        self.rewrite(SMALL)
+        prompt = self.runner.fresh("Go on.")
+        self.assertIn("compacted your journal", prompt)
+        self.assertIn("journal-archive/round-7.md", prompt)
+        self.assertNotIn("compacted your journal", self.runner.fresh("Go on."))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_rewrite_that_loses_a_tick_is_dropped_and_not_retried_until_it_grows(self):
+        self.rewrite(SMALL.replace("[x] The badge", "[ ] The badge"))
+        self.assertIsNone(self.runner.compact_journal())
+        with open(self.runner.goal.journal) as f:
+            self.assertEqual(f.read(), BIG)
+        self.assertIsNone(self.runner.compact_journal())
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_small_journal_is_left_alone(self):
+        with open(self.runner.goal.journal, "w") as f:
+            f.write(SMALL)
+        self.rewrite("x")
+        self.assertIsNone(self.runner.compact_journal())
+        self.assertEqual(self.calls, [])
+
+
 class TestTestsLine(unittest.TestCase):
     def test_passed_tests_give_the_command_and_the_count(self):
         self.assertEqual(goal.tests_line({"command": "npx vitest related --run a.ts", "result": "passed",

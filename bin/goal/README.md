@@ -90,6 +90,15 @@ This program is the harness around the lead:
   stale by then, so it starts from its journal and the parts' journals. It checks that the
   parts fit together, builds what no part covers, and ticks the criteria. Then the goal goes on as below,
   with one push and one CI run for all of it. A part does not split again.
+- **A small journal.** Every new session reads the whole journal, so the lead keeps only
+  what is true now: a short status, your answers, the references, the acceptance
+  criteria, the plan, and one line per decision; no build log, which the runner keeps,
+  and no design, which is the technical plan's. Before a session, a journal over 40 KB
+  is rewritten by the sub-agent model (Sonnet by default) to those sections. The runner
+  keeps the rewrite only when every criterion and step, with its tick, and every answer
+  is unchanged and it is smaller; the old one goes to `journal-archive/`, and the lead
+  is told where. A rewrite that is not kept is tried again only once the journal grows
+  20 KB more.
 - **Rounds.** The lead is called on one session, in rounds of up to 200 turns; the next
   round continues the same conversation. If the session is lost, a new one starts from the
   journal and the branch.

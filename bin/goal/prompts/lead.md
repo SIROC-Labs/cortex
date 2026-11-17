@@ -56,10 +56,16 @@ your own choice where the person decides.
    name of a few words and a colon, then what it does: the person sees the name
    first. End each step with the earlier steps it needs, such as
    `(after: 1, 3)`. Steps that do not need each other are built at the same time,
-   so split the work into steps that can. The person follows your progress through it. Keep the journal current: what is done, what is in
-   progress, what is next, and every decision you made and why. You can lose your
-   memory of this conversation at any time. The journal and the branch must be
-   enough for you to continue.
+   so split the work into steps that can. The person follows your progress through it.
+   You can lose your memory of this conversation at any time: the journal and the
+   branch must be enough for you to continue. Every new session reads the whole
+   journal, so keep it small, and only what is true now: `## Status` (a few lines:
+   where the work is and what is next), the person's answers word for word,
+   `## References`, `## Acceptance criteria`, `## Plan`, and `## Decisions` (one line
+   each: the decision and why). The ticks show what is done. Keep no build log: the
+   runner records every round, task and report. A design goes in the technical
+   plan, not the journal. Keep an explorer's finding only as the decision it
+   settles. Delete what stops being true, and a decision another replaces.
 {{plan_note}}
 {{split}}
 
