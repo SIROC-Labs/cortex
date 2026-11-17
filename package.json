@@ -1,7 +1,7 @@
 {
-  "name": "cortex-workflow",
+  "name": "siroc-cortex",
   "version": "1.7.4",
-  "description": "End-to-end development workflow",
-  "main": ".opencode/plugins/cortex-workflow.js",
+  "description": "SIROC Cortex skills for OpenCode: dev-toolkit and product",
+  "main": ".opencode/plugins/cortex.js",
   "private": true
 }

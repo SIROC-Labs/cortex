@@ -8,26 +8,7 @@
     "version": "1.0.0",
     "pluginRoot": "./plugins"
   },
-  "allowCrossMarketplaceDependenciesOn": [
-    "claude-plugins-official"
-  ],
   "plugins": [
-    {
-      "name": "cortex-workflow",
-      "source": "./plugins/cortex-workflow",
-      "description": "End-to-end development workflow: from ticket to shipped PR with automated task tracking, git management, and team communication",
-      "version": "1.7.4",
-      "dependencies": [
-        {
-          "name": "feature-dev",
-          "marketplace": "claude-plugins-official"
-        },
-        {
-          "name": "superpowers",
-          "marketplace": "claude-plugins-official"
-        }
-      ]
-    },
     {
       "name": "dev-toolkit",
       "source": "./plugins/dev-toolkit",
@@ -38,18 +19,6 @@
       "name": "product",
       "source": "./plugins/product",
       "description": "Product definition skills: one-pagers, PRDs, and technical specs",
-      "version": "0.1.0"
-    },
-    {
-      "name": "cortex-qa-web",
-      "source": "./plugins/cortex-qa-web",
-      "description": "Chrome DevTools MCP server for cortex-workflow web QA (web-qa). Enable per project.",
-      "version": "0.1.0"
-    },
-    {
-      "name": "cortex-qa-mobile",
-      "source": "./plugins/cortex-qa-mobile",
-      "description": "mobile-mcp server for cortex-workflow mobile QA (mobile-qa). Enable per project.",
       "version": "0.1.0"
     }
   ]

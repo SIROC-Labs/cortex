@@ -3,7 +3,7 @@
 ## One-time setup
 
 1. Clone the repo
-2. Run the setup script in **developer mode** (`--dev`) so the install points at your local clone instead of the remote repo — validates GitHub CLI auth, SSH config, and optionally sets `ASANA_PERSONAL_ACCESS_TOKEN` in your shell profile:
+2. Run the setup script in **developer mode** (`--dev`) so the install points at your local clone instead of the remote repo — validates GitHub CLI auth and SSH config:
    ```bash
    bash setup.sh --dev              # Claude Code
    bash setup.sh --opencode --dev   # OpenCode
@@ -14,7 +14,6 @@
    - **Claude Code:**
      ```
      /plugin marketplace add /path/to/cortex
-     /plugin install cortex-workflow@siroc-cortex
      /plugin install dev-toolkit@siroc-cortex
      /plugin install product@siroc-cortex
      ```
@@ -25,13 +24,9 @@
    - **Codex:** Add the local clone as the marketplace (use the repo root, which contains `.agents/plugins/marketplace.json`), then install the plugins:
      ```bash
      codex plugin marketplace add /path/to/cortex
-     codex plugin add cortex-workflow@siroc-cortex
      codex plugin add dev-toolkit@siroc-cortex
      codex plugin add product@siroc-cortex
-     codex plugin add superpowers@openai-curated
      ```
-     `superpowers` comes from the official `openai-curated` catalog, not from `siroc-cortex`.
-4. `cortex-qa-web` and `cortex-qa-mobile` (the QA MCP servers) are never installed by the script. To work on `web-qa` or `mobile-qa`, enable the matching one in the repo you test against, as described in the README's [Browser and mobile QA tools](README.md#browser-and-mobile-qa-tools-per-project) section.
 
 ## Development loop
 
@@ -76,13 +71,13 @@ Accepted forms of evidence:
 
 ## Versioning
 
-Never edit version numbers in `plugin.json`, `marketplace.json`, or `package.json` manually. Version bumps are done via GitHub Actions:
+Never edit version numbers in `plugin.json` or `marketplace.json` manually. Version bumps are done via GitHub Actions:
 
 **Actions → Bump Plugin Version → Run workflow**
 
 | Input | Description |
 |-------|-------------|
-| `plugin` | Plugin folder name (e.g. `cortex-workflow`) |
+| `plugin` | Plugin folder name (e.g. `dev-toolkit`) |
 | `level` | `patch` · `minor` · `major` |
 
 - `patch` — bug fixes, copy tweaks, non-breaking skill changes

@@ -5,18 +5,6 @@
   },
   "plugins": [
     {
-      "name": "cortex-workflow",
-      "source": {
-        "source": "local",
-        "path": "./plugins/cortex-workflow"
-      },
-      "policy": {
-        "installation": "INSTALLED_BY_DEFAULT",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    },
-    {
       "name": "dev-toolkit",
       "source": {
         "source": "local",
@@ -37,28 +25,6 @@
         "installation": "INSTALLED_BY_DEFAULT"
       },
       "category": "Productivity"
-    },
-    {
-      "name": "cortex-qa-web",
-      "source": {
-        "source": "local",
-        "path": "./plugins/cortex-qa-web"
-      },
-      "policy": {
-        "installation": "AVAILABLE"
-      },
-      "category": "Developer Tools"
-    },
-    {
-      "name": "cortex-qa-mobile",
-      "source": {
-        "source": "local",
-        "path": "./plugins/cortex-qa-mobile"
-      },
-      "policy": {
-        "installation": "AVAILABLE"
-      },
-      "category": "Developer Tools"
     }
   ]
 }

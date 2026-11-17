@@ -23,11 +23,6 @@ MARKETPLACE_REPO="SIROC-Labs/cortex"
 MARKETPLACE_NAME="siroc-cortex"
 MARKETPLACE_JSON_URL="https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.json"
 
-# Marketplace plugins this script never installs; each project opts in. cortex-qa-web and
-# cortex-qa-mobile carry the QA MCP servers, which a runtime starts in every session that
-# enables them.
-OPT_IN_PLUGINS="cortex-qa-web cortex-qa-mobile"
-
 OPENCODE=false
 CODEX=false
 ALL=false
@@ -65,7 +60,7 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 info() { echo -e "  ${BLUE}→${NC} $1"; }
 step() { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${NC} $2"; }
 
-TOTAL_STEPS=6
+TOTAL_STEPS=5
 
 ERRORS=0
 PROFILE_CHANGED=false
@@ -138,7 +133,7 @@ add_to_profile() {
 # The end-of-script banner tells the user to reload for future sessions.
 
 # Resolve the plugin list from the marketplace manifest — the single source of
-# truth — minus OPT_IN_PLUGINS. --dev reads the local clone (the install source);
+# truth. --dev reads the local clone (the install source);
 # otherwise fetch from the remote repo, so a standalone setup.sh (no clone) works
 # and the list always matches what actually gets installed. Requires gh access,
 # verified in Step 1.
@@ -151,7 +146,7 @@ resolve_plugins() {
       -H "Accept: application/vnd.github.raw" 2>/dev/null) || true
   fi
   printf '%s' "$manifest_json" \
-    | python3 -c "import sys,json;skip=sys.argv[1].split();print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins'] if p['name'] not in skip))" "$OPT_IN_PLUGINS" 2>/dev/null
+    | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['plugins']))" 2>/dev/null
 }
 
 # In --dev, force a clean re-point to the local clone: remove the installed plugins
@@ -164,21 +159,6 @@ repoint_dev() {
     "$1" plugin "$2" "${plugin}@${MARKETPLACE_NAME}" >/dev/null 2>&1 || true
   done
   "$1" plugin marketplace remove "$MARKETPLACE_NAME" >/dev/null 2>&1 || true
-}
-
-# How to opt a repo into the QA MCP servers. Args: the runtimes to cover.
-print_qa_tools_hint() {
-  echo "  Browser/mobile QA (web-qa, mobile-qa) needs the QA MCP servers. They are opt-in;"
-  echo "  enable cortex-qa-web for browser QA, cortex-qa-mobile for mobile QA:"
-  local runtime
-  for runtime in "$@"; do
-    case "$runtime" in
-      claude)   echo -e "    Claude Code, in each repo:  ${GREEN}claude plugin install cortex-qa-<web|mobile>@${MARKETPLACE_NAME} --scope project${NC}" ;;
-      codex)    echo -e "    Codex, every session:       ${GREEN}codex plugin add cortex-qa-<web|mobile>@${MARKETPLACE_NAME}${NC}" ;;
-      opencode) echo    "    OpenCode, in each repo:     add the server(s) to opencode.json, see https://github.com/${MARKETPLACE_REPO}/blob/main/.opencode/INSTALL.md" ;;
-    esac
-  done
-  echo ""
 }
 
 ready_banner() {
@@ -271,104 +251,9 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Step 3: Asana token
+# Step 3: GitHub token for auto-updates
 # ─────────────────────────────────────────────
-step 3 "Asana personal access token"
-
-# If not in env but exists in profile, extract it directly
-if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ] && exists_in_profile "ASANA_PERSONAL_ACCESS_TOKEN"; then
-  ASANA_PERSONAL_ACCESS_TOKEN=$(grep "^export ASANA_PERSONAL_ACCESS_TOKEN=" "$PROFILE" | head -1 | sed 's/^export ASANA_PERSONAL_ACCESS_TOKEN="//' | sed 's/"$//')
-  export ASANA_PERSONAL_ACCESS_TOKEN
-  pass "Loaded ASANA_PERSONAL_ACCESS_TOKEN from ${PROFILE}"
-fi
-
-# If still not set, prompt the user (optional — blank skips)
-if [ -z "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
-  warn "ASANA_PERSONAL_ACCESS_TOKEN not set"
-  info "Used for Asana API operations (task management, comments, board moves)"
-  info "Optional: with an Asana MCP server connected in your agent, the skills run without it"
-  info "Generate one at: https://app.asana.com/0/my-apps → Create new token"
-  echo ""
-  read -rp "  Paste your Asana personal access token (leave blank to skip): " ASANA_TOKEN_INPUT || true
-  if [ -n "$ASANA_TOKEN_INPUT" ]; then
-    add_to_profile "ASANA_PERSONAL_ACCESS_TOKEN" "$ASANA_TOKEN_INPUT"
-  else
-    warn "Skipped — Asana-backed skills need this token or a connected Asana MCP server"
-    info "Set it later: export ASANA_PERSONAL_ACCESS_TOKEN=\"<token>\" in ${PROFILE}, then re-run setup.sh"
-  fi
-fi
-
-if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
-  pass "ASANA_PERSONAL_ACCESS_TOKEN is set"
-
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "Authorization: Bearer $ASANA_PERSONAL_ACCESS_TOKEN" \
-    "https://app.asana.com/api/1.0/users/me")
-
-  if [ "$HTTP_STATUS" = "200" ]; then
-    ASANA_USER=$(curl -s -H "Authorization: Bearer $ASANA_PERSONAL_ACCESS_TOKEN" \
-      "https://app.asana.com/api/1.0/users/me?opt_fields=name,email" \
-      | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f\"{d['name']} ({d['email']})\")" 2>/dev/null || echo "unknown")
-    pass "Token valid — ${ASANA_USER}"
-  elif [ "$HTTP_STATUS" = "401" ]; then
-    warn "Token is invalid or expired (HTTP 401) — you can regenerate later"
-    info "Regenerate at: https://app.asana.com/0/my-apps"
-  else
-    warn "Asana API returned HTTP ${HTTP_STATUS} — could not verify token"
-  fi
-fi
-
-# Optional: additional Asana accounts
-if [ -n "${ASANA_PERSONAL_ACCESS_TOKEN:-}" ]; then
-  echo ""
-  read -rp "  Add additional Asana accounts (ASANA_TOKEN_<NAME>)? [y/N] " ADD_MORE || true
-  ADD_MORE=${ADD_MORE:-N}
-  if [[ "$ADD_MORE" =~ ^[Yy]$ ]]; then
-    while true; do
-      echo ""
-      read -rp "  Account name (e.g. 'work', 'client_x') — leave blank to stop: " ACCT_NAME
-      [ -z "$ACCT_NAME" ] && break
-
-      # Uppercase and prefix
-      ACCT_VAR="ASANA_TOKEN_$(printf "%s" "$ACCT_NAME" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_' '_')"
-
-      if exists_in_profile "$ACCT_VAR"; then
-        warn "${ACCT_VAR} already exists in ${PROFILE} — skipping"
-        continue
-      fi
-
-      read -rp "  Paste token for ${ACCT_VAR}: " ACCT_TOKEN_INPUT
-      if [ -z "$ACCT_TOKEN_INPUT" ]; then
-        warn "No token provided — skipping ${ACCT_VAR}"
-        continue
-      fi
-
-      add_to_profile "$ACCT_VAR" "$ACCT_TOKEN_INPUT"
-
-      # Validate
-      ACCT_HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "Authorization: Bearer $ACCT_TOKEN_INPUT" \
-        "https://app.asana.com/api/1.0/users/me")
-
-      if [ "$ACCT_HTTP" = "200" ]; then
-        ACCT_USER=$(curl -s -H "Authorization: Bearer $ACCT_TOKEN_INPUT" \
-          "https://app.asana.com/api/1.0/users/me?opt_fields=name,email" \
-          | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f\"{d['name']} ({d['email']})\")" 2>/dev/null || echo "unknown")
-        pass "${ACCT_VAR} valid — ${ACCT_USER}"
-      elif [ "$ACCT_HTTP" = "401" ]; then
-        warn "${ACCT_VAR} token is invalid or expired (HTTP 401)"
-        info "Regenerate at: https://app.asana.com/0/my-apps"
-      else
-        warn "Asana API returned HTTP ${ACCT_HTTP} for ${ACCT_VAR} — could not verify"
-      fi
-    done
-  fi
-fi
-
-# ─────────────────────────────────────────────
-# Step 4: GitHub token for auto-updates
-# ─────────────────────────────────────────────
-step 4 "GitHub token (for background auto-updates)"
+step 3 "GitHub token (for background auto-updates)"
 
 # If not in env but exists in profile, extract it directly
 if [ -z "${GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ] && exists_in_profile "GITHUB_TOKEN"; then
@@ -405,33 +290,8 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Step 5: OpenCode configuration
+# Step 4: Agent configuration
 # ─────────────────────────────────────────────
-
-# Design skills every visual change must apply (APPLY_DESIGN_STANDARDS in
-# plugins/cortex-workflow/references/runtime-bindings.md). They are not plugins, so
-# they install through the `skills` CLI into the agent's global skills directory.
-# Non-fatal: the design standards gate blocks visual work until they are present.
-install_design_skills() {
-  local agent="$1"
-  if ! command -v npx &>/dev/null; then
-    warn "npx not found — install Node.js, then install the design skills manually:"
-    warn "  npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a ${agent} -y"
-    warn "  npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a ${agent} -y"
-    return 0
-  fi
-  info "Installing design skills for ${agent}..."
-  if npx -y skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a "$agent" -y >/dev/null 2>&1; then
-    pass "Design skill installed: design-taste-frontend"
-  else
-    warn "Could not install design-taste-frontend — run: npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a ${agent} -y"
-  fi
-  if npx -y skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a "$agent" -y >/dev/null 2>&1; then
-    pass "Design skills installed: apple-design, emil-design-eng"
-  else
-    warn "Could not install apple-design / emil-design-eng — run: npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a ${agent} -y"
-  fi
-}
 
 configure_opencode() {
   local CONFIG_DIR="${HOME}/.config/opencode"
@@ -453,8 +313,7 @@ configure_opencode() {
 import json, sys, os
 
 config_path = sys.argv[1]
-cortex_entry = "cortex-workflow@git+https://github.com/SIROC-Labs/cortex.git"
-superpowers_entry = "superpowers@git+https://github.com/obra/superpowers.git"
+cortex_entry = "siroc-cortex@git+https://github.com/SIROC-Labs/cortex.git"
 
 # In --dev mode, argv[2] is the local clone path; use it instead of the git+ URL.
 script_root = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -490,34 +349,16 @@ def spec_name(spec):
         base = base.rsplit("/", 1)[-1]
     return base
 
-# In --dev, force the local cortex-workflow path by dropping any existing entry first,
-# so the local clone replaces it instead of being skipped by the dedupe below.
-if dev:
-    plugins = [p for p in plugins if spec_name(p) != "cortex-workflow"]
+# Drop the removed cortex-workflow package. In --dev, also drop any existing siroc-cortex
+# entry, so the local clone replaces it instead of being skipped by the dedupe below.
+stale = {"cortex-workflow"} | ({"siroc-cortex"} if dev else set())
+plugins = [p for p in plugins if spec_name(p) not in stale]
 
-# Add each plugin by canonical name, so an entry already present in ANY spec form
-# (e.g. a pinned or differently-sourced superpowers) is respected instead of duplicated.
-existing = {spec_name(p) for p in plugins}
-for name, entry in (("cortex-workflow", cortex_entry), ("superpowers", superpowers_entry)):
-    if name not in existing:
-        plugins.append(entry)
-        existing.add(name)
+# Dedupe by canonical name, so an entry already present in ANY spec form is respected
+# instead of duplicated.
+if "siroc-cortex" not in {spec_name(p) for p in plugins}:
+    plugins.append(cortex_entry)
 config["plugin"] = plugins
-
-# The QA MCP servers (plugins/cortex-qa-{web,mobile}/.mcp.json) are opt-in per project:
-# each repo that runs browser/mobile QA declares them in its own opencode.json.
-
-perm = config.get("permission", {})
-ext = perm.get("external_directory", {})
-# Whitelist paths the plugin needs to read/write outside the project directory
-ext["~/.cortex/cortex-workflow/*"] = "allow"
-# ^ checkpoint files and board registry cache (written by checkpoint.sh, read by skills)
-ext["~/.config/opencode/opencode.json"] = "allow"
-# ^ dependency check reads opencode.json to verify superpowers is installed
-ext["/tmp/qa-evidence/*"] = "allow"
-# ^ QA screenshots and recordings saved during web-qa / mobile-qa investigations
-perm["external_directory"] = ext
-config["permission"] = perm
 
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
@@ -535,11 +376,9 @@ PYEOF
 
   # Clear plugin cache to force fresh install on restart
   if [ -d "$CACHE_DIR" ]; then
-    rm -rf "${CACHE_DIR}/cortex-workflow" 2>/dev/null || true
+    rm -rf "${CACHE_DIR}/cortex-workflow" "${CACHE_DIR}/siroc-cortex" 2>/dev/null || true
     info "Plugin cache cleared"
   fi
-
-  install_design_skills opencode
   return 0
 }
 
@@ -562,11 +401,8 @@ configure_codex() {
     # Validate the local marketplace + per-plugin manifests before registering them.
     local MANIFESTS=("${SCRIPT_DIR}/.agents/plugins/marketplace.json")
     local p
-    for p in $PLUGINS $OPT_IN_PLUGINS; do
+    for p in $PLUGINS; do
       MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.codex-plugin/plugin.json")
-    done
-    for p in $OPT_IN_PLUGINS; do
-      MANIFESTS+=("${SCRIPT_DIR}/plugins/${p}/.mcp.json")
     done
     local manifest
     for manifest in "${MANIFESTS[@]}"; do
@@ -602,18 +438,12 @@ PYEOF
     return 1
   fi
 
-  # The QA MCP servers ship in the opt-in cortex-qa-web (chrome-devtools) and
-  # cortex-qa-mobile (mobile-mcp) plugins (.codex-plugin/plugin.json -> ./.mcp.json);
-  # each loads when its plugin is added — no `codex mcp add` needed. Neither is
-  # installed here.
-
   if [ "$INSTALL_PLUGINS" != true ]; then
     info "Skipping plugin install — choose from the marketplace:"
     local p
     for p in $PLUGINS; do
       info "  codex plugin add ${p}@${MARKETPLACE_NAME}"
     done
-    info "  codex plugin add superpowers@openai-curated   (required by cortex-workflow)"
     info "  Or browse with /plugins inside Codex."
     return 0
   fi
@@ -631,19 +461,6 @@ PYEOF
     fi
   done
 
-  # superpowers is sourced from the official openai-curated catalog — its single
-  # canonical source — NOT from our marketplace. Codex does not dedupe identically
-  # named plugins across marketplaces, so shipping our own copy too would load its
-  # skills twice. `codex plugin add` is idempotent, so this runs unconditionally.
-  # Non-fatal: openai-curated may be unavailable in some environments.
-  if codex plugin add superpowers@openai-curated >/dev/null 2>&1; then
-    pass "Codex dependency installed: superpowers@openai-curated"
-  else
-    warn "Could not auto-install superpowers@openai-curated — install it manually:"
-    warn "  codex plugin add superpowers@openai-curated"
-  fi
-
-  install_design_skills codex
   return 0
 }
 
@@ -677,8 +494,6 @@ configure_claude() {
     return 0
   fi
 
-  # Installing a plugin auto-resolves its declared dependencies (e.g. feature-dev,
-  # superpowers) from claude-plugins-official via allowCrossMarketplaceDependenciesOn.
   local plugin
   for plugin in $PLUGINS; do
     info "Installing ${plugin} plugin (user scope)..."
@@ -692,7 +507,6 @@ configure_claude() {
     fi
   done
 
-  install_design_skills claude-code
   return 0
 }
 
@@ -738,7 +552,7 @@ if [ "$ALL" = true ]; then
   # non-zero return (and suspends `set -e` inside the function) instead of aborting
   # the script. A per-agent success/failure summary is printed at the end.
   # ─────────────────────────────────────────────
-  step 5 "Installing for all supported agents"
+  step 4 "Installing for all supported agents"
 
   # rc convention: 0 = installed, 2 = skipped (agent CLI absent), other = failed.
   CLAUDE_RC=0;   echo ""; info "── Claude Code ──"; configure_claude   || CLAUDE_RC=$?
@@ -753,7 +567,7 @@ if [ "$ALL" = true ]; then
     esac
   }
 
-  step 6 "Summary"
+  step 5 "Summary"
   echo ""
   echo -e "  Claude Code   $(agent_status "$CLAUDE_RC")"
   echo -e "  OpenCode      $(agent_status "$OPENCODE_RC")"
@@ -771,15 +585,14 @@ if [ "$ALL" = true ]; then
     echo "  Restart each installed agent to load the plugin and skills."
   fi
   echo ""
-  print_qa_tools_hint claude codex opencode
 elif [ "$OPENCODE" = true ]; then
   # ─────────────────────────────────────────────
   # OpenCode: configure plugin and show instructions
   # ─────────────────────────────────────────────
-  step 5 "OpenCode plugin configuration"
+  step 4 "OpenCode plugin configuration"
   configure_opencode
 
-  step 6 "Done"
+  step 5 "Done"
   ready_banner
   echo "  Restart OpenCode to pick up the changes."
   echo ""
@@ -787,18 +600,17 @@ elif [ "$OPENCODE" = true ]; then
   echo ""
   echo "  To update later, re-run: bash setup.sh --opencode"
   echo ""
-  print_qa_tools_hint opencode
 elif [ "$CODEX" = true ]; then
   # ─────────────────────────────────────────────
   # Codex: configure marketplace, plugins, and show instructions
   # ─────────────────────────────────────────────
-  step 5 "Codex plugin configuration"
+  step 4 "Codex plugin configuration"
   configure_codex
 
-  step 6 "Done"
+  step 5 "Done"
   ready_banner
   if [ "$INSTALL_PLUGINS" = true ]; then
-    echo "  ${PLUGINS_LABEL} + superpowers (from openai-curated) are installed."
+    echo "  ${PLUGINS_LABEL} are installed."
   else
     echo "  Marketplace ${MARKETPLACE_NAME} is registered — install the plugins you want:"
     echo -e "    ${GREEN}codex plugin add <plugin>@${MARKETPLACE_NAME}${NC}"
@@ -806,25 +618,23 @@ elif [ "$CODEX" = true ]; then
   echo ""
   echo "  Restart Codex to pick up the plugin metadata and skills."
   echo ""
-  print_qa_tools_hint codex
 else
   # ─────────────────────────────────────────────
   # Claude Code: install marketplace + plugin (user/global scope)
   # ─────────────────────────────────────────────
-  step 5 "Claude Code plugin installation"
+  step 4 "Claude Code plugin installation"
   pass "All prerequisites met"
   # Capture the return without tripping `set -e` (a bare call would abort on
   # a non-zero return before we could read it).
   CLAUDE_RC=0
   configure_claude || CLAUDE_RC=$?
 
-  step 6 "Done"
+  step 5 "Done"
   ready_banner
 
   if [ "$CLAUDE_RC" -eq 0 ]; then
     if [ "$INSTALL_PLUGINS" = true ]; then
-      echo "  ${PLUGINS_LABEL} are installed (user scope); declared dependencies"
-      echo "  (feature-dev, superpowers) were resolved automatically."
+      echo "  ${PLUGINS_LABEL} are installed (user scope)."
       echo ""
       echo "  Restart Claude Code to load the plugins and skills."
     else
@@ -838,7 +648,6 @@ else
     echo -e "    claude plugin list                                — See installed plugins"
     echo -e "    claude plugin update ${PRIMARY_PLUGIN}@${MARKETPLACE_NAME}  — Pull latest version"
     echo ""
-    print_qa_tools_hint claude
   else
     echo "  Claude Code CLI not found on PATH — finish install from inside Claude Code:"
     echo ""

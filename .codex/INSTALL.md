@@ -1,9 +1,8 @@
-# Installing cortex-workflow for Codex
+# Installing SIROC Cortex for Codex
 
 ## Prerequisites
 
 - Codex installed
-- `ASANA_PERSONAL_ACCESS_TOKEN` set in your environment (optional — needed for Asana-backed skills)
 
 ## Quick Install
 
@@ -19,14 +18,8 @@ instead).
 
 The setup script asks whether to install all plugins now or only register the
 marketplace so you can choose plugins yourself. When installing, it runs
-`codex plugin add` for you:
-`cortex-workflow`, `dev-toolkit` and `product` from the `siroc-cortex` marketplace, and the
-required `superpowers` dependency from the official `openai-curated` catalog
-(its single canonical source — Codex does not dedupe identically named plugins
-across marketplaces, so it is not shipped in `siroc-cortex`), plus the
-[design skills](../README.md#design-skills). It does not add
-`cortex-qa-web` or `cortex-qa-mobile`, the plugins with the QA MCP servers; see
-[MCP servers for browser and mobile QA](#mcp-servers-for-browser-and-mobile-qa).
+`codex plugin add` for `dev-toolkit` and `product` from the `siroc-cortex`
+marketplace.
 
 Restart Codex afterwards to pick up the plugins and skills — no `/plugins` step
 is required.
@@ -46,29 +39,15 @@ codex plugin marketplace add /absolute/path/to/cortex
 ```
 
 For the local form, use the repository root as the marketplace source, not
-`.agents/plugins/marketplace.json` and not `plugins/cortex-workflow`. Codex
+`.agents/plugins/marketplace.json` and not a folder under `plugins/`. Codex
 expects a marketplace root directory that contains
 `.agents/plugins/marketplace.json`.
 
 Then install the plugins from the shell:
 
 ```bash
-codex plugin add cortex-workflow@siroc-cortex
 codex plugin add dev-toolkit@siroc-cortex
 codex plugin add product@siroc-cortex
-codex plugin add superpowers@openai-curated
-```
-
-`superpowers` is sourced from the official `openai-curated` catalog, not from
-`siroc-cortex`. It is required for brainstorming, systematic debugging, TDD, and
-non-Claude feature implementation routing.
-
-Then install the design skills that all visual work has to use (see
-[Design skills](../README.md#design-skills)):
-
-```bash
-npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a codex -y
-npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a codex -y
 ```
 
 The marketplace manifest is:
@@ -77,43 +56,20 @@ The marketplace manifest is:
 .agents/plugins/marketplace.json
 ```
 
-The plugin manifest is:
+Each plugin's manifest is:
 
 ```text
-plugins/cortex-workflow/.codex-plugin/plugin.json
-```
-
-### MCP servers for browser and mobile QA
-
-`web-qa` and `mobile-qa` drive two MCP servers, `chrome-devtools` and
-`mobile-mcp`, shipped in the separate `cortex-qa-web` and `cortex-qa-mobile`
-plugins (`plugins/cortex-qa-web/.mcp.json`, `plugins/cortex-qa-mobile/.mcp.json`).
-Codex plugins are global and an enabled plugin starts its MCP server in every
-session, so add only the one you use:
-
-```bash
-codex plugin add cortex-qa-web@siroc-cortex      # browser QA
-codex plugin add cortex-qa-mobile@siroc-cortex   # mobile QA
-```
-
-If a server is unavailable, register it manually (the same commands as those
-`.mcp.json` files):
-
-```bash
-codex mcp add chrome-devtools -- sh -c 'bin=$(npx -y --package=chrome-devtools-mcp@latest -c "command -v chrome-devtools-mcp") || exit 1; exec "$bin" --experimentalScreencast --no-usage-statistics'
-codex mcp add mobile-mcp -- sh -c 'bin=$(npx -y --package=@mobilenext/mobile-mcp@latest -c "command -v mcp-server-mobile") || exit 1; exec "$bin"'
+plugins/<plugin>/.codex-plugin/plugin.json
 ```
 
 ## Verify
 
-Start a new Codex session and check that both cortex-workflow and superpowers
-skills are available. Key entry point: use the `start-task` skill with an Asana
-task URL.
+Start a new Codex session and check that the `dev-toolkit` and `product` skills
+are available.
 
-In the Codex CLI, use `/plugins` to verify the plugin is installed and enabled,
+In the Codex CLI, use `/plugins` to verify the plugins are installed and enabled,
 then use `/skills` to browse and invoke plugin skills. You can also ask in
-natural language, for example: "Use cortex-workflow start-task with this Asana
-task URL: <url>".
+natural language, for example: "Use create-prd with this document: <url>".
 
 In the Codex app, enabled skills also appear in the slash command list, and you
 can explicitly invoke skills by typing `$` in the composer.

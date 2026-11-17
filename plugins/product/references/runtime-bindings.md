@@ -11,7 +11,7 @@ Maps the abstract capabilities this plugin's skills need to the concrete skill t
 
 | Capability | Claude Code | OpenCode | Codex |
 |---|---|---|---|
-| `READ_TASK` | `cortex-workflow:task-manager` | `task-manager` | `cortex-workflow:task-manager` |
+| `READ_TASK` | — | — | — |
 | `RUN_INTERVIEW` | `superpowers:brainstorming` | `superpowers:brainstorming` | `superpowers:brainstorming` |
 
 **Resolution rules:**
