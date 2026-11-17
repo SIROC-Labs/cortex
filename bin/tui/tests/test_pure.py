@@ -141,6 +141,14 @@ class TestApp(unittest.TestCase):
         self.app.key("y")
         self.assertEqual(self.client.calls[-1][:3], ("stop", "web", "busy"))
 
+    def test_space_folds_and_unfolds_a_goal_s_parts(self):
+        self.app.key("j")
+        self.assertIn("busy--api", [g["id"] for g, _ in self.app.rows()])
+        self.app.key(" ")
+        self.assertNotIn("busy--api", [g["id"] for g, _ in self.app.rows()])
+        self.app.key(" ")
+        self.assertIn("busy--api", [g["id"] for g, _ in self.app.rows()])
+
     def test_nothing_to_answer_says_so(self):
         self.app.key("j")
         self.app.key("a")

@@ -25,7 +25,8 @@ DEFAULT_URL = "http://127.0.0.1:%s" % (os.environ.get("COND_PORT") or 4747)
 REFRESH = 2.0
 LOG_TAIL = 200000
 TONES = ("ok", "warn", "bad", "info")
-LIST_KEYS = "⏎ open · a answer · c approve · x stop · r carry on · o PR · w web · f finished · q quit"
+LIST_KEYS = ("⏎ open · space parts · a answer · c approve · x stop · r carry on · o PR · w web · "
+             "f finished · q quit")
 GOAL_KEYS = ("↑↓ step · ⏎ details · a answer · A in $EDITOR · c approve · x stop · r carry on · "
              "d done · L log · o PR · w web · ← back")
 LOG_KEYS = "↑↓ PgUp PgDn scroll · G end, follows · ← back"
@@ -111,7 +112,12 @@ def state_of(g):
     return st.get("text") or g.get("status") or "", st.get("tone") or "", st.get("label") or g.get("status") or ""
 
 
-def ordered(goals, show_finished=True):
+def all_finished(g, parts):
+    """Whether a goal and every part of it are finished: it then starts folded."""
+    return bool(g.get("finished")) and all(p.get("finished") for p in parts)
+
+
+def ordered(goals, show_finished=True, folded=None):
     """[(goal, is_part)]: waiting goals first, then running ones, then finished
     ones, newest first in each, each with all its parts after it. A finished goal
     shows while one of its parts is not finished."""
@@ -122,7 +128,8 @@ def ordered(goals, show_finished=True):
     for g in tops:
         parts = [p for p in goals if p.get("parent") == g["id"]]
         if show_finished or not g.get("finished") or any(not p.get("finished") for p in parts):
-            out += [(g, False)] + [(p, True) for p in parts]
+            fold = (folded or {}).get(g["id"], all_finished(g, parts))
+            out += [(g, False)] + ([] if fold else [(p, True) for p in parts])
     return out
 
 
@@ -274,7 +281,7 @@ class App(object):
     def __init__(self, client):
         self.client = client
         self.screen = "list"
-        self.goals, self.cursor, self.show_finished = [], 0, False
+        self.goals, self.cursor, self.show_finished, self.folded = [], 0, False, {}
         self.goal, self.where = None, None
         self.card, self.opened, self.follow = None, set(), True
         self.log_text, self.log_next, self.log_top, self.log_follow = "", -LOG_TAIL, 0, True
@@ -306,7 +313,7 @@ class App(object):
             self.message = str(e)
 
     def rows(self):
-        return ordered(self.goals, self.show_finished)
+        return ordered(self.goals, self.show_finished, self.folded)
 
     def selected(self):
         rows = self.rows()
@@ -402,6 +409,13 @@ class App(object):
             self.cursor = max(0, len(rows) - 1)
         elif k in ("\n", "KEY_ENTER", "KEY_RIGHT", "l") and rows:
             self.open(rows[min(self.cursor, len(rows) - 1)][0])
+        elif k == " " and rows:
+            g, part = rows[min(self.cursor, len(rows) - 1)]
+            top = next((x for x in self.goals if x["id"] == g.get("parent")), g) if part else g
+            if any(x.get("parent") == top["id"] for x in self.goals):
+                parts = [x for x in self.goals if x.get("parent") == top["id"]]
+                self.folded[top["id"]] = not self.folded.get(top["id"], all_finished(top, parts))
+                self.cursor = [r[0]["id"] for r in self.rows()].index(top["id"])
         elif k == "f":
             self.show_finished = not self.show_finished
             self.message = "finished goals shown" if self.show_finished else "finished goals hidden"

@@ -236,12 +236,17 @@ async function runsPage() {
       $("#list").innerHTML = `<div class="panel empty">${tops.length ? "No goal is running." : "No goals yet."} Write a prompt above to start one.</div>`;
       return;
     }
+    const folded = store.get("folded", {});
+    const isFolded = (g) => (g.id in folded ? folded[g.id] : !!g.finished && partsOf(g).every((p) => p.finished));
     const row = (g) => {
       const st = state(g);
+      const parts = g.parent ? [] : partsOf(g);
+      const fold = parts.length ? `<button class="fold" data-fold="${esc(g.id)}" title="${isFolded(g) ? "Show" : "Hide"} its parts">${isFolded(g) ? "▸" : "▾"}</button>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title">${esc(g.parent ? g.part || g.name : g.title || g.name)}
+          <div class="title">${fold}${esc(g.parent ? g.part || g.name : g.title || g.name)}
+            ${parts.length && isFolded(g) ? `<span class="badge">${parts.length} parts${parts.some((p) => p.waiting) ? " · one waits on you" : ""}</span>` : ""}
             ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>
@@ -254,7 +259,16 @@ async function runsPage() {
           <span class="faint">${esc(ago(g.updated || g.created))}</span>
         </div></div>`;
     };
-    $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + partsOf(g).map(row).join("")).join("")}</div>`;
+    $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + (isFolded(g) ? "" : partsOf(g).map(row).join(""))).join("")}</div>`;
+    document.querySelectorAll("[data-fold]").forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        const g = goals.find((x) => x.id === b.dataset.fold);
+        folded[g.id] = !isFolded(g);
+        store.set("folded", folded);
+        render(goals);
+      };
+    });
     document.querySelectorAll(".goal-row").forEach((el) => {
       el.onclick = () => { location.hash = `#/g/${encodeURIComponent(el.dataset.repo)}/${encodeURIComponent(el.dataset.id)}`; };
     });

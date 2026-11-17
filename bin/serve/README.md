@@ -26,7 +26,8 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
 
 - **Runs:** a prompt box on top (type, paste or drop images and files, pick the repo, and
   the branch it goes into if not the default; ⌘⏎ starts it), then the goals, those
-  waiting on you first, each with its parts nested under it. Finished goals are hidden:
+  waiting on you first, each with its parts nested under it; ▸ folds them, and a goal
+  finished with all its parts starts folded. Finished goals are hidden:
   *Show finished* shows them; one with a part still at work stays. The nav
   counts the goals waiting on you.
 - **A goal:** what it waits on you for, at the top: its questions with their options (a

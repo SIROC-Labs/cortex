@@ -222,3 +222,6 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .hover:hover .pop { display: block; }
 .hover .pop .checklist { max-height: none; }
 a.goal-row { color: var(--text); text-decoration: none; }
+.fold { border: none; background: none; padding: 0 6px 0 0; color: var(--dim); font-size: 13px; }
+.fold:hover { color: var(--text); }
+.goal-row .title .badge { margin-left: 6px; font-weight: 400; }

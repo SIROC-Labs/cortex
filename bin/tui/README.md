@@ -30,6 +30,7 @@ step: what the lead said, and how each task ended. `L` tails its log.
 | `x` · `r` · `d` | stop it (asks first) · carry it on · mark it done (asks first) |
 | `L` | its log, which follows the end until you scroll up |
 | `o` · `w` | its PR · the goal on the web page |
+| `space` | fold or unfold a goal's parts (a finished goal's start folded) |
 | `f` | show or hide finished goals |
 | `q` | quit |
 
