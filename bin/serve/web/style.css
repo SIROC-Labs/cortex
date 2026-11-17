@@ -221,3 +221,4 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
   max-height: 60vh; overflow: auto; padding: 10px 14px; margin-top: 0; box-shadow: 0 8px 24px rgba(0,0,0,.12); color: var(--text); }
 .hover:hover .pop { display: block; }
 .hover .pop .checklist { max-height: none; }
+a.goal-row { color: var(--text); text-decoration: none; }

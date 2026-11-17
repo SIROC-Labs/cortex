@@ -357,11 +357,13 @@ function hoverList(label, items) {
 function planHtml(g) {
   const parts = (g.parts || []).length ? `<h2>Parts</h2>${g.parts.map((p) => {
     const st = state(p);
-    return `<div class="row" style="margin:4px 0"><span class="dot ${st.tone}"></span>
-      <a class="grow" href="#/g/${encodeURIComponent(g.repo)}/${encodeURIComponent(p.id)}">${esc(p.part || p.name)}</a>
-      <span class="badge ${st.tone}">${esc(st.label)}</span></div>`;
+    return `<a class="goal-row part-row" href="#/g/${encodeURIComponent(g.repo)}/${encodeURIComponent(p.id)}">
+      <span class="dot ${st.tone}"></span>
+      <div class="grow"><div class="title">${esc(p.part || p.name)}</div><div class="doing">${esc(st.text)}</div></div>
+      <div class="meta">${p.round ? `<span>round ${p.round}</span>` : ""}${p.cost ? `<span>${money(p.cost)}</span>` : ""}
+        <span class="badge ${st.tone}">${esc(st.label)}</span></div></a>`;
   }).join("")}` : "";
-  const body = parts + (g.technical_plan ? `<div class="md">${md(g.technical_plan)}</div>` : "");
+  const body = (parts ? `<h2>Parts</h2><div class="panel goals">${parts.replace("<h2>Parts</h2>", "")}</div>` : "") + (g.technical_plan ? `<div class="md">${md(g.technical_plan)}</div>` : "");
   return body || `<div class="faint">No technical plan${g.small ? ": small work has none" : " yet"}.</div>`;
 }
 
@@ -516,7 +518,7 @@ async function goalPage(repo, id) {
           ${g.round ? `<span>round ${g.round}</span>` : ""}
           ${hoverList("steps", checklist(g.journal, "plan"))}
           ${hoverList("criteria", checklist(g.journal, "acceptance criteria"))}
-          ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
+          ${g.cost ? `<span title="${g.own_cost != null ? "its own " + money(g.own_cost) + ", the rest its parts'" : ""}">${money(g.cost)}${g.own_cost != null ? " with its parts" : ""}</span>` : ""}
           ${g.branch ? `<span><code>${esc(g.branch)}</code> → <code>${esc(g.base || "main")}</code></span>` : ""}
           ${g.pr_url ? `<a href="${esc(g.pr_url)}" target="_blank">PR #${esc((g.pr_url.match(/\d+$/) || [""])[0])}</a>` : ""}
           ${g.parent ? `<a href="#/g/${encodeURIComponent(repo)}/${encodeURIComponent(g.parent)}">its goal</a>` : ""}

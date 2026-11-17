@@ -251,6 +251,9 @@ def detail(main_root, gid):
                             rates)
                     for p in (gl.Goal(main_root, x["id"]).read() for x in data.get("parts") or [])
                     if p]
+    if out["parts"]:
+        out["own_cost"] = out.get("cost")
+        out["cost"] = (out.get("cost") or 0) + sum(p.get("cost") or 0 for p in out["parts"])
     log_text = _text(goal.log) or ""
     out["log_size"] = len(log_text.encode())
     out["timeline"] = cards(timeline(log_text, data.get("created"), priced))
