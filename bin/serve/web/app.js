@@ -551,15 +551,53 @@ async function settingsPage() {
       <div class="field"><label>Checker</label><div><input id="m-check" list="models" value="${esc(s.models.check)}">
         <div class="help">Reviews the plan before the build, and verifies the branch after.</div></div></div>
       <div class="field"><label>Checker effort</label><div><select id="m-effort">${EFFORTS.map((e) =>
-        `<option${e === s.models.check_effort ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>
-      <div class="row"><span class="grow"></span><button class="primary" id="save">Save</button></div>`;
+        `<option${e === s.models.check_effort ? " selected" : ""}>${e}</option>`).join("")}</select>
+        <div class="help">Claude models only.</div></div></div>
+      <p class="help dim">A Claude model (<code>claude-…</code>) runs through <code>claude -p</code> on your subscription.
+        A <code>provider/model</code> name runs through OpenCode on that provider's API key, such as
+        <code>openai/gpt-5</code>, <code>openrouter/…</code>, or a provider below. Keys stay in <code>~/.zshrc</code>.</p>
+      <h4>Providers for OpenCode</h4>
+      <div class="help dim" style="margin-bottom:8px">Any OpenAI-compatible endpoint. OpenCode's own providers
+        (OpenAI, Anthropic, OpenRouter…) need no entry, only their key in the environment.</div>
+      <div id="providers"></div>
+      <button id="addprov">+ Provider</button>
+      <div class="row" style="margin-top:16px"><span class="grow"></span><button class="primary" id="save">Save</button></div>`;
+    const provs = (s.providers || []).map((p) => ({ ...p }));
+    const drawProviders = () => {
+      $("#providers").innerHTML = provs.map((p, i) => `<div class="panel" style="padding:10px;margin-bottom:8px" data-i="${i}">
+        <div class="field"><label>Id</label><input data-k="id" value="${esc(p.id || "")}" placeholder="acme"></div>
+        <div class="field"><label>Base URL</label><input data-k="base_url" value="${esc(p.base_url || "")}" placeholder="https://llm.acme.example/v1"></div>
+        <div class="field"><label>Key variable</label><div><input data-k="key_env" value="${esc(p.key_env || "")}" placeholder="ACME_API_KEY">
+          <div class="help">The name of the variable in <code>~/.zshrc</code>, never the key.</div></div></div>
+        <div class="field"><label>Models</label><div><input data-k="models" value="${esc((p.models || []).join(", "))}" placeholder="qwen3-coder, kimi-k2">
+          <div class="help">Used as <code>${esc(p.id || "id")}/model</code>.</div></div></div>
+        <div class="field"><label>Price per M tokens</label><div class="row">
+          <input data-k="input_price" type="number" min="0" step="0.01" value="${p.input_price ?? ""}" placeholder="in $">
+          <input data-k="output_price" type="number" min="0" step="0.01" value="${p.output_price ?? ""}" placeholder="out $"></div></div>
+        <div class="row"><span class="grow"></span><button class="danger" data-rm="${i}">Remove</button></div></div>`).join("");
+    };
+    drawProviders();
+    $("#providers").oninput = (e) => {
+      const box = e.target.closest("[data-i]");
+      if (!box || !e.target.dataset.k) return;
+      const p = provs[+box.dataset.i];
+      const k = e.target.dataset.k;
+      const v = e.target.value;
+      p[k] = k === "models" ? v.split(",").map((m) => m.trim()).filter(Boolean)
+        : k.endsWith("_price") ? (v === "" ? null : parseFloat(v)) : v.trim();
+    };
+    $("#providers").onclick = (e) => { if (e.target.dataset.rm) { provs.splice(+e.target.dataset.rm, 1); drawProviders(); } };
+    $("#addprov").onclick = () => { provs.push({ models: [] }); drawProviders(); };
+    $("#models").innerHTML = MODELS.concat(...provs.map((p) => (p.models || []).map((m) => `${p.id}/${m}`)))
+      .map((m) => `<option value="${esc(m)}">`).join("");
     $("#save").onclick = () => act(() => api("PUT", `/api/repos/${encodeURIComponent(current)}/settings`, {
       base: $("#base").value.trim() || null,
       usage_threshold: parseInt($("#threshold").value, 10),
       goal_gate: $("#gate").value,
       models: { lead: $("#m-lead").value.trim(), subagent: $("#m-subagent").value.trim(),
         check: $("#m-check").value.trim(), check_effort: $("#m-effort").value },
-    }), "Saved");
+      providers: provs,
+    }).then((r) => { form(); return r; }), "Saved");
   };
   $("#which").value = current;
   $("#which").onchange = (e) => { current = e.target.value; form(); };

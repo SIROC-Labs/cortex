@@ -533,14 +533,36 @@ def settings(main_root):
             "models": {"lead": models.get("lead") or gl.DEFAULT_MODEL,
                        "subagent": models.get("subagent") or gl.DEFAULT_SUBAGENT_MODEL,
                        "check": models.get("check") or gl.DEFAULT_CHECK_MODEL,
-                       "check_effort": models.get("check_effort") or gl.DEFAULT_CHECK_EFFORT}}
+                       "check_effort": models.get("check_effort") or gl.DEFAULT_CHECK_EFFORT},
+            "providers": control.get("providers") or []}
+
+
+def provider_problem(p):
+    """What is wrong with a custom provider, or None."""
+    if not isinstance(p, dict) or set(p) - {"id", "name", "base_url", "key_env", "models",
+                                            "input_price", "output_price"}:
+        return "a provider has id, base_url, key_env, models, and optionally input_price and output_price"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(p.get("id") or "")):
+        return "a provider's id is lowercase letters, digits, - and _"
+    if not re.match(r"^https?://\S+$", str(p.get("base_url") or "")):
+        return "%s: base_url is an http(s) URL" % p["id"]
+    if p.get("key_env") and not re.fullmatch(r"[A-Z_][A-Z0-9_]*", str(p["key_env"])):
+        return "%s: key_env is the name of an environment variable, not the key" % p["id"]
+    models = p.get("models")
+    if not (isinstance(models, list) and models and all(isinstance(m, str) and m.strip() and "/" not in m
+                                                          for m in models)):
+        return "%s: models is a list of model names" % p["id"]
+    for k in ("input_price", "output_price"):
+        if k in p and p[k] is not None and not (isinstance(p[k], (int, float)) and p[k] >= 0):
+            return "%s: %s is dollars per million tokens" % (p["id"], k)
+    return None
 
 
 def set_settings(main_root, changes):
     """Change some settings. Unknown keys and bad values are refused, all or none."""
     if not isinstance(changes, dict):
         raise Problem(400, "settings are an object")
-    unknown = set(changes) - {"base", "usage_threshold", "goal_gate", "models"}
+    unknown = set(changes) - {"base", "usage_threshold", "goal_gate", "models", "providers"}
     if unknown:
         raise Problem(400, "unknown settings: %s" % ", ".join(sorted(unknown)))
     base = changes.get("base")
@@ -558,7 +580,18 @@ def set_settings(main_root, changes):
         raise Problem(400, "a model is a name")
     if "check_effort" in models and models["check_effort"] not in EFFORTS:
         raise Problem(400, "check_effort is one of %s" % ", ".join(EFFORTS))
+    providers = changes.get("providers")
+    if "providers" in changes:
+        if not isinstance(providers, list):
+            raise Problem(400, "providers is a list")
+        problem = next((x for x in (provider_problem(p) for p in providers) if x), None)
+        if problem:
+            raise Problem(400, problem)
+        if len({p["id"] for p in providers}) != len(providers):
+            raise Problem(400, "two providers have the same id")
     with dm.control_file(main_root) as control:
+        if "providers" in changes:
+            control["providers"] = [{k: v for k, v in p.items() if v is not None} for p in providers]
         for key in ("base", "usage_threshold", "goal_gate"):
             if key in changes:
                 control[key] = changes[key] or None

@@ -46,6 +46,7 @@ import core as st  # noqa: E402
 import repos  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope, unattended  # noqa: E402
+from agent import opencode_cli as oc  # noqa: E402
 from ci import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
                     failed_runs, failure_excerpt, render_feedback)
 sys.path.insert(0, HERE)
@@ -2103,7 +2104,75 @@ class Runner(object):
             value = None
         return value if isinstance(value, int) else self.data.get("threshold", DEFAULT_THRESHOLD)
 
+    def uses_claude(self):
+        """Whether any of the goal's models runs on the Claude subscription, whose
+        usage limits it pauses for. Models on API keys have no such limits."""
+        return any(not oc.is_opencode(m) for m in (
+            self.data.get("model") or DEFAULT_MODEL, self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL,
+            self.check_model()))
+
+    def providers(self):
+        """The custom OpenCode providers, from the repo's settings, read each time."""
+        try:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+                return json.load(f).get("providers") or []
+        except (IOError, OSError, ValueError, AttributeError):
+            return []
+
+    def opencode_run(self, model, prompt, session, cwd, **rules):
+        """Start one OpenCode run in `cwd`. Returns the process."""
+        conf = oc.config(self.goal.state.dir, self.providers(),
+                         self.data.get("subagent_model") or DEFAULT_SUBAGENT_MODEL, **rules)
+        return subprocess.Popen(oc.command(model, prompt, session), cwd=cwd,
+                                env=oc.environment(os.environ, conf), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+
+    def call_opencode(self, prompt, session, label, model):
+        """One OpenCode call, as `call` makes a Claude one. No usage limit applies."""
+        building = label == "lead" and self.data.get("phase") == "building"
+        st.info("%s: calling opencode (%s)" % (label, model))
+        started = time.time()
+        self.child = self.opencode_run(model, prompt, session, self.data["worktree"],
+                                       readonly=label == "ci-fix", lead_building=building,
+                                       subagents=not building)
+        out, err = self.child.communicate()
+        code, self.child = self.child.returncode, None
+        text, telemetry = oc.parse_events(out.decode("utf-8", "replace"))
+        self.record_usage(label, model, None, session, started, telemetry)
+        if telemetry.get("denied"):
+            st.info("%s: refused %s" % (label, ", ".join(sorted(set(telemetry["denied"])))))
+        if telemetry.get("ok") is False:
+            return None, None, (telemetry.get("error") or err.decode("utf-8", "replace").strip()
+                                or "opencode exited %d" % code)
+        st.info("%s: %s steps" % (label, telemetry.get("turns") or "?"))
+        return extract_last_json_block(text), telemetry.get("stop_reason"), None
+
+    def record_usage(self, label, model, effort, session, started, telemetry, name=None):
+        """Note an OpenCode call's tokens and cost, which its events report; the
+        runs its sub-agents made are not in them."""
+        usage = telemetry.get("usage")
+        if not usage:
+            return
+        at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.goal.state.write(st.USAGE_FILE, st.add_usage(
+            self.goal.state.read(st.USAGE_FILE), usage, label, model, at))
+        calls = self.goal.state.read(CALLS_FILE) or []
+        rounds = self.data.get("round") if label == "lead" else len(
+            [c for c in calls if c["label"] == label]) + 1
+        tokens = {k: usage.get(k) or 0 for k in ("input", "output", "cache_read", "cache_write")}
+        cost = usage.get("cost_usd") or None
+        calls.append(dict({"v": 2, "label": label, "round": rounds, "model": model, "effort": effort,
+                           "started": started, "session": session, "cost": cost,
+                           "main": {"model": model, "tokens": tokens, "seconds": time.time() - started,
+                                    "cost": cost}, "subagents": []},
+                          **({"name": name} if name else {})))
+        self.goal.state.write(CALLS_FILE, calls)
+        _, total = write_report(self.goal)
+        self.set(cost=total)
+
     def usage(self):
+        if not self.uses_claude():
+            return []
         code, out, _ = st.run(["claude", "-p", "/usage", "--output-format", "json"],
                               cwd=self.main_root, check=False)
         text = out
@@ -2145,6 +2214,8 @@ class Runner(object):
         cut off because the usage crossed the threshold returns stop_reason
         "usage"; its session carries on afterwards."""
         model = model or self.data["model"]
+        if oc.is_opencode(model):
+            return self.call_opencode(prompt, session, label, model)
         flag = self.goal.state.path(WIND_FILE)
         if os.path.exists(flag):
             os.remove(flag)
@@ -2825,6 +2896,15 @@ class Runner(object):
             prompt = render(os.path.join(PROMPTS, "task.md"), brief=task["brief"].strip(),
                             worktree=cwd, branch=run["branch"], start=start.strip()[:12],
                             testing=" The testing guide is %s." % guides if guides else "")
+        if oc.is_opencode(model):
+            st.info("%s: %s on %s" % ("question" if explore else "task", name, model))
+            self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
+                            started=run["started"], name=name)
+            run["harness"] = "opencode"
+            run["child"] = self.opencode_run(model, prompt, run["session"], cwd, readonly=explore,
+                                             subagents=False)
+            self.children.append(run["child"])
+            return run
         settings = self.goal.state.path("settings-%s.json" % run["session"][:8])
         mode, allow = unattended(model, [cwd, self.goal.state.dir], [])
         with open(settings, "w") as f:
@@ -2889,13 +2969,19 @@ class Runner(object):
         """A task's report for the lead; a coding task's branch merged into the goal's."""
         self.children.remove(run["child"])
         out = run.get("out") or b""
-        self.record_call("explore" if run["explore"] else "task", run["model"], None,
-                         run["session"], run["started"], out, name=run["name"])
-        try:
-            os.remove(run["settings"])
-        except OSError:
-            pass
-        text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
+        label = "explore" if run["explore"] else "task"
+        if run.get("harness") == "opencode":
+            text, telemetry = oc.parse_events(out.decode("utf-8", "replace"))
+            self.record_usage(label, run["model"], None, run["session"], run["started"], telemetry,
+                              name=run["name"])
+        else:
+            self.record_call(label, run["model"], None, run["session"], run["started"], out,
+                             name=run["name"])
+            try:
+                os.remove(run["settings"])
+            except OSError:
+                pass
+            text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
         block = extract_last_json_block(text) or {}
         report = {"name": run["name"], "kind": "explore" if run["explore"] else "code"}
         if run.get("cut"):

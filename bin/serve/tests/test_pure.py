@@ -210,6 +210,23 @@ class TestCards(unittest.TestCase):
         self.assertIsNone(cs[-1]["until"])
 
 
+class TestProviders(Repo):
+    def test_custom_providers_name_the_key_s_variable_and_are_checked(self):
+        good = {"id": "acme", "base_url": "https://llm.acme/v1", "key_env": "ACME_KEY",
+                "models": ["qwen3-coder"], "input_price": 0.5, "output_price": None}
+        self.assertEqual(ac.set_settings(self.root, {"providers": [good]})["providers"],
+                         [{"id": "acme", "base_url": "https://llm.acme/v1", "key_env": "ACME_KEY",
+                           "models": ["qwen3-coder"], "input_price": 0.5}])
+        for bad in (dict(good, key_env="sk-live-123"), dict(good, id="Acme Co"), dict(good, base_url="ftp://x"),
+                    dict(good, models=[]), dict(good, models=["acme/q"]), dict(good, extra=1),
+                    dict(good, input_price=-1)):
+            with self.assertRaises(ac.Problem):
+                ac.set_settings(self.root, {"providers": [bad]})
+        with self.assertRaises(ac.Problem):
+            ac.set_settings(self.root, {"providers": [good, good]})
+        self.assertEqual(ac.set_settings(self.root, {"providers": []})["providers"], [])
+
+
 class TestHTTP(Repo):
     def setUp(self):
         Repo.setUp(self)
