@@ -112,20 +112,25 @@ def state_of(g):
 
 
 def ordered(goals, show_finished=True):
-    """[(goal, is_part)]: every goal and part, each a run of its own: waiting ones
-    first, then running ones, then finished ones, newest first in each."""
+    """[(goal, is_part)]: waiting goals first, then running ones, then finished
+    ones, newest first in each, each with all its parts after it. A finished goal
+    shows while one of its parts is not finished."""
+    tops = [g for g in goals if not g.get("parent")]
     rank = lambda g: 0 if g.get("waiting") else 1 if not g.get("finished") else 2  # noqa: E731
-    runs = sorted(goals, key=lambda g: (rank(g), -(g.get("created") or 0)))
-    return [(g, bool(g.get("parent"))) for g in runs if show_finished or not g.get("finished")]
+    tops.sort(key=lambda g: (rank(g), -(g.get("created") or 0)))
+    out = []
+    for g in tops:
+        parts = [p for p in goals if p.get("parent") == g["id"]]
+        if show_finished or not g.get("finished") or any(not p.get("finished") for p in parts):
+            out += [(g, False)] + [(p, True) for p in parts]
+    return out
 
 
 def row_text(g, part, width, many_repos=False, now=None):
     """(left, right) of a goal's row: its label and title, then its facts."""
     text, _, label = state_of(g)
-    title = (g.get("part") or g.get("name") or "") if part else (g.get("title") or g.get("name") or g["id"])
-    if part:
-        title += "  (part of %s)" % (g.get("parent_title") or g.get("parent"))
-    if many_repos:
+    title = ("  └ " + (g.get("part") or g.get("name") or "")) if part else (g.get("title") or g.get("name") or g["id"])
+    if many_repos and not part:
         title += "  [%s]" % g.get("repo")
     facts = [x for x in ("%d agents" % g["agents_running"] if g.get("agents_running") else "",
                          "plan %d/%d" % (g["plan"]["done"], g["plan"]["total"]) if g.get("plan") else "",

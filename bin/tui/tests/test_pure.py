@@ -52,10 +52,14 @@ class FakeClient(object):
 
 
 class TestHelpers(unittest.TestCase):
-    def test_goals_and_parts_are_runs_waiting_first_then_running_then_finished(self):
+    def test_waiting_goals_first_then_running_then_finished_each_with_its_parts(self):
         self.assertEqual([(g["id"], part) for g, part in tui.ordered(GOALS)],
                          [("asks", False), ("busy", False), ("busy--api", True), ("done-1", False)])
         self.assertNotIn("done-1", [g["id"] for g, _ in tui.ordered(GOALS, show_finished=False)])
+        done = [goal("old", finished=True), goal("old--a", parent="old", part="A", finished=True),
+                goal("old--b", parent="old", part="B")]
+        self.assertEqual([g["id"] for g, _ in tui.ordered(done, show_finished=False)], ["old", "old--a", "old--b"])
+        self.assertEqual(tui.ordered(done[:2], show_finished=False), [])
 
     def test_status_lines_flag_what_waits_and_give_the_pr(self):
         lines = tui.status_lines(GOALS, NOW)
@@ -63,7 +67,7 @@ class TestHelpers(unittest.TestCase):
         self.assertIn("the plan waits on your review", lines[0])
         self.assertTrue(lines[0].endswith("https://gh/pr/7"))
         self.assertIn("busy — working  ·  plan 2/5  round 3  $4.50  now", lines[1])
-        self.assertIn("API  (part of busy)", lines[2])
+        self.assertIn("└ API", lines[2])
         self.assertEqual(tui.status_lines([]), ["no goals"])
 
     def test_a_plan_s_wait_says_how_to_approve_and_questions_show_their_options(self):
