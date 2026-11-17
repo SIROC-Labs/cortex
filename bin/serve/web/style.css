@@ -210,3 +210,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .providers td input { width: 100%; }
 .providers td:nth-child(5), .providers td:nth-child(6) { width: 80px; }
 .roles tr:first-child td { border-top: none; }
+.count { background: var(--warn); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; font-weight: 600; margin-left: 4px; }
+#goals-head h2 { margin-bottom: 10px; }
+#goals-head button { font-size: 12px; padding: 3px 10px; }
+.tab-body .checklist { max-height: none; font-size: 13.5px; }

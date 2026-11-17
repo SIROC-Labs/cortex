@@ -126,7 +126,8 @@ async function runsPage() {
         <button class="primary" id="start">Start goal</button>
       </div>
     </div>
-    <h2>Goals</h2>
+    <div class="row" id="goals-head" style="justify-content:space-between"><h2>Goals</h2>
+      <button id="toggle-finished" hidden></button></div>
     <div id="list"></div>`;
   const files = [];
   const chips = () => {
@@ -188,15 +189,25 @@ async function runsPage() {
   $("#prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start(); });
 
   const many = repos.length > 1;
-  let showAll = false;
+  let showFinished = store.get("finished", false);
+  let last = [];
+  $("#goals-head").onclick = (e) => {
+    if (e.target.id !== "toggle-finished") return;
+    showFinished = !showFinished;
+    store.set("finished", showFinished);
+    render(last);
+  };
   const render = (goals) => {
+    last = goals;
     const tops = goals.filter((g) => !g.parent);
     const rank = (g) => (g.waiting ? 0 : !g.finished ? 1 : 2);
     tops.sort((a, b) => rank(a) - rank(b) || (b.created || 0) - (a.created || 0));
     const finishedCount = tops.filter((g) => g.finished).length;
-    const shown = tops.filter((g) => showAll || !g.finished || tops.indexOf(g) < 8);
-    if (!tops.length) {
-      $("#list").innerHTML = `<div class="panel empty">No goals yet. Write a prompt above to start one.</div>`;
+    const shown = tops.filter((g) => showFinished || !g.finished);
+    $("#toggle-finished").textContent = `${showFinished ? "Hide" : "Show"} finished (${finishedCount})`;
+    $("#toggle-finished").hidden = !finishedCount;
+    if (!shown.length) {
+      $("#list").innerHTML = `<div class="panel empty">${tops.length ? "No goal is running." : "No goals yet."} Write a prompt above to start one.</div>`;
       return;
     }
     const row = (g, part) => {
@@ -218,10 +229,7 @@ async function runsPage() {
         </div></div>`;
     };
     $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + goals
-      .filter((p) => p.parent === g.id && !g.finished).map((p) => row(p, true)).join("")).join("")}
-      ${finishedCount > 8 && !showAll ? `<div class="more"><a href="" id="all">Show all ${tops.length} goals</a></div>` : ""}</div>`;
-    const all = $("#all");
-    if (all) all.onclick = (e) => { e.preventDefault(); showAll = true; render(goals); };
+      .filter((p) => p.parent === g.id && !g.finished).map((p) => row(p, true)).join("")).join("")}</div>`;
     document.querySelectorAll(".goal-row").forEach((el) => {
       el.onclick = () => { location.hash = `#/g/${encodeURIComponent(el.dataset.repo)}/${encodeURIComponent(el.dataset.id)}`; };
     });
@@ -280,7 +288,7 @@ function waitingHtml(g) {
   if (a.kind === "plan") {
     return `<div class="waiting"><h3>${a.split ? "The split" : "The plan"} waits on your review</h3>
       ${a.detail ? `<div class="md">${md(a.detail)}</div>` : ""}
-      ${g.technical_plan ? `<p><a href="" data-tab="technical">Read the technical plan</a></p>` : ""}
+      <p><a href="" data-tab="plan">Review the steps, the acceptance criteria${g.technical_plan ? " and the technical plan" : ""} in the Plan tab ↓</a></p>
       <textarea id="answer" placeholder="To change it, say what to change: the lead revises the plan and it comes back to you."></textarea>
       <div class="buttons"><button class="primary" id="approve">Approve</button>
       <button id="send">Ask for changes</button></div></div>`;
@@ -311,23 +319,26 @@ function liveHtml(g) {
     ${a.action ? `<div class="action">${esc(a.action)}</div>` : ""}</div></div>`).join("")}</div>`;
 }
 
-function sideHtml(g) {
+function planHtml(g) {
   const block = (title, items) => {
     const real = items.filter((x) => !x.group);
     if (!real.length) return "";
     const done = real.filter((x) => x.done).length;
-    return `<div class="panel"><h4>${title}<span class="dim">${done}/${real.length}</span></h4>
+    return `<h2>${title} <span class="dim">${done}/${real.length}</span></h2>
       <div class="progress"><div class="fill" style="width:${Math.round((100 * done) / real.length)}%"></div></div>
       <ul class="checklist">${items.map((x) => x.group ? `<li class="group">${esc(x.group)}</li>`
-        : `<li class="${x.done ? "done" : ""}"><span>${x.done ? "✓" : "○"}</span><span>${esc(x.text)}</span></li>`).join("")}</ul></div>`;
+        : `<li class="${x.done ? "done" : ""}"><span>${x.done ? "✓" : "○"}</span><span>${esc(x.text)}</span></li>`).join("")}</ul>`;
   };
-  const parts = (g.parts || []).length ? `<div class="panel"><h4>Parts</h4>${g.parts.map((p) => {
+  const parts = (g.parts || []).length ? `<h2>Parts</h2>${g.parts.map((p) => {
     const st = state(p);
     return `<div class="row" style="margin:4px 0"><span class="dot ${st.tone}"></span>
       <a class="grow" href="#/g/${encodeURIComponent(g.repo)}/${encodeURIComponent(p.id)}">${esc(p.part || p.name)}</a>
       <span class="badge ${st.tone}">${esc(st.label)}</span></div>`;
-  }).join("")}</div>` : "";
-  return parts + block("Plan", checklist(g.journal, "plan")) + block("Acceptance criteria", checklist(g.journal, "acceptance criteria"));
+  }).join("")}` : "";
+  const body = parts + block("Steps", checklist(g.journal, "plan")) +
+    block("Acceptance criteria", checklist(g.journal, "acceptance criteria")) +
+    (g.technical_plan ? `<h2>Technical plan</h2><div class="md">${md(g.technical_plan)}</div>` : "");
+  return body || `<div class="faint">No plan yet${g.small ? ": small work has none" : ""}.</div>`;
 }
 
 function costsHtml(g) {
@@ -367,14 +378,14 @@ async function goalPage(repo, id) {
   view = { repo, id };
   const mine = view;
   const base = `/api/repos/${encodeURIComponent(repo)}/goals/${encodeURIComponent(id)}`;
-  const ui = { open: new Set(), tab: store.get("tab", "timeline"), waitKey: null, sig: {}, log: { next: 0, text: "" }, follow: true };
+  const ui = { open: new Set(), tab: ["timeline", "plan", "ask", "journal", "cost", "log"].includes(store.get("tab")) ? store.get("tab") : "timeline", waitKey: null, sig: {}, log: { next: 0, text: "" }, follow: true };
   $("#main").innerHTML = `<a class="back" href="#/">← Runs</a>
     <div id="head"></div><div id="wait"></div><div id="live"></div>
     <div class="tabs" id="tabs">
-      <button data-t="timeline">Timeline</button><button data-t="journal">Journal</button>
-      <button data-t="technical">Technical plan</button><button data-t="ask">Ask</button>
+      <button data-t="timeline">Timeline</button><button data-t="plan">Plan</button>
+      <button data-t="ask">Ask</button><button data-t="journal">Journal</button>
       <button data-t="cost">Cost</button><button data-t="log">Log</button></div>
-    <div class="columns"><div class="tab-body" id="body"></div><div class="side" id="side"></div></div>`;
+    <div class="tab-body" id="body"></div>`;
   let g = null;
 
   const set = (sel, html, key) => {
@@ -410,8 +421,8 @@ async function goalPage(repo, id) {
       set("#body", html, "t" + JSON.stringify([g.timeline, [...ui.open], g.alive]));
     } else if (ui.tab === "journal") {
       set("#body", g.journal ? `<div class="md">${md(g.journal)}</div>` : `<div class="faint">No journal yet.</div>`, "j" + g.journal);
-    } else if (ui.tab === "technical") {
-      set("#body", g.technical_plan ? `<div class="md">${md(g.technical_plan)}</div>` : `<div class="faint">No technical plan${g.small ? ": small work has none" : " yet"}.</div>`, "p" + g.technical_plan);
+    } else if (ui.tab === "plan") {
+      set("#body", planHtml(g), "p" + g.journal + g.technical_plan + JSON.stringify(g.parts || []));
     } else if (ui.tab === "ask") {
       set("#body", filesHtml(g, base), "a" + g.ask + (g.files || []).join());
     } else if (ui.tab === "cost") {
@@ -427,7 +438,13 @@ async function goalPage(repo, id) {
     if (h) { const i = +h.dataset.i; ui.open.has(i) ? ui.open.delete(i) : ui.open.add(i); showTab(); }
   };
   $("#wait").onclick = async (e) => {
-    if (e.target.dataset.tab) { e.preventDefault(); ui.tab = e.target.dataset.tab; showTab(); return; }
+    if (e.target.dataset.tab) {
+      e.preventDefault();
+      ui.tab = e.target.dataset.tab;
+      showTab();
+      $("#tabs").scrollIntoView({ behavior: "smooth" });
+      return;
+    }
     const opt = e.target.closest(".opt");
     if (opt) {
       const box = $("#answer");
@@ -472,6 +489,8 @@ async function goalPage(repo, id) {
         <span class="badge ${st.tone}">${esc(st.label)}</span></div>
         <div class="facts"><span>${esc(st.text)}</span>
           ${g.round ? `<span>round ${g.round}</span>` : ""}
+          ${g.plan ? `<span>steps ${g.plan.done}/${g.plan.total}</span>` : ""}
+          ${g.criteria ? `<span>criteria ${g.criteria.done}/${g.criteria.total}</span>` : ""}
           ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
           ${g.branch ? `<span><code>${esc(g.branch)}</code> → <code>${esc(g.base || "main")}</code></span>` : ""}
           ${g.pr_url ? `<a href="${esc(g.pr_url)}" target="_blank">PR #${esc((g.pr_url.match(/\d+$/) || [""])[0])}</a>` : ""}
@@ -485,9 +504,12 @@ async function goalPage(repo, id) {
         ${can.undo ? `<button class="danger" data-act="undo">Undo</button>` : ""}
       </div></div>`);
     const waitKey = g.awaiting && g.awaiting.asked_at;
-    if (waitKey !== ui.waitKey) { ui.waitKey = waitKey; $("#wait").innerHTML = waitingHtml(g); }
+    if (waitKey !== ui.waitKey) {
+      ui.waitKey = waitKey;
+      $("#wait").innerHTML = waitingHtml(g);
+      if (waitKey && g.awaiting.kind === "plan") ui.tab = "plan";
+    }
     set("#live", liveHtml(g));
-    set("#side", sideHtml(g));
     showTab();
     if (ui.tab === "log" && $("#logbox")) {
       const chunk = await api("GET", `${base}/log?from=${ui.log.next}`);
@@ -637,5 +659,18 @@ async function settingsPage() {
   load();
 }
 
+async function waitingCount() {
+  try {
+    const goals = await api("GET", "/api/goals");
+    const n = goals.filter((g) => g.waiting).length;
+    const el = $("#waiting-count");
+    el.textContent = n;
+    el.hidden = !n;
+    el.title = n + " goal" + (n === 1 ? "" : "s") + " waiting on you";
+  } catch (e) { /* the page says so where it matters */ }
+  setTimeout(waitingCount, document.hidden ? 60000 : 10000);
+}
+
+window.addEventListener("DOMContentLoaded", waitingCount);
 window.addEventListener("hashchange", route);
 window.addEventListener("DOMContentLoaded", route);
