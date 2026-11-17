@@ -89,11 +89,11 @@ Restart Codex afterwards. For a `--dev` install, `git pull` your clone and re-ru
 
 ## Upgrading from cortex-workflow
 
-`cortex-workflow`, `cortex-qa-web` and `cortex-qa-mobile` no longer exist in the marketplace. Uninstall them:
+`cortex-workflow`, `cortex-qa-web` and `cortex-qa-mobile` no longer exist in the marketplace:
 
 | Agent | How |
 |---|---|
-| Claude Code | `/plugin uninstall cortex-workflow@siroc-cortex`, and the same for `cortex-qa-web` and `cortex-qa-mobile` where enabled |
+| Claude Code | Nothing. After the marketplace updates, Claude Code uninstalls them at the next session start and lists them under Flagged in `/plugin`. To do it by hand: `/plugin uninstall cortex-workflow@siroc-cortex`, and the same for `cortex-qa-web` and `cortex-qa-mobile` |
 | Codex | `codex plugin remove cortex-workflow@siroc-cortex`, and the same for `cortex-qa-web` and `cortex-qa-mobile` if added |
 | OpenCode | Re-run `bash setup.sh --opencode`. It replaces the `cortex-workflow` entry in `opencode.json` with `siroc-cortex` |
 

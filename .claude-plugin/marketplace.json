@@ -21,5 +21,11 @@
       "description": "Product definition skills: one-pagers, PRDs, and technical specs",
       "version": "0.2.0"
     }
-  ]
+  ],
+  "forceRemoveDeletedPlugins": true,
+  "renames": {
+    "cortex-workflow": null,
+    "cortex-qa-web": null,
+    "cortex-qa-mobile": null
+  }
 }
