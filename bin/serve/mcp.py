@@ -32,7 +32,7 @@ TOOLS = [
           {"repo": REPO, "goal": GOAL}, ["repo", "goal"]),
     _tool("goal_log", "The goal's log, what its runner did. Without `from`, its last 20 KB.",
           {"repo": REPO, "goal": GOAL, "from": {"type": "integer"}}, ["repo", "goal"]),
-    _tool("start_goal", "Start a goal: what to build, as text, Asana ticket links, or both, with "
+    _tool("start_goal", "Start a goal: what to build, in words and links, with "
                         "local files such as screenshots. The PR goes into the repo's Queue into "
                         "branch, else main, unless base names another.",
           {"repo": REPO, "prompt": {"type": "string"},

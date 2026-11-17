@@ -3660,7 +3660,7 @@ def main(argv):
     sub = parser.add_subparsers(dest="cmd", required=True)
     new = sub.add_parser("new", help="make a goal from a prompt")
     new.add_argument("prompt", nargs="?", default="-",
-                     help="what to build: text, Asana ticket links, or both; - (the default) "
+                     help="what to build, in words and links; - (the default) "
                           "reads it from stdin")
     new.add_argument("-f", "--file", action="append", default=[], dest="files",
                      help="a file to give with the prompt, such as an image; repeat for more")

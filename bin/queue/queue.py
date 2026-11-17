@@ -6,7 +6,7 @@
 #   cond queue undo <goal>...                                    # discard each goal, PR and branch
 #   cond queue list
 #
-# The prompt is what to build: text, Asana ticket links, or both. Without it, or
+# The prompt is what to build, in words and links. Without it, or
 # with -, it is read from stdin. Without --into, the PR goes into the TUI's Queue
 # into branch, else main.
 
@@ -61,7 +61,7 @@ def main(argv):
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("add", help="start a goal on a prompt")
     p.add_argument("prompt", nargs="?", default="-",
-                   help="what to build: text, Asana ticket links, or both; - (the default) "
+                   help="what to build, in words and links; - (the default) "
                         "reads it from stdin")
     p.add_argument("-f", "--file", action="append", default=[], dest="files",
                    help="a file to give with the prompt, such as an image; repeat for more")

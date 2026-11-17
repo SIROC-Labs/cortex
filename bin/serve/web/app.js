@@ -140,7 +140,7 @@ async function runsPage() {
   view = {};
   $("#main").innerHTML = `
     <div class="panel composer" id="composer">
-      <textarea id="prompt" placeholder="What should be built? Text, Asana links, or both. Paste or drop images and files. ⌘⏎ starts it."></textarea>
+      <textarea id="prompt" placeholder="What should be built? Write it, paste links, or drop images and files. ⌘⏎ starts it."></textarea>
       <div class="chips" id="chips"></div>
       <div class="bar">
         <button id="attach" title="Attach files">+ Files</button>
