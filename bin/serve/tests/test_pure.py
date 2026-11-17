@@ -141,6 +141,24 @@ class TestActions(Repo):
                          (60, "openai/gpt-x", ac.gl.DEFAULT_SUBAGENT_MODEL))
 
 
+class TestTimeline(unittest.TestCase):
+    def test_the_log_becomes_steps_with_their_lines_and_costs(self):
+        import time
+        created = time.mktime((2026, 11, 16, 13, 0, 0, 0, 0, -1))
+        text = ("13:21:42  Reading the ask\n  1 file(s)\n\n13:22:00  Round 1\n  lead: calling claude\n"
+                "Traceback: raw output\n\n23:59:00  Round 2\n\n01:40:22  Review comments on the PR\n")
+        steps = ac.timeline(text, created, [{"started": created + 22 * 60 + 5, "cost": 2.5},
+                                            {"started": created + 22 * 60 + 9, "cost": 0.5},
+                                            {"started": None, "cost": 9}])
+        self.assertEqual([s["title"] for s in steps],
+                         ["Reading the ask", "Round 1", "Round 2", "Review comments on the PR"])
+        self.assertEqual(steps[1]["lines"], ["lead: calling claude", "Traceback: raw output"])
+        self.assertEqual(steps[1]["cost"], 3.0)
+        self.assertEqual(steps[0]["at"], created + 21 * 60 + 42)
+        self.assertEqual(steps[3]["at"] - steps[2]["at"], 60 + 100 * 60 + 22)
+        self.assertEqual(ac.timeline("", created), [])
+
+
 class TestHTTP(Repo):
     def setUp(self):
         Repo.setUp(self)

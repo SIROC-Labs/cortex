@@ -20,6 +20,22 @@ working. `install` starts it through an interactive zsh, so it has the tokens fr
 TUI, the service), or with `--repo` or `POST /api/repos`. Its id is its folder's name. The
 list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
 
+## The web page
+
+`http://127.0.0.1:4747/`, served by the service: no build step, nothing to install.
+
+- **Runs:** a prompt box on top (type, paste or drop images and files, pick the repo, and
+  the branch it goes into if not the default; ⌘⏎ starts it), then the goals, those
+  waiting on you first.
+- **A goal:** what it waits on you for, at the top: its questions with their options (a
+  click adds one to the answer), or its plan with Approve and Ask for changes. What runs
+  now, agent by agent. Its timeline: every step from the log, in phases (setup, analysis
+  and plan, build, verify and ship, PR review, revisions), each round with the tasks it
+  handed out and how they ended, each check with its gaps, and the cost of each step. Its
+  plan and criteria, ticked, beside it. Tabs for the journal, the technical plan, the ask
+  and its files, the cost by agent, and the live log.
+- **Settings:** the repos, and each repo's branch, usage limit, plan approval and models.
+
 ## REST
 
 Every body is JSON. An error is `{"error": "..."}` with a 4xx status.

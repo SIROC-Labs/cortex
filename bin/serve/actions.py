@@ -175,11 +175,42 @@ def detail(main_root, gid):
                             rates)
                     for p in (gl.Goal(main_root, x["id"]).read() for x in data.get("parts") or [])
                     if p]
-    try:
-        out["log_size"] = os.path.getsize(goal.log)
-    except OSError:
-        out["log_size"] = 0
+    log_text = _text(goal.log) or ""
+    out["log_size"] = len(log_text.encode())
+    out["timeline"] = timeline(log_text, data.get("created"), priced)
+    out["live"] = gv.running_agents(data, processes=gv.claude_processes()) if data["alive"] else []
+    out["tasks_now"] = gv.tasks_now(data) or []
     return out
+
+
+STEP_LINE = re.compile(r"^(\d\d):(\d\d):(\d\d)  (\S.*)$")
+
+
+def timeline(text, created, calls=()):
+    """The log as steps: [{at, title, lines, cost}]. A step line carries only the
+    time of day, so the date runs on from `created`, a day on each time that goes
+    back. Each call's cost goes to the step it started in."""
+    steps, day = [], None
+    for line in (text or "").splitlines():
+        m = STEP_LINE.match(line)
+        if m:
+            h, mi, se = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if day is None:
+                day = time.mktime(time.localtime(created or time.time())[:3] + (0, 0, 0, 0, 0, -1))
+            at = time.mktime(time.localtime(day)[:3] + (h, mi, se, 0, 0, -1))
+            while steps and at < steps[-1]["at"] - 60:
+                day += 86400
+                at = time.mktime(time.localtime(day)[:3] + (h, mi, se, 0, 0, -1))
+            steps.append({"at": at, "title": m.group(4).strip(), "lines": [], "cost": 0.0})
+        elif steps and line.strip():
+            steps[-1]["lines"].append(line[2:] if line.startswith("  ") else line)
+    for c in calls or []:
+        started = c.get("started")
+        if not steps or not isinstance(started, (int, float)):
+            continue
+        i = max((n for n, step in enumerate(steps) if step["at"] <= started + 1), default=0)
+        steps[i]["cost"] += c.get("cost") or 0
+    return steps
 
 
 def log(main_root, gid, start=0, limit=LOG_CHUNK):
