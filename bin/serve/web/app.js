@@ -342,7 +342,10 @@ function waitingHtml(g) {
   }
   const qs = a.questions || [];
   return `<div class="waiting"><h3>${qs.length} question${qs.length === 1 ? "" : "s"} for you</h3>
-    ${qs.map((q, n) => `<div class="question"><div class="q">${n + 1}. ${esc(q.q)}</div>
+    ${qs.map((q, n) => `<div class="question" data-q="${n + 1}"><div class="q">${n + 1}. ${esc(q.q)}</div>
+      <div class="q-summary" hidden><span class="answered">✓</span> <span class="q-answer"></span>
+        <button class="link" data-change="${n + 1}">Change</button></div>
+      <div class="q-body">
       ${q.why ? `<div class="why">${esc(q.why)}</div>` : ""}
       ${(q.options || []).length ? `<div class="opts">${q.options.map((o) => `<button class="opt" data-n="${n + 1}" data-label="${esc(o.label)}">
         <b>${esc(o.label)}</b>${o.means ? ` <span class="means">→ ${esc(o.means)}</span>` : ""}
@@ -350,9 +353,28 @@ function waitingHtml(g) {
       ${q.recommend ? `<div class="rec">Suggested: ${esc(q.recommend)}</div>` : ""}
       <textarea class="own" data-n="${n + 1}" rows="1" placeholder="${(q.options || []).length ? "Or answer in your own words" : "Your answer"}"></textarea>
       <div class="row"><button class="link" data-discuss="q${n + 1}">Discuss this question</button></div>
-      <div class="disc" id="disc-q${n + 1}" hidden></div></div>`).join("")}
+      <div class="disc" id="disc-q${n + 1}" hidden></div></div></div>`).join("")}
     <textarea id="answer" rows="2" placeholder="Anything else to tell it (optional)"></textarea>
     <div class="buttons"><button class="primary" id="send">Send the answers</button></div></div>`;
+}
+
+// A question's answer: the option picked, or the words written; "" when none.
+function answerOf(n) {
+  const own = $(`.own[data-n="${n}"]`);
+  const pick = $(`.opt.on[data-n="${n}"]`);
+  return (own && own.value.trim()) || (pick ? pick.dataset.label : "");
+}
+
+// An answered question folds to one line with its answer; Change opens it again.
+function fold(n, folded) {
+  const box = $(`.question[data-q="${n}"]`);
+  if (!box) return;
+  const answer = answerOf(n);
+  const shut = folded && !!answer;
+  box.classList.toggle("folded", shut);
+  box.querySelector(".q-body").hidden = shut;
+  box.querySelector(".q-summary").hidden = !shut;
+  box.querySelector(".q-answer").textContent = answer;
 }
 
 // A talk about one question or the plan: its own session, apart from the goal's.
@@ -532,6 +554,15 @@ async function goalPage(repo, id) {
       document.querySelectorAll(`.opt[data-n="${e.target.dataset.n}"]`).forEach((o) => o.classList.remove("on"));
     }
   });
+  $("#wait").addEventListener("focusout", (e) => {
+    if (e.target.classList.contains("own") && e.target.value.trim()) fold(e.target.dataset.n, true);
+  });
+  $("#wait").addEventListener("keydown", (e) => {
+    if (e.target.classList.contains("own") && e.key === "Enter" && !e.shiftKey && e.target.value.trim()) {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
   $("#plan-disc-open").onclick = () => {
     const box = $("#plan-disc-box");
     box.hidden = !box.hidden;
@@ -550,9 +581,13 @@ async function goalPage(repo, id) {
       const on = !opt.classList.contains("on");
       document.querySelectorAll(`.opt[data-n="${opt.dataset.n}"]`).forEach((o) => o.classList.remove("on"));
       opt.classList.toggle("on", on);
-      if (on) $(`.own[data-n="${opt.dataset.n}"]`).value = "";
+      if (on) {
+        $(`.own[data-n="${opt.dataset.n}"]`).value = "";
+        fold(opt.dataset.n, true);
+      }
       return;
     }
+    if (e.target.dataset.change) { fold(e.target.dataset.change, false); return; }
     const talk = e.target.dataset.discuss;
     if (talk) {
       const box = $(`#disc-${talk}`);
@@ -560,7 +595,12 @@ async function goalPage(repo, id) {
       if (!box.hidden && !box.dataset.on) {
         box.dataset.on = "1";
         discussion(box, base, talk, talk === "plan" ? (text) => { $("#answer").value = text; }
-          : (text) => { const own = $(`.own[data-n="${talk.slice(1)}"]`); own.value = text; own.dispatchEvent(new Event("input", { bubbles: true })); });
+          : (text) => {
+            const own = $(`.own[data-n="${talk.slice(1)}"]`);
+            own.value = text;
+            own.dispatchEvent(new Event("input", { bubbles: true }));
+            fold(talk.slice(1), true);
+          });
       }
       return;
     }
@@ -569,8 +609,7 @@ async function goalPage(repo, id) {
     } else if (e.target.id === "send") {
       const own = [...document.querySelectorAll("#wait .own")];
       const lines = own.map((box) => {
-        const pick = $(`.opt.on[data-n="${box.dataset.n}"]`);
-        const value = box.value.trim() || (pick ? pick.dataset.label : "");
+        const value = answerOf(box.dataset.n);
         return value ? `${box.dataset.n}. ${value}` : null;
       });
       const missing = lines.map((l, i) => (l ? null : i + 1)).filter(Boolean);

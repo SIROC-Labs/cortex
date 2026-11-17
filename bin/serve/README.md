@@ -32,7 +32,8 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   *Show finished* shows them; one with a part still at work stays. The nav
   counts the goals waiting on you.
 - **A goal:** what it waits on you for, at the top. Each question takes one of its options
-  or your own words; *Discuss this question* opens a talk about it alone, in a session
+  or your own words, and folds to one line with its answer once it has one (*Change*
+  opens it again until you send); *Discuss this question* opens a talk about it alone, in a session
   of its own with only the ask, the question and the journal's references and
   decisions, which reads but changes nothing (*Use as my answer* copies a reply into the
   answer). A plan takes Approve or Ask for changes, and *Discuss the plan*, also on the

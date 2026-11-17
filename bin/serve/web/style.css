@@ -249,3 +249,7 @@ button.link:hover { text-decoration: underline; }
 .now .said { margin-bottom: 6px; }
 .now .actions { margin: 4px 0; padding-left: 18px; }
 .now .actions code { font-size: 12px; }
+.question.folded { padding-top: 8px; padding-bottom: 8px; }
+.q-summary { margin-top: 4px; font-size: 13.5px; display: flex; gap: 8px; align-items: baseline; }
+.q-summary .answered { color: var(--ok); font-weight: 700; }
+.q-summary .q-answer { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
