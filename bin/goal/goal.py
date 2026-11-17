@@ -1544,14 +1544,28 @@ class Goal(object):
         return self.state.path(LOG_FILE)
 
 
+RUNNERS = ("claude", "opencode")
+
+
+def active_models(control):
+    """{lead, subagent, check}: the models of what goals run on, Claude Code or
+    OpenCode, from the repo's settings."""
+    control = control or {}
+    if control.get("runner") == "opencode":
+        return control.get("opencode") or {}
+    return control.get("models") or {}
+
+
 def settings_from(control):
-    """The models a new goal uses, from the repo's control file (the TUI's Setup
-    tab): {model, subagent_model, check_model, check_effort}."""
-    models = (control or {}).get("models") or {}
+    """The models a new goal uses, from the repo's settings: {model, subagent_model,
+    check_model, check_effort, threshold, gate}."""
+    models = active_models(control)
+    if (control or {}).get("runner") == "opencode" and not all(models.get(k) for k in ("lead", "subagent", "check")):
+        raise st.Failure("goals run on OpenCode, but its lead, coding-task and checker models are not all set")
     return {"model": models.get("lead") or DEFAULT_MODEL,
             "subagent_model": models.get("subagent") or DEFAULT_SUBAGENT_MODEL,
             "check_model": models.get("check") or DEFAULT_CHECK_MODEL,
-            "check_effort": models.get("check_effort") or DEFAULT_CHECK_EFFORT,
+            "check_effort": ((control or {}).get("models") or {}).get("check_effort") or DEFAULT_CHECK_EFFORT,
             "threshold": (control or {}).get("usage_threshold") or DEFAULT_THRESHOLD,
             "gate": (control or {}).get("goal_gate") if (control or {}).get("goal_gate") in GATES
             else DEFAULT_GATE}
@@ -2080,8 +2094,14 @@ class Runner(object):
             return None
 
     def check_model(self):
-        """The checker's model: the Setup tab's, else the one the goal started with."""
-        return self.setup("check") or self.data.get("check_model") or DEFAULT_CHECK_MODEL
+        """The checker's model: the settings' now, for what goals run on, else the one
+        the goal started with."""
+        try:
+            with open(os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "control.json")) as f:
+                model = active_models(json.load(f)).get("check")
+        except (IOError, OSError, ValueError, AttributeError):
+            model = None
+        return model or self.data.get("check_model") or DEFAULT_CHECK_MODEL
 
     def check_effort(self):
         """The checker's effort: what the TUI's Setup tab shows, its saved value or

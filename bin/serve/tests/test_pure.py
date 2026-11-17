@@ -136,9 +136,9 @@ class TestActions(Repo):
                     {"base": "a b"}, {"models": {"judge": "x"}}):
             with self.assertRaises(ac.Problem):
                 ac.set_settings(self.root, bad)
-        done = ac.set_settings(self.root, {"usage_threshold": 60, "models": {"lead": "openai/gpt-x"}})
+        done = ac.set_settings(self.root, {"usage_threshold": 60, "models": {"lead": "claude-sonnet-5-5"}})
         self.assertEqual((done["usage_threshold"], done["models"]["lead"], done["models"]["subagent"]),
-                         (60, "openai/gpt-x", ac.gl.DEFAULT_SUBAGENT_MODEL))
+                         (60, "claude-sonnet-5-5", ac.gl.DEFAULT_SUBAGENT_MODEL))
 
 
 class TestDescribe(unittest.TestCase):
@@ -227,6 +227,28 @@ class TestProviders(Repo):
         builtin = {"id": "openrouter", "models": ["qwen/qwen3-coder"]}
         self.assertEqual(ac.set_settings(self.root, {"providers": [builtin]})["providers"], [builtin])
         self.assertEqual(ac.set_settings(self.root, {"providers": []})["providers"], [])
+
+
+class TestRunner(Repo):
+    def test_goals_run_on_claude_unless_opencode_is_chosen_with_its_own_models(self):
+        self.assertEqual(ac.settings(self.root)["runner"], "claude")
+        with self.assertRaises(ac.Problem):
+            ac.set_settings(self.root, {"runner": "pi"})
+        with self.assertRaises(ac.Problem):
+            ac.set_settings(self.root, {"opencode_models": {"lead": "claude-opus-5-5"}})
+        with self.assertRaises(ac.Problem):
+            ac.set_settings(self.root, {"models": {"lead": "openrouter/x"}})
+        ac.set_settings(self.root, {"runner": "opencode", "opencode_models": {"lead": "openrouter/a"}})
+        with self.assertRaises(ac.Problem):
+            ac.start(self.root, "Do it")
+        ac.set_settings(self.root, {"opencode_models": {"subagent": "openrouter/b", "check": "openrouter/c"}})
+        gid = ac.start(self.root, "Do it")
+        g = ac.detail(self.root, gid)
+        self.assertEqual((g["model"], g["subagent_model"], g["check_model"]),
+                         ("openrouter/a", "openrouter/b", "openrouter/c"))
+        ac.set_settings(self.root, {"runner": "claude"})
+        g = ac.detail(self.root, ac.start(self.root, "Again"))
+        self.assertEqual(g["model"], ac.gl.DEFAULT_MODEL)
 
 
 class TestHTTP(Repo):

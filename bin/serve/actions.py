@@ -527,7 +527,10 @@ def settings(main_root):
     """The repo's settings, with each default filled in."""
     control = dm.read_control(main_root)
     models = control.get("models") or {}
+    opencode = control.get("opencode") or {}
     return {"base": control.get("base"),
+            "runner": control.get("runner") if control.get("runner") in gl.RUNNERS else "claude",
+            "opencode_models": {k: opencode.get(k) for k in ("lead", "subagent", "check")},
             "usage_threshold": control.get("usage_threshold") or gl.DEFAULT_THRESHOLD,
             "goal_gate": control.get("goal_gate") if control.get("goal_gate") in GATES
             else gl.DEFAULT_GATE,
@@ -567,7 +570,8 @@ def set_settings(main_root, changes):
     """Change some settings. Unknown keys and bad values are refused, all or none."""
     if not isinstance(changes, dict):
         raise Problem(400, "settings are an object")
-    unknown = set(changes) - {"base", "usage_threshold", "goal_gate", "models", "providers"}
+    unknown = set(changes) - {"base", "usage_threshold", "goal_gate", "models", "providers", "runner",
+                              "opencode_models"}
     if unknown:
         raise Problem(400, "unknown settings: %s" % ", ".join(sorted(unknown)))
     base = changes.get("base")
@@ -589,6 +593,15 @@ def set_settings(main_root, changes):
     for k in ("lead_effort", "subagent_effort"):
         if models.get(k) not in (None, "") + EFFORTS:
             raise Problem(400, "%s is one of %s, or empty for the model's default" % (k, ", ".join(EFFORTS)))
+    if "runner" in changes and changes["runner"] not in gl.RUNNERS:
+        raise Problem(400, "runner is claude or opencode")
+    oc_models = changes.get("opencode_models") or {}
+    if not isinstance(oc_models, dict) or set(oc_models) - {"lead", "subagent", "check"}:
+        raise Problem(400, "opencode_models has lead, subagent and check")
+    if any(v and not (isinstance(v, str) and oc.is_opencode(v)) for v in oc_models.values()):
+        raise Problem(400, "an OpenCode model is named provider/model")
+    if any(m and oc.is_opencode(m) for k, m in models.items() if k in ("lead", "subagent", "check")):
+        raise Problem(400, "a Claude Code model is a Claude model name, not provider/model")
     providers = changes.get("providers")
     if "providers" in changes:
         if not isinstance(providers, list):
@@ -601,6 +614,11 @@ def set_settings(main_root, changes):
     with dm.control_file(main_root) as control:
         if "providers" in changes:
             control["providers"] = [{k: v for k, v in p.items() if v is not None} for p in providers]
+        if oc_models:
+            merged = dict(control.get("opencode") or {}, **oc_models)
+            control["opencode"] = {k: v for k, v in merged.items() if v}
+        if "runner" in changes:
+            control["runner"] = changes["runner"]
         for key in ("base", "usage_threshold", "goal_gate"):
             if key in changes:
                 control[key] = changes[key] or None

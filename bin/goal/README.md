@@ -190,23 +190,20 @@ This program is the harness around the lead:
   effort are what the Setup tab shows, read at each check and review, so they hold for every
   goal, running ones too. Settings also give the lead (with the CI fixer and a part's
   consult) and the coding tasks an effort; empty runs the model at its own default.
-- **Providers.** A model's name says how it runs. A Claude model (`claude-opus-5-5`) runs
-  through `claude -p` on your Claude subscription. A `provider/model` name
-  (`openai/gpt-5`, `openrouter/qwen/qwen3-coder`, or a custom provider's
-  `acme/qwen3-coder`) runs through OpenCode v2 (`opencode` on the PATH, or
-  `COND_OPENCODE`) on that provider's API key, read from the environment. Each role can
-  use either, so a Claude lead can hand its tasks to cheaper models. An OpenCode run
-  gets a private server and its whole configuration inline: the custom providers from
-  the settings (an OpenAI-compatible base URL, the name of the key's variable, the
-  models and their prices), the sub-agent model for OpenCode's own sub-agents, and
-  permission rules in place of Claude Code's hooks. No agent pushes or starts CI; nothing
-  outside the worktree and the goal's state is read or written; explorers and the CI
-  fixer edit nothing; the lead in the build reads no code (Markdown aside), edits only
-  its journal and technical plan, and starts no sub-agents. The usage-limit pause
-  applies only while a goal uses a Claude model, and checker effort only to Claude. The
-  cost of an OpenCode run is what its events report, priced from the provider's
-  prices; its sub-agents' runs are not in it. The live view of running agents and
-  *Discuss* read Claude Code's transcripts, so they show Claude runs only.
+- **Runs on.** Settings choose what goals run on: Claude Code (`claude -p`, on your
+  Claude subscription) or OpenCode v2 (`opencode` on the PATH, or `COND_OPENCODE`, on API
+  keys). Each has its own model for the lead, the reviewer and checker, and the coding
+  tasks; a new goal takes the chosen one's. OpenCode's models are `provider/model` from
+  its providers: one of OpenCode's own (OpenRouter, OpenAI and the rest, on their usual
+  key variable) or an OpenAI-compatible endpoint (a base URL, the name of the key's
+  variable, models and prices). An OpenCode run gets a private server and its whole
+  configuration inline, with permission rules in place of Claude Code's hooks: no agent
+  pushes or starts CI; nothing outside the worktree and the goal's state is read or
+  written; explorers and the CI fixer edit nothing; the lead in the build reads no code
+  (Markdown aside), edits only its journal and technical plan, and starts no sub-agents.
+  The usage-limit pause and effort apply to Claude only. An OpenCode run's cost is what
+  its events report; its sub-agents' runs are not in it. The live view of running agents
+  and *Discuss* read Claude Code's transcripts, so they show Claude runs only.
 - **Permissions.** No run uses bypass mode, which a repo may turn off (Humanus does). Each
   call runs in auto mode: reading, edits in the goal's worktree and state, sub-agents and
   the web are allowed outright, and a classifier judges every other action, such as a
