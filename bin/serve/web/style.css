@@ -216,3 +216,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .tab-body .checklist { max-height: none; font-size: 13.5px; }
 .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 10px 0; overflow-x: auto; }
 .diagram svg { max-width: 100%; height: auto; }
+.hover { position: relative; cursor: default; border-bottom: 1px dotted var(--faint); }
+.hover .pop { display: none; position: absolute; top: 100%; left: 0; z-index: 20; width: min(560px, 80vw);
+  max-height: 60vh; overflow: auto; padding: 10px 14px; margin-top: 0; box-shadow: 0 8px 24px rgba(0,0,0,.12); color: var(--text); }
+.hover:hover .pop { display: block; }
+.hover .pop .checklist { max-height: none; }

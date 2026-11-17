@@ -29,13 +29,13 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   waiting on you first. Finished goals are hidden: *Show finished* shows them. The nav
   counts the goals waiting on you.
 - **A goal:** what it waits on you for, at the top: its questions with their options (a
-  click adds one to the answer), or its plan with Approve and Ask for changes; a plan
-  waiting opens on the Plan tab. What runs now, agent by agent. Tabs: its timeline
-  (every step from the log, in phases, each round with the tasks it handed out and how
-  they ended, each check with its gaps, the cost of each step), the plan (its parts,
-  steps and acceptance criteria, ticked, and the technical plan, its mermaid diagrams
-  drawn), the ask and its files,
-  the journal, the cost by agent, and the live log.
+  click adds one to the answer), or its plan with Approve and Ask for changes. Its status
+  line counts the steps and acceptance criteria done; hover over either for the list.
+  What runs now, agent by agent. Tabs: its timeline (every step from the log, in phases,
+  each round with the tasks it handed out and how they ended, each check with its gaps,
+  the cost of each step), the plan (a split goal's parts, and the technical plan with its
+  mermaid diagrams drawn), the ask and its files, the journal, the cost by agent, and
+  the live log.
 - **Settings:** *Runs on*: Claude Code (`claude -p`) or OpenCode. Under it, only the chosen
   one's model for each role (and, for Claude, each role's effort and the usage limit;
   for OpenCode, its providers). Then the goals' branch and plan approval, and the repos.

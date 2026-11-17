@@ -313,7 +313,7 @@ function waitingHtml(g) {
   if (a.kind === "plan") {
     return `<div class="waiting"><h3>${a.split ? "The split" : "The plan"} waits on your review</h3>
       ${a.detail ? `<div class="md">${md(a.detail)}</div>` : ""}
-      <p><a href="" data-tab="plan">Review the steps, the acceptance criteria${g.technical_plan ? " and the technical plan" : ""} in the Plan tab ↓</a></p>
+      ${g.technical_plan ? `<p><a href="" data-tab="plan">Read the technical plan ↓</a></p>` : ""}
       <textarea id="answer" placeholder="To change it, say what to change: the lead revises the plan and it comes back to you."></textarea>
       <div class="buttons"><button class="primary" id="approve">Approve</button>
       <button id="send">Ask for changes</button></div></div>`;
@@ -344,26 +344,25 @@ function liveHtml(g) {
     ${a.action ? `<div class="action">${esc(a.action)}</div>` : ""}</div></div>`).join("")}</div>`;
 }
 
+// A count in the status line whose list shows on hover.
+function hoverList(label, items) {
+  const real = items.filter((x) => !x.group);
+  if (!real.length) return "";
+  const done = real.filter((x) => x.done).length;
+  return `<span class="hover">${label} ${done}/${real.length}<div class="pop panel"><ul class="checklist">${items.map((x) =>
+    x.group ? `<li class="group">${esc(x.group)}</li>`
+      : `<li class="${x.done ? "done" : ""}"><span>${x.done ? "✓" : "○"}</span><span>${esc(x.text)}</span></li>`).join("")}</ul></div></span>`;
+}
+
 function planHtml(g) {
-  const block = (title, items) => {
-    const real = items.filter((x) => !x.group);
-    if (!real.length) return "";
-    const done = real.filter((x) => x.done).length;
-    return `<h2>${title} <span class="dim">${done}/${real.length}</span></h2>
-      <div class="progress"><div class="fill" style="width:${Math.round((100 * done) / real.length)}%"></div></div>
-      <ul class="checklist">${items.map((x) => x.group ? `<li class="group">${esc(x.group)}</li>`
-        : `<li class="${x.done ? "done" : ""}"><span>${x.done ? "✓" : "○"}</span><span>${esc(x.text)}</span></li>`).join("")}</ul>`;
-  };
   const parts = (g.parts || []).length ? `<h2>Parts</h2>${g.parts.map((p) => {
     const st = state(p);
     return `<div class="row" style="margin:4px 0"><span class="dot ${st.tone}"></span>
       <a class="grow" href="#/g/${encodeURIComponent(g.repo)}/${encodeURIComponent(p.id)}">${esc(p.part || p.name)}</a>
       <span class="badge ${st.tone}">${esc(st.label)}</span></div>`;
   }).join("")}` : "";
-  const body = parts + block("Steps", checklist(g.journal, "plan")) +
-    block("Acceptance criteria", checklist(g.journal, "acceptance criteria")) +
-    (g.technical_plan ? `<h2>Technical plan</h2><div class="md">${md(g.technical_plan)}</div>` : "");
-  return body || `<div class="faint">No plan yet${g.small ? ": small work has none" : ""}.</div>`;
+  const body = parts + (g.technical_plan ? `<div class="md">${md(g.technical_plan)}</div>` : "");
+  return body || `<div class="faint">No technical plan${g.small ? ": small work has none" : " yet"}.</div>`;
 }
 
 function costsHtml(g) {
@@ -515,8 +514,8 @@ async function goalPage(repo, id) {
         <span class="badge ${st.tone}">${esc(st.label)}</span></div>
         <div class="facts"><span>${esc(st.text)}</span>
           ${g.round ? `<span>round ${g.round}</span>` : ""}
-          ${g.plan ? `<span>steps ${g.plan.done}/${g.plan.total}</span>` : ""}
-          ${g.criteria ? `<span>criteria ${g.criteria.done}/${g.criteria.total}</span>` : ""}
+          ${hoverList("steps", checklist(g.journal, "plan"))}
+          ${hoverList("criteria", checklist(g.journal, "acceptance criteria"))}
           ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
           ${g.branch ? `<span><code>${esc(g.branch)}</code> → <code>${esc(g.base || "main")}</code></span>` : ""}
           ${g.pr_url ? `<a href="${esc(g.pr_url)}" target="_blank">PR #${esc((g.pr_url.match(/\d+$/) || [""])[0])}</a>` : ""}
