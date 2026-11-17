@@ -241,12 +241,12 @@ async function runsPage() {
     const row = (g) => {
       const st = state(g);
       const parts = g.parent ? [] : partsOf(g);
-      const fold = parts.length ? `<button class="fold" data-fold="${esc(g.id)}" title="${isFolded(g) ? "Show" : "Hide"} its parts">${isFolded(g) ? "▸" : "▾"}</button>` : "";
+      const waits = parts.some((p) => p.waiting);
+      const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><span class="chev${isFolded(g) ? "" : " open"}">›</span>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title">${fold}${esc(g.parent ? g.part || g.name : g.title || g.name)}
-            ${parts.length && isFolded(g) ? `<span class="badge">${parts.length} parts${parts.some((p) => p.waiting) ? " · one waits on you" : ""}</span>` : ""}
+          <div class="title">${esc(g.parent ? g.part || g.name : g.title || g.name)} ${fold}
             ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>

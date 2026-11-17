@@ -222,6 +222,11 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .hover:hover .pop { display: block; }
 .hover .pop .checklist { max-height: none; }
 a.goal-row { color: var(--text); text-decoration: none; }
-.fold { border: none; background: none; padding: 0 6px 0 0; color: var(--dim); font-size: 13px; }
-.fold:hover { color: var(--text); }
+.fold { margin-left: 8px; padding: 4px 12px; font-size: 13px; font-weight: 500; color: var(--dim);
+  border: 1px solid var(--line); border-radius: 14px; background: var(--bg); vertical-align: middle; }
+.fold:hover { color: var(--text); border-color: var(--faint); background: var(--panel); }
+.fold.warn { color: var(--warn); border-color: var(--warn); }
 .goal-row .title .badge { margin-left: 6px; font-weight: 400; }
+.fold { display: inline-flex; align-items: center; gap: 6px; }
+.fold .chev { font-size: 20px; line-height: 14px; display: inline-block; transition: transform .15s; }
+.fold .chev.open { transform: rotate(90deg); }
