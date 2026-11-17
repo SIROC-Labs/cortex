@@ -52,7 +52,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 | `GET /api/repos` · `POST /api/repos {path}` | the repos; register one |
 | `GET /api/goals` | every repo's goals, each with its `repo` |
 | `GET /api/repos/{repo}/goals` | a repo's goals, newest first, each goal's parts after it |
-| `POST /api/repos/{repo}/goals {prompt, files?, base?}` | start a goal; `files` are `{name, data}`, with the bytes in base64 |
+| `POST /api/repos/{repo}/goals {prompt, files?, base?}` | start a goal; each of `files` is a local path of a file or folder (the service is on this machine), or an upload `{name, data}` with the bytes in base64, whose `name` may be a path such as `proto/Main.dc.html` to send a folder file by file |
 | `GET /api/repos/{repo}/goals/{goal}` | a goal in full: state, what it waits on, journal, technical plan, tasks, calls and cost, parts, files |
 | `GET /api/repos/{repo}/goals/{goal}/log?from=N` | its log from byte N (a negative N: the last bytes); `next` is where to read on |
 | `GET /api/repos/{repo}/goals/{goal}/files/{path}` | a file it was given (`inputs/`), a ticket's attachment, its technical plan or usage report |
@@ -64,7 +64,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 
 `http://127.0.0.1:4747/mcp`, over streamable HTTP (each reply one JSON body). Its tools
 are the same actions: `list_repos`, `add_repo`, `list_goals`, `get_goal`, `goal_log`,
-`start_goal` (files as local paths), `answer_goal`, `approve_plan`, `stop_goal`,
+`start_goal` (files and folders as local paths), `answer_goal`, `approve_plan`, `stop_goal`,
 `resume_goal`, `get_settings`, `set_settings`. In Claude Code:
 
 ```bash

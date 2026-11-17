@@ -64,7 +64,8 @@ def main(argv):
                    help="what to build, in words and links; - (the default) "
                         "reads it from stdin")
     p.add_argument("-f", "--file", action="append", default=[], dest="files",
-                   help="a file to give with the prompt, such as an image; repeat for more")
+                   help="a file or folder to give with the prompt, such as an image or a "
+                        "prototype; repeat for more")
     p.add_argument("--into", help="the branch the PR goes into (default: the TUI's Queue into, "
                                   "else main)")
     p = sub.add_parser("undo", help="discard each goal: its PR, branch and worktree")

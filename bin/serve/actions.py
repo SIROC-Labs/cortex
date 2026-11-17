@@ -231,7 +231,10 @@ def _text(path):
 
 def _files(state_dir, sub):
     folder = os.path.join(state_dir, sub)
-    return sorted("%s/%s" % (sub, n) for n in os.listdir(folder)) if os.path.isdir(folder) else []
+    if not os.path.isdir(folder):
+        return []
+    return sorted("%s/%s%s" % (sub, n, "/" if os.path.isdir(os.path.join(folder, n)) else "")
+                  for n in os.listdir(folder))
 
 
 def detail(main_root, gid):
@@ -422,8 +425,10 @@ def state_file(main_root, gid, rel):
 
 
 def start(main_root, prompt, files=(), base=None):
-    """Start a goal on a prompt. `files` are local paths, or {name, data} with the
-    file's bytes in base64. Returns the goal's id."""
+    """Start a goal on a prompt. `files` are local paths of files or folders, or
+    uploads {name, data} with the bytes in base64. An upload whose name is a path,
+    such as `proto/Main.dc.html`, lands in that folder, and the folder is given as
+    one. Returns the goal's id."""
     if not (prompt or "").strip():
         raise Problem(400, "a goal needs a prompt")
     add_repo(main_root)
@@ -432,22 +437,28 @@ def start(main_root, prompt, files=(), base=None):
         paths = []
         for n, f in enumerate(files or []):
             if isinstance(f, str):
-                if not os.path.isfile(os.path.expanduser(f)):
-                    raise Problem(400, "no file %s" % f)
+                if not os.path.exists(os.path.expanduser(f)):
+                    raise Problem(400, "no file or folder %s" % f)
                 paths.append(os.path.expanduser(f))
                 continue
-            name = os.path.basename(str((f or {}).get("name") or "file-%d" % (n + 1))) or "file"
+            raw = str((f or {}).get("name") or "file-%d" % (n + 1)).replace("\\", "/")
+            rel = os.path.normpath(raw.strip("/"))
+            if rel.startswith("..") or os.path.isabs(raw) or rel in (".", ""):
+                raise Problem(400, "%s is not a file name" % raw)
             try:
                 body = base64.b64decode((f or {}).get("data") or "", validate=True)
             except (ValueError, TypeError):
-                raise Problem(400, "%s is not base64" % name)
+                raise Problem(400, "%s is not base64" % raw)
             if len(body) > MAX_FILE_BYTES:
-                raise Problem(400, "%s is over %d MB" % (name, MAX_FILE_BYTES // 2 ** 20))
-            folder = os.path.join(tmp, str(n))
-            os.makedirs(folder)
-            paths.append(os.path.join(folder, name))
-            with open(paths[-1], "wb") as out:
+                raise Problem(400, "%s is over %d MB" % (raw, MAX_FILE_BYTES // 2 ** 20))
+            top = rel.split(os.sep)[0]
+            target = os.path.join(tmp, "folders" if os.sep in rel else str(n), rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as out:
                 out.write(body)
+            given = os.path.join(tmp, "folders", top) if os.sep in rel else target
+            if given not in paths:
+                paths.append(given)
         control = dm.read_control(main_root)
         try:
             gid = gl.create(main_root, prompt, paths, base=base or control.get("base"),

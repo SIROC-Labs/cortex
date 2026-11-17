@@ -36,7 +36,8 @@ TOOLS = [
                         "local files such as screenshots. The PR goes into the repo's Queue into "
                         "branch, else main, unless base names another.",
           {"repo": REPO, "prompt": {"type": "string"},
-           "files": {"type": "array", "items": {"type": "string"}, "description": "local paths"},
+           "files": {"type": "array", "items": {"type": "string"},
+                     "description": "local paths of files or folders, such as a prototype's folder"},
            "base": {"type": "string"}}, ["repo", "prompt"]),
     _tool("answer_goal", "Answer what a goal waits on the person for. Only when the person "
                          "gave the answer.",

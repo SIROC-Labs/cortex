@@ -65,7 +65,7 @@ def get_goals(req, repo):
 def post_goal(req, repo):
     body = req.json()
     return {"goal": ac.start(ac.repo(repo)["path"], body.get("prompt"),
-                             [f for f in body.get("files") or [] if isinstance(f, dict)],
+                             [f for f in body.get("files") or [] if isinstance(f, (dict, str))],
                              body.get("base"))}
 
 

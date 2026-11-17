@@ -14,8 +14,9 @@ cond queue list                                                # the goals
 Run it in the repo the work is for, or in one of its worktrees, or give `--repo`.
 
 - **The prompt** is what to build, in words and links. A link to an Asana ticket is read
-  when the goal starts, with its subtasks; nothing is written back. `-f` gives a file with
-  it, such as a screenshot; repeat it for more.
+  when the goal starts, with its subtasks; nothing is written back. `-f` gives a file or a
+  folder with it, such as a screenshot or a prototype; repeat it for more. A folder is
+  listed in the ask with its `README.md`, never pasted in: the lead's explorers read it.
 - **Into.** The PR goes into the TUI's **Queue into** branch, else `main`, unless `--into`
   names another.
 - **Undo.** `undo` discards a goal: its PR, branch and worktree. It takes the goal's id,

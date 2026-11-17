@@ -406,6 +406,7 @@ function filesHtml(g, base) {
   const files = g.files || [];
   const list = files.length ? `<div class="files">${files.map((f) => {
     const url = `${base}/files/${f.split("/").map(encodeURIComponent).join("/")}`;
+    if (f.endsWith("/")) return `<span class="chip">${esc(f)} (folder)</span>`;
     return /\.(png|jpe?g|gif|webp|svg)$/i.test(f) ? `<a class="img" href="${url}" target="_blank"><img src="${url}" alt="${esc(f)}"></a>`
       : `<a href="${url}" target="_blank">${esc(f)}</a>`;
   }).join("")}</div>` : "";

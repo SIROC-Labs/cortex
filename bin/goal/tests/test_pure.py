@@ -235,6 +235,34 @@ class TestTheAsk(unittest.TestCase):
         self.assertIn("- `/s/inputs/notes.md`\n\n```\n- keep it short\n```", ask)
         self.assertTrue(ask.endswith("\n# A-1: Badge\nhttps://app.asana.com/0/1/2\n"))
 
+    def test_a_given_folder_is_listed_with_its_readme_never_pasted_in(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "proto", "sub"))
+        for rel, body in (("README.md", "# Screens\n- Main"), ("Main.dc.html", "<x-dc>big</x-dc>"),
+                          ("sub/a.css", "a{}")):
+            with open(os.path.join(d, "proto", rel), "w") as f:
+                f.write(body)
+        entry = goal.file_entry(os.path.join(d, "proto"), "inputs/proto")
+        self.assertEqual((entry["folder"], entry["readme"]), (3, "# Screens\n- Main"))
+        ask = goal.ask_from_prompt("Build it", [entry])
+        self.assertIn("a folder of 3 files. Do not read its files into your own context", ask)
+        self.assertIn("# Screens", ask)
+        self.assertNotIn("big", ask)
+
+    def test_a_folder_is_copied_into_the_goal(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        src = os.path.join(root, "My proto")
+        os.makedirs(os.path.join(src, ".git"))
+        with open(os.path.join(src, "Main.dc.html"), "w") as f:
+            f.write("x")
+        gid = goal.create(root, "Build it", [src])
+        g = goal.Goal(root, gid)
+        self.assertEqual(g.read()["files"], ["inputs/My_proto"])
+        self.assertTrue(os.path.isfile(g.state.path("inputs/My_proto/Main.dc.html")))
+        self.assertFalse(os.path.exists(g.state.path("inputs/My_proto/.git")))
+
     def test_a_given_file_says_whether_it_is_an_image_and_inlines_small_text(self):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)

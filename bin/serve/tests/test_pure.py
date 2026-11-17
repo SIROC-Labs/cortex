@@ -58,7 +58,7 @@ class TestRepos(Repo):
 class TestActions(Repo):
     def test_a_goal_starts_from_a_prompt_and_uploaded_files(self):
         gid = ac.start(self.root, "Make the badge red", [
-            {"name": "../shot.png", "data": base64.b64encode(b"png").decode()}])
+            {"name": "shot.png", "data": base64.b64encode(b"png").decode()}])
         self.assertEqual(self.launched, [gid])
         self.assertEqual(ac.repos()[0]["path"], self.root)
         detail = ac.detail(self.root, gid)
@@ -72,6 +72,24 @@ class TestActions(Repo):
         second = ac.start(self.root, "Two", base="feature/x")
         self.assertEqual([ac.detail(self.root, g)["base"] for g in (first, second)],
                          ["feature/m1", "feature/x"])
+
+    def test_a_folder_starts_a_goal_by_its_path_or_uploaded_file_by_file(self):
+        proto = os.path.join(self.home, "Proto")
+        os.makedirs(proto)
+        with open(os.path.join(proto, "Main.dc.html"), "w") as f:
+            f.write("<x-dc></x-dc>")
+        by_path = ac.start(self.root, "Build it", [proto])
+        b64 = lambda t: base64.b64encode(t).decode()  # noqa: E731
+        uploaded = ac.start(self.root, "Build it", [
+            {"name": "Proto/Main.dc.html", "data": b64(b"<x-dc></x-dc>")},
+            {"name": "Proto/css/app.css", "data": b64(b"a{}")},
+            {"name": "shot.png", "data": b64(b"png")}])
+        self.assertEqual(ac.detail(self.root, by_path)["files"], ["inputs/Proto/"])
+        self.assertEqual(ac.detail(self.root, uploaded)["files"], ["inputs/Proto/", "inputs/shot.png"])
+        self.assertEqual(ac.state_file(self.root, uploaded, "inputs/Proto/css/app.css")[1], b"a{}")
+        for bad in ("../x", "/etc/passwd", "Proto/../../x"):
+            with self.assertRaises(ac.Problem):
+                ac.start(self.root, "x", [{"name": bad, "data": b64(b"x")}])
 
     def test_bad_starts_are_refused(self):
         for prompt, files in (("  ", []), ("x", [{"name": "a", "data": "%%%"}]), ("x", ["/no/such"])):

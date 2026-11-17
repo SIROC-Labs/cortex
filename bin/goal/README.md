@@ -15,8 +15,10 @@ tab, where you answer it, approve its plan, stop it and carry it on.
 
 ## How it works
 
-The ask is the prompt: what you wrote, and the files you gave with it (`-f`, an image
-too), copied into the goal. Each Asana ticket the prompt links to is read once, when the
+The ask is the prompt: what you wrote, and the files and folders you gave with it (`-f`,
+an image too), copied into the goal. A small text file is pasted into the ask; a folder,
+such as a downloaded prototype, is only listed, with its `README.md`, and the lead has
+explorers read its files, so it never fills the lead's context. Each Asana ticket the prompt links to is read once, when the
 goal starts: its description, its open subtasks, its comments and its attachments (an
 HTML attachment as its text, with the file kept for its prototype). A milestone works
 well: its subtasks become parts of one piece of work. Nothing is ever written to Asana:

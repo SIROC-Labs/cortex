@@ -64,6 +64,8 @@ CALLS_FILE = "calls.json"
 REPORT_FILE = "usage.txt"
 INPUTS_DIR = "inputs"
 PR_ASK_MAX = 3000
+# A folder's README.md up to this size is shown in the ask; its other files never are.
+FOLDER_README_MAX = 16 * 1024
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg")
 
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -328,6 +330,12 @@ def files_lines(files):
     for a in files:
         if ONE_PAGER.search(os.path.basename(a["path"])):
             out.append("- `%s`: a one-pager. It is not used, and it decides nothing." % a["path"])
+            continue
+        if a.get("folder") is not None:
+            out.append("- `%s/`: a folder of %d files. Do not read its files into your own context: "
+                       "have explorers read them and report what you need." % (a["path"], a["folder"]))
+            if a.get("readme"):
+                out += ["", "Its `README.md`:", "", "```", a["readme"].rstrip(), "```", ""]
             continue
         out.append("- `%s`%s" % (a["path"], " (an image)" if a.get("is_image") else ""))
         inline = a.get("inline")
@@ -1605,8 +1613,8 @@ def create(main_root, prompt, files=(), base=None, name=None, key=None,
     if not (prompt or "").strip():
         raise st.Failure("a goal needs a prompt")
     for path in files:
-        if not os.path.isfile(path):
-            raise st.Failure("no file %s" % path)
+        if not (os.path.isfile(path) or os.path.isdir(path)):
+            raise st.Failure("no file or folder %s" % path)
     ticket = first_ticket(main_root, prompt) if not (name and key) else {}
     key = key or (st.task_key(ticket) if ticket else None)
     name = name or prompt_name(prompt) or ticket.get("name") or "goal"
@@ -1624,7 +1632,11 @@ def create(main_root, prompt, files=(), base=None, name=None, key=None,
             safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(path)) or "file"
             while os.path.exists(goal.state.path(os.path.join(INPUTS_DIR, safe))):
                 safe = "_" + safe
-            shutil.copyfile(path, goal.state.path(os.path.join(INPUTS_DIR, safe)))
+            if os.path.isdir(path):
+                shutil.copytree(path, goal.state.path(os.path.join(INPUTS_DIR, safe)),
+                                ignore=shutil.ignore_patterns(".*"))
+            else:
+                shutil.copyfile(path, goal.state.path(os.path.join(INPUTS_DIR, safe)))
             given.append(os.path.join(INPUTS_DIR, safe))
     goal.update(id=gid, prompt=prompt.strip(), files=given, key=key, name=name, base=base,
                 threshold=threshold, model=model, subagent_model=subagent_model,
@@ -1649,7 +1661,20 @@ def first_ticket(main_root, prompt):
 
 def file_entry(path, rel):
     """A file given with the prompt, as the ask lists it: an absolute path, whether
-    it is an image, and a small text file's text."""
+    it is an image, and a small text file's text. A folder is listed, never pasted
+    in: its path, how many files it holds, and its README.md when it has a short
+    one, so the lead reads its files through explorers."""
+    if os.path.isdir(path):
+        count = sum(len(names) for _, _, names in os.walk(path))
+        entry = {"path": path, "folder": count}
+        readme = os.path.join(path, "README.md")
+        try:
+            if os.path.isfile(readme) and os.path.getsize(readme) <= FOLDER_README_MAX:
+                with open(readme) as f:
+                    entry["readme"] = f.read()
+        except (OSError, UnicodeDecodeError):
+            pass
+        return entry
     entry = {"path": path, "is_image": rel.lower().endswith(IMAGE_EXTS)}
     try:
         if not entry["is_image"] and os.path.getsize(path) <= st.INLINE_ATTACHMENT_MAX_BYTES:
@@ -3663,7 +3688,8 @@ def main(argv):
                      help="what to build, in words and links; - (the default) "
                           "reads it from stdin")
     new.add_argument("-f", "--file", action="append", default=[], dest="files",
-                     help="a file to give with the prompt, such as an image; repeat for more")
+                     help="a file or folder to give with the prompt, such as an image or a "
+                          "prototype; repeat for more")
     new.add_argument("--base", help="the branch to build on and open the PR into (default: main)")
     new.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                      help="pause while any usage limit is at or over this percentage")
