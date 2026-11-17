@@ -214,3 +214,5 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 #goals-head h2 { margin-bottom: 10px; }
 #goals-head button { font-size: 12px; padding: 3px 10px; }
 .tab-body .checklist { max-height: none; font-size: 13.5px; }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 10px 0; overflow-x: auto; }
+.diagram svg { max-width: 100%; height: auto; }

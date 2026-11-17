@@ -33,7 +33,8 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   waiting opens on the Plan tab. What runs now, agent by agent. Tabs: its timeline
   (every step from the log, in phases, each round with the tasks it handed out and how
   they ended, each check with its gaps, the cost of each step), the plan (its parts,
-  steps and acceptance criteria, ticked, and the technical plan), the ask and its files,
+  steps and acceptance criteria, ticked, and the technical plan, its mermaid diagrams
+  drawn), the ask and its files,
   the journal, the cost by agent, and the live log.
 - **Settings:** *Runs on*: Claude Code (`claude -p`) or OpenCode. Under it, only the chosen
   one's model for each role (and, for Claude, each role's effort and the usage limit;

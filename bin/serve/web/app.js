@@ -54,6 +54,31 @@ function md(text) {
   return "<pre>" + esc(text) + "</pre>";
 }
 
+// Draw the mermaid blocks under `root` as diagrams. A block mermaid cannot parse
+// stays as its source, with the error under it.
+let mermaidReady = false;
+async function diagrams(root) {
+  if (!window.mermaid || !root) return;
+  if (!mermaidReady) {
+    const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "neutral" });
+    mermaidReady = true;
+  }
+  const blocks = root.querySelectorAll("pre > code.language-mermaid");
+  for (const code of blocks) {
+    const source = code.textContent;
+    const box = document.createElement("div");
+    box.className = "diagram";
+    code.parentElement.replaceWith(box);
+    try {
+      const { svg } = await mermaid.render("m" + Math.random().toString(36).slice(2), source);
+      box.innerHTML = svg;
+    } catch (e) {
+      box.innerHTML = `<pre>${esc(source)}</pre><div class="faint">The diagram does not draw: ${esc(e.message || e)}</div>`;
+    }
+  }
+}
+
 // --- formatting -------------------------------------------------------------
 
 function ago(t) {
@@ -392,6 +417,7 @@ async function goalPage(repo, id) {
     if (ui.sig[sel] === (key || html)) return false;
     ui.sig[sel] = key || html;
     $(sel).innerHTML = html;
+    diagrams($(sel));
     return true;
   };
 
@@ -507,6 +533,7 @@ async function goalPage(repo, id) {
     if (waitKey !== ui.waitKey) {
       ui.waitKey = waitKey;
       $("#wait").innerHTML = waitingHtml(g);
+      diagrams($("#wait"));
       if (waitKey && g.awaiting.kind === "plan") ui.tab = "plan";
     }
     set("#live", liveHtml(g));
