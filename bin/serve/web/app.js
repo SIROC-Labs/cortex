@@ -83,33 +83,7 @@ function mini(p, label) {
     <span class="track"><span class="fill" style="width:${pct}%"></span></span>${p.done}/${p.total}</span>`;
 }
 
-// What a goal is doing, and the colour it shows in.
-function state(g) {
-  const s = g.status;
-  const a = g.awaiting || {};
-  if (g.waiting && !(["stopped", "failed"].includes(s) && !g.alive)) {
-    const what = a.kind === "plan" ? (a.split ? "the split waits on your review" : "the plan waits on your review")
-      : a.kind === "problem" ? "stopped: " + (a.headline || "a problem")
-        : "has " + ((a.questions || []).length || "a") + " question" + ((a.questions || []).length === 1 ? "" : "s") + " for you";
-    return { text: what, tone: "warn", label: "waiting on you" };
-  }
-  if (["setting-up", "working", "checking", "waiting", "paused", "parts", "queued", "review"].includes(s) && !g.alive && s !== "new") {
-    return { text: "stopped unexpectedly", tone: "bad", label: "stopped" };
-  }
-  if (s === "working" && g.phase === "planning") return { text: g.doing || "analysing the ask", tone: "ok", label: "analysing" };
-  if (s === "working" || s === "checking" || s === "setting-up" || s === "parts") return { text: g.doing || s, tone: "ok", label: s === "checking" ? "checking" : "working" };
-  if (s === "paused") return { text: g.doing || "paused for the usage limit", tone: "info", label: "paused" };
-  if (s === "queued") return { text: g.doing || "waits to build", tone: "info", label: "queued" };
-  if (s === "review") return { text: g.pr_error ? "cannot read its PR: " + g.pr_error : "ready to merge — watching the PR", tone: g.pr_error ? "bad" : "ok", label: "in review" };
-  if (s === "done" && g.phase === "merged") return { text: "merged", tone: "", label: "merged" };
-  if (s === "done" && g.phase === "closed") return { text: "its PR was closed without a merge", tone: "", label: "closed" };
-  if (s === "done" && g.phase === "marked") return { text: "marked done by you", tone: "", label: "done" };
-  if (s === "done" && g.parent) return { text: "merged into the goal's branch", tone: "", label: "done" };
-  if (s === "done") return { text: "done — its PR is ready", tone: "ok", label: "done" };
-  if (s === "failed") return { text: "failed: " + ((g.reason || "?").split("\n")[0]), tone: "bad", label: "failed" };
-  if (s === "stopped") return { text: "stopped by you", tone: "", label: "stopped" };
-  return { text: s || "new", tone: "", label: s || "new" };
-}
+const state = (g) => g.state || { text: g.status || "", tone: "", label: g.status || "" };
 
 // --- router -----------------------------------------------------------------
 
@@ -275,86 +249,11 @@ function checklist(journal, heading) {
   return out;
 }
 
-function kindOf(title) {
-  if (/^Round \d+/.test(title)) return "round";
-  if (/^Running \d+ task/.test(title)) return "tasks";
-  if (/^Asking you|ready for your review|^Asking the goal's lead/.test(title)) return "you";
-  if (/^Reviewing the acceptance criteria|^Checking against the ask|^Checking/.test(title)) return "check";
-  if (/CI|static checks|^Syncing/.test(title)) return "ci";
-  if (/^Paused/.test(title)) return "pause";
-  if (/^Stopped|failed|^Review comments/.test(title)) return "alert";
-  if (/^Merged|^Finishing|^Watching the PR/.test(title)) return "ship";
-  return "step";
-}
-
-// The log's steps as cards: a round with the tasks it handed over, in phases.
-function cards(steps) {
-  const out = [];
-  let phase = "Setup";
-  let revision = 0;
-  let approved = false;
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    const kind = kindOf(s.title);
-    const next = steps[i + 1];
-    let p = phase;
-    if (kind === "round" && phase === "Setup") p = "Analysis and plan";
-    if (approved || kind === "tasks" || /^Small change/.test(s.title)) {
-      if (phase === "Setup" || phase === "Analysis and plan") p = "Build";
-    }
-    approved = s.lines.some((l) => /the plan is approved/.test(l));
-    if (/^Syncing with main|^Running CI's static checks here$/.test(s.title) && !/Verify/.test(phase)) p = "Verify and ship";
-    if (/^Watching the PR/.test(s.title)) p = "PR review";
-    if (/^Review comments on the PR/.test(s.title)) { revision += 1; p = "Revision " + revision; }
-    if (/^Round/.test(s.title) && phase === "Verify and ship") p = "Build";
-    if (/^Round/.test(s.title) && /^Revision/.test(phase)) p = phase;
-    const card = { i, kind, title: s.title, at: s.at, lines: s.lines, cost: s.cost, phase: p, tasks: null };
-    phase = p;
-    if (kind === "round" && next && kindOf(next.title) === "tasks") {
-      card.tasks = next;
-      card.cost += next.cost;
-      i += 1;
-    }
-    const after = steps[i + 1];
-    card.until = after ? after.at : null;
-    out.push(card);
-  }
-  return out;
-}
-
-function taskTable(step) {
-  const rows = [];
-  const by = {};
-  for (const line of step.lines) {
-    const m = line.match(/^(task|question): (.+) on (\S+)$/);
-    if (m) { by[m[2]] = { kind: m[1] === "task" ? "code" : "explore", name: m[2], model: m[3], result: "running" }; rows.push(by[m[2]]); continue; }
-    const r = line.match(/^(.+?): (done|failed|stopped|cut off|no report)(.*)$/);
-    if (r && by[r[1]]) by[r[1]].result = r[2] + r[3];
-  }
-  if (!rows.length) return `<pre>${esc(step.lines.join("\n"))}</pre>`;
-  return `<table class="tasks">${rows.map((t) => {
+function taskTable(tasks) {
+  return `<table class="tasks">${tasks.map((t) => {
     const tone = /failed|stopped|cut off|no report|conflict|kept/.test(t.result) ? "bad" : /done/.test(t.result) ? "ok" : "";
     return `<tr><td class="k">${t.kind}</td><td>${esc(t.name)}</td><td class="r"><span class="badge ${tone}">${esc(t.result)}</span></td></tr>`;
   }).join("")}</table>`;
-}
-
-function cardSummary(c) {
-  const said = c.lines.filter((l) => !/^(lead|review|check|ci-fix|consult): /.test(l));
-  if (c.kind === "round") {
-    const t = c.tasks ? c.tasks.title.replace(" from the lead", "") : "";
-    const text = said.join(" ");
-    return [t, text].filter(Boolean).join(" · ");
-  }
-  if (c.kind === "check") {
-    const v = c.lines.find((l) => /^(verdict|review): \d/.test(l));
-    return v ? v.replace(/^(verdict|review): /, "") : "";
-  }
-  if (c.kind === "you") {
-    const q = c.lines.filter((l) => /^Q: /.test(l));
-    const a = c.lines.find((l) => /^answered|approved/.test(l));
-    return (q.length ? q.length + " question" + (q.length > 1 ? "s" : "") : "") + (a ? " · answered" : "");
-  }
-  return said[said.length - 1] || "";
 }
 
 function cardBody(c) {
@@ -362,7 +261,7 @@ function cardBody(c) {
     const calls = c.lines.filter((l) => /^lead: /.test(l)).map((l) => l.replace(/^lead: /, ""));
     const said = c.lines.filter((l) => !/^lead: /.test(l));
     return `${said.length ? `<div class="said md">${md(said.join("\n\n"))}</div>` : ""}
-      ${c.tasks ? taskTable(c.tasks) : ""}
+      ${c.tasks ? taskTable(c.tasks) : c.tasks_lines ? `<pre>${esc(c.tasks_lines.join("\n"))}</pre>` : ""}
       ${calls.length ? `<div class="faint">lead: ${esc(calls.join(" · "))}</div>` : ""}`;
   }
   if (c.kind === "check" || c.kind === "you") {
@@ -371,6 +270,7 @@ function cardBody(c) {
     return `${items.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${rest.length ? `<div class="faint">${esc(rest.join(" · "))}</div>` : ""}`;
   }
+  if (c.tasks) return taskTable(c.tasks);
   return c.lines.length ? `<pre>${esc(c.lines.join("\n"))}</pre>` : `<span class="faint">no detail</span>`;
 }
 
@@ -489,7 +389,7 @@ async function goalPage(repo, id) {
     store.set("tab", ui.tab);
     if (!g) return;
     if (ui.tab === "timeline") {
-      const cs = cards(g.timeline || []);
+      const cs = g.timeline || [];
       if (!ui.opened) {
         ui.opened = true;
         cs.slice(-2).forEach((c) => ui.open.add(c.i));
@@ -503,7 +403,7 @@ async function goalPage(repo, id) {
         const dur = c.until ? span(c.until - c.at) : g.alive ? "now" : "";
         return `${head}<div class="tl"><div class="step ${c.kind}"><div class="panel card">
           <div class="head" data-i="${c.i}"><span class="t">${esc(c.title)}</span>
-          <span class="s">${esc(cardSummary(c))}</span>
+          <span class="s">${esc(c.summary)}</span>
           <span class="when">${[money(c.cost), dur, clock(c.at)].filter(Boolean).join(" · ")}</span></div>
           ${open ? `<div class="body">${cardBody(c)}</div>` : ""}</div></div></div>`;
       }).join("") || `<div class="faint">Nothing has happened yet.</div>`;

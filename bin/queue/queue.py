@@ -22,7 +22,7 @@ if sys.path and os.path.abspath(sys.path[0] or ".") == HERE:
 import argparse  # noqa: E402
 
 BIN = os.path.dirname(HERE)
-for tool in ("tui", "goal", "lib"):
+for tool in ("tui", "serve", "goal", "lib"):
     sys.path.insert(0, os.path.join(BIN, tool))
 import control as dm  # noqa: E402
 import core as st  # noqa: E402
@@ -74,8 +74,9 @@ def main(argv):
     try:
         main_root = st.main_repo_root(os.path.abspath(args.repo))
         if args.cmd == "list":
+            import actions
             import tui
-            tui.print_status(main_root)
+            print("\n".join(tui.status_lines(actions.goals(main_root))))
             return 0
         if args.cmd == "add":
             prompt = sys.stdin.read() if args.prompt == "-" else args.prompt

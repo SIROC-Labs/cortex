@@ -44,7 +44,8 @@ are gone: every ticket runs as a goal.
    do not start; finish or close their open PRs by hand.
 2. Run `bash ../setup-path.sh`, delete the old `CORTEX_HOME` lines it points out, and
    open a new terminal.
-3. Open the TUI from the new terminal (`cond tui`).
+3. Start the service from the new terminal (`cond serve install`), then open
+   `http://127.0.0.1:4747/` or `cond tui`.
 
 Comments the old runs posted (`🤖 cortex ·`) and subtasks the old goals planned are still
 recognised as the runs' own.
@@ -59,7 +60,7 @@ cond <tool> --help      # a tool's own arguments
 | Tool | What it does |
 |---|---|
 | [`goal`](goal/README.md) | Implements a prompt by itself — a lead agent with its own sub-agents — on one branch, into one PR |
-| [`tui`](tui/README.md) | Watch goals work, answer them, approve their plans |
+| [`tui`](tui/README.md) | The goals in the terminal, through the service: read them, answer them, approve their plans |
 | [`queue`](queue/README.md) | Starts goals from the command line, as the TUI does — for scripts and other agents |
 | [`serve`](serve/README.md) | The service: goals over REST and MCP, on this machine only |
 

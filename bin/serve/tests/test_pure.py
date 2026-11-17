@@ -141,6 +141,21 @@ class TestActions(Repo):
                          (60, "openai/gpt-x", ac.gl.DEFAULT_SUBAGENT_MODEL))
 
 
+class TestDescribe(unittest.TestCase):
+    def test_what_waits_on_you_comes_first_unless_the_goal_is_stopped(self):
+        plan = {"asked_at": "t", "kind": "plan"}
+        self.assertEqual(ac.describe({"status": "waiting", "alive": True, "awaiting": plan}),
+                         ("the plan waits on your review", "warn", "waiting on you"))
+        self.assertEqual(ac.describe({"status": "waiting", "alive": True, "awaiting": {
+            "asked_at": "t", "questions": [{"q": "a"}, {"q": "b"}]}})[0], "has 2 questions for you")
+        self.assertEqual(ac.describe({"status": "stopped", "alive": False, "awaiting": plan})[2], "stopped")
+
+    def test_a_live_status_without_its_process_is_a_crash(self):
+        self.assertEqual(ac.describe({"status": "working", "alive": False})[1:], ("bad", "stopped"))
+        self.assertEqual(ac.describe({"status": "working", "alive": True, "phase": "planning"})[2], "analysing")
+        self.assertEqual(ac.describe({"status": "done", "phase": "merged"}), ("merged", "", "merged"))
+
+
 class TestTimeline(unittest.TestCase):
     def test_the_log_becomes_steps_with_their_lines_and_costs(self):
         import time
@@ -157,6 +172,42 @@ class TestTimeline(unittest.TestCase):
         self.assertEqual(steps[0]["at"], created + 21 * 60 + 42)
         self.assertEqual(steps[3]["at"] - steps[2]["at"], 60 + 100 * 60 + 22)
         self.assertEqual(ac.timeline("", created), [])
+
+
+class TestCards(unittest.TestCase):
+    def step(self, title, lines=(), at=0, cost=0.0):
+        return {"title": title, "lines": list(lines), "at": at, "cost": cost}
+
+    def test_a_round_takes_the_tasks_it_handed_out_and_phases_follow_the_work(self):
+        steps = [self.step("Reading the ask"), self.step("Round 1", ["lead: calling claude", "Planned it."], 10, 1.0),
+                 self.step("Reviewing the acceptance criteria", ["review: calling claude", "review: 26 turns",
+                                                                 "review: 2 problem(s), 0 question(s)", "- gap"], 20),
+                 self.step("The plan is ready for your review", ["answered", "the plan is approved"], 30),
+                 self.step("Round 2", ["Wave 1."], 40, 0.5),
+                 self.step("Running 2 task(s) from the lead", ["task: API on sonnet", "question: E1 where on sonnet",
+                                                              "API: done · merged", "E1 where: done"], 50, 2.0),
+                 self.step("Syncing with main", [], 60), self.step("Checking against the ask", ["verdict: 1 gap(s), 0 question(s)"], 70),
+                 self.step("Round 3", [], 80), self.step("Watching the PR for review comments and the merge", [], 90),
+                 self.step("Review comments on the PR", [], 100), self.step("Round 4", [], 110)]
+        cs = ac.cards(steps)
+        self.assertEqual([(c["title"], c["phase"]) for c in cs], [
+            ("Reading the ask", "Setup"), ("Round 1", "Analysis and plan"),
+            ("Reviewing the acceptance criteria", "Analysis and plan"),
+            ("The plan is ready for your review", "Analysis and plan"), ("Round 2", "Build"),
+            ("Syncing with main", "Verify and ship"), ("Checking against the ask", "Verify and ship"),
+            ("Round 3", "Build"), ("Watching the PR for review comments and the merge", "PR review"),
+            ("Review comments on the PR", "Revision 1"), ("Round 4", "Revision 1")])
+        round2 = cs[4]
+        self.assertEqual((round2["cost"], round2["until"]), (2.5, 60))
+        self.assertEqual(round2["tasks"], [
+            {"kind": "code", "name": "API", "model": "sonnet", "result": "done · merged"},
+            {"kind": "explore", "name": "E1 where", "model": "sonnet", "result": "done"}])
+        self.assertEqual(round2["summary"], "Running 2 task(s) · Wave 1.")
+        self.assertEqual(cs[1]["summary"], "Planned it.")
+        self.assertEqual(cs[2]["summary"], "2 problem(s), 0 question(s)")
+        self.assertEqual(cs[3]["summary"], "answered")
+        self.assertEqual(ac.card_summary({"kind": "check", "lines": ["check: 3 turns", "verdict: done"]}), "clean")
+        self.assertIsNone(cs[-1]["until"])
 
 
 class TestHTTP(Repo):
