@@ -246,7 +246,7 @@ async function runsPage() {
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title">${esc(g.parent ? g.part || g.name : g.title || g.name)} ${fold}
+          <div class="title"><span class="name">${esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
             ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>
