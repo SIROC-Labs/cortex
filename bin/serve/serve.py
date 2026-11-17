@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import actions as ac  # noqa: E402
+import discuss  # noqa: E402
 import mcp  # noqa: E402
 
 DEFAULT_PORT = 4747
@@ -87,6 +88,16 @@ def get_log(req, repo, goal):
 def get_file(req, repo, goal, rel):
     path, body = ac.state_file(ac.repo(repo)["path"], goal, urllib.parse.unquote(rel))
     return RawBody(body, mimetypes.guess_type(path)[0] or "application/octet-stream")
+
+
+@route("GET", r"/api/repos/(?P<repo>[^/]+)/goals/(?P<goal>[^/]+)/discussions/(?P<topic>[a-z0-9]+)")
+def get_discussion(req, repo, goal, topic):
+    return discuss.read(ac.repo(repo)["path"], goal, topic)
+
+
+@route("POST", r"/api/repos/(?P<repo>[^/]+)/goals/(?P<goal>[^/]+)/discussions/(?P<topic>[a-z0-9]+)")
+def post_discussion(req, repo, goal, topic):
+    return discuss.say(ac.repo(repo)["path"], goal, topic, req.json().get("text"))
 
 
 ACTIONS = {"stop": ac.stop, "resume": ac.resume, "approve": ac.approve, "done": ac.mark_done,

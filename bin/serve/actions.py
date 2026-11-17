@@ -237,6 +237,26 @@ def _files(state_dir, sub):
                   for n in os.listdir(folder))
 
 
+NOW_ACTIONS = 8
+
+
+def now(data, processes):
+    """What the goal's running call is doing: what it last said, its last actions,
+    and its sub-agents at work; None when no call runs."""
+    try:
+        snap = gv.snapshot(data, processes=processes)
+    except Exception:  # noqa: BLE001 — a transcript being written is read again next time
+        return None
+    if not snap or not data.get("status") in gv.ACTIVE:
+        return None
+    path = gv.session_path(snap["session"])
+    actions, said = gv.recent(gv._read_tail(path, 256 * 1024), NOW_ACTIONS) if path else ([], [])
+    return {"role": snap["role"], "said": said[-1] if said else None, "actions": actions,
+            "at": (snap.get("main") or {}).get("at"),
+            "agents": [{"description": a.get("description"), "action": a.get("action"),
+                        "model": a.get("model")} for a in snap.get("agents") or [] if a.get("running")]}
+
+
 def detail(main_root, gid):
     """A goal in full, for its page: its state and summary, what waits on you, the
     journal, the technical plan, its tasks, its parts, the files it was given, and
@@ -263,7 +283,9 @@ def detail(main_root, gid):
     log_text = _text(goal.log) or ""
     out["log_size"] = len(log_text.encode())
     out["timeline"] = cards(timeline(log_text, data.get("created"), priced))
-    out["live"] = gv.running_agents(data, processes=gv.claude_processes()) if data["alive"] else []
+    processes = gv.claude_processes() if data["alive"] else {}
+    out["live"] = gv.running_agents(data, processes=processes) if data["alive"] else []
+    out["now"] = now(data, processes) if data["alive"] else None
     out["tasks_now"] = gv.tasks_now(data) or []
     return out
 

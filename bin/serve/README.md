@@ -31,8 +31,14 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   finished with all its parts starts folded. Finished goals are hidden:
   *Show finished* shows them; one with a part still at work stays. The nav
   counts the goals waiting on you.
-- **A goal:** what it waits on you for, at the top: its questions with their options (a
-  click adds one to the answer), or its plan with Approve and Ask for changes. Its status
+- **A goal:** what it waits on you for, at the top. Each question takes one of its options
+  or your own words; *Discuss this question* opens a talk about it alone, in a session
+  of its own with only the ask, the question and the journal's references and
+  decisions, which reads but changes nothing (*Use as my answer* copies a reply into the
+  answer). A plan takes Approve or Ask for changes, and *Discuss the plan*, also on the
+  Plan tab, talks it through the same way with the plan's steps, criteria and technical
+  plan. A step that runs says what its agent is doing: what it last said, its latest
+  actions and its sub-agents at work. Its status
   line counts the steps and acceptance criteria done; hover over either for the list.
   What runs now, agent by agent. Tabs: its timeline (every step from the log, in phases,
   each round with the tasks it handed out and how they ended, each check with its gaps,
@@ -58,6 +64,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 | `GET /api/repos/{repo}/goals/{goal}/files/{path}` | a file it was given (`inputs/`), a ticket's attachment, its technical plan or usage report |
 | `POST /api/repos/{repo}/goals/{goal}/answer {text}` | answer what it waits on you for |
 | `POST /api/repos/{repo}/goals/{goal}/{approve,stop,resume,done,clear,undo}` | approve its plan; stop it; carry it on; mark it done; take it off the list; undo all of it |
+| `GET`, `POST /api/repos/{repo}/goals/{goal}/discussions/{q1…,plan}` `{text}` | a talk about one question, or the plan, of what the goal waits on: the POST adds your message and starts the reply in the background; the GET gives the messages and whether a reply is coming |
 | `GET`, `PUT /api/repos/{repo}/settings` | the branch goals go into (`base`, else main), `usage_threshold`, `goal_gate`, `runner` (`claude` or `opencode`), `models` (Claude's: `lead`, `subagent`, `check`, and `lead_effort`, `subagent_effort`, `check_effort`), `opencode_models` (`lead`, `subagent`, `check` as `provider/model`), and `providers`: providers for OpenCode: an OpenAI-compatible endpoint, or one of OpenCode's own without a `base_url` (`id`, `base_url`, `key_env`: the name of the key's variable, `models`, `input_price`, `output_price` per million tokens) |
 
 ## MCP

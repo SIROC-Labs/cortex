@@ -269,6 +269,65 @@ class TestRunner(Repo):
         self.assertEqual(g["model"], ac.gl.DEFAULT_MODEL)
 
 
+class TestDiscuss(Repo):
+    def setUp(self):
+        Repo.setUp(self)
+        import discuss
+        self.discuss = discuss
+        self.gid = ac.start(self.root, "Build the badge")
+        self.goal = ac.gl.Goal(self.root, self.gid)
+        self.goal.update(ask="# The ask\n\nBuild the badge", model="claude-opus-5-5")
+        with open(self.goal.journal, "w") as f:
+            f.write("## References\n- prototype: badge.html\n\n## Decisions\n- D1: red\n\n"
+                    "## Acceptance criteria\n- [ ] The badge is red\n\n## Plan\n1. [ ] Badge: red\n")
+        with open(self.goal.state.path("technical-plan.md"), "w") as f:
+            f.write("# Technical plan\nUse the token.")
+        self.goal.state.write("awaiting.json", {"kind": "questions", "asked_at": "2026-11-17T10:00:00Z",
+                                                "questions": [{"q": "Which red?", "why": "They differ.",
+                                                               "options": [{"label": "A. Mock", "means": "exact"}]}]})
+        self.calls = []
+
+    def runner(self, reply="Pick A: it matches the prototype."):
+        def run(cmd, **kw):
+            self.calls.append(cmd)
+            class P(object):
+                stdout = json.dumps({"result": reply, "session_id": "s"}).encode()
+            return P()
+        return run
+
+    def test_a_question_thread_starts_from_its_question_and_carries_on_in_its_session(self):
+        out = self.discuss.say(self.root, self.gid, "q1", "Which is closer to the prototype?", runner=self.runner())
+        first = self.calls[0]
+        prompt = first[-1]
+        self.assertIn("Which red?", prompt)
+        self.assertIn("A. Mock → exact", prompt)
+        self.assertIn("D1: red", prompt)
+        self.assertIn("Build the badge", prompt)
+        self.assertNotIn("Use the token", prompt)
+        self.assertIn("--session-id", first)
+        self.assertIn("--disallowedTools", first)
+        self.assertEqual([m["role"] for m in out["messages"]], ["person", "agent"])
+        self.discuss.say(self.root, self.gid, "q1", "And B?", runner=self.runner())
+        self.assertIn("--resume", self.calls[1])
+        self.assertEqual(self.calls[1][-1], "And B?")
+        self.assertEqual(len(self.discuss.read(self.root, self.gid, "q1")["messages"]), 4)
+
+    def test_the_plan_thread_gets_the_plan_and_a_new_question_a_new_thread(self):
+        self.discuss.say(self.root, self.gid, "plan", "Is the token right?", runner=self.runner())
+        self.assertIn("Use the token", self.calls[0][-1])
+        self.assertIn("The badge is red", self.calls[0][-1])
+        self.goal.state.write("awaiting.json", dict(self.goal.state.read("awaiting.json"), asked_at="later"))
+        self.assertEqual(self.discuss.read(self.root, self.gid, "plan")["messages"], [])
+
+    def test_bad_topics_and_failures_are_said(self):
+        for topic, text in (("q9", "x"), ("zz", "x"), ("q1", " ")):
+            with self.assertRaises(ac.Problem):
+                self.discuss.say(self.root, self.gid, topic, text, runner=self.runner())
+        out = self.discuss.say(self.root, self.gid, "q1", "Hm?", runner=self.runner(reply=""))
+        self.assertEqual(out["error"], "no reply")
+        self.assertEqual([m["role"] for m in out["messages"]], ["person"])
+
+
 class TestHTTP(Repo):
     def setUp(self):
         Repo.setUp(self)

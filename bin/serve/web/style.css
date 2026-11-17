@@ -232,3 +232,20 @@ a.goal-row { color: var(--text); text-decoration: none; }
 .goal-row .title .badge { font-weight: 400; }
 .fold .chev { display: block; flex-shrink: 0; transform-origin: 50% 50%; transition: transform .15s; }
 .fold .chev.open { transform: rotate(90deg); }
+
+/* answers and discussions */
+.question .opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.question .own { margin-top: 8px; min-height: 34px; }
+button.link { border: none; background: none; padding: 4px 0; color: var(--accent); font-size: 13px; }
+button.link:hover { text-decoration: underline; }
+.disc { margin-top: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 10px; }
+.disc .msgs { display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow: auto; margin-bottom: 8px; }
+.msg .who { font-size: 12px; color: var(--dim); font-weight: 600; margin-bottom: 2px; }
+.msg.person .md { color: var(--text); }
+.msg.agent { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.composer-row { align-items: flex-end; }
+#plan-disc { margin-top: 12px; }
+.now { border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; margin-bottom: 10px; }
+.now .said { margin-bottom: 6px; }
+.now .actions { margin: 4px 0; padding-left: 18px; }
+.now .actions code { font-size: 12px; }

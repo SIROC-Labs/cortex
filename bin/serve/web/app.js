@@ -328,6 +328,8 @@ function waitingHtml(g) {
     return `<div class="waiting"><h3>${a.split ? "The split" : "The plan"} waits on your review</h3>
       ${a.detail ? `<div class="md">${md(a.detail)}</div>` : ""}
       ${g.technical_plan ? `<p><a href="" data-tab="plan">Read the technical plan ↓</a></p>` : ""}
+      <div class="row"><button class="link" data-discuss="plan">Discuss the plan</button></div>
+      <div class="disc" id="disc-plan" hidden></div>
       <textarea id="answer" placeholder="To change it, say what to change: the lead revises the plan and it comes back to you."></textarea>
       <div class="buttons"><button class="primary" id="approve">Approve</button>
       <button id="send">Ask for changes</button></div></div>`;
@@ -345,9 +347,52 @@ function waitingHtml(g) {
       ${(q.options || []).length ? `<div class="opts">${q.options.map((o) => `<button class="opt" data-n="${n + 1}" data-label="${esc(o.label)}">
         <b>${esc(o.label)}</b>${o.means ? ` <span class="means">→ ${esc(o.means)}</span>` : ""}
         ${(o.flow || []).length ? `<ol>${o.flow.map((f) => `<li>${esc(f)}</li>`).join("")}</ol>` : ""}</button>`).join("")}</div>` : ""}
-      ${q.recommend ? `<div class="rec">Suggested: ${esc(q.recommend)}</div>` : ""}</div>`).join("")}
-    <textarea id="answer" placeholder="Your answers. A click on an option adds it."></textarea>
+      ${q.recommend ? `<div class="rec">Suggested: ${esc(q.recommend)}</div>` : ""}
+      <textarea class="own" data-n="${n + 1}" rows="1" placeholder="${(q.options || []).length ? "Or answer in your own words" : "Your answer"}"></textarea>
+      <div class="row"><button class="link" data-discuss="q${n + 1}">Discuss this question</button></div>
+      <div class="disc" id="disc-q${n + 1}" hidden></div></div>`).join("")}
+    <textarea id="answer" rows="2" placeholder="Anything else to tell it (optional)"></textarea>
     <div class="buttons"><button class="primary" id="send">Send the answers</button></div></div>`;
+}
+
+// A talk about one question or the plan: its own session, apart from the goal's.
+function discussion(box, base, topic, onUse) {
+  const url = `${base}/discussions/${topic}`;
+  box.innerHTML = `<div class="msgs"></div><div class="row composer-row"><textarea rows="2" class="grow"
+    placeholder="Ask about it. This talk is its own: the goal does not see it."></textarea><button class="primary">Send</button></div>`;
+  const msgs = box.querySelector(".msgs");
+  const input = box.querySelector("textarea");
+  const send = box.querySelector("button");
+  let timer = null;
+  const render = (t) => {
+    msgs.innerHTML = t.messages.map((m, i) => `<div class="msg ${m.role}"><div class="who">${m.role === "person" ? "You" : "Agent"}</div>
+      <div class="md">${md(m.text)}</div>${m.role === "agent" && onUse ? `<button class="link" data-use="${i}">Use as my answer</button>` : ""}</div>`).join("")
+      + (t.pending ? `<div class="msg agent"><div class="who">Agent</div><div class="faint">thinking… it reads what it needs first</div></div>` : "")
+      + (t.error ? `<div class="msg"><span class="badge bad">${esc(t.error)}</span></div>` : "");
+    diagrams(msgs);
+    send.disabled = t.pending;
+    msgs.querySelectorAll("[data-use]").forEach((b) => { b.onclick = () => onUse(t.messages[+b.dataset.use].text); });
+    clearTimeout(timer);
+    if (t.pending && box.isConnected) timer = setTimeout(load, 2500);
+  };
+  const load = async () => { try { render(await api("GET", url)); } catch (e) { toast(e.message, true); } };
+  send.onclick = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    const t = await act(() => api("POST", url, { text }));
+    if (t) { input.value = ""; render(t); }
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send.onclick(); });
+  load();
+}
+
+// What the running call is doing now, under its step.
+function nowHtml(now) {
+  if (!now) return "";
+  return `<div class="now">${now.said ? `<div class="md said">${md(now.said)}</div>` : ""}
+    ${(now.actions || []).length ? `<ul class="actions">${now.actions.map((x) => `<li><code>${esc(x)}</code></li>`).join("")}</ul>` : ""}
+    ${(now.agents || []).length ? `<div class="faint">Sub-agents at work:</div><ul>${now.agents.map((x) =>
+      `<li>${esc(x.description || "a sub-agent")}${x.action ? ` <span class="faint">· ${esc(x.action)}</span>` : ""}</li>`).join("")}</ul>` : ""}</div>`;
 }
 
 function liveHtml(g) {
@@ -426,6 +471,7 @@ async function goalPage(repo, id) {
       <button data-t="timeline">Timeline</button><button data-t="plan">Plan</button>
       <button data-t="ask">Ask</button><button data-t="journal">Journal</button>
       <button data-t="cost">Cost</button><button data-t="log">Log</button></div>
+    <div id="plan-disc" hidden><button class="link" id="plan-disc-open">Discuss the plan</button><div class="disc" id="plan-disc-box" hidden></div></div>
     <div class="tab-body" id="body"></div>`;
   let g = null;
 
@@ -440,6 +486,7 @@ async function goalPage(repo, id) {
   const showTab = () => {
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === ui.tab));
     store.set("tab", ui.tab);
+    $("#plan-disc").hidden = ui.tab !== "plan" || !g || (!g.technical_plan && !g.journal);
     if (!g) return;
     if (ui.tab === "timeline") {
       const cs = g.timeline || [];
@@ -452,15 +499,16 @@ async function goalPage(repo, id) {
       const html = cs.map((c) => {
         const head = c.phase !== last ? `<div class="phase">${esc(c.phase)}</div>` : "";
         last = c.phase;
-        const open = ui.open.has(c.i);
+        const live = g.alive && g.now && c === cs[cs.length - 1];
+        const open = ui.open.has(c.i) || live;
         const dur = c.until ? span(c.until - c.at) : g.alive ? "now" : "";
         return `${head}<div class="tl"><div class="step ${c.kind}"><div class="panel card">
           <div class="head" data-i="${c.i}"><span class="t">${esc(c.title)}</span>
-          <span class="s">${esc(c.summary)}</span>
+          <span class="s">${esc(live ? g.now.said || (g.now.actions || []).slice(-1)[0] || c.summary : c.summary)}</span>
           <span class="when">${[money(c.cost), dur, clock(c.at)].filter(Boolean).join(" · ")}</span></div>
-          ${open ? `<div class="body">${cardBody(c)}</div>` : ""}</div></div></div>`;
+          ${open ? `<div class="body">${live ? nowHtml(g.now) : ""}${cardBody(c)}</div>` : ""}</div></div></div>`;
       }).join("") || `<div class="faint">Nothing has happened yet.</div>`;
-      set("#body", html, "t" + JSON.stringify([g.timeline, [...ui.open], g.alive]));
+      set("#body", html, "t" + JSON.stringify([g.timeline, [...ui.open], g.alive, g.now]));
     } else if (ui.tab === "journal") {
       set("#body", g.journal ? `<div class="md">${md(g.journal)}</div>` : `<div class="faint">No journal yet.</div>`, "j" + g.journal);
     } else if (ui.tab === "plan") {
@@ -479,6 +527,16 @@ async function goalPage(repo, id) {
     const h = e.target.closest(".head");
     if (h) { const i = +h.dataset.i; ui.open.has(i) ? ui.open.delete(i) : ui.open.add(i); showTab(); }
   };
+  $("#wait").addEventListener("input", (e) => {
+    if (e.target.classList.contains("own") && e.target.value.trim()) {
+      document.querySelectorAll(`.opt[data-n="${e.target.dataset.n}"]`).forEach((o) => o.classList.remove("on"));
+    }
+  });
+  $("#plan-disc-open").onclick = () => {
+    const box = $("#plan-disc-box");
+    box.hidden = !box.hidden;
+    if (!box.hidden && !box.dataset.on) { box.dataset.on = "1"; discussion(box, base, "plan"); }
+  };
   $("#wait").onclick = async (e) => {
     if (e.target.dataset.tab) {
       e.preventDefault();
@@ -489,15 +547,36 @@ async function goalPage(repo, id) {
     }
     const opt = e.target.closest(".opt");
     if (opt) {
-      const box = $("#answer");
-      box.value = (box.value ? box.value.replace(/\s*$/, "\n") : "") + `${opt.dataset.n}. ${opt.dataset.label}`;
-      box.focus();
+      const on = !opt.classList.contains("on");
+      document.querySelectorAll(`.opt[data-n="${opt.dataset.n}"]`).forEach((o) => o.classList.remove("on"));
+      opt.classList.toggle("on", on);
+      if (on) $(`.own[data-n="${opt.dataset.n}"]`).value = "";
+      return;
+    }
+    const talk = e.target.dataset.discuss;
+    if (talk) {
+      const box = $(`#disc-${talk}`);
+      box.hidden = !box.hidden;
+      if (!box.hidden && !box.dataset.on) {
+        box.dataset.on = "1";
+        discussion(box, base, talk, talk === "plan" ? (text) => { $("#answer").value = text; }
+          : (text) => { const own = $(`.own[data-n="${talk.slice(1)}"]`); own.value = text; own.dispatchEvent(new Event("input", { bubbles: true })); });
+      }
       return;
     }
     if (e.target.id === "approve") {
       if (await act(() => api("POST", base + "/approve"), "Approved — it builds now")) refresh();
     } else if (e.target.id === "send") {
-      const text = $("#answer").value.trim();
+      const own = [...document.querySelectorAll("#wait .own")];
+      const lines = own.map((box) => {
+        const pick = $(`.opt.on[data-n="${box.dataset.n}"]`);
+        const value = box.value.trim() || (pick ? pick.dataset.label : "");
+        return value ? `${box.dataset.n}. ${value}` : null;
+      });
+      const missing = lines.map((l, i) => (l ? null : i + 1)).filter(Boolean);
+      if (missing.length) return toast(`Answer question ${missing.join(", ")} first: pick an option or write your own`, true);
+      const extra = $("#answer").value.trim();
+      const text = [lines.join("\n"), extra].filter(Boolean).join("\n\n");
       if (!text) return toast("Write the answer first", true);
       if (await act(() => api("POST", base + "/answer", { text }), "Sent — the goal carries on")) refresh();
     }
