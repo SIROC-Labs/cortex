@@ -1,9 +1,8 @@
-# Installing cortex-workflow for OpenCode
+# Installing SIROC Cortex for OpenCode
 
 ## Prerequisites
 
 - [OpenCode](https://opencode.ai) installed
-- `ASANA_PERSONAL_ACCESS_TOKEN` set in your environment (optional — needed for Asana-backed skills)
 
 ## Quick Install
 
@@ -13,60 +12,26 @@ Run the setup script:
 bash setup.sh --opencode
 ```
 
-This validates prerequisites (gh, ssh, tokens) and merges the required plugin
-and dependency configuration into your `opencode.json`, and installs the
-[design skills](../README.md#design-skills). Restart OpenCode after.
+This validates prerequisites (gh, ssh, tokens) and merges the plugin entry into
+your `opencode.json`. Restart OpenCode after.
 
 ## Manual Install
 
-Add `cortex-workflow` and its required `superpowers` dependency to your
-`opencode.json` plugin array:
+Add `siroc-cortex` to your `opencode.json` plugin array:
 
 ```json
 {
   "plugin": [
-    "cortex-workflow@git+https://github.com/SIROC-Labs/cortex.git",
-    "superpowers@git+https://github.com/obra/superpowers.git"
+    "siroc-cortex@git+https://github.com/SIROC-Labs/cortex.git"
   ]
 }
 ```
 
-Then install the design skills that all visual work has to use (see
-[Design skills](../README.md#design-skills)):
+The package holds both the `dev-toolkit` and `product` plugins. The adapter
+registers their skills automatically; no extra `plugin` entry is needed.
 
-```bash
-npx skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -a opencode -y
-npx skills@latest add emilkowalski/skills --skill apple-design --skill emil-design-eng -g -a opencode -y
-```
-
-The `dev-toolkit` and `product` plugins ship in the same repo package — the adapter registers
-their skills automatically; no extra `plugin` entry is needed.
-
-### MCP servers for browser and mobile QA (per project)
-
-`web-qa` and `mobile-qa` drive two MCP servers, `chrome-devtools` and
-`mobile-mcp`. OpenCode starts every configured MCP server in every session, so
-they are not registered globally: add them to the `opencode.json` of each
-project that runs browser or mobile QA. Copy only the one you need.
-
-```json
-{
-  "mcp": {
-    "chrome-devtools": {
-      "type": "local",
-      "command": ["sh", "-c", "bin=$(npx -y --package=chrome-devtools-mcp@latest -c \"command -v chrome-devtools-mcp\") || exit 1; exec \"$bin\" --experimentalScreencast --no-usage-statistics"]
-    },
-    "mobile-mcp": {
-      "type": "local",
-      "command": ["sh", "-c", "bin=$(npx -y --package=@mobilenext/mobile-mcp@latest -c \"command -v mcp-server-mobile\") || exit 1; exec \"$bin\""]
-    }
-  }
-}
-```
-
-The source of truth is `plugins/cortex-qa-web/.mcp.json` and
-`plugins/cortex-qa-mobile/.mcp.json`; each entry there is
-`command` followed by `args`.
+If your `opencode.json` still has a `cortex-workflow@git+...` entry, remove it.
+That package no longer exists.
 
 ## Updating
 
@@ -77,8 +42,8 @@ and clears the plugin cache so OpenCode picks up the newest commit.
 
 Ask OpenCode: "list available skills"
 
-You should see cortex-workflow and superpowers skills. Key entry point: use the
-skill tool to load `cortex-workflow/start-task` with an Asana task URL.
+You should see the `dev-toolkit` and `product` skills, for example `update-pr`
+and `create-prd`.
 
 ## Getting Help
 
