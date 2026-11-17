@@ -2094,6 +2094,11 @@ class Runner(object):
             value = None
         return value or DEFAULT_CHECK_EFFORT
 
+    def effort(self, role):
+        """The lead's or the sub-agents' effort from the settings, read each time;
+        None runs the model at its own default."""
+        return self.setup("%s_effort" % role) or None
+
     def threshold(self):
         """The usage limit to pause at: the TUI's Setup tab's, read each time so a
         change reaches a goal already running, else the goal's own."""
@@ -2337,7 +2342,8 @@ class Runner(object):
                 session = str(uuid.uuid4())
                 self.set(session=session)
             self.set(status="working", doing="round %d" % self.data["round"])
-            block, stop, error = self.call(prompt, session, resume, "lead")
+            block, stop, error = self.call(prompt, session, resume, "lead",
+                                           effort=self.effort("lead"))
             self.set(session_used=True)
             if error:
                 pause = st.limit_pause(error, time.time())
@@ -2517,7 +2523,8 @@ class Runner(object):
             self.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
             self.wait_for_usage()
             self.set(status="checking", doing="fixing CI's static checks, try %d" % attempt)
-            self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
+            self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model,
+                      self.effort("lead"))
             _, after, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
             if after == before:
                 st.warn("the fixer committed nothing — over to the lead")
@@ -2633,7 +2640,8 @@ class Runner(object):
                 self.step("Fixing CI (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
                 self.wait_for_usage()
                 self.set(status="checking", doing="fixing CI, try %d" % attempt)
-                _, stop, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model)
+                _, stop, error = self.call(prompt, str(uuid.uuid4()), False, "ci-fix", model,
+                                           self.effort("lead"))
                 # A call cut off at the usage threshold was not a try: it starts over
                 # once the limit frees up.
                 if stop != "usage":
@@ -2914,7 +2922,8 @@ class Runner(object):
         run["settings"] = settings
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
-               "--disallowedTools", "Agent,Task," + NO_WAITING] + NO_MCP + [
+               "--disallowedTools", "Agent,Task," + NO_WAITING] + NO_MCP + (
+                   ["--effort", self.effort("subagent")] if self.effort("subagent") else []) + [
                    "--session-id", run["session"], prompt]
         st.info("%s: %s on %s" % ("question" if explore else "task", name, short_model(model)))
         self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
@@ -2975,7 +2984,7 @@ class Runner(object):
             self.record_usage(label, run["model"], None, run["session"], run["started"], telemetry,
                               name=run["name"])
         else:
-            self.record_call(label, run["model"], None, run["session"], run["started"], out,
+            self.record_call(label, run["model"], self.effort("subagent"), run["session"], run["started"], out,
                              name=run["name"])
             try:
                 os.remove(run["settings"])
@@ -3174,7 +3183,7 @@ class Runner(object):
         for _ in range(3):
             self.wait_for_usage()
             block, stop, error = self.call(prompt, str(uuid.uuid4()), False, "consult",
-                                           (parent.read() or {}).get("model"))
+                                           (parent.read() or {}).get("model"), self.effort("lead"))
             self.cut_off = None
             if stop != "usage" and not error and isinstance(block, dict):
                 break

@@ -510,8 +510,38 @@ const GATES = {
   top: "You for the goal; the reviewer agent for its parts",
   auto: "The reviewer agent only: goals never wait for you",
 };
-const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-fable-5-1"];
+const CLAUDE_MODELS = [["claude-opus-5-5", "Opus 5.5"], ["claude-sonnet-5-5", "Sonnet 5.5"],
+  ["claude-haiku-4-5-20251001", "Haiku 4.5"], ["claude-fable-5-1", "Fable 5.1"]];
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const ROLES = [
+  { key: "lead", effort: "lead_effort", name: "Lead",
+    what: "Plans the goal, coordinates the build, fixes CI. Also answers a part's questions." },
+  { key: "check", effort: "check_effort", name: "Reviewer and checker",
+    what: "Reviews the plan before the build, then checks the branch against it." },
+  { key: "subagent", effort: "subagent_effort", name: "Coding tasks and explorers",
+    what: "Write the code and answer questions about it. Also the lead's own sub-agents." },
+];
+
+const isOpenCode = (m) => !!m && m.includes("/");
+
+// How a model runs: {how, detail, tone}.
+function runsOn(model, cfg) {
+  if (!model) return { how: "not set", detail: "", tone: "bad" };
+  if (!isOpenCode(model)) {
+    const known = CLAUDE_MODELS.find(([id]) => id === model);
+    return { how: "Claude Code (claude -p)", detail: "your Claude subscription" + (known ? "" : " · not a model this page knows"),
+      tone: known ? "" : "warn", label: known ? known[1] : model };
+  }
+  const pid = model.split("/")[0];
+  const p = (cfg.providers || []).find((x) => x.id === pid);
+  const missing = !cfg.opencode ? " · OpenCode is not installed" : "";
+  if (p && p.base_url) {
+    return { how: "OpenCode", detail: `${p.name || p.id} at ${p.base_url} · key in $${p.key_env || "?"}${missing}`,
+      tone: missing || !p.key_env ? "warn" : "", label: model };
+  }
+  return { how: "OpenCode", detail: `${pid}, one of OpenCode's own providers · its usual key variable${missing}`,
+    tone: missing ? "warn" : "", label: model };
+}
 
 async function settingsPage() {
   view = {};
@@ -519,89 +549,197 @@ async function settingsPage() {
   let current = store.get("repo", repos[0] && repos[0].id);
   if (!repos.find((r) => r.id === current)) current = repos[0] && repos[0].id;
   $("#main").innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Settings for ${repos.length ? `<select id="which">${repos.map((r) =>
+        `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select>` : "no repo yet"}</h2>
+      <button class="primary" id="save" ${repos.length ? "" : "hidden"}>Save</button>
+    </div>
+    <div id="form"></div>
     <h2>Repositories</h2>
     <div class="panel settings">
       ${repos.map((r) => `<div class="row" style="margin-bottom:6px"><b>${esc(r.name)}</b><span class="dim">${esc(r.path)}</span></div>`).join("")
         || `<div class="faint">None yet: a repo is added when a goal starts in it, or here.</div>`}
       <div class="row" style="margin-top:12px"><input class="grow" id="newrepo" placeholder="/path/to/repo"><button id="addrepo">Add</button></div>
-    </div>
-    ${repos.length ? `<h2>Settings for <select id="which">${repos.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></h2>
-    <div class="panel settings" id="form"></div>` : ""}
-    <datalist id="models">${MODELS.map((m) => `<option value="${m}">`).join("")}</datalist>`;
+    </div>`;
   $("#addrepo").onclick = async () => {
     const path = $("#newrepo").value.trim();
     if (path && await act(() => api("POST", "/api/repos", { path }), "Added")) settingsPage();
   };
   if (!repos.length) return;
-  const form = async () => {
+  let cfg = null;
+
+  const modelSelect = (role) => {
+    const value = cfg.models[role.key];
+    const groups = [`<optgroup label="Claude subscription · claude -p">${CLAUDE_MODELS.map(([id, label]) =>
+      `<option value="${id}"${id === value ? " selected" : ""}>${label}</option>`).join("")}</optgroup>`];
+    for (const p of cfg.providers) {
+      if (!p.id || !(p.models || []).length) continue;
+      groups.push(`<optgroup label="${esc(p.name || p.id)} · OpenCode">${p.models.map((m) => {
+        const id = `${p.id}/${m}`;
+        return `<option value="${esc(id)}"${id === value ? " selected" : ""}>${esc(id)}</option>`;
+      }).join("")}</optgroup>`);
+    }
+    const listed = CLAUDE_MODELS.some(([id]) => id === value) || cfg.providers.some((p) => (p.models || []).some((m) => `${p.id}/${m}` === value));
+    groups.push(`<optgroup label="Other"><option value="__other"${listed ? "" : " selected"}>Another model, by name…</option></optgroup>`);
+    return `<select data-model="${role.key}">${groups.join("")}</select>
+      <input data-other="${role.key}" value="${listed ? "" : esc(value)}" placeholder="claude-… or provider/model" ${listed ? "hidden" : ""}>`;
+  };
+
+  const effortSelect = (role) => {
+    const oc = isOpenCode(cfg.models[role.key]);
+    const value = cfg.models[role.effort] || "";
+    const options = (role.key === "check" ? [] : [["", "default"]]).concat(EFFORTS.map((e) => [e, e]));
+    return `<select data-effort="${role.effort}" ${oc ? "disabled title=\"Effort applies to Claude models only\"" : ""}>
+      ${options.map(([v, l]) => `<option value="${v}"${v === value ? " selected" : ""}>${oc ? "—" : l}</option>`).join("")}</select>`;
+  };
+
+  const summary = () => {
+    const claudeRoles = ROLES.filter((r) => !isOpenCode(cfg.models[r.key]));
+    const rows = ROLES.map((r) => {
+      const on = runsOn(cfg.models[r.key], cfg);
+      const effort = isOpenCode(cfg.models[r.key]) ? "" : (cfg.models[r.effort] || "default effort");
+      return `<tr><td><b>${esc(r.name)}</b></td><td>${esc(on.label || cfg.models[r.key] || "—")}${effort ? ` <span class="dim">· ${esc(effort)}</span>` : ""}</td>
+        <td><span class="badge ${on.tone}">${esc(on.how)}</span> <span class="dim">${esc(on.detail)}</span></td></tr>`;
+    }).join("");
+    return `<div class="panel settings wide"><h4 style="margin-top:0">What runs</h4>
+      <table class="runs-table">${rows}</table>
+      <p class="dim" style="margin:10px 0 0">${claudeRoles.length
+        ? `Goals pause at ${cfg.usage_threshold}% of any Claude limit, because ${claudeRoles.length === ROLES.length
+          ? "every role runs" : claudeRoles.map((r) => r.name.toLowerCase()).join(", ") + (claudeRoles.length === 1 ? " runs" : " run")} on your subscription.`
+        : "No role runs on Claude: the usage limit does not apply."}
+        A running goal keeps the lead and coding-task models it started with; efforts and the reviewer and checker apply at once.</p></div>`;
+  };
+
+  const providerUse = (p) => {
+    const users = ROLES.filter((r) => (cfg.models[r.key] || "").split("/")[0] === p.id && isOpenCode(cfg.models[r.key]));
+    return users.length ? `<span class="badge ok">used by ${esc(users.map((r) => r.name.toLowerCase()).join(", "))}</span>` : `<span class="badge">not used</span>`;
+  };
+
+  const providersHtml = () => cfg.providers.map((p, i) => {
+    const builtin = !p.base_url && p._kind !== "endpoint";
+    return `<div class="panel provider" data-i="${i}">
+      <div class="row"><b class="grow">${esc(p.name || p.id || "New provider")}</b>${providerUse(p)}<button class="danger" data-rm="${i}">Remove</button></div>
+      <div class="field"><label>Kind</label><select data-k="_kind">
+        <option value="endpoint"${builtin ? "" : " selected"}>An OpenAI-compatible endpoint</option>
+        <option value="builtin"${builtin ? " selected" : ""}>One of OpenCode's own providers (openai, openrouter, anthropic, google…)</option></select></div>
+      <div class="field"><label>Id</label><div><input data-k="id" value="${esc(p.id || "")}" placeholder="${builtin ? "openrouter" : "acme"}">
+        <div class="help">Models are named <code>${esc(p.id || "id")}/model</code>.${builtin ? " Use OpenCode's id for it." : ""}</div></div></div>
+      ${builtin ? `<div class="help" style="margin:-4px 0 12px 182px">OpenCode reads its usual key variable, such as <code>OPENROUTER_API_KEY</code>, from <code>~/.zshrc</code>.</div>` : `
+      <div class="field"><label>Base URL</label><input data-k="base_url" value="${esc(p.base_url || "")}" placeholder="https://llm.acme.example/v1"></div>
+      <div class="field"><label>Key variable</label><div><input data-k="key_env" value="${esc(p.key_env || "")}" placeholder="ACME_API_KEY">
+        <div class="help">The variable's name in <code>~/.zshrc</code>, never the key.</div></div></div>`}
+      <div class="field"><label>Models</label><input data-k="models" value="${esc((p.models || []).join(", "))}" placeholder="qwen3-coder, kimi-k2"></div>
+      ${builtin ? "" : `<div class="field"><label>Price, $ per M tokens</label><div class="row">
+        <input data-k="input_price" type="number" min="0" step="0.01" value="${p.input_price ?? ""}" placeholder="input">
+        <input data-k="output_price" type="number" min="0" step="0.01" value="${p.output_price ?? ""}" placeholder="output"></div></div>`}
+    </div>`;
+  }).join("");
+
+  const draw = () => {
+    $("#form").innerHTML = `
+      <div id="summary">${summary()}</div>
+      <h2>Models</h2>
+      <div class="panel settings wide">
+        <table class="roles"><tr><th></th><th>Model</th><th>Effort</th></tr>
+        ${ROLES.map((r) => `<tr><td><b>${esc(r.name)}</b><div class="help">${esc(r.what)}</div></td>
+          <td class="model">${modelSelect(r)}</td><td>${effortSelect(r)}</td></tr>`).join("")}</table>
+      </div>
+      <h2>Goals</h2>
+      <div class="panel settings wide">
+        <div class="field"><label>Goals go into</label><div><input data-k="base" value="${esc(cfg.base || "")}" placeholder="main">
+          <div class="help">The branch a goal's PR goes into, unless the goal names another. Empty: main.</div></div></div>
+        <div class="field"><label>Plan approval</label><div><select data-k="goal_gate">${Object.entries(GATES).map(([k, v]) =>
+          `<option value="${k}"${k === cfg.goal_gate ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>
+          <div class="help">Who approves a goal's plan before it is built. Small work never waits.</div></div></div>
+        <div class="field"><label>Claude usage limit</label><div><input data-k="usage_threshold" type="number" min="1" max="100" value="${cfg.usage_threshold}">
+          <div class="help">Goals wind down and pause at this share (%) of any Claude limit, and go on when it resets. Only while a role runs on Claude.</div></div></div>
+      </div>
+      <h2>API providers, through OpenCode</h2>
+      <div class="dim" style="margin-bottom:10px">${cfg.opencode ? `OpenCode is installed (<code>${esc(cfg.opencode)}</code>).`
+        : `OpenCode is not installed: <code>npm i -g @opencode/cli</code>, then <code>cond serve restart</code>.`}
+        Add a provider here to choose its models above.</div>
+      <div id="providers">${providersHtml()}</div>
+      <button id="addprov">+ Provider</button>`;
+  };
+
+  const refresh = () => {
+    $("#summary").innerHTML = summary();
+    document.querySelectorAll("[data-effort]").forEach((el) => {
+      const role = ROLES.find((r) => r.effort === el.dataset.effort);
+      el.outerHTML = effortSelect(role);
+    });
+    document.querySelectorAll(".provider").forEach((box) => {
+      const badge = box.querySelector(".badge");
+      if (badge) badge.outerHTML = providerUse(cfg.providers[+box.dataset.i]);
+    });
+  };
+
+  const load = async () => {
     store.set("repo", current);
     const s = await api("GET", `/api/repos/${encodeURIComponent(current)}/settings`);
-    $("#form").innerHTML = `
-      <div class="field"><label>Goals go into</label><div><input id="base" value="${esc(s.base || "")}" placeholder="main">
-        <div class="help">The branch a goal's PR goes into, unless the goal names another. Empty: main.</div></div></div>
-      <div class="field"><label>Usage limit</label><div><input id="threshold" type="number" min="1" max="100" value="${s.usage_threshold}">
-        <div class="help">Goals wind down and pause at this share (%) of any Claude limit, and carry on when it resets.</div></div></div>
-      <div class="field"><label>Plan approval</label><div><select id="gate">${Object.entries(GATES).map(([k, v]) =>
-        `<option value="${k}"${k === s.goal_gate ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>
-        <div class="help">Who approves a goal's plan before it is built. Small work never waits.</div></div></div>
-      <div class="field"><label>Lead</label><div><input id="m-lead" list="models" value="${esc(s.models.lead)}">
-        <div class="help">Plans a goal and coordinates its build.</div></div></div>
-      <div class="field"><label>Sub-agents</label><div><input id="m-subagent" list="models" value="${esc(s.models.subagent)}">
-        <div class="help">Coding tasks and explorers: narrow, well-briefed work.</div></div></div>
-      <div class="field"><label>Checker</label><div><input id="m-check" list="models" value="${esc(s.models.check)}">
-        <div class="help">Reviews the plan before the build, and verifies the branch after.</div></div></div>
-      <div class="field"><label>Checker effort</label><div><select id="m-effort">${EFFORTS.map((e) =>
-        `<option${e === s.models.check_effort ? " selected" : ""}>${e}</option>`).join("")}</select>
-        <div class="help">Claude models only.</div></div></div>
-      <p class="help dim">A Claude model (<code>claude-…</code>) runs through <code>claude -p</code> on your subscription.
-        A <code>provider/model</code> name runs through OpenCode on that provider's API key, such as
-        <code>openai/gpt-5</code>, <code>openrouter/…</code>, or a provider below. Keys stay in <code>~/.zshrc</code>.</p>
-      <h4>Providers for OpenCode</h4>
-      <div class="help dim" style="margin-bottom:8px">Any OpenAI-compatible endpoint. OpenCode's own providers
-        (OpenAI, Anthropic, OpenRouter…) need no entry, only their key in the environment.</div>
-      <div id="providers"></div>
-      <button id="addprov">+ Provider</button>
-      <div class="row" style="margin-top:16px"><span class="grow"></span><button class="primary" id="save">Save</button></div>`;
-    const provs = (s.providers || []).map((p) => ({ ...p }));
-    const drawProviders = () => {
-      $("#providers").innerHTML = provs.map((p, i) => `<div class="panel" style="padding:10px;margin-bottom:8px" data-i="${i}">
-        <div class="field"><label>Id</label><input data-k="id" value="${esc(p.id || "")}" placeholder="acme"></div>
-        <div class="field"><label>Base URL</label><input data-k="base_url" value="${esc(p.base_url || "")}" placeholder="https://llm.acme.example/v1"></div>
-        <div class="field"><label>Key variable</label><div><input data-k="key_env" value="${esc(p.key_env || "")}" placeholder="ACME_API_KEY">
-          <div class="help">The name of the variable in <code>~/.zshrc</code>, never the key.</div></div></div>
-        <div class="field"><label>Models</label><div><input data-k="models" value="${esc((p.models || []).join(", "))}" placeholder="qwen3-coder, kimi-k2">
-          <div class="help">Used as <code>${esc(p.id || "id")}/model</code>.</div></div></div>
-        <div class="field"><label>Price per M tokens</label><div class="row">
-          <input data-k="input_price" type="number" min="0" step="0.01" value="${p.input_price ?? ""}" placeholder="in $">
-          <input data-k="output_price" type="number" min="0" step="0.01" value="${p.output_price ?? ""}" placeholder="out $"></div></div>
-        <div class="row"><span class="grow"></span><button class="danger" data-rm="${i}">Remove</button></div></div>`).join("");
-    };
-    drawProviders();
-    $("#providers").oninput = (e) => {
-      const box = e.target.closest("[data-i]");
-      if (!box || !e.target.dataset.k) return;
-      const p = provs[+box.dataset.i];
-      const k = e.target.dataset.k;
-      const v = e.target.value;
+    cfg = { ...s, models: { ...s.models }, providers: (s.providers || []).map((p) => ({ ...p, _kind: p.base_url ? "endpoint" : "builtin" })) };
+    draw();
+  };
+
+  $("#form").addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.model) {
+      const other = $(`[data-other="${t.dataset.model}"]`);
+      other.hidden = t.value !== "__other";
+      if (t.value === "__other") other.focus(); else cfg.models[t.dataset.model] = t.value;
+      refresh();
+    } else if (t.dataset.effort) {
+      cfg.models[t.dataset.effort] = t.value || null;
+      refresh();
+    } else if (t.dataset.k === "_kind") {
+      const p = cfg.providers[+t.closest(".provider").dataset.i];
+      p._kind = t.value;
+      if (t.value === "builtin") { delete p.base_url; delete p.key_env; delete p.input_price; delete p.output_price; }
+      $("#providers").innerHTML = providersHtml();
+    }
+  });
+  $("#form").addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.other) { cfg.models[t.dataset.other] = t.value.trim(); refresh(); return; }
+    const box = t.closest(".provider");
+    const k = t.dataset.k;
+    if (!k || k === "_kind") return;
+    const v = t.value;
+    if (box) {
+      const p = cfg.providers[+box.dataset.i];
       p[k] = k === "models" ? v.split(",").map((m) => m.trim()).filter(Boolean)
         : k.endsWith("_price") ? (v === "" ? null : parseFloat(v)) : v.trim();
-    };
-    $("#providers").onclick = (e) => { if (e.target.dataset.rm) { provs.splice(+e.target.dataset.rm, 1); drawProviders(); } };
-    $("#addprov").onclick = () => { provs.push({ models: [] }); drawProviders(); };
-    $("#models").innerHTML = MODELS.concat(...provs.map((p) => (p.models || []).map((m) => `${p.id}/${m}`)))
-      .map((m) => `<option value="${esc(m)}">`).join("");
-    $("#save").onclick = () => act(() => api("PUT", `/api/repos/${encodeURIComponent(current)}/settings`, {
-      base: $("#base").value.trim() || null,
-      usage_threshold: parseInt($("#threshold").value, 10),
-      goal_gate: $("#gate").value,
-      models: { lead: $("#m-lead").value.trim(), subagent: $("#m-subagent").value.trim(),
-        check: $("#m-check").value.trim(), check_effort: $("#m-effort").value },
-      providers: provs,
-    }).then((r) => { form(); return r; }), "Saved");
+      refresh();
+      return;
+    }
+    cfg[k] = k === "usage_threshold" ? parseInt(v, 10) : v;
+    refresh();
+  });
+  $("#form").addEventListener("blur", (e) => {
+    if (e.target.closest && e.target.closest(".provider")) {
+      const models = document.querySelectorAll("td.model");
+      ROLES.forEach((r, i) => { if (models[i]) models[i].innerHTML = modelSelect(r); });
+    }
+  }, true);
+  $("#form").addEventListener("click", (e) => {
+    if (e.target.dataset.rm) { cfg.providers.splice(+e.target.dataset.rm, 1); draw(); }
+    if (e.target.id === "addprov") { cfg.providers.push({ _kind: "endpoint", models: [] }); draw(); }
+  });
+  $("#save").onclick = async () => {
+    const providers = cfg.providers.map(({ _kind, ...p }) => (_kind === "builtin" ? { ...p, base_url: null, key_env: null } : p))
+      .map((p) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null && v !== "" && v !== undefined)));
+    const r = await act(() => api("PUT", `/api/repos/${encodeURIComponent(current)}/settings`, {
+      base: (cfg.base || "").trim() || null, usage_threshold: cfg.usage_threshold, goal_gate: cfg.goal_gate,
+      models: { lead: cfg.models.lead, subagent: cfg.models.subagent, check: cfg.models.check,
+        check_effort: cfg.models.check_effort, lead_effort: cfg.models.lead_effort || null,
+        subagent_effort: cfg.models.subagent_effort || null },
+      providers,
+    }), "Saved");
+    if (r) load();
   };
   $("#which").value = current;
-  $("#which").onchange = (e) => { current = e.target.value; form(); };
-  form();
+  $("#which").onchange = (e) => { current = e.target.value; load(); };
+  load();
 }
 
 window.addEventListener("hashchange", route);

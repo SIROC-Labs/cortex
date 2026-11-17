@@ -34,8 +34,13 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   handed out and how they ended, each check with its gaps, and the cost of each step. Its
   plan and criteria, ticked, beside it. Tabs for the journal, the technical plan, the ask
   and its files, the cost by agent, and the live log.
-- **Settings:** the repos, and each repo's branch, usage limit, plan approval, models
-  (`claude-…` on `claude -p`, `provider/model` on OpenCode) and custom providers.
+- **Settings:** first, *What runs*: each role (lead; reviewer and checker; coding tasks and
+  explorers) with its model, its effort, and how it runs: Claude Code on your
+  subscription, or OpenCode on which provider and key. Then the models and efforts by
+  role, picked from the Claude models and the providers' models (or any name), the
+  goals' branch, plan approval and Claude usage limit, and the API providers: an
+  OpenAI-compatible endpoint, or one of OpenCode's own, each saying which roles use it
+  and whether OpenCode is installed. Last, the repos.
 
 ## REST
 
@@ -52,7 +57,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 | `GET /api/repos/{repo}/goals/{goal}/files/{path}` | a file it was given (`inputs/`), a ticket's attachment, its technical plan or usage report |
 | `POST /api/repos/{repo}/goals/{goal}/answer {text}` | answer what it waits on you for |
 | `POST /api/repos/{repo}/goals/{goal}/{approve,stop,resume,done,clear,undo}` | approve its plan; stop it; carry it on; mark it done; take it off the list; undo all of it |
-| `GET`, `PUT /api/repos/{repo}/settings` | the branch goals go into (`base`, else main), `usage_threshold`, `goal_gate`, `models`, and `providers`: custom OpenAI-compatible endpoints for OpenCode (`id`, `base_url`, `key_env`: the name of the key's variable, `models`, `input_price`, `output_price` per million tokens) |
+| `GET`, `PUT /api/repos/{repo}/settings` | the branch goals go into (`base`, else main), `usage_threshold`, `goal_gate`, `models` (`lead`, `subagent`, `check`, and `lead_effort`, `subagent_effort`, `check_effort`), and `providers`: providers for OpenCode: an OpenAI-compatible endpoint, or one of OpenCode's own without a `base_url` (`id`, `base_url`, `key_env`: the name of the key's variable, `models`, `input_price`, `output_price` per million tokens) |
 
 ## MCP
 

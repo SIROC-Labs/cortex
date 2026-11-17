@@ -188,7 +188,8 @@ This program is the harness around the lead:
   `cond goal new` as `--model`, `--subagent-model` and `--check-model`, all but the effort.
   A goal keeps the lead's and the sub-agents' models it started with. The checker's model and
   effort are what the Setup tab shows, read at each check and review, so they hold for every
-  goal, running ones too.
+  goal, running ones too. Settings also give the lead (with the CI fixer and a part's
+  consult) and the coding tasks an effort; empty runs the model at its own default.
 - **Providers.** A model's name says how it runs. A Claude model (`claude-opus-5-5`) runs
   through `claude -p` on your Claude subscription. A `provider/model` name
   (`openai/gpt-5`, `openrouter/qwen/qwen3-coder`, or a custom provider's

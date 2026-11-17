@@ -185,3 +185,14 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .field input, .field select { width: 100%; }
 .settings h4 { margin: 22px 0 6px; font-size: 14px; }
 .settings p.help { font-size: 12.5px; }
+.settings.wide { max-width: none; }
+.runs-table, .roles { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.runs-table td { padding: 6px 12px 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.runs-table tr:first-child td { border-top: none; }
+.roles th { text-align: left; font-size: 12px; color: var(--dim); font-weight: 500; padding-bottom: 6px; }
+.roles td { padding: 10px 12px 10px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.roles td:first-child { width: 42%; }
+.roles td.model select, .roles td.model input { width: 100%; }
+.roles td.model input { margin-top: 6px; }
+.provider { padding: 12px 14px; margin-bottom: 10px; }
+.provider .row { margin-bottom: 10px; }

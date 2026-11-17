@@ -24,6 +24,7 @@ import core as st  # noqa: E402
 import goal as gl  # noqa: E402
 import goal_view as gv  # noqa: E402
 import repos as rp  # noqa: E402
+from agent import opencode_cli as oc  # noqa: E402
 
 GOAL_ID = re.compile(r"^goal-[A-Za-z0-9._+-]+$")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -533,8 +534,11 @@ def settings(main_root):
             "models": {"lead": models.get("lead") or gl.DEFAULT_MODEL,
                        "subagent": models.get("subagent") or gl.DEFAULT_SUBAGENT_MODEL,
                        "check": models.get("check") or gl.DEFAULT_CHECK_MODEL,
-                       "check_effort": models.get("check_effort") or gl.DEFAULT_CHECK_EFFORT},
-            "providers": control.get("providers") or []}
+                       "check_effort": models.get("check_effort") or gl.DEFAULT_CHECK_EFFORT,
+                       "lead_effort": models.get("lead_effort"),
+                       "subagent_effort": models.get("subagent_effort")},
+            "providers": control.get("providers") or [],
+            "opencode": shutil.which(oc.binary())}
 
 
 def provider_problem(p):
@@ -544,14 +548,15 @@ def provider_problem(p):
         return "a provider has id, base_url, key_env, models, and optionally input_price and output_price"
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(p.get("id") or "")):
         return "a provider's id is lowercase letters, digits, - and _"
-    if not re.match(r"^https?://\S+$", str(p.get("base_url") or "")):
-        return "%s: base_url is an http(s) URL" % p["id"]
+    if p.get("base_url") and not re.match(r"^https?://\S+$", str(p["base_url"])):
+        return "%s: base_url is an http(s) URL, or empty for one of OpenCode's own providers" % p["id"]
     if p.get("key_env") and not re.fullmatch(r"[A-Z_][A-Z0-9_]*", str(p["key_env"])):
         return "%s: key_env is the name of an environment variable, not the key" % p["id"]
     models = p.get("models")
-    if not (isinstance(models, list) and models and all(isinstance(m, str) and m.strip() and "/" not in m
+    if not (isinstance(models, list) and models and all(isinstance(m, str) and m.strip()
+                                                          and not m.startswith(p["id"] + "/")
                                                           for m in models)):
-        return "%s: models is a list of model names" % p["id"]
+        return "%s: models is a list of its model names, without %s/ in front" % (p["id"], p["id"])
     for k in ("input_price", "output_price"):
         if k in p and p[k] is not None and not (isinstance(p[k], (int, float)) and p[k] >= 0):
             return "%s: %s is dollars per million tokens" % (p["id"], k)
@@ -574,12 +579,16 @@ def set_settings(main_root, changes):
     if "goal_gate" in changes and changes["goal_gate"] not in GATES:
         raise Problem(400, "goal_gate is one of %s" % ", ".join(GATES))
     models = changes.get("models") or {}
-    if not isinstance(models, dict) or set(models) - {"lead", "subagent", "check", "check_effort"}:
-        raise Problem(400, "models has lead, subagent, check and check_effort")
-    if any(not (isinstance(v, str) and v.strip()) for k, v in models.items() if k != "check_effort"):
+    efforts = ("check_effort", "lead_effort", "subagent_effort")
+    if not isinstance(models, dict) or set(models) - {"lead", "subagent", "check"} - set(efforts):
+        raise Problem(400, "models has lead, subagent, check and their efforts")
+    if any(not (isinstance(v, str) and v.strip()) for k, v in models.items() if k not in efforts):
         raise Problem(400, "a model is a name")
     if "check_effort" in models and models["check_effort"] not in EFFORTS:
         raise Problem(400, "check_effort is one of %s" % ", ".join(EFFORTS))
+    for k in ("lead_effort", "subagent_effort"):
+        if models.get(k) not in (None, "") + EFFORTS:
+            raise Problem(400, "%s is one of %s, or empty for the model's default" % (k, ", ".join(EFFORTS)))
     providers = changes.get("providers")
     if "providers" in changes:
         if not isinstance(providers, list):
@@ -596,7 +605,8 @@ def set_settings(main_root, changes):
             if key in changes:
                 control[key] = changes[key] or None
         if models:
-            control["models"] = dict(control.get("models") or {}, **models)
+            merged = dict(control.get("models") or {}, **models)
+            control["models"] = {k: v for k, v in merged.items() if v not in (None, "")}
     return settings(main_root)
 
 

@@ -224,6 +224,8 @@ class TestProviders(Repo):
                 ac.set_settings(self.root, {"providers": [bad]})
         with self.assertRaises(ac.Problem):
             ac.set_settings(self.root, {"providers": [good, good]})
+        builtin = {"id": "openrouter", "models": ["qwen/qwen3-coder"]}
+        self.assertEqual(ac.set_settings(self.root, {"providers": [builtin]})["providers"], [builtin])
         self.assertEqual(ac.set_settings(self.root, {"providers": []})["providers"], [])
 
 
