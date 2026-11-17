@@ -242,7 +242,7 @@ async function runsPage() {
       const st = state(g);
       const parts = g.parent ? [] : partsOf(g);
       const waits = parts.some((p) => p.waiting);
-      const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><span class="chev${isFolded(g) ? "" : " open"}">›</span>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
+      const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><svg class="chev${isFolded(g) ? "" : " open"}" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">

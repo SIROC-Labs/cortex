@@ -230,5 +230,5 @@ a.goal-row { color: var(--text); text-decoration: none; }
 .fold:hover { color: var(--text); border-color: var(--faint); background: var(--panel); }
 .fold.warn { color: var(--warn); border-color: var(--warn); }
 .goal-row .title .badge { font-weight: 400; }
-.fold .chev { font-size: 18px; line-height: 1; display: inline-block; transform: translateY(-1px); transition: transform .15s; }
-.fold .chev.open { transform: rotate(90deg) translateX(-1px); }
+.fold .chev { display: block; flex-shrink: 0; transform-origin: 50% 50%; transition: transform .15s; }
+.fold .chev.open { transform: rotate(90deg); }
