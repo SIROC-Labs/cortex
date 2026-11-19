@@ -71,6 +71,10 @@ def main(argv):
     p = sub.add_parser("undo", help="discard each goal: its PR, branch and worktree")
     p.add_argument("goals", nargs="+", help="goal ids, as `cond queue list` shows them")
     sub.add_parser("list", help="print the goals")
+    p = sub.add_parser("tell", help="send a goal a note while it runs, to steer it")
+    p.add_argument("goal", help="the goal's id, as `cond queue list` shows it")
+    p.add_argument("text", nargs="?", default="-", help="the note; - (the default) reads it from stdin")
+    p.add_argument("--stop", action="store_true", help="stop its running coding tasks first")
     args = parser.parse_args(argv)
     try:
         main_root = st.main_repo_root(os.path.abspath(args.repo))
@@ -78,6 +82,15 @@ def main(argv):
             import actions
             import tui
             print("\n".join(tui.status_lines(actions.goals(main_root))))
+            return 0
+        if args.cmd == "tell":
+            import actions
+            text = sys.stdin.read() if args.text == "-" else args.text
+            try:
+                print(actions.tell(main_root, args.goal, text, args.stop))
+            except actions.Problem as e:
+                sys.stderr.write("queue: %s\n" % e)
+                return 1
             return 0
         if args.cmd == "add":
             prompt = sys.stdin.read() if args.prompt == "-" else args.prompt

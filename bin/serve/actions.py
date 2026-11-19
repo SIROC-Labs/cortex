@@ -269,6 +269,7 @@ def detail(main_root, gid):
     out["journal"] = _text(goal.journal)
     out["technical_plan"] = _text(goal.state.path(gl.TECHNICAL_FILE))
     out["tasks"] = goal.state.read(gl.TASKS_FILE)
+    out["notes"] = gl.nt.read(goal.state.dir)
     priced = gl.write_report(goal, rates, write=False)[0]
     out["calls"] = priced
     out["usage_report"] = gl.usage_report(priced) if priced else None
@@ -734,6 +735,22 @@ def answer(main_root, gid, text, answers=None, note=None):
     if waiting.get("kind") == "plan":
         retire_discussions(goal, "plan-")
     return "answered"
+
+
+def tell(main_root, gid, text, stop=False):
+    """Hand the person's note to a goal while it runs: to the lead inside its session,
+    or with its next prompt. With `stop`, the coding tasks that run now stop first."""
+    import notes
+    goal, data = the_goal(main_root, gid)
+    if not (text or "").strip():
+        raise Problem(400, "an empty note")
+    if data.get("phase") in ("merged", "closed", gl.MARKED) or data.get("cleared"):
+        raise Problem(409, "the goal is finished: start a new goal")
+    if (goal.state.read("awaiting.json") or {}).get("asked_at"):
+        raise Problem(409, "the goal waits on your answer: answer it there")
+    notes.add(goal.state.dir, text, stop)
+    return "sent — it reaches the lead now" if data["alive"] else \
+        "kept — it reaches the lead when you carry the goal on"
 
 
 def approve(main_root, gid):

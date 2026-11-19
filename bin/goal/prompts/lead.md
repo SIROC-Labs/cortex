@@ -222,7 +222,7 @@ How to ask: the person decides from your question alone, without your analysis. 
 
 ## Required output
 
-End each response with a fenced JSON block, in one of exactly five shapes.
+End each response with a fenced JSON block, in one of exactly six shapes.
 
 When you have more to do, but you stop for now:
 
@@ -253,6 +253,15 @@ cause is not known yet, ask explorers first, decide, then hand over the change:
 
 ```json
 {"status": "dispatch", "summary": "What these tasks do, in one sentence.", "tasks": [{"name": "A few words", "kind": "code", "brief": "The whole brief: the step, what to change and where, the technical plan's parts, the prototype file and lines, the tests, what done means."}]}
+```
+
+In the build, when a note from the person adds work that needs its own analysis,
+such as a new screen, path or rule set. Write the note in the journal's decisions
+first. The runner sends you back to planning, with a review and the person's
+approval, and then the build goes on:
+
+```json
+{"status": "replan", "summary": "What the note adds, in one sentence."}
 ```
 
 When the ask is fully implemented, committed, its tests pass, and every acceptance

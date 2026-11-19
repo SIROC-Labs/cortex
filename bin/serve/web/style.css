@@ -282,3 +282,11 @@ button.link:hover { text-decoration: underline; }
 .question [data-done] { padding: 2px 10px; font-size: 12.5px; }
 .disc-head { margin: -4px 0 4px; }
 [hidden] { display: none !important; }
+
+.tell { padding: 10px 12px; margin: 12px 0; }
+.tell textarea { border: none; padding: 2px; min-height: 44px; outline: none; }
+.tell textarea:focus { outline: none; }
+.tell-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
+.notes { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+.notes li { padding: 5px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.notes .badge { margin-left: 6px; }

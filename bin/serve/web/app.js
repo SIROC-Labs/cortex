@@ -35,7 +35,7 @@ function newVersion(v) {
   if (!newVersion.seen) newVersion.seen = v;
   if (v === newVersion.seen) return;
   const writing = [...document.querySelectorAll("textarea, input[type=text]")]
-    .some((el) => el === document.activeElement || (el.closest("#wait, .disc") && el.value.trim()));
+    .some((el) => el === document.activeElement || (el.closest("#wait, .disc, #tell") && el.value.trim()));
   if (!writing) location.reload();
 }
 
@@ -557,6 +557,11 @@ async function goalPage(repo, id) {
   const ui = { open: new Set(), cmds: false, tab: ["timeline", "plan", "ask", "journal", "cost", "log"].includes(store.get("tab")) ? store.get("tab") : "timeline", waitKey: null, sig: {}, log: { next: 0, text: "" }, follow: true };
   $("#main").innerHTML = `<a class="back" href="#/">← Runs</a>
     <div id="head"></div><div id="stages"></div><div id="wait"></div><div id="edits"></div><div id="live"></div>
+    <div id="tell" hidden><div class="panel tell">
+      <textarea id="tell-text" placeholder="Tell the goal… it reaches the lead while it works (⌘⏎ sends)"></textarea>
+      <div class="tell-foot"><label class="faint"><input type="checkbox" id="tell-stop"> Stop the coding tasks that run now</label>
+      <button class="primary" id="tell-send">Send</button></div>
+      <div id="tell-notes"></div></div></div>
     <div class="tabs" id="tabs">
       <button data-t="timeline">Timeline</button><button data-t="plan">Plan</button>
       <button data-t="ask">Ask</button><button data-t="journal">Journal</button>
@@ -763,6 +768,8 @@ async function goalPage(repo, id) {
     set("#stages", stagesHtml(g));
     set("#edits", editsHtml(g));
     set("#live", liveHtml(g));
+    $("#tell").hidden = !!(g.finished || g.cleared || (g.awaiting && g.awaiting.asked_at && !g.sent));
+    set("#tell-notes", notesHtml(g));
     showTab();
     if (ui.tab === "log" && $("#logbox")) {
       const chunk = await api("GET", `${base}/log?from=${ui.log.next}`);
@@ -775,7 +782,43 @@ async function goalPage(repo, id) {
       ui.log.next = chunk.next;
     }
   };
+  const send = async () => {
+    const text = $("#tell-text").value.trim();
+    if (!text) return;
+    const stop = $("#tell-stop").checked;
+    $("#tell-send").disabled = true;
+    try {
+      const r = await api("POST", `${base}/tell`, { text, stop });
+      $("#tell-text").value = "";
+      $("#tell-stop").checked = false;
+      toast(r.result);
+      refresh();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      $("#tell-send").disabled = false;
+    }
+  };
+  $("#tell-send").onclick = send;
+  $("#tell-text").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+  });
   poll(refresh);
+}
+
+const NOTE_STATES = {
+  waiting: "waits for the lead", delivered: "the lead read it while it worked",
+  taken: "sent with the lead's next step",
+};
+
+function notesHtml(g) {
+  const notes = (g.notes || []).slice(-5).reverse();
+  if (!notes.length) return "";
+  return `<ul class="notes">${notes.map((n) => {
+    const state = n.state === "waiting" && !g.alive ? "waits until you carry the goal on" : NOTE_STATES[n.state] || n.state;
+    return `<li><span class="faint">You said ${esc(ago(n.at))}:</span> ${esc(n.text)}
+      <span class="badge ${n.state === "waiting" ? "warn" : "ok"}">${esc(state)}${n.stopped ? " · stopped the tasks" : ""}</span></li>`;
+  }).join("")}</ul>`;
 }
 
 // --- settings ---------------------------------------------------------------

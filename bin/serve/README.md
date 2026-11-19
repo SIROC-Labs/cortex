@@ -78,6 +78,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 | `GET /api/repos/{repo}/goals/{goal}/log?from=N` | its log from byte N (a negative N: the last bytes); `next` is where to read on |
 | `GET /api/repos/{repo}/goals/{goal}/files/{path}` | a file it was given (`inputs/`), a ticket's attachment, its technical plan or usage report |
 | `POST /api/repos/{repo}/goals/{goal}/answer {text, answers?, note?}` | answer what it waits on you for; `answers`, one per question, and `note` keep how the page wrote it. Every answer is kept in the goal's `answers.json` |
+| `POST /api/repos/{repo}/goals/{goal}/tell {text, stop?}` | send it a note while it runs: the lead reads it after its next tool call, or with its next prompt; `stop` stops its running coding tasks first. Refused while it waits on your answer |
 | `POST /api/repos/{repo}/goals/{goal}/{approve,stop,resume,done,clear,undo}` | approve its plan; stop it; carry it on; mark it done; take it off the list; undo all of it |
 | `GET`, `POST`, `DELETE /api/repos/{repo}/goals/{goal}/discussions/{q1…,plan}` `{text}` | a talk about one question, or the plan, of what the goal waits on: the POST adds your message and starts the reply in the background; the GET gives the messages and whether a reply is coming; the DELETE starts the talk over |
 | `GET`, `PUT /api/repos/{repo}/settings` | the branch goals go into (`base`, else main), `usage_threshold`, `goal_gate`, `runner` (`claude` or `opencode`), `models` (Claude's: `lead`, `subagent`, `check`, and `lead_effort`, `subagent_effort`, `check_effort`), `opencode_models` (`lead`, `subagent`, `check` as `provider/model`), and `providers`: providers for OpenCode: an OpenAI-compatible endpoint, or one of OpenCode's own without a `base_url` (`id`, `base_url`, `key_env`: the name of the key's variable, `models`, `input_price`, `output_price` per million tokens) |
@@ -86,7 +87,7 @@ Every body is JSON. An error is `{"error": "..."}` with a 4xx status.
 
 `http://127.0.0.1:4747/mcp`, over streamable HTTP (each reply one JSON body). Its tools
 are the same actions: `list_repos`, `add_repo`, `list_goals`, `get_goal`, `goal_log`,
-`start_goal` (files and folders as local paths), `answer_goal`, `approve_plan`, `stop_goal`,
+`start_goal` (files and folders as local paths), `answer_goal`, `tell_goal`, `approve_plan`, `stop_goal`,
 `resume_goal`, `get_settings`, `set_settings`. In Claude Code:
 
 ```bash

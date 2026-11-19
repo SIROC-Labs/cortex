@@ -129,6 +129,9 @@ def post_action(req, repo, goal, action):
     if action == "answer":
         body = req.json()
         return {"result": ac.answer(root, goal, body.get("text"), body.get("answers"), body.get("note"))}
+    if action == "tell":
+        body = req.json()
+        return {"result": ac.tell(root, goal, body.get("text"), bool(body.get("stop")))}
     if action not in ACTIONS:
         raise ac.Problem(404, "no action %s" % action)
     return {"result": ACTIONS[action](root, goal)}

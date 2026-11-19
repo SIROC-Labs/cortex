@@ -42,6 +42,11 @@ TOOLS = [
     _tool("answer_goal", "Answer what a goal waits on the person for. Only when the person "
                          "gave the answer.",
           {"repo": REPO, "goal": GOAL, "text": {"type": "string"}}, ["repo", "goal", "text"]),
+    _tool("tell_goal", "Send the person's note to a goal while it runs, to steer it: it "
+                       "reaches the lead at once. `stop` stops its running coding tasks first. "
+                       "Only with the person's words.",
+          {"repo": REPO, "goal": GOAL, "text": {"type": "string"}, "stop": {"type": "boolean"}},
+          ["repo", "goal", "text"]),
     _tool("approve_plan", "Approve the plan a goal waits on. Only when the person approved it.",
           {"repo": REPO, "goal": GOAL}, ["repo", "goal"]),
     _tool("stop_goal", "Stop a running goal; resume_goal carries it on later.",
@@ -75,6 +80,8 @@ def call(name, args):
         return {"goal": ac.start(root, args["prompt"], args.get("files") or [], args.get("base"))}
     if name == "answer_goal":
         return ac.answer(root, args["goal"], args["text"])
+    if name == "tell_goal":
+        return ac.tell(root, args["goal"], args["text"], bool(args.get("stop")))
     if name == "approve_plan":
         return ac.approve(root, args["goal"])
     if name == "stop_goal":

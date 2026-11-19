@@ -119,6 +119,14 @@ class TestActions(Repo):
         self.assertEqual(ac.st.local_answer(goal.state.read(ac.st.ANSWER_FILE),
                                             "2026-11-16T10:00:00.000000Z"), "Blue")
 
+    def test_a_note_waits_for_the_lead_and_a_question_is_answered_instead(self):
+        gid = ac.start(self.root, "x")
+        self.assertIn("carry the goal on", ac.tell(self.root, gid, " Keep the old link. "))
+        self.assertEqual([n["text"] for n in ac.detail(self.root, gid)["notes"]], ["Keep the old link."])
+        self.wait_on(gid, {"kind": "questions", "questions": [{"q": "Colour?"}]})
+        with self.assertRaises(ac.Problem):
+            ac.tell(self.root, gid, "Blue")
+
     def test_approving_a_plan_answers_it_with_an_approval(self):
         gid = ac.start(self.root, "x")
         goal = self.wait_on(gid, {"kind": "plan", "detail": "- API"})

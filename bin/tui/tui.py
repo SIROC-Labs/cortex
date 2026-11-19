@@ -25,9 +25,9 @@ DEFAULT_URL = "http://127.0.0.1:%s" % (os.environ.get("COND_PORT") or 4747)
 REFRESH = 2.0
 LOG_TAIL = 200000
 TONES = ("ok", "warn", "bad", "info")
-LIST_KEYS = ("⏎ open · space parts · a answer · c approve · x stop · r carry on · o PR · w web · "
+LIST_KEYS = ("⏎ open · space parts · a answer · t tell · c approve · x stop · r carry on · o PR · w web · "
              "f finished · q quit")
-GOAL_KEYS = ("↑↓ step · ⏎ details · a answer · A in $EDITOR · c approve · x stop · r carry on · "
+GOAL_KEYS = ("↑↓ step · ⏎ details · a answer · A in $EDITOR · t tell · c approve · x stop · r carry on · "
              "d done · L log · o PR · w web · ← back")
 LOG_KEYS = "↑↓ PgUp PgDn scroll · G end, follows · ← back"
 
@@ -386,7 +386,10 @@ class App(object):
         self.load(force=True)
 
     def answer(self, text):
-        if text:
+        telling, self.telling = getattr(self, "telling", False), False
+        if text and telling:
+            self.act("tell", {"text": text}, "sent — it reaches the lead")
+        elif text:
             self.act("answer", {"text": text}, "sent — the goal carries on")
 
     def key(self, k):
@@ -415,6 +418,9 @@ class App(object):
             return ("line", "answer: ")
         if k == "A" and waiting.get("asked_at"):
             return ("editor", answer_template(g.get("title") or g["id"], waiting))
+        if k == "t" and g and not waiting.get("asked_at"):
+            self.telling = True
+            return ("line", "tell the goal: ")
         if k in ("a", "A"):
             self.message = "nothing waits on you there"
         elif k == "c":

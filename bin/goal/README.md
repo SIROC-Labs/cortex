@@ -273,6 +273,16 @@ This program is the harness around the lead:
   past the limit is the call cut off, and then the lead is told on resuming which
   sub-agents were stopped and which files were left uncommitted. Either way the goal
   pauses until the limit resets, then carries on.
+- **Tell the goal.** You can send a goal a note at any time while it runs: the box on its
+  page, `t` on the TUI, `cond queue tell`, or MCP's `tell_goal`. While the lead works, a
+  hook hands it the note after its next tool call, inside the same session (on Claude
+  Code; never to a sub-agent). Otherwise the note goes with the lead's next prompt: after
+  the coding tasks that run now, after a check or a fix, or before anything is pushed when
+  the lead reports done. "Stop the coding tasks that run now" stops them first, and starts
+  no more; their work stays on their branches. A note counts like an answer. One that adds
+  work needing its own analysis sends the lead back to planning (`replan`), with a review
+  and your approval. A note on a finished goal whose PR is open starts a revision. While the
+  goal waits on you, you answer instead.
 - **Cleaning up.** A task's worktree goes when the task ends; its branch too, unless it
   could not merge, and then once the goal's branch holds its work. A part's worktree and
   branches go once it is merged into the goal's branch. When the PR is merged, the goal's

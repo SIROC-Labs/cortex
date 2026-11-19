@@ -8,6 +8,7 @@ cond queue add "Fix the inbox badge: it counts read items"     # a goal on the p
 cond queue add https://app.asana.com/0/0/1218985136116349 -f mock.png --into feature/m6
 cond queue add < prompt.md                                     # the prompt from stdin
 cond queue undo goal-fix-the-inbox-badge                       # discard it, its PR and branch
+cond queue tell goal-fix-the-inbox-badge "Keep the old link"   # steer it while it runs
 cond queue list                                                # the goals
 ```
 

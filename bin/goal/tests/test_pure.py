@@ -693,6 +693,19 @@ print(json.dumps({"type": "result", "subtype": "success", "result": "```json\\n"
         self.assertIn("`same.txt`", merges[1])
         self.assertEqual(self.git("status", "--porcelain").strip(), "")
 
+    def test_a_note_that_asks_to_stop_stops_the_running_tasks_and_starts_no_more(self):
+        parallel, goal.PARALLEL_TASKS = goal.PARALLEL_TASKS, 1
+        self.addCleanup(setattr, goal, "PARALLEL_TASKS", parallel)
+        check, goal.TASK_CHECK = goal.TASK_CHECK, 0.1
+        self.addCleanup(setattr, goal, "TASK_CHECK", check)
+        goal.nt.add(self.runner.goal.state.dir, "Not like that.", stop=True)
+        reports = self.runner.run_tasks([
+            {"name": "Slow", "kind": "code", "brief": "WRITE: slow.txt SLOW"},
+            {"name": "Later", "kind": "code", "brief": "WRITE: later.txt"}])
+        self.assertEqual(reports[0]["status"], "stopped by the person's note")
+        self.assertEqual(reports[1]["status"], "not started: the person's note stopped the tasks")
+        self.assertEqual(goal.nt.waiting(self.runner.goal.state.dir)[0]["text"], "Not like that.")
+
     def test_a_task_that_fails_is_not_merged(self):
         reports = self.runner.run_tasks([{"name": "Broken", "kind": "code", "brief": "WRITE: half.txt FAIL"}])
         self.assertEqual(reports[0]["status"], "failed")
@@ -1579,6 +1592,43 @@ def fake_asana(test, fake):
 PLANNED = JOURNAL.replace("## Plan\n1. [x] API\n2. [ ] Inbox", "## Plan\n1. [ ] API\n2. [ ] Inbox")
 
 
+class TestNotes(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        gid = goal.create(self.dir, "x", key="A-1", name="x", base="main")
+        goal.Goal(self.dir, gid).update(worktree=self.dir, branch="A-1/goal-x", ask="# A-1: x", round=1)
+        self.runner = goal.Runner(self.dir, gid)
+        self.runner.wait_for_usage = lambda: None
+        self.state = self.runner.goal.state.dir
+
+    def hook(self, call):
+        import hook
+        stdin, err = sys.stdin, io.StringIO()
+        sys.stdin = io.StringIO(json.dumps(call))
+        self.addCleanup(setattr, sys, "stdin", stdin)
+        with mock.patch.object(sys, "stderr", err):
+            return hook.main(["note", self.state]), err.getvalue()
+
+    def test_a_note_reaches_the_lead_in_its_session_and_never_a_sub_agent(self):
+        goal.nt.add(self.state, "Use the existing hook.")
+        self.assertEqual(self.hook({"tool_name": "Read", "agent_type": "Explore"}), (0, ""))
+        code, text = self.hook({"tool_name": "Read"})
+        self.assertEqual(code, 2)
+        self.assertIn("> Use the existing hook.", text)
+        self.assertEqual([n["state"] for n in goal.nt.read(self.state)], ["delivered"])
+        self.assertEqual(self.hook({"tool_name": "Read"}), (0, ""))
+
+    def test_a_note_goes_with_the_lead_s_next_prompt(self):
+        prompts = []
+        self.runner.call = lambda prompt, *a, **k: prompts.append(prompt) or ({"status": "progress"}, None, None)
+        goal.nt.add(self.state, "Leave the migration as it is.")
+        self.runner.lead("Go on.")
+        self.assertIn("Go on.", prompts[0])
+        self.assertIn("> Leave the migration as it is.", prompts[0])
+        self.assertEqual(goal.nt.waiting(self.state), [])
+
+
 class TestPlanFlow(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -1625,6 +1675,28 @@ class TestPlanFlow(unittest.TestCase):
         self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead done", "finish"])
         self.assertIn("The plan is approved", self.prompts[1])
         self.assertEqual(self.fake.calls, [])
+
+    def test_a_note_sent_before_done_goes_to_the_lead_before_anything_is_checked(self):
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        state = self.runner.goal.state.dir
+
+        def done_with_a_note():
+            self.journal(done)
+            goal.nt.add(state, "Also keep the old link working.")
+        self.run_with([("planned", lambda: self.journal(PLANNED)), ("done", done_with_a_note),
+                       ("done", lambda: goal.nt.take(state))], lambda record: "continue")
+        self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead done",
+                                       "lead done", "finish"])
+        self.assertIn("the person sent a note since", self.prompts[2])
+
+    def test_a_note_that_adds_work_sends_the_lead_back_to_planning_and_to_the_person(self):
+        done = PLANNED.replace("- [ ]", "- [x]").replace(". [ ]", ". [x]")
+        self.run_with([("planned", lambda: self.journal(PLANNED)), ("replan", lambda: None),
+                       ("planned", lambda: self.journal(PLANNED)), ("done", lambda: self.journal(done))],
+                      lambda record: "continue")
+        self.assertEqual(self.events, ["lead planned", "review", "waits for plan", "lead replan",
+                                       "lead planned", "review", "waits for plan", "lead done", "finish"])
+        self.assertIn("Plan what the person's note adds", self.prompts[2])
 
     def test_small_work_skips_the_review_the_approval_and_the_technical_plan(self):
         def no_plan():

@@ -45,6 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(os.path.dirname(HERE), "lib")
 sys.path.insert(0, LIB_DIR)
 import core as st  # noqa: E402
+import notes as nt  # noqa: E402
 import repos  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
 from agent.claude_cli import parse_envelope, unattended  # noqa: E402
@@ -326,6 +327,15 @@ NEXT_STEP = ("Hand over the next tasks: the first step of the plan not ticked, a
 RESUME_STEP = ("The session before this one stopped before it handed over its tasks. Find "
                "where the work is from the journal and `git log`, and hand over the next tasks "
                "with the `dispatch` block, or end with `done` when every step is ticked.")
+NOTE_FIRST = ("You reported done, but the person sent a note since. Deal with it first, "
+              "then report done again.")
+REPLAN = ("Plan what the person's note adds, as in the analysis, and only that. What is "
+          "built already is existing code. Change the technical plan's diagrams and tables "
+          "in place, and add a line for the note to its `## Additions` section. Add the "
+          "note's acceptance criteria under `### Added: <a name>`; edit and untick the "
+          "criteria it makes wrong; list in the plan the built work it redoes. Ask your "
+          "questions together. Then report `planned`. Nothing is built until the plan is "
+          "reviewed and approved.")
 CONTINUE = ("Continue the work. Read your journal if you need to remind yourself where "
             "you are, and end with the result block when you stop.")
 
@@ -545,14 +555,14 @@ def over_threshold(limits, threshold):
 
 def lead_report(structured):
     """What the lead's result block says: ("progress" | "planned" | "dispatch" | "step" |
-    "done" | "question", block). A missing or unreadable block is progress — the lead
+    "replan" | "done" | "question", block). A missing or unreadable block is progress — the lead
     stopped, not finished."""
     if not isinstance(structured, dict):
         return "progress", {}
     status = structured.get("status")
     if status == "question" and st.parse_agent_questions(structured):
         return "question", structured
-    if status in ("done", "planned", "step"):
+    if status in ("done", "planned", "step", "replan"):
         return status, structured
     if status == "dispatch" and isinstance(structured.get("tasks"), list) and structured["tasks"]:
         return status, structured
@@ -1386,14 +1396,15 @@ def built_text(built):
 
 
 def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead=False,
-                  readonly=None, task=False, force_subagent=False, explore=False):
+                  readonly=None, task=False, force_subagent=False, explore=False, notes=None):
     """Claude Code settings whose hooks reach the call and its sub-agents alike.
     While `flag` exists the call winds down: a new sub-agent is refused, and every
     other tool call says to stop at the next safe point. A push, a CI run and a
     change to the PR are always refused: only the runner pushes. A sub-agent
     started without a model gets `subagent`. A tool call that names one of the
     `fence` texts is refused. With `delegate`, the worktree, the lead may not
-    change or read the code there itself: its sub-agents do."""
+    change or read the code there itself: its sub-agents do. With `notes`, the
+    goal's state, the person's notes reach the lead after its next tool call."""
     check = "test -f %s && { printf '%%s\\n' %s >&2; exit 2; }; exit 0" % (
         shlex.quote(flag), shlex.quote(WIND_DOWN))
     hook = [{"type": "command", "command": check}]
@@ -1418,7 +1429,8 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
     if explore:
         pre.append({"matcher": "Bash", "hooks": [guard("explore")]})
     out = {"hooks": {"PreToolUse": pre,
-                     "PostToolUse": [{"matcher": "*", "hooks": hook}]}}
+                     "PostToolUse": [{"matcher": "*", "hooks": hook + (
+                         [guard("note", notes)] if notes else [])}]}}
     if allow:
         out["permissions"] = {"allow": allow}
     return out
@@ -2612,7 +2624,7 @@ class Runner(object):
             # The CI fixer judges and briefs; its sub-agents, on the sub-agent model,
             # make the changes.
             readonly=self.data["worktree"] if label == "ci-fix" else None,
-            force_subagent=label == "ci-fix"))
+            force_subagent=label == "ci-fix", notes=self.goal.state.dir if label == "lead" else None))
         cmd = ["claude", "-p", "--output-format", "json", "--model", model,
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
@@ -2719,6 +2731,10 @@ class Runner(object):
                 session = str(uuid.uuid4())
                 self.set(session=session)
             self.set(status="working", doing="round %d" % self.data["round"])
+            note = nt.take(self.goal.state.dir)
+            if note:
+                st.info("your note goes to the lead")
+                prompt += "\n\n" + note
             block, stop, error = self.call(prompt, session, resume, "lead",
                                            effort=self.effort("lead"))
             self.set(session_used=True)
@@ -3365,7 +3381,8 @@ class Runner(object):
             {"name": str(t.get("name") or "task %d" % (n + 1)), "kind": t.get("kind") or "code",
              "status": "waiting"} for n, t in enumerate(tasks)]})
         todo = list(enumerate(tasks))
-        while todo:
+        self.stopping = False
+        while todo and not self.stopping:
             self.wait_for_usage()
             first, todo[:] = todo[:PARALLEL_TASKS], todo[PARALLEL_TASKS:]
             held = []
@@ -3377,12 +3394,16 @@ class Runner(object):
                 if ended.get("cut") or (todo and not held and over_threshold(
                         self.usage(), self.threshold())):
                     held.append(True)
-                if held or not todo:
+                if held or not todo or self.stopping:
                     return []
                 return [self.start_task(*todo.pop(0))]
             running = [self.start_task(n, task) for n, task in first]
             for run in self.wait_tasks(running, refill):
                 results[run["n"]] = self.end_task(run)
+        for n, task in todo if self.stopping else []:
+            results[n] = {"name": str(task.get("name") or "task %d" % (n + 1)),
+                          "kind": "explore" if task.get("kind") == "explore" else "code",
+                          "status": "not started: the person's note stopped the tasks"}
         return results
 
     def start_task(self, n, task):
@@ -3465,6 +3486,15 @@ class Runner(object):
                         left.append(new)
             if not left:
                 break
+            if nt.stop_asked(self.goal.state.dir):
+                st.warn("your note asks to stop the tasks that run now")
+                self.stopping = True
+                for run in left:
+                    run["stopped"] = True
+                    try:
+                        os.killpg(run["child"].pid, signal.SIGTERM)
+                    except OSError:
+                        pass
             if time.time() - checked >= USAGE_CHECK:
                 checked = time.time()
                 hard = over_threshold(self.usage(), self.threshold() + HARD_MARGIN)
@@ -3498,7 +3528,9 @@ class Runner(object):
             text, telemetry = parse_envelope(out.decode("utf-8", "replace"))
         block = extract_last_json_block(text) or {}
         report = {"name": run["name"], "kind": "explore" if run["explore"] else "code"}
-        if run.get("cut"):
+        if run.get("stopped"):
+            report["status"] = "stopped by the person's note"
+        elif run.get("cut"):
             report["status"] = "stopped at the usage limit"
         elif telemetry.get("ok") is False or not out.strip():
             report["status"] = "failed"
@@ -3812,6 +3844,16 @@ class Runner(object):
                 self.set(status="done", phase="closed", doing="its PR was closed without a merge")
                 self.clean_up(keep_branch=True)
                 return None
+            sent = nt.waiting(self.goal.state.dir)
+            if sent:
+                nt.take(self.goal.state.dir)
+                self.step("Your note on the finished goal")
+                feedback = "\n\n".join("- The person's note, sent through conductor, not on "
+                                         "GitHub:\n\n  %s" % n["text"].replace("\n", "\n  ")
+                                         for n in sent)
+                self.set(status="working", phase="building", revising_pr=True,
+                         revision_ask=((self.data.get("revision_ask") or "") + "\n\n" + feedback).strip())
+                return self.fresh(pr_review_prompt(feedback + "\n"))
             items = self.pr_feedback(*m.groups())
             if items:
                 self.step("Review comments on the PR")
@@ -3935,6 +3977,12 @@ class Runner(object):
                     prompt = self.fresh(NEXT_STEP % (block.get("handoff") or block.get("summary")
                                                      or "(no note: read the journal)"))
                     continue
+                if report == "replan" and self.data.get("phase") == "building" and self.flow2():
+                    st.info("a note adds work — back to planning")
+                    self.set(phase="planning", reviewed=False, approved=False, small=None,
+                             revising=False)
+                    prompt = REPLAN
+                    continue
                 if report == "planned" or report == "done" and self.data.get("phase") == "planning":
                     if self.data.get("phase") != "planning":
                         prompt = CONTINUE
@@ -3977,6 +4025,9 @@ class Runner(object):
                     self.set(phase="building")
                     prompt = self.fresh(review_prompt(gaps, answers))
                     continue
+                if report == "done" and nt.waiting(self.goal.state.dir):
+                    prompt = self.decide(NOTE_FIRST)
+                    continue
                 if report == "done":
                     unmet = unmet_criteria(self.read_journal())
                     if unmet:
@@ -4013,6 +4064,9 @@ class Runner(object):
                         else:
                             prompt = fix
                         prompt = self.decide(prompt)
+                        continue
+                    if done and nt.waiting(self.goal.state.dir):
+                        prompt = self.decide(NOTE_FIRST)
                         continue
                     if done:
                         self.set(fix_rounds=0, fix_signature=None)

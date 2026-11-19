@@ -200,6 +200,16 @@ def main(argv):
     except ValueError:
         return 0
     tool_input = call.get("tool_input") or {}
+    if argv[:1] == ["note"] and len(argv) > 1:
+        if call.get("agent_type"):
+            return 0
+        import notes
+        text = notes.take(argv[1], notes.DELIVERED)
+        if not text:
+            return 0
+        sys.stderr.write("A NOTE FROM THE PERSON, sent while you work. Read it before you go on.\n\n"
+                         + text + "\n")
+        return 2
     if argv[:1] == ["bash"] and blocked(tool_input.get("command")):
         sys.stderr.write(REFUSED + "\n")
         return 2
