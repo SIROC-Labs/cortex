@@ -1053,22 +1053,34 @@ def file_hash(path):
 
 def stale_installs(worktree, installed):
     """The installs a worktree needs: each lockfile whose folder is missing, or that
-    changed since its last install, as [(path, folder, command, hash)]. `installed`
-    maps each lockfile to its hash at its last install."""
+    changed since its last install, as [(path, folder, its install's folder, command,
+    hash)]. `installed` maps each lockfile to its hash at its last install."""
     out = []
     for rel, deps, cmd in lockfiles(worktree):
         folder = os.path.dirname(rel)
         digest = file_hash(os.path.join(worktree, rel))
         if installed.get(rel) != digest or not os.path.isdir(os.path.join(worktree, folder, deps)):
-            out.append((rel, folder, cmd, digest))
+            out.append((rel, folder, deps, cmd, digest))
     return out
 
 
-def install_dependencies(worktree, installed):
-    """Install what `stale_installs` finds, with the repo's own lockfiles. Returns the
-    new `installed`, and a line for each install that failed."""
+def install_dependencies(worktree, installed, source=None):
+    """Install what `stale_installs` finds, with the repo's own lockfiles. Where the
+    `source` worktree has the same lockfile installed, link its install instead: a
+    part shares its goal's. Returns the new `installed`, and a line for each install
+    that failed."""
     installed, failed = dict(installed), []
-    for rel, folder, cmd, digest in stale_installs(worktree, installed):
+    for rel, folder, deps, cmd, digest in stale_installs(worktree, installed):
+        here = os.path.join(worktree, folder, deps)
+        if os.path.islink(here):
+            os.unlink(here)
+        theirs = os.path.join(source, folder, deps) if source else None
+        if theirs and file_hash(os.path.join(source, rel)) == digest and os.path.isdir(theirs) \
+                and not os.path.islink(theirs) and not os.path.exists(here):
+            os.symlink(theirs, here)
+            keep_out_of_git(worktree, [os.path.normpath(os.path.join(folder, deps))])
+            installed[rel] = digest
+            continue
         st.info("%s%s" % (cmd, " (in %s)" % folder if folder else ""))
         try:
             proc = subprocess.run(cmd, cwd=os.path.join(worktree, folder), shell=True,
@@ -1200,21 +1212,27 @@ def link_dependencies(source, target):
                     linked.append(path)
             elif d.startswith("."):
                 dirs.remove(d)
-    if linked:
-        _, common, _ = st.git(["rev-parse", "--git-common-dir"], cwd=target, check=False)
-        exclude = os.path.join(os.path.join(target, common.strip()) if not os.path.isabs(
-            common.strip()) else common.strip(), "info", "exclude")
-        try:
-            with open(exclude) as f:
-                have = set(f.read().splitlines())
-        except (IOError, OSError):
-            have = set()
-        os.makedirs(os.path.dirname(exclude), exist_ok=True)
-        with open(exclude, "a") as f:
-            for path in linked:
-                if "/" + path not in have:
-                    f.write("/%s\n" % path)
+    keep_out_of_git(target, linked)
     return linked
+
+
+def keep_out_of_git(target, paths):
+    """Keep linked paths out of git, so `git add -A` never commits the links."""
+    if not paths:
+        return
+    _, common, _ = st.git(["rev-parse", "--git-common-dir"], cwd=target, check=False)
+    exclude = os.path.join(os.path.join(target, common.strip()) if not os.path.isabs(
+        common.strip()) else common.strip(), "info", "exclude")
+    try:
+        with open(exclude) as f:
+            have = set(f.read().splitlines())
+    except (IOError, OSError):
+        have = set()
+    os.makedirs(os.path.dirname(exclude), exist_ok=True)
+    with open(exclude, "a") as f:
+        for path in paths:
+            if "/" + path not in have:
+                f.write("/%s\n" % path)
 
 
 TESTING_CHECK = (" Judge the tests against %sthe test map in the technical plan or the "
@@ -1980,6 +1998,47 @@ def goal_and_parts(main_root, gid):
     return [Goal(main_root, n) for n in names] + [Goal(main_root, gid)]
 
 
+def clean_up(main_root, gid, keep_branch=False):
+    """Remove what an ended goal or a merged part leaves here: its worktrees, its
+    parts' and its tasks' worktrees, and their local branches; its own branch too,
+    unless `keep_branch`. Returns the worktrees and branches removed."""
+    goals = [Goal(main_root, gid)] if (Goal(main_root, gid).read() or {}).get("parent") \
+        else goal_and_parts(main_root, gid)
+    data = Goal(main_root, gid).read() or {}
+    branch, removed = data.get("branch"), []
+    with st.repo_lock(main_root):
+        for g in goals:
+            home = (g.read() or {}).get("worktree")
+            for path in ([home] + sorted(glob.glob(glob.escape(home) + "--*"))) if home else []:
+                if os.path.isdir(path):
+                    st.git(["worktree", "remove", "--force", path], cwd=main_root, check=False)
+                    removed.append(path)
+        st.git(["worktree", "prune"], cwd=main_root, check=False)
+        if branch:
+            _, out, _ = st.git(["for-each-ref", "--format=%(refname:short)",
+                                "refs/heads/%s--*" % branch], cwd=main_root, check=False)
+            for name in out.split() + ([] if keep_branch else [branch]):
+                if st.git(["branch", "-D", name], cwd=main_root, check=False)[0] == 0:
+                    removed.append(name)
+    return removed
+
+
+def sweep(main_root):
+    """Clean up after every goal here that ended, and every part that is merged.
+    A goal whose PR was closed without a merge keeps its branch; one marked done by
+    hand keeps everything. Returns what was removed."""
+    root = os.path.join(main_root, st.CORTEX_DIRNAME, st.STATE_DIRNAME)
+    removed = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        g = Goal(main_root, name)
+        data = g.read() or {}
+        if g.runner_alive() or data.get("status") != "done":
+            continue
+        if data.get("parent") or data.get("phase") in ("merged", "closed"):
+            removed += clean_up(main_root, name, keep_branch=data.get("phase") == "closed")
+    return removed
+
+
 # Tools a discussion may not use: it changes nothing but scratch files in a temp
 # folder, which a hook holds it to.
 DISCUSS_DENY = ["AskUserQuestion", "mcp__claude_ai_Asana__add_comment",
@@ -2481,6 +2540,21 @@ class Runner(object):
                      % (what, time.strftime("%a %H:%M", time.localtime(until))))
             time.sleep(max(60, min(until - time.time() + 60, PAUSE_CHECK)))
 
+    def clean_up(self, keep_branch=False):
+        """The goal ended, or the part is merged: its worktrees and branches go."""
+        removed = clean_up(self.main_root, self.goal.id, keep_branch)
+        if removed:
+            st.info("removed %d worktree(s) and branch(es) here" % len(removed))
+
+    def prune_task_branches(self):
+        """Drop the branches of tasks kept after a conflict, once the goal's branch
+        holds their work."""
+        worktree, branch = self.data["worktree"], self.data["branch"]
+        _, out, _ = st.git(["for-each-ref", "--merged", "HEAD", "--format=%(refname:short)",
+                            "refs/heads/%s--r[0-9]*" % branch], cwd=worktree, check=False)
+        for name in out.split():
+            st.git(["branch", "-D", name], cwd=worktree, check=False)
+
     def sound_pause(self, what, until):
         """Tell the person a pause started: once for all the goals that pause together."""
         mark = os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "paused-sound")
@@ -2780,7 +2854,8 @@ class Runner(object):
             return
         self.step("Installing dependencies")
         self.set(runner_doing="installing dependencies", runner_since=time.time())
-        installed, _ = install_dependencies(worktree, self.data.get("installed") or {})
+        installed, _ = install_dependencies(worktree, self.data.get("installed") or {},
+                                            self.data.get("parent_worktree"))
         self.set(installed=installed, runner_doing=None)
 
     def left_to_ci(self, failures):
@@ -2814,24 +2889,18 @@ class Runner(object):
         Returns {name: whether it fails}."""
         worktree = self.data["worktree"]
         path = st.worktree_path(self.main_root, self.goal.id + "--base")
-        linked = []
         try:
             with st.repo_lock(self.main_root):
                 if os.path.exists(path):
                     st.git(["worktree", "remove", "--force", path], cwd=worktree, check=False)
                 st.git(["worktree", "add", "--detach", path, sha], cwd=worktree)
-            if [(r, file_hash(os.path.join(path, r))) for r, _, _ in lockfiles(path)] == [
-                    (r, file_hash(os.path.join(worktree, r))) for r, _, _ in lockfiles(worktree)]:
-                linked = link_dependencies(worktree, path)
-            else:
-                install_dependencies(path, {})
+            install_dependencies(path, {}, worktree)
             failed = {f[0] for f in run_ci_steps(steps, path)}
         finally:
-            for rel in linked:
-                try:
-                    os.unlink(os.path.join(path, rel))
-                except OSError:
-                    pass
+            for rel, deps, _ in lockfiles(path) if os.path.isdir(path) else []:
+                link = os.path.join(path, os.path.dirname(rel), deps)
+                if os.path.islink(link):
+                    os.unlink(link)
             with st.repo_lock(self.main_root):
                 st.git(["worktree", "remove", "--force", path], cwd=worktree, check=False)
         return {name: name in failed for name, _, _ in steps}
@@ -3128,6 +3197,7 @@ class Runner(object):
         self.step("Splitting into %d parts" % len(parts))
         for p in parts:
             st.info("- %s%s" % (p["name"], " (after %s)" % ", ".join(p["after"]) if p["after"] else ""))
+        self.install()
         self.set(parts=parts, phase="parts")
         self.write_journal(fold_part_criteria(self.read_journal(), [
             dict(p, journal=Goal(self.main_root, p["id"]).journal) for p in parts]))
@@ -3265,6 +3335,7 @@ class Runner(object):
         worktree, read only. Returns a report per task, in the lead's order."""
         tasks = [t for t in tasks if isinstance(t, dict) and str(t.get("brief") or "").strip()]
         self.install()
+        self.prune_task_branches()
         self.step("Running %d task(s) from the lead" % len(tasks))
         # Tasks start from the last commit, and merge back into a clean tree.
         st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
@@ -3653,6 +3724,7 @@ class Runner(object):
         if self.data.get("parent"):
             self.set(status="done", doing=block.get("summary") or "done",
                      summary=block.get("summary"), finished=time.time())
+            self.clean_up()
             return
         worktree, pr_url = self.data["worktree"], self.data.get("pr_url")
         revised = self.data.get("revising_pr")
@@ -3716,10 +3788,12 @@ class Runner(object):
             if state == "MERGED":
                 self.step("Merged")
                 self.set(status="done", phase="merged", doing="merged")
+                self.clean_up()
                 return None
             if state == "CLOSED":
                 self.step("The PR was closed without a merge")
                 self.set(status="done", phase="closed", doing="its PR was closed without a merge")
+                self.clean_up(keep_branch=True)
                 return None
             items = self.pr_feedback(*m.groups())
             if items:
@@ -4023,6 +4097,9 @@ def main(argv):
                                        "and state")
     back.add_argument("id")
     back.add_argument("--repo", default=".")
+    tidy = sub.add_parser("clean", help="remove the worktrees and branches of goals that ended "
+                                        "and parts that are merged")
+    tidy.add_argument("--repo", default=".")
     talk = sub.add_parser("discuss", help="talk a goal through with Claude, which writes only in a temp folder")
     talk.add_argument("id", nargs="?", help="the goal; without it, pick one from a list")
     talk.add_argument("--repo", default=".")
@@ -4034,6 +4111,10 @@ def main(argv):
             return 1
         argv, cwd = discuss_command(main_root, gid)
         return subprocess.call(argv, cwd=cwd)
+    if args.cmd == "clean":
+        for line in sweep(main_root):
+            print(line)
+        return 0
     if args.cmd == "undo":
         for line in undo(main_root, args.id):
             print(line)

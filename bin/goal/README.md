@@ -273,6 +273,13 @@ This program is the harness around the lead:
   past the limit is the call cut off, and then the lead is told on resuming which
   sub-agents were stopped and which files were left uncommitted. Either way the goal
   pauses until the limit resets, then carries on.
+- **Cleaning up.** A task's worktree goes when the task ends; its branch too, unless it
+  could not merge, and then once the goal's branch holds its work. A part's worktree and
+  branches go once it is merged into the goal's branch. When the PR is merged, the goal's
+  worktrees and local branches go, its parts' and tasks' too; when it is closed without a
+  merge, all but the goal's own branch. A part links its goal's installed dependencies
+  rather than install its own, while its lockfile is the same. `cond goal clean` does the
+  same for goals that ended before this.
 - **Sounds.** On macOS a notification with a sound tells you when a goal starts to wait on
   you (questions, a plan, a stop), and when goals pause for the usage limit (once for the
   goals that pause together). `COND_QUIET=1` turns them off.

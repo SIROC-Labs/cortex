@@ -819,13 +819,71 @@ class TestLocalCI(unittest.TestCase):
     def test_a_lockfile_is_installed_when_it_changed_or_its_folder_is_missing(self):
         self.commit("apps/web/package-lock.json", "{}", "lock")
         lock = os.path.join(self.work, "apps/web/package-lock.json")
-        self.assertEqual([x[:3] for x in goal.stale_installs(self.work, {})],
-                         [("apps/web/package-lock.json", "apps/web", "npm ci")])
+        self.assertEqual([x[:4] for x in goal.stale_installs(self.work, {})],
+                         [("apps/web/package-lock.json", "apps/web", "node_modules", "npm ci")])
         os.makedirs(os.path.join(self.work, "apps/web/node_modules"))
         installed = {"apps/web/package-lock.json": goal.file_hash(lock)}
         self.assertEqual(goal.stale_installs(self.work, installed), [])
         self.commit("apps/web/package-lock.json", '{"v": 2}', "lock")
         self.assertEqual(len(goal.stale_installs(self.work, installed)), 1)
+
+
+class TestCleanUp(unittest.TestCase):
+    git, commit = TestGate.git, TestGate.commit
+
+    def setUp(self):
+        TestGate.setUp(self)
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.main = self.work
+        self.gid = goal.create(self.main, "x", key="A-1", name="x", base="main")
+        self.home = goal.st.worktree_path(self.main, self.gid)
+        self.git("checkout", "-q", "main")
+        self.git("worktree", "add", "-q", "-b", "A-1/goal-x2", self.home, "main")
+        goal.Goal(self.main, self.gid).update(worktree=self.home, branch="A-1/goal-x2")
+        self.part = goal.part_id(self.gid, "API")
+        part_home = goal.st.worktree_path(self.main, self.part)
+        self.git("worktree", "add", "-q", "-b", "A-1/goal-x2--api", part_home, "main")
+        goal.Goal(self.main, self.part).update(id=self.part, parent=self.gid, worktree=part_home,
+                                               branch="A-1/goal-x2--api", status="done")
+        self.git("worktree", "add", "-q", "-b", "A-1/goal-x2--r3-1", self.home + "--r3-1", "main")
+
+    def branches(self):
+        return sorted(self.git("for-each-ref", "--format=%(refname:short)", "refs/heads/A-1/goal-x2*").split())
+
+    def test_a_merged_goal_leaves_no_worktree_or_branch_here(self):
+        goal.Runner(self.main, self.gid).clean_up()
+        self.assertEqual(self.branches(), [])
+        self.assertNotIn(".cortex/worktrees", self.git("worktree", "list"))
+
+    def test_a_goal_closed_without_a_merge_keeps_its_branch(self):
+        goal.clean_up(self.main, self.gid, keep_branch=True)
+        self.assertEqual(self.branches(), ["A-1/goal-x2"])
+
+    def test_a_merged_part_goes_and_its_goal_stays(self):
+        goal.sweep(self.main)
+        self.assertEqual(self.branches(), ["A-1/goal-x2", "A-1/goal-x2--r3-1"])
+        self.assertTrue(os.path.isdir(self.home))
+
+    def test_a_kept_task_branch_goes_once_the_goal_s_branch_holds_it(self):
+        self.git("branch", "A-1/goal-x2--r4-1", "main")
+        self.git("commit", "-q", "--allow-empty", "-m", "later", cwd=self.home + "--r3-1")
+        goal.Runner(self.main, self.gid).prune_task_branches()
+        self.assertEqual(self.branches(), ["A-1/goal-x2", "A-1/goal-x2--api", "A-1/goal-x2--r3-1"])
+
+    def test_a_part_links_its_goal_s_install(self):
+        for home in (self.home, goal.Goal(self.main, self.part).read()["worktree"]):
+            os.makedirs(os.path.join(home, "web"))
+            with open(os.path.join(home, "web", "package-lock.json"), "w") as f:
+                f.write("{}")
+            self.git("add", "web/package-lock.json", cwd=home)
+            self.git("commit", "-q", "-m", "lock", cwd=home)
+        os.makedirs(os.path.join(self.home, "web", "node_modules"))
+        part_home = goal.Goal(self.main, self.part).read()["worktree"]
+        installed, failed = goal.install_dependencies(part_home, {}, self.home)
+        self.assertEqual(failed, [])
+        self.assertEqual(os.readlink(os.path.join(part_home, "web", "node_modules")),
+                         os.path.join(self.home, "web", "node_modules"))
+        self.assertEqual(self.git("status", "--porcelain", cwd=part_home), "")
 
 
 class TestPause(unittest.TestCase):
