@@ -16,6 +16,7 @@ The earlier end-to-end workflow (task breakdown, development, QA, release, and a
 | `dev-toolkit` | `codex` | Second opinion from the Codex CLI (review, challenge, consult), for non-Codex hosts |
 | `dev-toolkit` | `claude` | Second opinion from the Claude Code CLI (review, challenge, consult), for non-Claude hosts |
 | `dev-toolkit` | `dependabot-setup` | Dependabot config, alerts, and a daily audit workflow, per repository or per organization |
+| `dev-toolkit` | `log-task` | Logs a task in the task manager from the current conversation, before or after the work |
 
 The two plugins are independent. Install either one or both.
 
