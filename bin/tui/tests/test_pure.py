@@ -97,8 +97,26 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(lines[starts[1]][1], "sel")
         self.assertIn("    Wave 1.", text)
         self.assertNotIn("    lead: 9 turns", text)
-        self.assertIn(("    code     API  —  failed · kept", "bad"), lines)
+        self.assertIn(("    code     API  —  failed · kept · sonnet", "bad"), lines)
         self.assertTrue(text[starts[0]].startswith("▸ Reading the ask"))
+
+    def test_a_goal_screen_shows_its_stages_who_works_and_what_was_answered(self):
+        g = dict(FakeClient().detail, who="The lead (Opus) reads the reports and decides what to hand out next",
+                 stages=[{"label": "Plan", "state": "done"}, {"label": "Fixing gaps", "state": "now"},
+                         {"label": "Push", "state": "next"}],
+                 sent={"kind": "plan", "approved": True, "text": "approved"},
+                 lead_edits=[{"file": "src/app.ts", "tool": "Edit", "by": "lead", "round": 4}])
+        g["timeline"] = g["timeline"] + [{"i": 2, "kind": "you", "phase": "Build", "title": "Asking you", "at": NOW,
+                                          "until": None, "cost": 0, "summary": "1 question · answered", "lines": [],
+                                          "tasks": None, "qa": {"kind": "questions", "note": None,
+                                                                "items": [{"q": "Colour?", "a": "Red"}]}}]
+        text = [t for t, _ in tui.goal_lines(g, 100, opened={2}, now=NOW)[0]]
+        self.assertIn("✓ Plan ▸ [Fixing gaps] ▸ Push", text)
+        self.assertIn("The lead (Opus) reads the reports and decides what to hand out next", text)
+        self.assertIn("  Plan approved — the goal carries on as soon as it picks it up", text)
+        self.assertNotIn("  The plan waits on your review", text)
+        self.assertIn("  src/app.ts  · Edit by lead in round 4", text)
+        self.assertEqual(text[-2:], ["    1. Colour?", "       → Red"])
 
     def test_money_and_spans(self):
         self.assertEqual((tui.money(0), tui.money(2.456)), ("", "$2.46"))

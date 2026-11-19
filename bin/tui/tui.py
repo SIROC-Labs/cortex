@@ -200,6 +200,31 @@ def wait_lines(awaiting, width):
     return out
 
 
+def stage_line(stages):
+    """The goal's stages in a line, the current one in brackets."""
+    return " ▸ ".join("[%s]" % s["label"] if s["state"] == "now" else "✓ " + s["label"] if s["state"] == "done"
+                      else s["label"] for s in stages or [])
+
+
+def qa_lines(qa, width, indent="    "):
+    """What the person answered, as [(text, style)]: each question with its answer, or
+    the plan decision."""
+    if qa.get("kind") == "plan":
+        if qa.get("approved"):
+            return [(indent + "You approved the plan.", "ok")]
+        return [(indent + "You asked for changes:", "bold")] + [(l, "normal") for l in wrap(qa.get("text"), width, indent + "  ")]
+    out = []
+    for n, item in enumerate(qa.get("items") or [], 1):
+        out += [(l, "bold") for l in wrap("%d. %s" % (n, item["q"]), width, indent)]
+        out += [(l, "normal" if item.get("a") else "dim") for l in wrap(
+            "→ " + (item.get("a") or ("in your words below" if qa.get("note") else "your answer was not kept")),
+            width, indent + "   ")]
+    note = qa.get("note") or (not qa.get("items") and qa.get("text"))
+    if note:
+        out += [(l, "normal") for l in wrap(note, width, indent)]
+    return out
+
+
 def answer_template(title, awaiting):
     """What the editor opens with: what it waits on, as comments, above room for the answer."""
     lines = ["", "", "# Answer for %s" % title, "#"]
@@ -232,7 +257,24 @@ def goal_lines(g, width, opened=(), selected=None, now=None):
                                    g.get("pr_url") or "") if x)
     if where:
         out.append((where, "dim"))
-    waiting = wait_lines(g.get("awaiting"), width - 2)
+    if g.get("stages"):
+        out.append((stage_line(g["stages"]), "ok"))
+    if g.get("who"):
+        out += [(line, "normal") for line in wrap(g["who"], width)]
+    if g.get("sent"):
+        kind = (g.get("awaiting") or {}).get("kind")
+        sent = g["sent"]
+        head = ("Plan approved" if sent.get("approved") else "Changes asked") if kind == "plan" else "Your answer is sent"
+        waiting = [(head + " — the goal carries on as soon as it picks it up", "ok")] + (
+            [] if sent.get("approved") else qa_lines(sent if kind == "questions" else dict(sent, kind="problem", items=None,
+                                                                                          note=sent.get("text")), width - 2, "  "))
+    else:
+        waiting = wait_lines(g.get("awaiting"), width - 2)
+    if g.get("lead_edits"):
+        out.append(("", "normal"))
+        out.append(("The lead changed repo files itself (it should only write its journal):", "bad"))
+        out += [("  %s  · %s by %s%s" % (e["file"], e.get("tool"), e.get("by"), " in round %s" % e["round"] if e.get("round") else ""),
+                 "bad") for e in g["lead_edits"][:10]]
     if waiting:
         out.append(("", "normal"))
         out += [("  " + t, s) for t, s in waiting]
@@ -241,9 +283,10 @@ def goal_lines(g, width, opened=(), selected=None, now=None):
         out.append(("", "normal"))
         out.append(("Running now", "bold"))
         for a in live:
+            plain = a.get("summary") or a.get("said") or ""
             out.append(("%s%s  %s · %s%s" % ("    " if a.get("depth") else "  ", a.get("role"),
                                              (a.get("model") or "").replace("claude-", ""), span(a.get("seconds")),
-                                             "  " + a["action"] if a.get("action") else ""), "dim" if a.get("depth") else "normal"))
+                                             "  — " + plain if plain else ""), "dim" if a.get("depth") else "normal"))
     out.append(("", "normal"))
     phase = None
     for c in g.get("timeline") or []:
@@ -260,11 +303,14 @@ def goal_lines(g, width, opened=(), selected=None, now=None):
         head = head if len(head) <= room else head[:room - 1] + "…"
         style = "sel" if c["i"] == selected else {"you": "warn", "alert": "bad", "ship": "ok"}.get(c["kind"], "normal")
         out.append(("%-*s  %s" % (room, head, right), style))
-        if c["i"] in opened:
+        if c["i"] in opened and c.get("qa"):
+            out += qa_lines(c["qa"], width)
+        elif c["i"] in opened:
             said = [l for l in c.get("lines") or [] if not l.startswith(("lead: ", "review: calling", "check: calling"))]
             out += [(line, "normal") for line in wrap("\n".join(said), width, "    ") if line.strip()]
             for t in c.get("tasks") or []:
-                out.append(("    %-8s %s  —  %s" % (t["kind"], t["name"], t["result"]),
+                out.append(("    %-8s %s  —  %s%s" % (t["kind"], t["name"], t["result"],
+                                                     " · " + t["model"] if t.get("model") else ""),
                             "bad" if any(w in t["result"] for w in ("failed", "stopped", "cut off", "kept"))
                             else "dim"))
     if not g.get("timeline"):

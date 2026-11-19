@@ -15,10 +15,13 @@ It needs `cond serve` running (`cond serve install` starts it at login). `COND_U
 doing, its plan, round and cost.
 Those waiting on you come first, then the running ones; `f` shows the finished ones too.
 
-**A goal** shows what it waits on you for (its questions with their options, or its plan),
-the agents running now, and its timeline in phases: each step from its log, with a
-round and the tasks it handed out as one step, and each step's cost and time. `⏎` opens a
-step: what the lead said, and how each task ended. `L` tails its log.
+**A goal** shows its stages, the current one in brackets, and who works now; what it
+waits on you for (its questions with their options, or its plan), or what you sent until
+the goal picks it up; a warning when the lead changed a repo file itself; the agents
+running now, each with a plain line on what it does; and its timeline in phases: each
+step from its log, with a round and the tasks it handed out as one step, and each step's
+cost and time. `⏎` opens a step: what the lead said, how each task ended and on which
+model, or the questions it asked you with your answers. `L` tails its log.
 
 | Key | |
 |---|---|
