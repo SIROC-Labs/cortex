@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import tempfile
 import subprocess
@@ -1098,19 +1099,30 @@ def install_dependencies(worktree, installed, source=None):
     return installed, failed
 
 
-def notify(title, text, sound):
-    """A notification with a sound on macOS, for what needs the person. Nothing on
+def notify(title, text, sound, url=None):
+    """A sound on macOS for what needs the person, with a notification when
+    `terminal-notifier` is installed, which opens `url` when clicked. Nothing on
     another system, or when COND_QUIET is set."""
     if os.environ.get("COND_QUIET") or sys.platform != "darwin":
         return
-    quote = lambda t: json.dumps(" ".join((t or "").split()), ensure_ascii=False)  # noqa: E731
-    for cmd in (["afplay", "/System/Library/Sounds/%s.aiff" % sound],
-                ["osascript", "-e", "display notification %s with title %s" % (quote(text), quote(title))]):
-        try:
-            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
-        except OSError:
-            pass
+    notifier = shutil.which("terminal-notifier") or next(
+        (p for p in ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier")
+         if os.path.exists(p)), None)
+    cmd = ([notifier, "-title", title, "-message", " ".join((text or "").split()), "-sound", sound,
+            "-group", title + (url or "")] + (["-open", url] if url else [])) if notifier else [
+        "afplay", "/System/Library/Sounds/%s.aiff" % sound]
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def page_url(main_root, gid=None):
+    """The goal's page on the service, or its Runs page."""
+    port = os.environ.get("COND_PORT") or "4747"
+    rid = st.slugify(os.path.basename(main_root.rstrip(os.sep)) or "repo", max_words=8)
+    return "http://127.0.0.1:%s/#/%s" % (port, "g/%s/%s" % (rid, gid) if gid else "")
 
 
 def ci_failures_text(failures):
@@ -2580,7 +2592,7 @@ class Runner(object):
         except OSError:
             pass
         notify("Goals paused", "%s, until %s" % (what, time.strftime(
-            "%a %H:%M", time.localtime(until))), SOUNDS["paused"])
+            "%a %H:%M", time.localtime(until))), SOUNDS["paused"], page_url(self.main_root))
 
     # agent calls
 
@@ -3653,7 +3665,7 @@ class Runner(object):
             asked = record.get("questions")
             notify("Waiting on you", "%s: %s" % (self.data.get("name") or self.goal.id, record.get(
                 "headline") or ("%d question(s)" % len(asked) if asked else "it asks you")),
-                SOUNDS["waiting"])
+                SOUNDS["waiting"], page_url(self.main_root, self.goal.id))
         self.set(status="waiting", doing="waiting on you")
         st.info("waiting on you")
         while True:

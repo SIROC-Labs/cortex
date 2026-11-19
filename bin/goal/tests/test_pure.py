@@ -1733,11 +1733,12 @@ class TestPlanFlow(unittest.TestCase):
             self.runner.goal.state.write(goal.st.ANSWER_FILE, {"text": "Blue.", "asked_at": asked["asked_at"]})
         goal.time.sleep = answer
         sounds = []
-        goal.notify, notify = (lambda title, text, sound: sounds.append(text)), goal.notify
+        goal.notify, notify = (lambda title, text, sound, url=None: sounds.append((text, url))), goal.notify
         self.addCleanup(setattr, goal, "notify", notify)
         text = self.runner.ask_person([{"q": "Which colour?", "why": "They disagree."}])
         self.assertEqual(text, "Blue.")
-        self.assertEqual(sounds, ["x: 1 question(s)"])
+        self.assertEqual(sounds, [("x: 1 question(s)", "http://127.0.0.1:4747/#/g/%s/%s" % (
+            goal.st.slugify(os.path.basename(self.dir), max_words=8), self.runner.goal.id))])
         self.assertIsNone(self.runner.goal.state.read("awaiting.json"))
         self.assertIn("Do not read or change Asana", self.runner.first_prompt())
         self.assertIn("approves\n   the plan there", self.runner.first_prompt())
