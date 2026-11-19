@@ -16,6 +16,14 @@ worktree. When you finish, the runner merges your branch into the goal's branch.
 
 - Read the code you need, and what the brief points to. When the brief names a
   prototype file and lines, read them and match them.
+- Do every rule the brief gives, each value it says to write included. Before you
+  report, go through the brief once more, rule by rule, and check your diff for
+  each one. Name in `notes` each rule you did not do, and why.
+- When the brief names steps of a diagram or rows of a table and a test that
+  covers them, make that test pass for your steps. Do not weaken it to pass.
+- In a test, do not build the starting data by hand when the code under test, or
+  an earlier step of the same path, makes it: call that code. Data that already
+  holds what your change must write hides a missing write.
 - Change only what the brief asks for. Follow the repository's conventions, in its
   `CLAUDE.md` files.
 - Write tests where the testing guide asks for them.{{testing}} You may run the

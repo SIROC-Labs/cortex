@@ -987,6 +987,35 @@ class TestParts(unittest.TestCase):
         self.assertIn('- An empty Inbox says "Nothing to do" (prototype: inbox)', ask)
         self.assertIn("- API: Tasks have an API.", ask)
         self.assertIn("The whole thing.", ask)
+        self.assertNotIn("technical plan", ask)
+        ask = goal.part_ask(parent, PARTS["parts"][1], [], "/s/technical-plan.md")
+        self.assertIn("## The goal's technical plan", ask)
+        self.assertIn("`/s/technical-plan.md`", ask)
+
+    def test_a_split_folds_each_part_s_criteria_into_one_line(self):
+        journal = ("# Journal\n\n## Acceptance criteria\n\nNames stand for real values.\n\n"
+                   "### API\n\nData\n- [ ] Tasks have a title (prototype: task)\n\n"
+                   "### Screens\n\n- [ ] An empty Inbox says \"Nothing to do\" (prototype: inbox)\n"
+                   "- [ ] The goal's own criterion (flow)\n\n## Plan\n\n- [ ] 1. API: build it\n")
+        parts = [{"name": "API", "criteria": ["Tasks have a title (prototype: task)"],
+                  "journal": "/p/api.md"},
+                 {"name": "Inbox", "criteria": ['An empty Inbox says "Nothing to do" (prototype: inbox)'],
+                  "journal": "/p/inbox.md"}]
+        out = goal.fold_part_criteria(journal, parts)
+        self.assertNotIn("Tasks have a title", out)
+        self.assertNotIn("### API", out)
+        self.assertNotIn("Data", out)
+        self.assertNotIn("Nothing to do", out)
+        self.assertIn("### Screens\n\n- [ ] The goal's own criterion (flow)", out)
+        self.assertIn("Names stand for real values.\n\n### Parts\n\n"
+                      "- [ ] Part “API” meets its 1 criteria", out)
+        self.assertIn("(journal: `/p/inbox.md`)", out)
+        self.assertIn("## Plan\n\n- [ ] 1. API: build it\n", out)
+        self.assertEqual(goal.unmet_criteria(out)[-1], "The goal's own criterion (flow)")
+        ticked = goal.tick_parts(out, {"API"})
+        self.assertIn("- [x] Part “API” meets", ticked)
+        self.assertIn("- [ ] Part “Inbox” meets", ticked)
+        self.assertEqual(goal.fold_part_criteria("# Journal\n", parts), "# Journal\n")
 
     def test_only_a_goal_splits_and_a_part_does_not(self):
         d = tempfile.mkdtemp()

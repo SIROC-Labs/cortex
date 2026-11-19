@@ -29,10 +29,28 @@ not a gap.
    do not trust that they are complete or right: compare them with your own list.
    Where the lead wrote why it did not fix an earlier gap, weigh that against the
    references.
-3. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
-4. {{checks}}
-5. For each requirement, decide if the branch meets it. Look for things that are
+3. Read the technical plan, `{{technical_plan}}`, if it exists. Each step of its
+   diagrams, each row of its tables, each invariant and each place of the existing
+   code it says changes is a requirement too. A plan says what the work must do;
+   the build often leaves out a part of it, and nothing but you compares the two.
+4. Read the changes: `git diff {{base}}...HEAD` and `git log {{base}}..HEAD`.
+5. {{checks}}
+6. For each requirement, decide if the branch meets it. Look for things that are
    missing, broken, only partly done, or different from the prototype.{{testing_check}}
+   - For a step of a diagram or a row of a table, find the code that writes each
+     value the step names, and the code of the next step that reads or requires
+     it. A step whose function is called, but which does not write what the step
+     says, is not met. Do not assume a value: read the line that sets it.
+   - A criterion that says something runs or works end to end is met only by a
+     test that shows it. Reading the code does not show that it runs.
+   - A test that builds its starting data by hand, where an earlier step of the
+     same path makes it, does not show the path: such data can hold what the step
+     under test failed to write.
+   - A branch that breaks a decision or an invariant in the journal or the
+     technical plan is a gap, such as an answer that can still be dropped, or a
+     route that still changes a task the plan says is never changed by hand.
+   - An existing field, rule or screen that the work changes or removes: search
+     for its readers and writers that the branch left as they were.
 
 ## Use cheaper sub-agents for the legwork
 
@@ -40,6 +58,9 @@ Sub-agents run on `{{subagent_model}}`, which costs much less than you. When the
 diff is large, give them the legwork:
 
 - Find where the branch handles each requirement, and report the files and lines.
+- Follow a path of the technical plan through the code, step by step: for each
+  step, the line that writes each value it names, and the check the next step
+  makes on it. Tell it to say "not found" rather than assume a value.
 - Read a part of the prototype, and report exactly what it shows: its parts, their
   order, their text and their states.
 - Read large files or unchanged code for context, and report what matters.
@@ -80,9 +101,10 @@ or, when something is missing or broken:
 ```
 
 Each gap is one fact: the requirement that is not met, the file where it shows,
-and the reference it comes from, such as `(prototype: taskRow)` or `(ticket: Attachments)`.
-Report a gap only when the references require it. Do not report style preferences
-or improvements that they do not need.
+and the reference it comes from, such as `(prototype: taskRow)`, `(ticket: Attachments)`
+or `(technical plan: P1 step 2)`. Report a gap only when the references, the
+person's answers, the technical plan or the journal's decisions require it. Do not
+report style preferences or improvements that they do not need.
 
 Put what only the person can decide, and has not, or a
 reference you could not open, in `questions`, not in `gaps`, as

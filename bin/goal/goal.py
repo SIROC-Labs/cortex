@@ -180,15 +180,20 @@ SPLIT = """   Build the work yourself, as one goal, unless it is very large. In 
      references and their sections that cover it, such as the prototype's
      functions), `**Does not touch**`, and `**Meets other parts**` (only what
      another part depends on, when it is known now: an endpoint and its shape, a
-     shared type, a function another part calls; write each the same in every
-     part that uses it). Leave the design inside the part to its lead: its
+     shared type, a function another part calls, a shared fact and its owner, and
+     the steps of the technical plan's paths that this part builds; write each the
+     same in every part that uses it). Leave the design inside the part to its lead: its
      tables and columns, its files and functions, its internal rules. The part's
      lead plans that from the references. A part's lead gets its brief, its
      criteria and the whole ask, and nothing else from you.
 {{plan_after}}
    Two to %d parts is usual. For small work, do not split, and do not write the
-   file. When every part is merged into your branch, you integrate: check that the
-   parts fit together, build what no part covers, and tick the criteria.""" % MAX_PARTS
+   file. Once the person approves the split, the runner replaces each part's
+   criteria in your journal with one line for the part, ticked when the part is
+   merged: its own checker checks its criteria. When every part is merged into
+   your branch, you integrate: write the tests of the paths that cross parts
+   first, check that the parts fit together, build what no part covers, and tick
+   your own criteria.""" % MAX_PARTS
 NO_SPLIT = ("   This is one part of a larger goal. Do not split it: build it yourself, with "
             "sub-agents.")
 PLAN_AFTER = """   - `plan_after`: usually left out. Every part plans as soon as the person
@@ -213,19 +218,33 @@ TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a techni
    4. Where the code goes: a table of area, path, and what changes there.
    5. Data model: the new and changed tables, columns and enums, as a mermaid
       erDiagram and a table; a status as a mermaid stateDiagram.
-   6. Flows: each flow that matters, as a mermaid sequenceDiagram and its steps.
-   7. The API: a table of routes: method, path, what it does, its errors.
-   8. The frontend: the screens, what each shows, and how the data moves.
-   9. Configuration: new settings and variables.
-   10. Tests: what is tested, where and how, by the testing guide.
-   11. Risks and open decisions: what could still change the plan.
-   12. Out of scope.
+   6. Behaviour: the diagrams and tables of step 3 of How to work, each with a
+      short name (`P1`, `S1`) that the criteria and the tests use. In a sequence
+      diagram, note on each step the fields it writes and what each person sees
+      after it.
+   7. Invariants: a table of each invariant, each way it can break, and what the
+      design does about it.
+   8. Existing code touched: a table of each existing field, rule, screen, route
+      or job the work changes, removes or relies on; every place that reads or
+      writes it; and what changes there.
+   9. The API: a table of routes: method, path, what it does, its errors.
+   10. The frontend: the screens, what each shows, and how the data moves.
+   11. Configuration: new settings and variables.
+   12. Tests: the test for each diagram and table of section 6, where it is, and
+       its entry point, by the testing guide.
+   13. Risks and open decisions: what could still change the plan.
+   14. Out of scope.
 
    It is a plan, so it is shorter than a document of finished work. Decide what
    you can now, and say what you decide later, while you build. If you split the
-   work, write only sections 1, 3 (the parts and how they meet), a table of the
-   meeting points (each endpoint, shared type or event: which part provides it
-   and which parts use it), and 11: each part's lead writes the rest for its part.
+   work, write only sections 1, 3 (the parts and how they meet), 6 for the paths
+   that cross parts (each step names the part that builds it), 7, 8, 13, a table
+   of the meeting points (each endpoint, shared type or event: which part provides
+   it and which parts use it), and a table of the shared facts (each value or rule
+   that two parts, or a part and the existing code, must agree on, such as where a
+   number is read, how money is shown, or which call step a task opens: its owner
+   and the one function that gives it). Each part's lead reads this plan and
+   writes the rest for its part.
    Keep the technical plan in step with your journal: when the plan changes,
    change it too.
 """
@@ -259,12 +278,17 @@ FRESH = ("This is a new session. The earlier conversation is gone on purpose: ca
          "A coding task gets work that is decided: it does not find causes or choose "
          "designs. When the cause of a problem is not known yet, first ask explorers for "
          "the facts, decide the fix yourself from their answers, and then hand over the "
-         "coding task. "
+         "coding task. When a gap or a review comment already says where and what is "
+         "wrong, hand over the fix at once. Once a report gives you the facts, hand over "
+         "the fix in the next block: never ask an explorer the same question again. "
          "Brief each task completely, because it knows only its brief: the step, what to "
-         "change and where, the parts of the technical plan it needs, the prototype file and "
-         "lines for a screen, the tests to write, and what done means. In the journal, tick "
-         "the steps and criteria a batch meets, record what it decided as one line under "
-         "Decisions, and update the Status: no build log, the runner keeps one. You can "
+         "change and where, the parts of the technical plan it needs, the steps of a diagram "
+         "or the rows of a table it builds and the test that covers them, the prototype file "
+         "and lines for a screen, the tests to write, and what done means. In the journal, "
+         "tick the steps and criteria a batch meets, and update the Status: no build log, "
+         "the runner keeps one. A decision goes under Decisions only when it departs from the "
+         "references, fills a gap in them, or follows the person's answer; how it is built "
+         "goes in the technical plan. You can "
          "run git, read Markdown documents, and edit your journal and the technical plan. "
          "You do not run tests, type checks or builds. Tests guide the coding tasks while "
          "they code: each runs the tests of its own change. When you report done, the runner "
@@ -609,11 +633,13 @@ def review_prompt(gaps, answers, again=False):
     its criteria and its parts before they start."""
     parts = []
     if gaps:
-        parts += ["Before you build, a reviewer compared your acceptance criteria with the "
-                  "references the ask names, and found these problems:", ""]
+        parts += ["Before you build, a reviewer compared your acceptance criteria and your "
+                  "technical plan with the references the ask names, and found these "
+                  "problems:", ""]
         parts += ["- %s" % g for g in gaps] + [""]
-        parts += ["Check each one against the references. Correct the criteria where it is "
-                  "right. Where it is wrong, write why in the journal. The prototype wins, "
+        parts += ["Check each one against the references. Correct the criteria, the "
+                  "technical plan and the tests they name where it is right. Where it is "
+                  "wrong, write why in the journal. The prototype wins, "
                   "unless the ask says explicitly that it replaces the prototype, or the "
                   "person's answers say otherwise. One-pagers decide nothing.", ""]
     if answers:
@@ -697,21 +723,78 @@ def part_order(parts):
     return out
 
 
-def part_ask(parent, part, built):
-    """A part's ask: its brief and criteria, what was built before it, and the
-    whole goal's ask for context."""
+def part_ask(parent, part, built, technical_plan=None):
+    """A part's ask: its brief and criteria, the goal's technical plan, what was
+    built before it, and the whole goal's ask for context."""
     out = ["# %s part: %s" % (parent.get("key") or "", part["name"]), "",
            "This is one part of a larger goal. The goal's lead split the work into parts, "
            "and this part is yours. Other leads build the other parts: build only this one, "
            "and follow the contracts in its brief.", "", "## This part", "", part["brief"], "",
            "## Its acceptance criteria", ""]
     out += ["- %s" % c for c in part["criteria"]] + [""]
+    if technical_plan:
+        out += ["## The goal's technical plan", "", "`%s`. Read it in your analysis: the "
+                "paths that cross parts and the steps this part builds, the invariants, the "
+                "existing code the work touches, the meeting points and the shared facts. Your "
+                "own plan follows them; where it cannot, ask." % technical_plan, ""]
     if built:
         out += ["## Built before it", "", "These parts are done, and their work is on your "
                 "branch already:", ""]
         out += ["- %s: %s" % (b["name"], b.get("summary") or "done") for b in built] + [""]
     out += ["## The whole goal's ask, for context", "", parent.get("ask") or ""]
     return "\n".join(out).rstrip() + "\n"
+
+
+PART_LINE = re.compile(r"^(\s*[-*]\s+\[)([ xX])(\]\s+Part “(.*?)” meets its)")
+
+
+def fold_part_criteria(journal, parts):
+    """The journal with each part's criteria replaced by one line for the part,
+    under `### Parts` in `## Acceptance criteria`. Each part has its `name`,
+    `criteria` and `journal`. A `###` section whose criteria all went goes too."""
+    owned = {re.sub(r"\s+", " ", c).strip() for p in parts for c in p["criteria"]}
+    lines = (journal or "").splitlines()
+    start = next((i for i, line in enumerate(lines)
+                  if re.match(r"^##\s+acceptance criteria\s*$", line, re.I)), None)
+    if start is None:
+        return journal
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^#{1,2}\s", lines[i])),
+               len(lines))
+
+    def item(line):
+        m = re.match(r"^\s*(?:[-*]|\d+\.)\s+\[[ xX]\]\s+(.*)$", line)
+        return re.sub(r"\s+", " ", m.group(1)).strip() if m else None
+
+    chunks = [[]]
+    for line in lines[start + 1:end]:
+        if re.match(r"^###\s", line):
+            chunks.append([])
+        chunks[-1].append(line)
+    body = []
+    for n, chunk in enumerate(chunks):
+        items = [item(line) for line in chunk if item(line) is not None]
+        gone = items and all(i in owned for i in items)
+        if gone and n:
+            continue
+        kept = [line for line in chunk if item(line) not in owned]
+        if gone:
+            kept = [line for line in kept if not line.strip() or not re.match(r"^\s*[-*]", line)]
+        body += kept
+        if n == 0:
+            body += ["", "### Parts", ""] + [
+                "- [ ] Part \u201c%s\u201d meets its %d criteria; its own checker checks them "
+                "(journal: `%s`)" % (p["name"], len(p["criteria"]), p["journal"]) for p in parts] + [""]
+    text = "\n".join(lines[:start + 1] + body + [""] + lines[end:])
+    text = re.sub(r"\n{3,}", "\n\n", text).rstrip("\n")
+    return text + ("\n" if (journal or "").endswith("\n") else "")
+
+
+def tick_parts(journal, names):
+    """The journal with the lines of the parts named ticked."""
+    def tick(line):
+        m = PART_LINE.match(line)
+        return PART_LINE.sub(r"\1x\3", line) if m and m.group(4) in names else line
+    return "\n".join(tick(line) for line in (journal or "").split("\n"))
 
 
 def part_id(parent_id, name):
@@ -731,10 +814,13 @@ def parts_done_prompt(parts, journal=None):
     lines += ["- %s: %s%s" % (p["name"], p.get("summary") or "done",
                               " (journal: `%s`)" % p["journal"] if p.get("journal") else "")
               for p in parts]
-    lines += ["", "Now integrate. Read what each part did. Check that the parts fit together: "
-              "the contracts, the data flowing between them, and the screens end to end. Build "
-              "what no part covers. Tick each acceptance criterion the branch meets, with the "
-              "file that meets it. Then report done.", "", CONTINUE]
+    lines += ["", "Now integrate. Read what each part did. First hand over the tests of the "
+              "paths in the technical plan that cross parts, each from its real entry point "
+              "through every part. Then check that the parts fit together: the contracts, the "
+              "data flowing between them, the shared facts, and the screens end to end. Build "
+              "what no part covers and what the path tests show. Each part's line in your "
+              "criteria is ticked already. Tick each of your own criteria the branch meets, "
+              "with the file that meets it. Then report done.", "", CONTINUE]
     return "\n".join(lines)
 
 
@@ -750,7 +836,9 @@ def gaps_prompt(gaps, answers=None):
               "the prototype shows to satisfy a gap. If a gap is wrong, do not fix it: write "
               "why in the journal and say so in your summary, and the checker reads that. If "
               "the prototype and the person's answers do not settle a gap, ask the person. "
-              "Then report done again."]
+              "A gap that names where and what is wrong needs no explorer: hand over its fix "
+              "at once. A gap that adds a requirement becomes a criterion; do not keep the gap "
+              "itself in the journal once it is fixed. Then report done again."]
     return "\n".join(parts)
 
 
@@ -990,12 +1078,17 @@ def integration_scope(sha, technical_plan, base):
         "Each part of this goal was built and checked by its own checker against its own "
         "criteria, and the parts were merged into this branch at commit `%s`. Do not check "
         "the parts' criteria again. Check only these, and nothing else:" % sha, "",
-        "1. The acceptance criteria that are not under a part's heading in the journal: "
-        "the goal's own, which span the parts.",
+        "1. The goal's own acceptance criteria in the journal, which span the parts. A "
+        "line that says a part meets its criteria is met: that part's checker checked them.",
         "2. How the parts meet: each meeting point in the technical plan `%s` (an endpoint, "
         "a shared type, an event). Does the part that provides it match what the parts "
         "that use it expect?" % technical_plan,
-        "3. What changed since the parts were merged: %s." % changes_since(sha, base), "",
+        "3. Each path in the technical plan that crosses parts, step by step: the part "
+        "that writes a value and the part that reads it agree, and the existing code the "
+        "path runs through does what the path expects.",
+        "4. Each shared fact and invariant in the technical plan: every part, and the "
+        "existing code, follows it.",
+        "5. What changed since the parts were merged: %s." % changes_since(sha, base), "",
         "Read the ask, the references and the journal only as far as these need. Where "
         "the steps below say to read or check everything, keep to this list.", ""])
 
@@ -1692,11 +1785,13 @@ def create_part(main_root, parent, part, index, built):
     goal = Goal(main_root, gid)
     if os.path.exists(goal.state.path(GOAL_FILE)):
         return gid
+    technical_plan = Goal(main_root, parent["id"]).state.path(TECHNICAL_FILE)
     goal.state.ensure()
     goal.update(id=gid, parent=parent["id"], part=part["name"], part_index=index,
                 depth=parent.get("depth", 0) + 1, key=parent.get("key"),
                 name="part: %s" % part["name"], base=parent["branch"],
-                ask=part_ask(parent, part, built), threshold=parent.get("threshold"),
+                ask=part_ask(parent, part, built, technical_plan if os.path.exists(
+                    technical_plan) else None), threshold=parent.get("threshold"),
                 model=parent.get("model"), subagent_model=parent.get("subagent_model"),
                 check_model=parent.get("check_model"), check_effort=parent.get("check_effort"),
                 fence=parent.get("fence"), created=time.time(), status="new", round=0,
@@ -2765,6 +2860,10 @@ class Runner(object):
             goals = {p["name"]: Goal(self.main_root, p["id"]).read() or {} for p in parts}
             alive = {p["name"] for p in parts if Goal(self.main_root, p["id"]).runner_alive()}
             done = [p for p in parts if goals[p["name"]].get("status") == "done"]
+            journal = self.read_journal()
+            ticked = tick_parts(journal, {p["name"] for p in done})
+            if ticked != journal:
+                self.write_journal(ticked)
             flow2 = self.flow2()
             if len(done) == len(parts):
                 st.info("every part is done — the integration starts in a new session")
@@ -2829,6 +2928,8 @@ class Runner(object):
         for p in parts:
             st.info("- %s%s" % (p["name"], " (after %s)" % ", ".join(p["after"]) if p["after"] else ""))
         self.set(parts=parts, phase="parts")
+        self.write_journal(fold_part_criteria(self.read_journal(), [
+            dict(p, journal=Goal(self.main_root, p["id"]).journal) for p in parts]))
         return parts
 
     # the plan, for the person
@@ -3228,6 +3329,7 @@ class Runner(object):
                 "parts_file": self.goal.state.path(PARTS_FILE),
                 "phase": PLANNING if self.data.get("phase") == "planning" else BUILDING,
                 "base": self.data["base"], "journal": self.goal.journal,
+                "technical_plan": self.technical_plan(),
                 "scope": getattr(self, "scope", ""), "sources": SOURCES,
                 "checks": ("This part has run no CI: CI runs once, when the whole goal is "
                            "done. Judge the code, not test results." if part else
@@ -3237,6 +3339,11 @@ class Runner(object):
 
     def technical_plan(self):
         return self.goal.state.path(TECHNICAL_FILE)
+
+    def write_journal(self, text):
+        if text:
+            with open(self.goal.journal, "w") as f:
+                f.write(text)
 
     def read_journal(self):
         try:

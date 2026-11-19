@@ -44,20 +44,34 @@ This program is the harness around the lead:
 
 - **Analysis first.** The first round changes no code. The lead reads every reference the
   ask names, checks what the ask takes for granted against the code (a branch it builds on,
-  earlier work it needs), and writes into its journal: `## References`, fine-grained
-  `## Acceptance criteria` (one line for each screen part, state, rule or field, each with
-  its source), and a `## Plan`. It also writes `technical-plan.md` in the goal's state: how
-  the work will be built, in Simplified Technical English, with tables and mermaid
-  diagrams (overview, where the code goes, data model, flows, API, frontend, tests, risks).
-  When it splits the work, that is only an overview of the parts and where they meet; each
-  part's lead writes its own. Its questions come to you together. The runner sends the
-  lead back until it has all four.
+  earlier work it needs), and has explorers find every reader and writer of each existing
+  field, rule, screen or route the work changes or removes. It describes the behaviour
+  before the criteria, in the form that fits: a sequence diagram per path (with what each
+  step writes and what each person sees after it), a state table, a screen-state table, or
+  a table of examples; and the invariants, each with the ways it can break. Then it writes
+  into its journal: `## References`, `## Acceptance criteria` (one line per diagram or
+  table with the test that shows it, one per invariant, one per screen's texts by the
+  prototype's lines, and one for each rule, field or state the tables do not cover, each
+  with its source), and a `## Plan`. It also writes `technical-plan.md` in the goal's
+  state: how the work will be built, in Simplified Technical English, with tables and
+  mermaid diagrams (overview, where the code goes, data model, behaviour, invariants,
+  existing code touched, API, frontend, tests, risks). When it splits the work, that is an
+  overview of the parts, the paths that cross them, the invariants, the meeting points and
+  the shared facts (each value two parts must agree on, with one owner); each part reads it
+  and writes its own. Its questions come to you together. The runner sends the lead back
+  until it has all four.
 - **Testing guide.** When the repository has `TESTING.md` files, the lead is told to read
   them in the analysis, plan and write its tests by them, and give them to every sub-agent
   that writes tests; the checker judges the tests against them.
-- **Criteria review.** The checker's model then compares the criteria with the references,
-  before anything is built: criteria that are missing, wrong, or too broad, and questions
-  only you can answer. The lead corrects the criteria and the plan.
+- **Criteria review.** The checker's model then reviews the plan before anything is built.
+  It first writes down, from the references alone, what each person does and sees at each
+  step of each path, and only then compares that with the lead's diagrams and tables: the
+  lead's own reading cannot show where that reading went wrong. It reports criteria that
+  are missing, wrong, or too broad, and reviews the design: invariants the work needs, ways
+  to break them the plan does not handle (other writers, concurrent changes, retries,
+  limits between systems), and readers or writers of changed code the plan does not list.
+  It does not ask for texts to be quoted. Questions only you can answer go to you. The lead
+  corrects the criteria, the technical plan and the plan.
 - **Your approval.** Then nothing is built until you approve the plan. It waits on you
   with its steps or parts listed, and its technical plan in the goal's state: review the
   criteria alone to move fast, and the technical plan when the design needs care. To
@@ -89,13 +103,18 @@ This program is the harness around the lead:
   part is never pushed: when its check passes, it merges the goal's branch in and is
   merged into it, one part at a time, and a conflict goes back to that part's lead. When
   every part is in, the goal's lead integrates, in a new session: the planning's context is
-  stale by then, so it starts from its journal and the parts' journals. It checks that the
-  parts fit together, builds what no part covers, and ticks the criteria. Then the goal goes on as below,
+  stale by then, so it starts from its journal and the parts' journals. Once you approve
+  the split, the runner replaces each part's criteria in the goal's journal with one line
+  for the part, ticked when the part is merged, since the part's checker checks them. The
+  integration first writes the tests of the paths that cross parts, then checks that the
+  parts fit together, builds what no part covers, and ticks the goal's own criteria. Then the goal goes on as below,
   with one push and one CI run for all of it. A part does not split again.
 - **A small journal.** Every new session reads the whole journal, so the lead keeps only
-  what is true now: a short status, your answers, the references, the acceptance
-  criteria, the plan, and one line per decision; no build log, which the runner keeps,
-  and no design, which is the technical plan's. Before a session, a journal over 40 KB
+  what is true now: a short status with no round log, your answers, the references, the
+  acceptance criteria, the plan, and one line per decision, where a decision is only a
+  departure from the references, a gap they leave, or your answer; no build log, which the
+  runner keeps, no design, which is the technical plan's, and no checker gap once it is
+  fixed. Before a session, a journal over 40 KB
   is rewritten by the sub-agent model (Sonnet by default) to those sections. The runner
   keeps the rewrite only when every criterion and step, with its tick, and every answer
   is unchanged and it is smaller; the old one goes to `journal-archive/`, and the lead
@@ -127,7 +146,13 @@ This program is the harness around the lead:
   and the like), Markdown aside. Every file the lead reads stays in its context and is
   paid for on every later turn; an explorer answers one narrow question for a few cents.
   The lead can still run git, commit, and edit its journal and technical plan. In the
-  analysis it is told to learn the codebase through explorers too. The lead ticks each criterion with the file that meets it, and a
+  analysis it is told to learn the codebase through explorers too. Tests come first: the
+  first tasks write one test per diagram or table, from the real entry point through
+  every step, and each later task gets the steps it builds and the test that covers them.
+  A criterion that says something runs is met only by a test, never by reading the code.
+  A gap or review comment that says where and what is wrong is fixed at once, with no
+  explorer first. Explorers that follow a path report the line that writes each value,
+  not only the calls. The lead ticks each criterion with the file that meets it, and a
   "done" with a criterion not ticked goes back to it. Only you can drop one.
 - **Questions.** The lead asks what the prototype and your answers do not settle, and what
   only you have, all at once in the analysis where it can. They wait on the TUI's Runs
@@ -168,8 +193,11 @@ This program is the harness around the lead:
   failures go to the fixer (Opus judges, Sonnet sub-agents change), twice, then to the
   lead; the fixer runs only the failing steps again. Coding tasks format and lint the files they change.
   A fix about other failures than the last one starts the tries again, since the last
-  fix made progress; after ten fixes in a row the runner asks you anyway. Then a separate checker agent compares the branch with the references and the lead's acceptance criteria, which
-  it does not trust to be complete. Each gap names its source. Gaps go back to the lead, which checks
+  fix made progress; after ten fixes in a row the runner asks you anyway. Then a separate checker agent compares the branch with the references, the lead's acceptance criteria, which
+  it does not trust to be complete, and the technical plan: each step of a diagram is
+  checked by the line that writes each value it names, a branch that breaks an invariant
+  or a decision is a gap, and so is a runtime claim with no test, or a test that builds a
+  later step's data by hand. Each gap names its source. Gaps go back to the lead, which checks
   each against the references and pushes back on one the prototype contradicts. A
   conflict the references do not settle is a question to you. A check that is cut off by
   the usage limit, or fails, runs again: only a real verdict counts. Only a clean check
@@ -179,7 +207,8 @@ This program is the harness around the lead:
   covers only the last check's gaps, the review comments of a PR revision, and the
   branch's own commits since the last check. A split goal's first check skips the parts'
   criteria, which their own checkers checked: it covers the goal's own criteria, how the
-  parts meet, and the integration since the parts were merged. A branch rewritten since
+  parts meet, each path that crosses parts step by step, the shared facts and invariants,
+  and the integration since the parts were merged. A branch rewritten since
   the last check is checked whole.
 - **After the finish.** The runner stays, and watches the PR every minute until it
   is merged or closed: "ready to merge" on the TUI. Each new review comment on it (a
