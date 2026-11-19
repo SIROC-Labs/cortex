@@ -855,6 +855,12 @@ class TestCleanUp(unittest.TestCase):
         self.assertEqual(self.branches(), [])
         self.assertNotIn(".cortex/worktrees", self.git("worktree", "list"))
 
+    def test_a_part_marked_done_by_hand_keeps_its_work(self):
+        goal.Goal(self.main, self.part).update(phase=goal.MARKED)
+        goal.clean_up(self.main, self.gid)
+        self.assertEqual(self.branches(), ["A-1/goal-x2--api"])
+        self.assertTrue(os.path.isdir(goal.Goal(self.main, self.part).read()["worktree"]))
+
     def test_a_goal_closed_without_a_merge_keeps_its_branch(self):
         goal.clean_up(self.main, self.gid, keep_branch=True)
         self.assertEqual(self.branches(), ["A-1/goal-x2"])

@@ -2006,10 +2006,18 @@ def clean_up(main_root, gid, keep_branch=False):
         else goal_and_parts(main_root, gid)
     data = Goal(main_root, gid).read() or {}
     branch, removed = data.get("branch"), []
+    # A part marked done by hand was never merged: its work stays.
+    marked = [d for d in (g.read() or {} for g in goals[:-1]) if d.get("phase") == MARKED] \
+        if not data.get("parent") else []
+    kept = [d["branch"] for d in marked if d.get("branch")]
+    homes = [d["worktree"] for d in marked if d.get("worktree")]
+    goals = [g for g in goals if (g.read() or {}).get("branch") not in kept]
     with st.repo_lock(main_root):
         for g in goals:
             home = (g.read() or {}).get("worktree")
             for path in ([home] + sorted(glob.glob(glob.escape(home) + "--*"))) if home else []:
+                if any(path == h or path.startswith(h + "--") for h in homes):
+                    continue
                 if os.path.isdir(path):
                     st.git(["worktree", "remove", "--force", path], cwd=main_root, check=False)
                     removed.append(path)
@@ -2018,6 +2026,8 @@ def clean_up(main_root, gid, keep_branch=False):
             _, out, _ = st.git(["for-each-ref", "--format=%(refname:short)",
                                 "refs/heads/%s--*" % branch], cwd=main_root, check=False)
             for name in out.split() + ([] if keep_branch else [branch]):
+                if any(name == k or name.startswith(k + "--") for k in kept):
+                    continue
                 if st.git(["branch", "-D", name], cwd=main_root, check=False)[0] == 0:
                     removed.append(name)
     return removed
@@ -2034,7 +2044,7 @@ def sweep(main_root):
         data = g.read() or {}
         if g.runner_alive() or data.get("status") != "done":
             continue
-        if data.get("parent") or data.get("phase") in ("merged", "closed"):
+        if data.get("parent") and data.get("phase") != MARKED or data.get("phase") in ("merged", "closed"):
             removed += clean_up(main_root, name, keep_branch=data.get("phase") == "closed")
     return removed
 
