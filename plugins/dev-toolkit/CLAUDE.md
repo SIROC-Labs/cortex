@@ -11,12 +11,15 @@ dev-toolkit/
 ├── CLAUDE.md              ← you are here
 ├── .claude-plugin/
 │   └── plugin.json        ← plugin manifest (name, version) — skills are auto-discovered
+├── references/
+│   └── runtime-bindings.md ← capability → skill bindings per runtime (MANAGE_TASKS, START_TASK, SHIP_WORK)
 └── skills/
     ├── update-pr/         ← Sync a PR branch with its base (fetch → rebase/merge → resolve → push)
     ├── cso/               ← Chief Security Officer audit (secrets, deps, CI/CD, OWASP, STRIDE, LLM/AI) + references/audit-phases.md
     ├── codex/             ← Second opinion from Codex CLI (review/challenge/consult) for non-Codex hosts + sections/ + scripts/codex-probe.sh
     ├── claude/            ← Second opinion from Claude Code CLI (review/challenge/consult) for non-Claude hosts
-    └── dependabot-setup/  ← Dependabot config, alerts and daily audit workflow, per repository or per organization + references/
+    ├── dependabot-setup/  ← Dependabot config, alerts and daily audit workflow, per repository or per organization + references/
+    └── log-task/          ← Log a task in the task manager from the current conversation, then route to start or ship + references/
 ```
 
 Each skill follows: `skills/<name>/SKILL.md` + optional `references/` subdirectory.
@@ -27,6 +30,10 @@ Skills are auto-discovered from `skills/` — there is no `skills` array in `plu
 Skills in this plugin are self-contained and do not depend on other plugins.
 Cross-plugin skill references should point *into* this plugin, not out of it —
 that's what keeps these utilities independent.
+
+The exception is `log-task`, which needs a task manager. It names capabilities
+only, resolved through `references/runtime-bindings.md`; an unbound capability
+falls back as that file describes.
 
 ## Development Workflow
 
