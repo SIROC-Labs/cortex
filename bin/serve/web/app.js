@@ -19,12 +19,24 @@ async function api(method, path, body) {
     method, headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
+  newVersion(res.headers.get("X-Conductor-Version"));
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
   setConn(true);
   if (!res.ok) throw new Error((data && data.error) || res.statusText);
   return data;
+}
+
+// The service's page files changed since this page loaded: load them, unless an
+// answer or a message is being written; then on the next call after it is sent.
+function newVersion(v) {
+  if (!v) return;
+  if (!newVersion.seen) newVersion.seen = v;
+  if (v === newVersion.seen) return;
+  const writing = [...document.querySelectorAll("textarea, input[type=text]")]
+    .some((el) => el === document.activeElement || (el.closest("#wait, .disc") && el.value.trim()));
+  if (!writing) location.reload();
 }
 
 function setConn(ok) {
@@ -664,10 +676,18 @@ async function goalPage(repo, id) {
       }
       return;
     }
+    const showSent = (sent) => {
+      const box = $("#wait");
+      const kept = [...box.childNodes];
+      const key = ui.waitKey;
+      box.innerHTML = sentHtml({ ...g, sent });
+      ui.waitKey = g.awaiting.asked_at + ":sent";
+      return () => { box.replaceChildren(...kept); ui.waitKey = key; };
+    };
     if (e.target.id === "approve") {
-      e.target.disabled = true;
+      const undo = showSent({ kind: "plan", approved: true, text: "continue" });
       if (await act(() => api("POST", base + "/approve"))) refresh();
-      else e.target.disabled = false;
+      else undo();
     } else if (e.target.id === "send") {
       const own = [...document.querySelectorAll("#wait .own")];
       const answers = own.map((box) => answerOf(box.dataset.n));
@@ -677,9 +697,12 @@ async function goalPage(repo, id) {
       const extra = $("#answer").value.trim();
       const text = [lines.join("\n"), extra].filter(Boolean).join("\n\n");
       if (!text) return toast("Write the answer first", true);
-      e.target.disabled = true;
-      if (await act(() => api("POST", base + "/answer", { text, answers: own.length ? answers : null, note: own.length ? extra || null : null }))) refresh();
-      else e.target.disabled = false;
+      const note = own.length ? extra || null : null;
+      const asked = (g.awaiting && g.awaiting.questions) || [];
+      const undo = showSent({ kind: g.awaiting.kind, text, note, approved: false,
+        items: own.length ? answers.map((a, i) => ({ q: (asked[i] && asked[i].q) || "", a })) : null });
+      if (await act(() => api("POST", base + "/answer", { text, answers: own.length ? answers : null, note }))) refresh();
+      else undo();
     }
   };
   $("#head").onclick = async (e) => {

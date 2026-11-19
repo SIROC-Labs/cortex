@@ -651,6 +651,19 @@ class TestMCP(unittest.TestCase):
                 self.assertIn(name, tool["inputSchema"]["properties"], tool["name"])
 
 
+class TestWebVersion(unittest.TestCase):
+    def test_the_version_changes_when_a_page_file_changes(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with open(os.path.join(d, "app.js"), "w") as f:
+            f.write("a")
+        first = serve.web_version(d)
+        self.assertEqual(first, serve.web_version(d))
+        with open(os.path.join(d, "app.js"), "w") as f:
+            f.write("ab")
+        self.assertNotEqual(first, serve.web_version(d))
+
+
 class TestLaunchd(unittest.TestCase):
     def test_the_job_loads_zshrc_and_the_login_path_and_runs_the_service(self):
         text = serve.plist("/x/cond", 4747, "/h/serve.log")

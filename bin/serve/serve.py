@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import urllib.parse
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,19 @@ DEFAULT_PORT = 4747
 MAX_BODY = 100 * 1024 * 1024
 LABEL = "com.siroc.conductor"
 WEB_DIR = os.path.join(HERE, "web")
+
+
+def web_version(root=WEB_DIR):
+    """A mark that changes whenever a file of the page changes, so an open page can
+    load the new one."""
+    marks = []
+    for name in sorted(os.listdir(root)):
+        try:
+            info = os.stat(os.path.join(root, name))
+        except OSError:
+            continue
+        marks.append("%s:%d:%d" % (name, info.st_mtime_ns, info.st_size))
+    return "%08x" % zlib.crc32("|".join(marks).encode())
 
 ROUTES = []
 
@@ -178,6 +192,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Conductor-Version", web_version())
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
