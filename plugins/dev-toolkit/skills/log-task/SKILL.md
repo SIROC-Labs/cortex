@@ -15,14 +15,11 @@ argument-hint: "[sprint: <sprint-url>] [backlog: <backlog-url>]"
 
 # Log Task
 
-Take something discovered or completed in conversation and formalize it as a task in the task manager — then route to the right next step. This skill bridges unplanned work (bugs spotted, issues found, ad-hoc fixes) into the tracked development workflow.
+Take something discovered or completed in conversation and formalize it as a task in the task manager. This skill bridges unplanned work (bugs spotted, issues found, ad-hoc fixes) into the tracked development workflow.
 
 ## Prerequisites
 
-- The `MANAGE_TASKS` capability for all task operations — perform every task operation through it.
-- The `START_TASK` and `SHIP_WORK` capabilities for routing.
-
-All three are resolved per runtime from `plugins/dev-toolkit/references/runtime-bindings.md`, which also defines what to do when one is unbound.
+- The `MANAGE_TASKS` capability for all task operations — perform every task operation through it. It is resolved per runtime from `plugins/dev-toolkit/references/runtime-bindings.md`, which also defines what to do when it is unbound.
 
 ---
 
@@ -46,17 +43,17 @@ Multiple backlog overrides are supported — each is added to the set of backlog
 
 ## Step 1: Determine the Variant
 
-Infer from conversation context which of the two paths applies. Proceed silently — do not announce the inferred variant or ask for confirmation unless the signals are genuinely ambiguous.
+Infer from conversation context which of the two variants applies. The variant only changes the field defaults in Step 4. Proceed silently — do not announce the inferred variant or ask for confirmation unless the signals are genuinely ambiguous.
 
-**Plan Only**: Work has NOT been done yet. The user wants to create the task first, then optionally start working on it.
+**Plan Only**: Work has NOT been done yet. The user wants to create the task first.
 > Signals: "I want to plan this", "let me log it before we start", "we just figured out what needs to be done", task is still an idea.
 
 **Fix Done**: Work IS already done (or substantially done) in this session. The user wants to create the task retroactively.
 > Signals: "we just fixed it", "I already implemented this", "log what we just did", session has meaningful git changes or file edits.
 
 When confident, announce the inferred variant and proceed immediately — do not wait:
-- Plan Only: > "Treating this as a plan-only task — I'll create the task and ask if you want to start work after."
-- Fix Done: > "Treating this as a completed fix — I'll create the task and set up a branch for shipping."
+- Plan Only: > "Treating this as a plan-only task."
+- Fix Done: > "Treating this as a completed fix."
 
 **If genuinely ambiguous** (no clear signals either way), ask and wait:
 > "Is the work already done, or are you planning to start after logging? [done/plan]"
@@ -154,8 +151,7 @@ Perform every step through `MANAGE_TASKS`. Execute in this order — do not skip
 2. **6b** — `add_to_board(task, <active sprint>)` — file it on the active sprint board.
 3. **6c** — `add_to_board(task, <backlog>)` for each user-confirmed backlog board (loop — one call per board).
 4. **6d** — `set_field(task, <field>, <value>)` for each discovered field (Priority, Sizing, Estimate, Assignee), and `set_status(task, "Assigned")` for Product Status. Only set fields that `list_fields` reported as present.
-5. **6d cont** — Fetch the task's auto-assigned ID via `get_task(task)` (retry up to 3 times, 10s apart). If still absent after all retries, derive a prefix from context:
-   - Bug fix → `fix/<slug>`, Feature → `feat/<slug>`, Tech debt → `chore/<slug>`, Docs → `docs/<slug>`
+5. **6d cont** — Fetch the task's auto-assigned ID via `get_task(task)` (retry up to 3 times, 10s apart). If still absent after all retries, report the task without an ID.
 
 Report success:
 ```
@@ -173,63 +169,7 @@ Report success:
 
 ---
 
-## Step 7: Route to the Next Step
-
-### Plan Only
-
-Ask the user whether to proceed:
-
-> "Task logged. Want to start work on it now, or leave it for later? [start/later]"
-
-**Wait for the user's response.**
-
-- If start → invoke `START_TASK` with the task URL returned by the task manager.
-- If later (or any non-committal response) → stop here and give the user the task URL so they can start later.
-
----
-
-### Fix Done: Worktree + Ship
-
-Read `references/worktree-flow.md` for all git commands.
-
-#### 7b-1. Identify what changed
-Run the git diff commands from `references/worktree-flow.md`. If `<changed_files>` is empty, stop and ask the user where the changes are before continuing.
-
-#### 7b-2. Ask before touching git
-
-> "Task logged. Want to create a branch and ship now, or leave it for later? [ship/later]"
-
-**Wait for the user's response.**
-
-- If later (or any non-committal response) → stop here. The user can ship whenever ready.
-- If ship → continue to 7b-3.
-
-#### 7b-3. Determine the branch name
-
-```
-<task_id>/<slug>
-# e.g., MT251-182/fix-csv-export-null-crash
-```
-
-`<slug>` = task title lowercased, spaces to hyphens, max 40 chars, alphanumeric and hyphens only. If no task ID was resolved, use the type prefix (`fix/`, `feat/`, `chore/`, `docs/`) + slug.
-
-#### 7b-4 & 7b-5. Create worktree and copy changes
-Follow the worktree creation and file copy steps in `references/worktree-flow.md`.
-
-#### 7b-6. Invoke `SHIP_WORK`
-
-Thread the full task context so it can skip re-asking and build the correct PR title (`<TASK-ID> :: <description>`):
-- Task handle: `<task>` — the handle `MANAGE_TASKS` uses to address the task
-- Task URL: `<the task URL returned by the task manager>`
-- Task ID: `<task_id>` — the project ID prefix (e.g., `MT251-182`) resolved in Step 6d; required for PR title formatting
-- Task title: `<task_title>` — used as the PR title description
-- Branch name: `<task_id>/<slug>` — already created in 7b-3
-
-If the task ID could not be resolved in Step 6d (all retries failed), explicitly pass on that the PR title must fall back to the type-prefixed branch slug (`fix/…`, `feat/…`) with no `TASK-ID :: ` prefix — do not let it guess.
-
----
-
-## Step 8: Harvest Reminder
+## Step 7: Harvest Reminder
 
 > "Don't forget to move any Harvest time logged for this work to **<task_id>: <task_title>**."
 
