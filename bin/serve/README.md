@@ -40,9 +40,10 @@ list is `~/.cortex/cli/repos.json` (`COND_HOME` moves the folder).
   *Change* opens it again until you send); *Discuss this question* opens a talk about it alone, in a session
   of its own with only the ask, the question and the journal's references and
   decisions, which reads but changes nothing (*Use as my answer* copies a reply into the
-  answer; *Start over* clears the talk). A plan takes Approve or Ask for changes, and *Discuss the plan*, also on the
-  Plan tab, talks it through the same way with the plan's steps, criteria and technical
-  plan; a decision puts the plan's talks away, so a new plan starts with none. Once sent,
+  answer; *Start over* clears the talk). A plan takes Approve or Ask for changes, and *Discuss the plan*
+  talks it through the same way with the plan's steps, criteria and technical
+  plan; while no plan waits on review, the Plan tab has the same link. A decision
+  puts the plan's talks away, so a new plan starts with none. Once sent,
   the box shows what you sent (the answers, "Plan approved", or "Changes asked" with
   your words) until the goal picks it up. A red box warns when the lead changed a repo
   file itself, or a sub-agent it started did: it only reads and writes its journal. Its status

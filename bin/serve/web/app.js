@@ -576,7 +576,8 @@ async function goalPage(repo, id) {
   const showTab = () => {
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === ui.tab));
     store.set("tab", ui.tab);
-    $("#plan-disc").hidden = ui.tab !== "plan" || !g || (!g.technical_plan && !g.journal);
+    const reviewing = g && g.awaiting && g.awaiting.kind === "plan" && !g.sent;
+    $("#plan-disc").hidden = ui.tab !== "plan" || !g || reviewing || (!g.technical_plan && !g.journal);
     if (!g) return;
     if (ui.tab === "timeline") {
       const cs = g.timeline || [];
