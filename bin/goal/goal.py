@@ -147,6 +147,7 @@ BUDGET = re.compile(r"budget|size", re.I)
 # A sound for each thing that needs the person, and how often a pause may sound.
 SOUNDS = {"waiting": "Glass", "paused": "Basso"}
 PAUSE_SOUND_EVERY = 600
+NOTIFY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "notify", "notify.py")
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes", "review": "reviewer",
          "task": "coding tasks", "explore": "explorers", "compact": "journal compaction"}
 
@@ -1100,19 +1101,13 @@ def install_dependencies(worktree, installed, source=None):
 
 
 def notify(title, text, sound, url=None):
-    """A sound on macOS for what needs the person, with a notification when
-    `terminal-notifier` is installed, which opens `url` when clicked. Nothing on
-    another system, or when COND_QUIET is set."""
+    """On macOS, a banner from Conductor.app with a sound, for what needs the person;
+    a click on it opens `url`. Nothing on another system, or when COND_QUIET is set."""
     if os.environ.get("COND_QUIET") or sys.platform != "darwin":
         return
-    notifier = shutil.which("terminal-notifier") or next(
-        (p for p in ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier")
-         if os.path.exists(p)), None)
-    cmd = ([notifier, "-title", title, "-message", " ".join((text or "").split()), "-sound", sound,
-            "-group", title + (url or "")] + (["-open", url] if url else [])) if notifier else [
-        "afplay", "/System/Library/Sounds/%s.aiff" % sound]
     try:
-        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        subprocess.Popen([sys.executable, NOTIFY, title, " ".join((text or "").split()), url or "", sound],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         pass

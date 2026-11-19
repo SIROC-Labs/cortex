@@ -280,10 +280,12 @@ This program is the harness around the lead:
   merge, all but the goal's own branch. A part links its goal's installed dependencies
   rather than install its own, while its lockfile is the same. `cond goal clean` does the
   same for goals that ended before this.
-- **Sounds.** On macOS a sound tells you when a goal starts to wait on you (questions, a
-  plan, a stop), and when goals pause for the usage limit (once for the goals that pause
-  together). With `terminal-notifier` installed (`brew install terminal-notifier`) it
-  comes with a notification that opens the goal's page. `COND_QUIET=1` turns them off.
+- **Notifications.** On macOS a banner from Conductor, with a sound, tells you when a
+  goal starts to wait on you (questions, a plan, a stop), and when goals pause for the
+  usage limit (once for the goals that pause together). A click opens the goal's page, or
+  the Runs page for a pause. Conductor.app is built from `bin/notify/Conductor.swift` into
+  `~/Applications` the first time, with the Swift compiler of the Command Line Tools;
+  without it, only the sound plays. `COND_QUIET=1` turns them off.
 - **Stops.** Three rounds in a row that change nothing, four checks in a row that find
   gaps, a refused push, or an agent call that keeps failing: each is a question to you,
   not an end.
