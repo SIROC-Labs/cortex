@@ -237,8 +237,9 @@ def plist_path():
 
 
 def plist(cond, port, log):
-    """The launchd job: the service through an interactive zsh, which loads
-    ~/.zshrc and with it the tokens; kept alive, and started at login."""
+    """The launchd job: the service through an interactive login zsh, which loads
+    ~/.zshrc and with it the tokens, and the login PATH (/usr/local/bin and the
+    rest of /etc/paths); kept alive, and started at login."""
     command = "exec %s serve --port %d" % (cond, port)
     esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
     return """<?xml version="1.0" encoding="UTF-8"?>
@@ -247,7 +248,7 @@ def plist(cond, port, log):
 <dict>
   <key>Label</key><string>%s</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/zsh</string><string>-i</string><string>-c</string><string>%s</string></array>
+  <array><string>/bin/zsh</string><string>-l</string><string>-i</string><string>-c</string><string>%s</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>%s</string>

@@ -12,8 +12,8 @@ cond serve status | restart | uninstall
 ```
 
 Goals run in processes of their own: stopping or restarting the service leaves them
-working. `install` starts it through an interactive zsh, so it has the tokens from
-`~/.zshrc`. After a token changes, run `cond serve restart`. Its log is
+working. `install` starts it through an interactive login zsh, so it has the tokens from
+`~/.zshrc` and the login PATH (`/usr/local/bin`, where tools such as `docker` live). After a token changes, run `cond serve restart`. Its log is
 `~/.cortex/cli/serve.log`.
 
 **Repos.** A repo is registered when a goal starts in it, from anywhere (`cond queue`, the

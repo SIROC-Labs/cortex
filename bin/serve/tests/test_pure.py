@@ -652,9 +652,9 @@ class TestMCP(unittest.TestCase):
 
 
 class TestLaunchd(unittest.TestCase):
-    def test_the_job_loads_zshrc_and_runs_the_service(self):
+    def test_the_job_loads_zshrc_and_the_login_path_and_runs_the_service(self):
         text = serve.plist("/x/cond", 4747, "/h/serve.log")
-        self.assertIn("<string>/bin/zsh</string><string>-i</string><string>-c</string>"
+        self.assertIn("<string>/bin/zsh</string><string>-l</string><string>-i</string><string>-c</string>"
                       "<string>exec /x/cond serve --port 4747</string>", text)
         self.assertIn("<key>KeepAlive</key><true/>", text)
 
