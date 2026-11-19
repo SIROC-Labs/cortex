@@ -69,7 +69,11 @@ answer, is a question.
    - an existing field, status, rule, screen, route or job the work changes or
      removes, with a reader or a writer the plan does not list (have a sub-agent
      search the code for each);
-   - a fact that two places must agree on, with no single owner.
+   - a fact that two places must agree on, with no single owner;
+   - a test map that differs from how the repository tests (its testing guide,
+     or its existing tests where it has none): a rule with two tests, a rule with
+     no test, or a test of something the repository does not test, such as a
+     text, a framework's own behaviour or a test stub.
 7. Check what the ask takes for granted against the code, such as a branch it
    builds on or earlier work it needs. Report what is not so.
 8. If `{{parts_file}}` exists, the lead split the work into parts, each built by

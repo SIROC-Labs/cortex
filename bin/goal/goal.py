@@ -230,8 +230,11 @@ TECHNICAL = """   Write the technical plan to `{{technical_plan}}`, for a techni
    9. The API: a table of routes: method, path, what it does, its errors.
    10. The frontend: the screens, what each shows, and how the data moves.
    11. Configuration: new settings and variables.
-   12. Tests: the test for each diagram and table of section 6, where it is, and
-       its entry point, by the testing guide.
+   12. Tests: how the repository tests, in a few lines (from its testing guide,
+       its conventions and its existing tests); the test map: each rule the work
+       adds, changes or removes, and the one place its test lives, or "no test"
+       and why; and the test of each diagram and table of section 6, with its
+       entry point.
    13. Risks and open decisions: what could still change the plan.
    14. Out of scope.
 
@@ -259,6 +262,10 @@ TESTING = """   The repository's testing guide is %s. Read it in the analysis an
    under `## References`. Plan the tests by it, write them as it says, and give
    it to every sub-agent that writes or runs tests. Where it says to run more
    tests than step 9 allows, step 9 wins: many agents share this machine.
+"""
+NO_TESTING = """   The repository has no testing guide. Learn how it tests from its convention
+   files and its existing tests (step 7), and write what you find in a few lines
+   at the top of the test map, so every coding task follows the same rules.
 """
 BUILD_NOW = ("The plan is approved. Build the work, as the plan says. The analysis is "
              "finished.")
@@ -1129,6 +1136,14 @@ def link_dependencies(source, target):
     return linked
 
 
+TESTING_CHECK = (" Judge the tests against %sthe test map in the technical plan or the "
+                 "journal. A rule in the map with no test is a gap. So is a test of a rule "
+                 "that another test already covers, a test with no rule in the map, and a "
+                 "test the repository's way of testing does not ask for, such as a test of a "
+                 "framework's own behaviour or of a test stub, unless the repository tests "
+                 "such things. Name each such test.")
+
+
 def tests_line(tests):
     """A coding task's tests, in one line for the lead: the command and how it went,
     the names of at most five failing tests, or why none ran."""
@@ -1147,6 +1162,10 @@ def tests_line(tests):
         line += ": " + ", ".join(failed[:5])
         if len(failed) > 5:
             line += " and %d more" % (len(failed) - 5)
+    added = [a for a in tests.get("added") or [] if isinstance(a, dict) and a.get("test")]
+    if added:
+        line += "; added: " + "; ".join(
+            "`%s` (%s)" % (a["test"], str(a.get("rule") or "no rule given").strip()) for a in added)
     return line
 
 
@@ -1168,7 +1187,9 @@ def dispatched_prompt(reports):
                 lines.append("- %s: %s" % (label, value))
         lines.append("")
     lines += ["Check the results against the plan, from these reports, or with an explorer "
-              "or a reviewer task. Tick what is done in the journal. Then hand over the next "
+              "or a reviewer task. Check each test a task added against the test map: a test "
+              "with no rule in the map, or of a rule another test covers, goes back as a task "
+              "that removes it or merges it. Tick what is done in the journal. Then hand over the next "
               "tasks with the `dispatch` block, or end with `done` when every step and "
               "criterion is ticked."]
     return "\n".join(lines)
@@ -3116,7 +3137,9 @@ class Runner(object):
             guides = ", ".join("`%s`" % g for g in testing_guides(self.data["worktree"]))
             prompt = render(os.path.join(PROMPTS, "task.md"), brief=task["brief"].strip(),
                             worktree=cwd, branch=run["branch"], start=start.strip()[:12],
-                            testing=" The testing guide is %s." % guides if guides else "")
+                            testing=" The testing guide is %s." % guides if guides else
+                            " The repository has no testing guide: the brief's test map and "
+                            "the existing tests show how it tests.")
         if oc.is_opencode(model):
             st.info("%s: %s on %s" % ("question" if explore else "task", name, model))
             self.task_state(n, status="running", model=model, session=run["session"], cwd=cwd,
@@ -3320,10 +3343,9 @@ class Runner(object):
         guides = ", ".join("`%s`" % g for g in testing_guides(self.data["worktree"]))
         return {"ask": self.data["ask"], "branch": self.data["branch"],
                 "where": where, "delivery": delivery, "split": split,
-                "testing": TESTING % guides if guides else "",
-                "testing_check": (" Judge the tests against the repository's testing guide, "
-                                  "%s: a test it requires that is missing, or one written "
-                                  "against it, is a gap." % guides) if guides else "",
+                "testing": TESTING % guides if guides else NO_TESTING,
+                "testing_check": TESTING_CHECK % (
+                    "the repository's testing guide, %s, and " % guides if guides else ""),
                 "plan_note": PLAN_NOTE + (TECHNICAL.replace("{{technical_plan}}", self.technical_plan())
                                           if self.flow2() else ""),
                 "parts_file": self.goal.state.path(PARTS_FILE),

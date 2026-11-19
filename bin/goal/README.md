@@ -60,9 +60,17 @@ This program is the harness around the lead:
   the shared facts (each value two parts must agree on, with one owner); each part reads it
   and writes its own. Its questions come to you together. The runner sends the lead back
   until it has all four.
-- **Testing guide.** When the repository has `TESTING.md` files, the lead is told to read
-  them in the analysis, plan and write its tests by them, and give them to every sub-agent
-  that writes tests; the checker judges the tests against them.
+- **How the repo tests.** The lead learns it in the analysis: from the `TESTING.md` files
+  when the repository has them, its other conventions, and an explorer's report on how the
+  existing tests of a similar feature are written (layers, what one test covers, what is
+  faked, what has no test). It writes a test map: each rule the work adds, changes or
+  removes, and the one place its test lives, or "no test" and why. Briefs name the rules to
+  test and where, never the assertions. A coding task reads two neighbouring tests and
+  follows them, changes an existing test of a rule rather than adding a second, and reports
+  each test it added with its rule, so the lead sends back a test with no rule or a
+  duplicate. A path's test checks only the hand-overs between steps, not each step's rules.
+  The reviewer checks the map against the repo's way of testing, and the checker checks
+  the tests against the map.
 - **Criteria review.** The checker's model then reviews the plan before anything is built.
   It first writes down, from the references alone, what each person does and sees at each
   step of each path, and only then compares that with the lead's diagrams and tables: the

@@ -138,17 +138,32 @@ your own choice where the person decides.
    it an illustration or a guide.
 7. Write tests where the project has a test suite. The coding tasks write them and
    run the ones that cover their own changes; in the build you run none yourself.
-   Tests come first: the first tasks of the build write one test for each diagram
-   and table of step 3, as the testing guide says. A path's test starts at the
-   real entry point (a route, a command, a job's function), uses the real code
-   and data store, fakes only the systems outside the repository, and goes
-   through every step of the path. It does not build a later step's starting data
-   by hand: data that already holds what a step must write hides a missing write.
-   These tests fail at first. Each later coding task gets the steps or rows it
-   builds and the test that covers them, and makes those pass. A criterion that
-   says something runs, or works end to end, is met only by a test that shows it,
-   never by reading the code. When a test cannot run on this machine, it is
-   still written: say so next to its criterion.
+   The repository decides how it tests: how many tests, at which layer, what is
+   faked, and what is not tested at all. In the analysis, learn that from its
+   testing guide if it has one, its other convention files, and an explorer that
+   reports how the existing tests of one similar feature are written: which
+   layers have tests, what one test covers, what is faked, and what has none.
+   Then write the test map in the technical plan (or, for small work, the
+   journal): each rule this work adds, changes or removes, and the one place its
+   test lives, or "no test" and why. A rule is what a user or a caller can
+   observe, not how the code does it. A text, a framework's or library's own
+   behaviour, or a test stub is not a rule unless the repository tests such
+   things. A rule that the repository already tests gets its existing test
+   changed, not a second one.
+   Tests come first: the first tasks of the build write the tests of the paths
+   and tables of step 3. A path's test starts at the real entry point (a route,
+   a command, a job's function) and goes through every step, with what the
+   repository fakes faked. It checks only the hand-overs: what each step leaves
+   that the next one needs, which no other test owns. It does not repeat the
+   rules that each step's own tests cover. It does not build a later step's
+   starting data by hand: data that already holds what a step must write hides a
+   missing write. These tests fail at first. Each later coding task gets the
+   steps or rows it builds, the test that covers them, and the rows of the test
+   map for its change, and makes those pass. In a brief, name the rules to test
+   and where, never the assertions, and never "a test for each field". A
+   criterion that says something runs, or works end to end, is met only by a test
+   that shows it, never by reading the code. When a test cannot run on this
+   machine, it is still written: say so next to its criterion.
 8. Commit often, in small commits with clear messages that follow the conventions
    of the repository. You cannot push, and no agent can.
 9. Do not run skills or slash commands, and do not run the full test suites or CI

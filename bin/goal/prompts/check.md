@@ -43,9 +43,9 @@ not a gap.
      says, is not met. Do not assume a value: read the line that sets it.
    - A criterion that says something runs or works end to end is met only by a
      test that shows it. Reading the code does not show that it runs.
-   - A test that builds its starting data by hand, where an earlier step of the
-     same path makes it, does not show the path: such data can hold what the step
-     under test failed to write.
+   - A path's test that builds its starting data by hand, where an earlier step
+     of the same path makes it, does not show the path: such data can hold what
+     the step under test failed to write.
    - A branch that breaks a decision or an invariant in the journal or the
      technical plan is a gap, such as an answer that can still be dropped, or a
      route that still changes a task the plan says is never changed by hand.

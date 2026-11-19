@@ -2014,6 +2014,13 @@ class TestTestsLine(unittest.TestCase):
         self.assertEqual(goal.tests_line({"result": "none", "why": "No test covers the copy."}),
                          "none run: No test covers the copy.")
 
+    def test_each_added_test_shows_with_its_rule(self):
+        line = goal.tests_line({"command": "uv run pytest x.py", "result": "passed", "count": 3,
+                                "added": [{"test": "test_a", "rule": "A signed form completes the task."},
+                                          {"test": "test_b"}, "junk"]})
+        self.assertEqual(line, "`uv run pytest x.py` passed (3); added: `test_a` (A signed form "
+                               "completes the task.); `test_b` (no rule given)")
+
     def test_a_report_without_tests_adds_no_line(self):
         self.assertIsNone(goal.tests_line(None))
         self.assertIsNone(goal.tests_line("passed"))
