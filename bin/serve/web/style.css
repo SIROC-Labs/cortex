@@ -156,7 +156,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: va
 .tasks { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .tasks td { padding: 3px 8px 3px 0; vertical-align: top; border-top: 1px solid var(--line); }
 .tasks td.k { color: var(--faint); width: 64px; }
-.tasks td.r { white-space: nowrap; text-align: right; }
+.tasks td.r { text-align: right; max-width: 55%; }
+.tasks td.r .badge { display: inline-block; white-space: normal; text-align: left; overflow-wrap: anywhere; border-radius: 8px; }
 
 /* tabs */
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-top: 28px; }
