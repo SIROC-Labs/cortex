@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ["COND_QUIET"] = "1"
 import goal  # noqa: E402
 
 USAGE = """You are currently using your subscription to power your Claude Code usage
@@ -745,12 +746,14 @@ class TestLocalCI(unittest.TestCase):
         steps = [("one", "echo first; exit 1", None), ("two", "echo fine", None),
                  ("three", "echo third >&2; exit 2", None)]
         failures = goal.run_ci_steps(steps, self.work)
-        self.assertEqual([(f[0], f[2].strip()) for f in failures], [("one", "first"), ("three", "third")])
+        self.assertEqual([(f[0], f[2].strip(), f[3]) for f in failures],
+                         [("one", "first", 1), ("three", "third", 2)])
 
     def test_every_failure_goes_to_the_fixer_at_once_then_to_the_lead(self):
-        results = [[("apps/web: x", "x", "2 errors"), ("make ci-verify", "make ci-verify", "a.ts")]] * 3
+        results = [[("apps/web: x", "x", "2 errors", 1), ("make ci-verify", "make ci-verify", "a.ts", 2)]] * 3
         goal.run_ci_steps, run = (lambda steps, worktree: results.pop(0) if results else []), goal.run_ci_steps
         self.addCleanup(setattr, goal, "run_ci_steps", run)
+        self.runner.left_to_ci = lambda failures: {}
         fixes = []
 
         def call(prompt, session, resume, label, model=None, effort=None):
@@ -773,6 +776,56 @@ class TestLocalCI(unittest.TestCase):
         goal.run_ci_steps, run = (lambda steps, worktree: []), goal.run_ci_steps
         self.addCleanup(setattr, goal, "run_ci_steps", run)
         self.assertIsNone(self.runner.local_ci())
+
+    def test_a_budget_goes_to_the_lead_without_the_fixer(self):
+        failed = ("apps/web: node tools/check-bundle-size.mjs", "node tools/check-bundle-size.mjs",
+                  "main.js is 3 kB over", 1)
+        goal.run_ci_steps, run = (lambda steps, worktree: [failed]), goal.run_ci_steps
+        self.addCleanup(setattr, goal, "run_ci_steps", run)
+        self.runner.left_to_ci = lambda failures: {}
+        self.runner.call = lambda *a, **k: self.fail("the fixer was called")
+        fix = self.runner.local_ci()
+        self.assertIn("3 kB over", fix)
+        self.assertIn("Never raise the budget", fix)
+
+    def test_what_no_change_to_the_branch_fixes_is_left_to_ci(self):
+        make = "ci-verify: broken mine\nbroken:\n\t@exit 1\nmine:\n\t@test ! -f mine.txt\n"
+        self.commit("Makefile", make, "make")
+        self.git("checkout", "-q", "main")
+        self.commit("Makefile", make, "make")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "A-1/goal-x")
+        self.git("merge", "-q", "--no-edit", "main")
+        self.commit("apps/web/package.json", json.dumps({"scripts": {"ci-verify": "no-such-program-x"}}), "web")
+        self.commit("mine.txt", "x\n", "mine")
+        prompts = []
+
+        def call(prompt, session, resume, label, model=None, effort=None):
+            prompts.append(prompt)
+            self.git("rm", "-q", "mine.txt")
+            self.git("commit", "-q", "-m", "fix")
+            return None, None, None
+        self.runner.call = call
+        self.assertIsNone(self.runner.local_ci())
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("make mine", prompts[0])
+        self.assertNotIn("make broken", prompts[0])
+        self.assertNotIn("no-such-program-x", prompts[0])
+        self.assertEqual(self.runner.data["ci_left"], [
+            "`apps/web: no-such-program-x` (needs a program this machine does not have (exit 127))",
+            "`make broken` (fails on `main` too)"])
+        self.assertNotIn("--base", self.git("worktree", "list"))
+
+    def test_a_lockfile_is_installed_when_it_changed_or_its_folder_is_missing(self):
+        self.commit("apps/web/package-lock.json", "{}", "lock")
+        lock = os.path.join(self.work, "apps/web/package-lock.json")
+        self.assertEqual([x[:3] for x in goal.stale_installs(self.work, {})],
+                         [("apps/web/package-lock.json", "apps/web", "npm ci")])
+        os.makedirs(os.path.join(self.work, "apps/web/node_modules"))
+        installed = {"apps/web/package-lock.json": goal.file_hash(lock)}
+        self.assertEqual(goal.stale_installs(self.work, installed), [])
+        self.commit("apps/web/package-lock.json", '{"v": 2}', "lock")
+        self.assertEqual(len(goal.stale_installs(self.work, installed)), 1)
 
 
 class TestPause(unittest.TestCase):
@@ -1615,8 +1668,12 @@ class TestPlanFlow(unittest.TestCase):
             asked = self.runner.goal.state.read("awaiting.json")
             self.runner.goal.state.write(goal.st.ANSWER_FILE, {"text": "Blue.", "asked_at": asked["asked_at"]})
         goal.time.sleep = answer
+        sounds = []
+        goal.notify, notify = (lambda title, text, sound: sounds.append(text)), goal.notify
+        self.addCleanup(setattr, goal, "notify", notify)
         text = self.runner.ask_person([{"q": "Which colour?", "why": "They disagree."}])
         self.assertEqual(text, "Blue.")
+        self.assertEqual(sounds, ["x: 1 question(s)"])
         self.assertIsNone(self.runner.goal.state.read("awaiting.json"))
         self.assertIn("Do not read or change Asana", self.runner.first_prompt())
         self.assertIn("approves\n   the plan there", self.runner.first_prompt())

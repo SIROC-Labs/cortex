@@ -27,6 +27,7 @@ import argparse
 import datetime
 import fcntl
 import glob
+import hashlib
 import html.parser
 import json
 import os
@@ -132,6 +133,19 @@ CI_NUDGE = 120
 CI_TIMEOUT = 2 * 3600
 # Tries a cheap fixer gets at failing CI before the lead takes it on.
 CI_FIXES = 2
+# Each lockfile, the folder its install writes, and the repo's own install for it.
+LOCKFILES = (("package-lock.json", "node_modules", "npm ci"),
+             ("pnpm-lock.yaml", "node_modules", "pnpm install --frozen-lockfile"),
+             ("yarn.lock", "node_modules", "yarn install --frozen-lockfile"),
+             ("uv.lock", ".venv", "uv sync --frozen"))
+INSTALL_TIMEOUT = 15 * 60
+# A step that exits so did not find a program it runs: no change to the branch fixes it.
+MISSING_TOOL = (126, 127)
+# A step that checks a budget: only a change to the design brings the work under it.
+BUDGET = re.compile(r"budget|size", re.I)
+# A sound for each thing that needs the person, and how often a pause may sound.
+SOUNDS = {"waiting": "Glass", "paused": "Basso"}
+PAUSE_SOUND_EVERY = 600
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes", "review": "reviewer",
          "task": "coding tasks", "explore": "explorers", "compact": "journal compaction"}
 
@@ -1003,8 +1017,8 @@ def ci_commands(worktree):
 
 
 def run_ci_steps(steps, worktree):
-    """Run every step, past a failure too. Returns [(name, cmd, output)] of each
-    step that failed. A step runs as `npm run` would run it: with the package's and
+    """Run every step, past a failure too. Returns [(name, cmd, output, exit code)]
+    of each step that failed. A step runs as `npm run` would run it: with the package's and
     the root's `node_modules/.bin` on the PATH."""
     failures = []
     for name, cmd, sub in steps:
@@ -1016,15 +1030,82 @@ def run_ci_steps(steps, worktree):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if proc.returncode != 0:
             st.warn("%s failed (exit %d)" % (name, proc.returncode))
-            failures.append((name, cmd, proc.stdout.decode("utf-8", "replace")))
+            failures.append((name, cmd, proc.stdout.decode("utf-8", "replace"), proc.returncode))
     return failures
+
+
+def lockfiles(worktree):
+    """Each lockfile in the repo, up to three folders down, as [(path, folder of its
+    install, install command)]."""
+    names = {name: (deps, cmd) for name, deps, cmd in LOCKFILES}
+    _, out, _ = st.git(["ls-files"] + [p % n for n in names for p in ("%s", "*/%s", "*/*/%s")],
+                       cwd=worktree, check=False)
+    return [(rel,) + names[os.path.basename(rel)] for rel in sorted(out.split())]
+
+
+def file_hash(path):
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()
+    except (IOError, OSError):
+        return None
+
+
+def stale_installs(worktree, installed):
+    """The installs a worktree needs: each lockfile whose folder is missing, or that
+    changed since its last install, as [(path, folder, command, hash)]. `installed`
+    maps each lockfile to its hash at its last install."""
+    out = []
+    for rel, deps, cmd in lockfiles(worktree):
+        folder = os.path.dirname(rel)
+        digest = file_hash(os.path.join(worktree, rel))
+        if installed.get(rel) != digest or not os.path.isdir(os.path.join(worktree, folder, deps)):
+            out.append((rel, folder, cmd, digest))
+    return out
+
+
+def install_dependencies(worktree, installed):
+    """Install what `stale_installs` finds, with the repo's own lockfiles. Returns the
+    new `installed`, and a line for each install that failed."""
+    installed, failed = dict(installed), []
+    for rel, folder, cmd, digest in stale_installs(worktree, installed):
+        st.info("%s%s" % (cmd, " (in %s)" % folder if folder else ""))
+        try:
+            proc = subprocess.run(cmd, cwd=os.path.join(worktree, folder), shell=True,
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, timeout=INSTALL_TIMEOUT)
+            code, output = proc.returncode, proc.stdout.decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            code, output = None, "timed out"
+        if code == 0:
+            installed[rel] = digest
+        else:
+            line = (output.strip().splitlines() or ["exit %s" % code])[-1][:200]
+            failed.append("%s: %s" % (cmd, line))
+            st.warn("%s failed: %s" % (cmd, line))
+    return installed, failed
+
+
+def notify(title, text, sound):
+    """A notification with a sound on macOS, for what needs the person. Nothing on
+    another system, or when COND_QUIET is set."""
+    if os.environ.get("COND_QUIET") or sys.platform != "darwin":
+        return
+    quote = lambda t: json.dumps(" ".join((t or "").split()), ensure_ascii=False)  # noqa: E731
+    for cmd in (["afplay", "/System/Library/Sounds/%s.aiff" % sound],
+                ["osascript", "-e", "display notification %s with title %s" % (quote(text), quote(title))]):
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            pass
 
 
 def ci_failures_text(failures):
     """Every failing step with the end of its output, the most telling part."""
     each = max(1500, 16000 // max(1, len(failures)))
     return "\n\n".join("- `%s`, run here as `%s`:\n\n```\n%s\n```" % (
-        name, cmd, output.strip()[-each:]) for name, cmd, output in failures)
+        f[0], f[1], f[2].strip()[-each:]) for f in failures)
 
 
 def fix_signature(text):
@@ -1202,11 +1283,14 @@ def checks_text(base):
             "results." % base)
 
 
-def checks_section(checks):
-    """The PR comment's Checks section: what CI passed on the final branch."""
-    if not checks:
-        return "## Checks\n\nThe PR has no CI checks."
-    return "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks)
+def checks_section(checks, left=None):
+    """The PR comment's Checks section: what CI passed on the final branch, and the
+    static checks left to it because they could not tell here."""
+    text = ("## Checks\n\nThe PR has no CI checks." if not checks else
+            "## Checks\n\nCI passed: %s." % ", ".join("`%s`" % c for c in checks))
+    if left:
+        text += "\n\nNot run before the push, left to CI: %s." % "; ".join(left)
+    return text
 
 
 SKIP_DIRS = {".git", "node_modules", ".cortex", "dist", "build", ".venv", "venv", "vendor"}
@@ -2392,9 +2476,27 @@ class Runner(object):
                                        "doing": self.data.get("doing")})
                 self.step("Paused — %s" % what)
                 st.info("resumes at %s" % time.strftime("%a %H:%M", time.localtime(until)))
+                self.sound_pause(what, until)
             self.set(status="paused", doing="paused — %s, until %s"
                      % (what, time.strftime("%a %H:%M", time.localtime(until))))
             time.sleep(max(60, min(until - time.time() + 60, PAUSE_CHECK)))
+
+    def sound_pause(self, what, until):
+        """Tell the person a pause started: once for all the goals that pause together."""
+        mark = os.path.join(self.main_root, st.CORTEX_DIRNAME, "queue", "paused-sound")
+        try:
+            if time.time() - os.path.getmtime(mark) < PAUSE_SOUND_EVERY:
+                return
+        except OSError:
+            pass
+        try:
+            os.makedirs(os.path.dirname(mark), exist_ok=True)
+            with open(mark, "w") as f:
+                f.write(str(time.time()))
+        except OSError:
+            pass
+        notify("Goals paused", "%s, until %s" % (what, time.strftime(
+            "%a %H:%M", time.localtime(until))), SOUNDS["paused"])
 
     # agent calls
 
@@ -2670,15 +2772,82 @@ class Runner(object):
             return conflict_prompt(ref, files.split())
         return None
 
+    def install(self):
+        """Install the dependencies the worktree's lockfiles ask for, when one changed
+        or its folder is missing. Only while no task runs: the tasks use them too."""
+        worktree = self.data["worktree"]
+        if not stale_installs(worktree, self.data.get("installed") or {}):
+            return
+        self.step("Installing dependencies")
+        self.set(runner_doing="installing dependencies", runner_since=time.time())
+        installed, _ = install_dependencies(worktree, self.data.get("installed") or {})
+        self.set(installed=installed, runner_doing=None)
+
+    def left_to_ci(self, failures):
+        """The failing steps no change to the branch fixes, as {name: why}: a step
+        that cannot find a program it runs, and one that fails on the base too. The
+        base's results are kept for each commit of it."""
+        left = {f[0]: "needs a program this machine does not have (exit %d)" % f[3]
+                for f in failures if f[3] in MISSING_TOOL}
+        rest = [f for f in failures if f[0] not in left]
+        if not rest:
+            return left
+        worktree = self.data["worktree"]
+        ref = self.data["base"] if self.data.get("parent") else "origin/%s" % self.data["base"]
+        _, sha, _ = st.git(["rev-parse", ref], cwd=worktree, check=False)
+        sha = sha.strip()
+        if not sha:
+            return left
+        known = self.data.get("base_steps") or {}
+        fails = dict(known.get("fails") or {}) if known.get("sha") == sha else {}
+        todo = [f for f in rest if f[0] not in fails]
+        if todo:
+            self.step("Running the failing steps on %s too" % ref)
+            fails.update(self.run_on_base(sha, [(f[0], f[1], self.ci_steps[f[0]])
+                                                for f in todo if f[0] in self.ci_steps]))
+            self.set(base_steps={"sha": sha, "fails": fails})
+        left.update({f[0]: "fails on `%s` too" % self.data["base"] for f in rest if fails.get(f[0])})
+        return left
+
+    def run_on_base(self, sha, steps):
+        """Run steps in a worktree of the base at `sha`, made for it and removed after.
+        Returns {name: whether it fails}."""
+        worktree = self.data["worktree"]
+        path = st.worktree_path(self.main_root, self.goal.id + "--base")
+        linked = []
+        try:
+            with st.repo_lock(self.main_root):
+                if os.path.exists(path):
+                    st.git(["worktree", "remove", "--force", path], cwd=worktree, check=False)
+                st.git(["worktree", "add", "--detach", path, sha], cwd=worktree)
+            if [(r, file_hash(os.path.join(path, r))) for r, _, _ in lockfiles(path)] == [
+                    (r, file_hash(os.path.join(worktree, r))) for r, _, _ in lockfiles(worktree)]:
+                linked = link_dependencies(worktree, path)
+            else:
+                install_dependencies(path, {})
+            failed = {f[0] for f in run_ci_steps(steps, path)}
+        finally:
+            for rel in linked:
+                try:
+                    os.unlink(os.path.join(path, rel))
+                except OSError:
+                    pass
+            with st.repo_lock(self.main_root):
+                st.git(["worktree", "remove", "--force", path], cwd=worktree, check=False)
+        return {name: name in failed for name, _, _ in steps}
+
     def local_ci(self):
         """The repo's own CI static checks (`ci-verify`), run here before the check
-        and the push, every step past a failure too: the failures go to the fixer,
+        and the push, every step past a failure too. What no change to the branch
+        fixes is left to CI; a budget goes to the lead; the rest goes to the fixer,
         twice, then to the lead. Returns None when they pass or the repo has none,
         else what the lead fixes."""
         worktree = self.data["worktree"]
         steps = ci_commands(worktree)
         if not steps:
             return None
+        self.ci_steps = {name: sub for name, _, sub in steps}
+        self.install()
         attempt = 0
         while True:
             self.step("Running CI's static checks here" + (" again" if attempt else ""))
@@ -2687,22 +2856,33 @@ class Runner(object):
                      runner_since=time.time())
             failures = run_ci_steps(steps, worktree)
             self.set(runner_doing=None)
+            left = self.left_to_ci(failures) if failures else {}
+            for name, why in sorted(left.items()):
+                st.info("left to CI: %s — %s" % (name, why))
+            self.set(ci_left=["`%s` (%s)" % (n, w) for n, w in sorted(left.items())])
+            failures = [f for f in failures if f[0] not in left]
             if not failures:
-                st.info("CI's static checks pass here")
+                st.info("CI's static checks pass here%s" % (
+                    ", but for %d left to CI" % len(left) if left else ""))
                 return None
             st.info("%d of %d step(s) fail" % (len(failures), len(steps)))
-            text = ci_failures_text(failures)
-            if attempt == CI_FIXES:
+            budgets = [f for f in failures if BUDGET.search(f[1])]
+            fixable = [f for f in failures if f not in budgets]
+            if attempt == CI_FIXES or not fixable:
                 st.warn("%d step(s) still fail — over to the lead" % len(failures))
                 return ("You reported done. The runner ran each step of CI's static checks "
-                        "here, before the push, and these fail:\n\n%s\n\nHand over the "
+                        "here, before the push, and these fail:\n\n%s\n\n%sHand over the "
                         "tasks that fix every cause at once, then report done again. Never "
-                        "weaken a check." % text)
+                        "weaken a check." % (ci_failures_text(failures), (
+                            "%s check%s a budget. Bring the work back under it, such as by "
+                            "splitting a file or loading code only where it is used. Never "
+                            "raise the budget.\n\n" % (", ".join("`%s`" % f[0] for f in budgets),
+                                                       "s" if len(budgets) == 1 else ""))
+                            if budgets else ""))
             attempt += 1
             model = self.data.get("model")
-            subs = {name: sub for name, _, sub in steps}
-            prompt = local_ci_fix_prompt(self.data["branch"], text,
-                                         [(name, cmd, subs.get(name)) for name, cmd, _ in failures])
+            prompt = local_ci_fix_prompt(self.data["branch"], ci_failures_text(fixable),
+                                         [(f[0], f[1], self.ci_steps.get(f[0])) for f in fixable])
             _, before, _ = st.git(["rev-parse", "HEAD"], cwd=worktree, check=False)
             self.step("Fixing CI's static checks (%d/%d) on %s" % (attempt, CI_FIXES, short_model(model)))
             self.wait_for_usage()
@@ -3084,6 +3264,7 @@ class Runner(object):
         worktree off the branch, merged back when it ends; each question on the goal's
         worktree, read only. Returns a report per task, in the lead's order."""
         tasks = [t for t in tasks if isinstance(t, dict) and str(t.get("brief") or "").strip()]
+        self.install()
         self.step("Running %d task(s) from the lead" % len(tasks))
         # Tasks start from the last commit, and merge back into a clean tree.
         st.git(["add", "-A"], cwd=self.data["worktree"], check=False)
@@ -3388,6 +3569,10 @@ class Runner(object):
             asked_at = pending["asked_at"]
         else:
             self.goal.state.write("awaiting.json", dict(record, asked_at=asked_at))
+            asked = record.get("questions")
+            notify("Waiting on you", "%s: %s" % (self.data.get("name") or self.goal.id, record.get(
+                "headline") or ("%d question(s)" % len(asked) if asked else "it asks you")),
+                SOUNDS["waiting"])
         self.set(status="waiting", doing="waiting on you")
         st.info("waiting on you")
         while True:
@@ -3481,7 +3666,7 @@ class Runner(object):
                 st.run(["gh", "pr", "edit", pr_url, "--body", body], cwd=worktree, check=False)
                 comment = "" if self.walked_through(pr_url) else (block.get("walkthrough") or "").strip()
             if comment:
-                comment += "\n\n" + checks_section(self.data.get("checks"))
+                comment += "\n\n" + checks_section(self.data.get("checks"), self.data.get("ci_left"))
                 st.run(["gh", "pr", "comment", pr_url, "--body", st.mark(comment.strip())],
                        cwd=worktree, check=False)
                 if not revised:

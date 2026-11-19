@@ -197,9 +197,17 @@ This program is the harness around the lead:
   and a `ci-verify` script in each package): they show in seconds whether the merged
   pieces fit, before a push pays for CI. Each step runs on its own, past a failure too:
   every prerequisite of the make target, and each `&&` step of the script (an `npm run x`
-  in it is x's own steps). So every failure shows at once, not one per round. The
-  failures go to the fixer (Opus judges, Sonnet sub-agents change), twice, then to the
-  lead; the fixer runs only the failing steps again. Coding tasks format and lint the files they change.
+  in it is x's own steps). So every failure shows at once, not one per round. Before
+  them, and before each run of the coding tasks, the runner installs the dependencies
+  itself with the repo's lockfiles (`npm ci`, `pnpm`, `yarn`, `uv sync`), when a lockfile
+  changed or its folder is missing. What no change to the branch fixes is left to CI and
+  named in the PR's checks: a step that cannot find a program it runs (exit 126 or 127),
+  and a step that fails on the base too (the failing steps run again in a worktree of the
+  base, removed after, and the result is kept for that commit of it). A step that checks
+  a budget, such as a bundle or file size, goes to the lead: only a change to the design
+  brings the work under it. The other failures go to the fixer (Opus judges, Sonnet
+  sub-agents change), twice, then to the lead; the fixer runs only the failing steps
+  again. Coding tasks format and lint the files they change.
   A fix about other failures than the last one starts the tries again, since the last
   fix made progress; after ten fixes in a row the runner asks you anyway. Then a separate checker agent compares the branch with the references, the lead's acceptance criteria, which
   it does not trust to be complete, and the technical plan: each step of a diagram is
@@ -265,6 +273,9 @@ This program is the harness around the lead:
   past the limit is the call cut off, and then the lead is told on resuming which
   sub-agents were stopped and which files were left uncommitted. Either way the goal
   pauses until the limit resets, then carries on.
+- **Sounds.** On macOS a notification with a sound tells you when a goal starts to wait on
+  you (questions, a plan, a stop), and when goals pause for the usage limit (once for the
+  goals that pause together). `COND_QUIET=1` turns them off.
 - **Stops.** Three rounds in a row that change nothing, four checks in a row that find
   gaps, a refused push, or an agent call that keeps failing: each is a question to you,
   not an end.
