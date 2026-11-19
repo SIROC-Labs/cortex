@@ -299,7 +299,7 @@ function checklist(journal, heading) {
 function taskTable(tasks) {
   return `<table class="tasks">${tasks.map((t) => {
     const tone = /failed|stopped|cut off|no report|conflict|kept/.test(t.result) ? "bad" : /done/.test(t.result) ? "ok" : "";
-    return `<tr><td class="k">${t.kind}</td><td>${esc(t.name)}</td><td class="r"><span class="badge ${tone}">${esc(t.result)}</span></td></tr>`;
+    return `<tr><td class="k">${t.kind}</td><td>${esc(t.name)}</td><td class="m">${esc(shortModel(t.model))}</td><td class="r"><span class="badge ${tone}">${esc(t.result)}</span></td></tr>`;
   }).join("")}</table>`;
 }
 
@@ -311,6 +311,7 @@ function cardBody(c) {
       ${c.tasks ? taskTable(c.tasks) : c.tasks_lines ? `<pre>${esc(c.tasks_lines.join("\n"))}</pre>` : ""}
       ${calls.length ? `<div class="faint">lead: ${esc(calls.join(" · "))}</div>` : ""}`;
   }
+  if (c.qa) return qaHtml(c.qa, true);
   if (c.kind === "check" || c.kind === "you") {
     const items = c.lines.filter((l) => /^- |^Q: /.test(l)).map((l) => l.replace(/^- |^Q: /, ""));
     const rest = c.lines.filter((l) => !/^- |^Q: /.test(l));
@@ -319,6 +320,30 @@ function cardBody(c) {
   }
   if (c.tasks) return taskTable(c.tasks);
   return c.lines.length ? `<pre>${esc(c.lines.join("\n"))}</pre>` : `<span class="faint">no detail</span>`;
+}
+
+// What the person answered: each question with its answer, or the plan decision.
+function qaHtml(qa, full) {
+  if (qa.kind === "plan") {
+    return qa.approved ? `<div class="qa-head">You approved the plan.</div>`
+      : `<div class="qa-head">You asked for changes:</div><div class="md qa-text">${md(qa.text)}</div>`;
+  }
+  const items = (qa.items || []).map((x, n) => `<div class="question folded"><div class="q">${n + 1}. ${esc(x.q)}</div>
+    <div class="q-summary${full ? " full" : ""}"><span class="answered">${x.a ? "✓" : "?"}</span>
+    <span class="q-answer">${x.a ? esc(x.a) : `<span class="faint">${qa.note ? "in your words below" : "your answer was not kept"}</span>`}</span></div></div>`).join("");
+  const note = qa.note || (!qa.items && qa.text) || "";
+  return items + (note ? `<div class="md qa-text">${md(note)}</div>` : "");
+}
+
+// What was sent, until the goal picks it up.
+function sentHtml(g) {
+  const s = g.sent;
+  const kind = g.awaiting.kind;
+  const head = kind === "plan" ? (s.approved ? "Plan approved" : "Changes asked")
+    : kind === "problem" ? "Your answer is sent" : "Your answers are sent";
+  return `<div class="waiting sent"><h3>${head}</h3>
+    ${kind === "plan" && s.approved ? "" : kind === "plan" || kind === "problem" ? `<div class="md qa-text">${md(s.text)}</div>` : qaHtml(s)}
+    <div class="carries">The goal carries on as soon as it picks this up.</div></div>`;
 }
 
 function waitingHtml(g) {
@@ -351,8 +376,8 @@ function waitingHtml(g) {
         <b>${esc(o.label)}</b>${o.means ? ` <span class="means">→ ${esc(o.means)}</span>` : ""}
         ${(o.flow || []).length ? `<ol>${o.flow.map((f) => `<li>${esc(f)}</li>`).join("")}</ol>` : ""}</button>`).join("")}</div>` : ""}
       ${q.recommend ? `<div class="rec">Suggested: ${esc(q.recommend)}</div>` : ""}
-      <textarea class="own" data-n="${n + 1}" rows="1" placeholder="${(q.options || []).length ? "Or answer in your own words" : "Your answer"}"></textarea>
-      <div class="row"><button class="link" data-discuss="q${n + 1}">Discuss this question</button></div>
+      <textarea class="own" data-n="${n + 1}" rows="1" placeholder="${(q.options || []).length ? "Or answer in your own words" : "Your answer"} (⌘⏎ when done)"></textarea>
+      <div class="row"><button data-done="${n + 1}" hidden>Done</button><button class="link" data-discuss="q${n + 1}">Discuss this question</button></div>
       <div class="disc" id="disc-q${n + 1}" hidden></div></div></div>`).join("")}
     <textarea id="answer" rows="2" placeholder="Anything else to tell it (optional)"></textarea>
     <div class="buttons"><button class="primary" id="send">Send the answers</button></div></div>`;
@@ -380,11 +405,13 @@ function fold(n, folded) {
 // A talk about one question or the plan: its own session, apart from the goal's.
 function discussion(box, base, topic, onUse) {
   const url = `${base}/discussions/${topic}`;
-  box.innerHTML = `<div class="msgs"></div><div class="row composer-row"><textarea rows="2" class="grow"
-    placeholder="Ask about it. This talk is its own: the goal does not see it."></textarea><button class="primary">Send</button></div>`;
+  box.innerHTML = `<div class="row disc-head" hidden><span class="grow"></span><button class="link restart">Start over</button></div>
+    <div class="msgs"></div><div class="row composer-row"><textarea rows="2" class="grow"
+    placeholder="Ask about it. This talk is its own: the goal does not see it."></textarea><button class="primary send">Send</button></div>`;
   const msgs = box.querySelector(".msgs");
   const input = box.querySelector("textarea");
-  const send = box.querySelector("button");
+  const send = box.querySelector(".send");
+  const restart = box.querySelector(".restart");
   let timer = null;
   const render = (t) => {
     msgs.innerHTML = t.messages.map((m, i) => `<div class="msg ${m.role}"><div class="who">${m.role === "person" ? "You" : "Agent"}</div>
@@ -393,11 +420,17 @@ function discussion(box, base, topic, onUse) {
       + (t.error ? `<div class="msg"><span class="badge bad">${esc(t.error)}</span></div>` : "");
     diagrams(msgs);
     send.disabled = t.pending;
+    box.querySelector(".disc-head").hidden = !t.messages.length || t.pending;
     msgs.querySelectorAll("[data-use]").forEach((b) => { b.onclick = () => onUse(t.messages[+b.dataset.use].text); });
     clearTimeout(timer);
     if (t.pending && box.isConnected) timer = setTimeout(load, 2500);
   };
   const load = async () => { try { render(await api("GET", url)); } catch (e) { toast(e.message, true); } };
+  restart.onclick = async () => {
+    if (!confirm("Clear this discussion and start a new one?")) return;
+    const t = await act(() => api("DELETE", url));
+    if (t) render(t);
+  };
   send.onclick = async () => {
     const text = input.value.trim();
     if (!text) return;
@@ -408,21 +441,44 @@ function discussion(box, base, topic, onUse) {
   load();
 }
 
-// What the running call is doing now, under its step.
-function nowHtml(now) {
+// One plain line per running agent: what a small model says it does, else what it said last.
+function agentLines(agents) {
+  return agents.map((a) => `<div class="agent${a.depth ? " sub" : ""}">
+    <div class="grow"><div>${esc(a.role)} <span class="faint">${esc(shortModel(a.model))} · ${span(a.seconds)}</span></div>
+    <div class="plain">${esc(a.summary || a.said || "") || `<span class="faint">at work</span>`}</div></div></div>`).join("");
+}
+
+// What the running call is doing now, under its step: its agents in plain words, and
+// the commands they ran only when opened.
+function nowHtml(g, open) {
+  const now = g.now;
   if (!now) return "";
+  const raw = (now.actions || []).concat((g.live || []).filter((a) => a.depth && a.action).map((a) => `${a.role}: ${a.action}`));
   return `<div class="now">${now.said ? `<div class="md said">${md(now.said)}</div>` : ""}
-    ${(now.actions || []).length ? `<ul class="actions">${now.actions.map((x) => `<li><code>${esc(x)}</code></li>`).join("")}</ul>` : ""}
-    ${(now.agents || []).length ? `<div class="faint">Sub-agents at work:</div><ul>${now.agents.map((x) =>
-      `<li>${esc(x.description || "a sub-agent")}${x.action ? ` <span class="faint">· ${esc(x.action)}</span>` : ""}</li>`).join("")}</ul>` : ""}</div>`;
+    ${(g.live || []).length ? `<div class="live">${agentLines(g.live)}</div>` : ""}
+    ${raw.length ? `<details class="cmds" data-key="cmds"${open ? " open" : ""}><summary>Commands</summary>
+      <ul class="actions">${raw.map((x) => `<li><code>${esc(x)}</code></li>`).join("")}</ul></details>` : ""}</div>`;
 }
 
 function liveHtml(g) {
   const agents = g.live || [];
   if (!agents.length) return "";
-  return `<div class="panel live"><b>Running now</b>${agents.map((a) => `<div class="agent${a.depth ? " sub" : ""}">
-    <div class="grow"><div>${esc(a.role)} <span class="faint">${esc(shortModel(a.model))} · ${span(a.seconds)}</span></div>
-    ${a.action ? `<div class="action">${esc(a.action)}</div>` : ""}</div></div>`).join("")}</div>`;
+  return `<div class="panel live"><b>Running now</b>${agentLines(agents)}</div>`;
+}
+
+// Where the goal is: its stages, the current one marked, and who works now.
+function stagesHtml(g) {
+  if (!(g.stages || []).length) return "";
+  return `<div class="stages"><ol>${g.stages.map((s) => `<li class="s-${s.state}">${s.state === "done" ? "✓ " : ""}${esc(s.label)}</li>`).join("")}</ol>
+    ${g.who ? `<div class="who">${esc(g.who)}</div>` : ""}</div>`;
+}
+
+// A warning when the lead changed a repo file itself: it only reads and writes its journal.
+function editsHtml(g) {
+  const edits = g.lead_edits || [];
+  if (!edits.length) return "";
+  return `<div class="panel lead-edits"><b>The lead changed repo files itself.</b> It should only read and write its journal; tasks make the changes.
+    <ul>${edits.map((e) => `<li><code>${esc(e.file)}</code> <span class="faint">· ${esc(e.tool)} by ${esc(e.by)}${e.round ? ` in round ${e.round}` : ""}${e.at ? ` · ${clock(e.at)}` : ""}</span></li>`).join("")}</ul></div>`;
 }
 
 // A count in the status line whose list shows on hover.
@@ -486,9 +542,9 @@ async function goalPage(repo, id) {
   view = { repo, id };
   const mine = view;
   const base = `/api/repos/${encodeURIComponent(repo)}/goals/${encodeURIComponent(id)}`;
-  const ui = { open: new Set(), tab: ["timeline", "plan", "ask", "journal", "cost", "log"].includes(store.get("tab")) ? store.get("tab") : "timeline", waitKey: null, sig: {}, log: { next: 0, text: "" }, follow: true };
+  const ui = { open: new Set(), cmds: false, tab: ["timeline", "plan", "ask", "journal", "cost", "log"].includes(store.get("tab")) ? store.get("tab") : "timeline", waitKey: null, sig: {}, log: { next: 0, text: "" }, follow: true };
   $("#main").innerHTML = `<a class="back" href="#/">← Runs</a>
-    <div id="head"></div><div id="wait"></div><div id="live"></div>
+    <div id="head"></div><div id="stages"></div><div id="wait"></div><div id="edits"></div><div id="live"></div>
     <div class="tabs" id="tabs">
       <button data-t="timeline">Timeline</button><button data-t="plan">Plan</button>
       <button data-t="ask">Ask</button><button data-t="journal">Journal</button>
@@ -519,18 +575,18 @@ async function goalPage(repo, id) {
       }
       let last = null;
       const html = cs.map((c) => {
-        const head = c.phase !== last ? `<div class="phase">${esc(c.phase)}</div>` : "";
+        const head = c.phase !== last ? `${last === null ? "" : "</section>"}<section><div class="phase">${esc(c.phase)}</div>` : "";
         last = c.phase;
         const live = g.alive && g.now && c === cs[cs.length - 1];
         const open = ui.open.has(c.i) || live;
         const dur = c.until ? span(c.until - c.at) : g.alive ? "now" : "";
         return `${head}<div class="tl"><div class="step ${c.kind}"><div class="panel card">
           <div class="head" data-i="${c.i}"><span class="t">${esc(c.title)}</span>
-          <span class="s">${esc(live ? g.now.said || (g.now.actions || []).slice(-1)[0] || c.summary : c.summary)}</span>
+          <span class="s">${esc(c.summary || (live && g.who) || "")}</span>
           <span class="when">${[money(c.cost), dur, clock(c.at)].filter(Boolean).join(" · ")}</span></div>
-          ${open ? `<div class="body">${live ? nowHtml(g.now) : ""}${cardBody(c)}</div>` : ""}</div></div></div>`;
-      }).join("") || `<div class="faint">Nothing has happened yet.</div>`;
-      set("#body", html, "t" + JSON.stringify([g.timeline, [...ui.open], g.alive, g.now]));
+          ${open ? `<div class="body">${live ? nowHtml(g, ui.cmds) : ""}${cardBody(c)}</div>` : ""}</div></div></div>`;
+      }).join("") + (cs.length ? "</section>" : "") || `<div class="faint">Nothing has happened yet.</div>`;
+      set("#body", html, "t" + JSON.stringify([g.timeline, [...ui.open], g.alive, g.now, g.live, ui.cmds, g.who]));
     } else if (ui.tab === "journal") {
       set("#body", g.journal ? `<div class="md">${md(g.journal)}</div>` : `<div class="faint">No journal yet.</div>`, "j" + g.journal);
     } else if (ui.tab === "plan") {
@@ -549,18 +605,21 @@ async function goalPage(repo, id) {
     const h = e.target.closest(".head");
     if (h) { const i = +h.dataset.i; ui.open.has(i) ? ui.open.delete(i) : ui.open.add(i); showTab(); }
   };
+  $("#body").addEventListener("toggle", (e) => {
+    if (e.target.dataset && e.target.dataset.key === "cmds") ui.cmds = e.target.open;
+  }, true);
   $("#wait").addEventListener("input", (e) => {
-    if (e.target.classList.contains("own") && e.target.value.trim()) {
+    if (!e.target.classList.contains("own")) return;
+    const done = $(`[data-done="${e.target.dataset.n}"]`);
+    if (done) done.hidden = !e.target.value.trim();
+    if (e.target.value.trim()) {
       document.querySelectorAll(`.opt[data-n="${e.target.dataset.n}"]`).forEach((o) => o.classList.remove("on"));
     }
   });
-  $("#wait").addEventListener("focusout", (e) => {
-    if (e.target.classList.contains("own") && e.target.value.trim()) fold(e.target.dataset.n, true);
-  });
   $("#wait").addEventListener("keydown", (e) => {
-    if (e.target.classList.contains("own") && e.key === "Enter" && !e.shiftKey && e.target.value.trim()) {
+    if (e.target.classList.contains("own") && e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.value.trim()) {
       e.preventDefault();
-      e.target.blur();
+      fold(e.target.dataset.n, true);
     }
   });
   $("#plan-disc-open").onclick = () => {
@@ -588,6 +647,7 @@ async function goalPage(repo, id) {
       return;
     }
     if (e.target.dataset.change) { fold(e.target.dataset.change, false); return; }
+    if (e.target.dataset.done) { fold(e.target.dataset.done, true); return; }
     const talk = e.target.dataset.discuss;
     if (talk) {
       const box = $(`#disc-${talk}`);
@@ -605,19 +665,21 @@ async function goalPage(repo, id) {
       return;
     }
     if (e.target.id === "approve") {
-      if (await act(() => api("POST", base + "/approve"), "Approved — it builds now")) refresh();
+      e.target.disabled = true;
+      if (await act(() => api("POST", base + "/approve"))) refresh();
+      else e.target.disabled = false;
     } else if (e.target.id === "send") {
       const own = [...document.querySelectorAll("#wait .own")];
-      const lines = own.map((box) => {
-        const value = answerOf(box.dataset.n);
-        return value ? `${box.dataset.n}. ${value}` : null;
-      });
-      const missing = lines.map((l, i) => (l ? null : i + 1)).filter(Boolean);
+      const answers = own.map((box) => answerOf(box.dataset.n));
+      const missing = answers.map((a, i) => (a ? null : i + 1)).filter(Boolean);
       if (missing.length) return toast(`Answer question ${missing.join(", ")} first: pick an option or write your own`, true);
+      const lines = answers.map((a, i) => `${i + 1}. ${a}`);
       const extra = $("#answer").value.trim();
       const text = [lines.join("\n"), extra].filter(Boolean).join("\n\n");
       if (!text) return toast("Write the answer first", true);
-      if (await act(() => api("POST", base + "/answer", { text }), "Sent — the goal carries on")) refresh();
+      e.target.disabled = true;
+      if (await act(() => api("POST", base + "/answer", { text, answers: own.length ? answers : null, note: own.length ? extra || null : null }))) refresh();
+      else e.target.disabled = false;
     }
   };
   $("#head").onclick = async (e) => {
@@ -663,13 +725,19 @@ async function goalPage(repo, id) {
         ${can.clear ? `<button data-act="clear">Clear</button>` : ""}
         ${can.undo ? `<button class="danger" data-act="undo">Undo</button>` : ""}
       </div></div>`);
-    const waitKey = g.awaiting && g.awaiting.asked_at;
+    const waitKey = g.awaiting && g.awaiting.asked_at ? g.awaiting.asked_at + (g.sent ? ":sent" : "") : null;
     if (waitKey !== ui.waitKey) {
       ui.waitKey = waitKey;
-      $("#wait").innerHTML = waitingHtml(g);
+      $("#wait").innerHTML = g.sent ? sentHtml(g) : waitingHtml(g);
       diagrams($("#wait"));
-      if (waitKey && g.awaiting.kind === "plan") ui.tab = "plan";
+      const box = $("#plan-disc-box");
+      box.hidden = true;
+      box.innerHTML = "";
+      delete box.dataset.on;
+      if (waitKey && !g.sent && g.awaiting.kind === "plan") ui.tab = "plan";
     }
+    set("#stages", stagesHtml(g));
+    set("#edits", editsHtml(g));
     set("#live", liveHtml(g));
     showTab();
     if (ui.tab === "log" && $("#logbox")) {

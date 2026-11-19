@@ -201,3 +201,17 @@ def say(main_root, gid, topic, text, runner=None):
     else:
         threading.Thread(target=work, daemon=True).start()
     return read(main_root, gid, topic)
+
+
+def clear(main_root, gid, topic):
+    """Put the thread on `topic` away, so the talk starts over. Returns the new, empty
+    thread as `read` gives it."""
+    if not TOPIC.match(topic or ""):
+        raise ac.Problem(404, "no topic %s" % topic)
+    goal, _ = ac.the_goal(main_root, gid)
+    key = key_of(topic, goal.state.read("awaiting.json"))
+    with _LOCK:
+        if (main_root, gid, key) in _RUNNING:
+            raise ac.Problem(409, "the last message is still being answered")
+        ac.retire_discussions(goal, key + ".")
+    return read(main_root, gid, topic)

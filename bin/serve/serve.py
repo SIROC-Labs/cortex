@@ -100,6 +100,11 @@ def post_discussion(req, repo, goal, topic):
     return discuss.say(ac.repo(repo)["path"], goal, topic, req.json().get("text"))
 
 
+@route("DELETE", r"/api/repos/(?P<repo>[^/]+)/goals/(?P<goal>[^/]+)/discussions/(?P<topic>[a-z0-9]+)")
+def delete_discussion(req, repo, goal, topic):
+    return discuss.clear(ac.repo(repo)["path"], goal, topic)
+
+
 ACTIONS = {"stop": ac.stop, "resume": ac.resume, "approve": ac.approve, "done": ac.mark_done,
            "clear": ac.clear, "undo": ac.undo}
 
@@ -108,7 +113,8 @@ ACTIONS = {"stop": ac.stop, "resume": ac.resume, "approve": ac.approve, "done": 
 def post_action(req, repo, goal, action):
     root = ac.repo(repo)["path"]
     if action == "answer":
-        return {"result": ac.answer(root, goal, req.json().get("text"))}
+        body = req.json()
+        return {"result": ac.answer(root, goal, body.get("text"), body.get("answers"), body.get("note"))}
     if action not in ACTIONS:
         raise ac.Problem(404, "no action %s" % action)
     return {"result": ACTIONS[action](root, goal)}
@@ -217,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as f:
             return self.send(200, f.read(), mimetypes.guess_type(full)[0] or "text/html")
 
-    do_GET = do_POST = do_PUT = do_HEAD = dispatch
+    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = dispatch
 
 
 def make_server(port):

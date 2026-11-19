@@ -282,11 +282,32 @@ def detail(main_root, gid):
         out["cost"] = (out.get("cost") or 0) + sum(p.get("cost") or 0 for p in out["parts"])
     log_text = _text(goal.log) or ""
     out["log_size"] = len(log_text.encode())
-    out["timeline"] = cards(timeline(log_text, data.get("created"), priced))
+    cs = cards(timeline(log_text, data.get("created"), priced), part=bool(data.get("parent")))
+    import asked
+    import running
+    try:
+        asked.attach(cs, goal, data, priced)
+    except Exception:  # noqa: BLE001 — past answers are extra: the timeline shows without them
+        pass
+    out["timeline"] = cs
+    out["sent"] = asked.sent(goal, data["awaiting"])
     processes = gv.claude_processes() if data["alive"] else {}
     out["live"] = gv.running_agents(data, processes=processes) if data["alive"] else []
+    try:
+        running.summarize(out["live"], data, dm.read_control(main_root))
+    except Exception:  # noqa: BLE001 — a summary that fails is left out, never the page
+        pass
+    for a in out["live"]:
+        a.pop("path", None)
+    try:
+        out["lead_edits"] = running.lead_edits(main_root, data, goal.state.read(gl.CALLS_FILE) or priced)
+    except Exception:  # noqa: BLE001
+        out["lead_edits"] = []
     out["now"] = now(data, processes) if data["alive"] else None
     out["tasks_now"] = gv.tasks_now(data) or []
+    out["stages"] = stage_strip(cs, data)
+    out["who"] = "Your answer is sent: the goal picks it up next" if out["sent"] else who_works(
+        data, out["live"], out["tasks_now"], cs)
     return out
 
 
@@ -349,14 +370,33 @@ def task_rows(lines):
     return rows
 
 
-CALL_LINE = re.compile(r"^(lead|review|check|ci-fix|consult): ")
+CALL_LINE = re.compile(r"^(lead|review|check|ci-fix|consult|compact): ")
+PAUSE_LINE = re.compile(r"^(Paused — |resumes at |usage is back )")
+
+
+def handed_out(tasks):
+    """What a round handed out, in a few words: "3 coding tasks and 1 question (sonnet)"."""
+    code = sum(1 for t in tasks if t["kind"] == "code")
+    asks = len(tasks) - code
+    what = " and ".join(x for x in ("%d coding task%s" % (code, "" if code == 1 else "s") if code else "",
+                                    "%d question%s" % (asks, "" if asks == 1 else "s") if asks else "") if x)
+    models = sorted({gv.short_model(t.get("model")) for t in tasks if t.get("model")})
+    return "Handed out %s%s" % (what, " (%s)" % ", ".join(models) if models else "")
 
 
 def card_summary(card):
-    said = [l for l in card["lines"] if not CALL_LINE.match(l)]
+    said = [l for l in card["lines"] if not CALL_LINE.match(l) and not PAUSE_LINE.match(l) and not l.startswith("! ")]
     if card["kind"] == "round":
-        tasks = card["tasks_title"].replace(" from the lead", "") if card.get("tasks_title") else ""
-        return " · ".join(x for x in (tasks, " ".join(said)) if x)
+        words = " ".join(said)
+        if card.get("tasks"):
+            head = handed_out(card["tasks"])
+        else:
+            nxt = card.get("next") or ""
+            head = ("Reported done" if nxt.startswith("Syncing with") else
+                    "Asked questions" if re.match(r"^Asking", nxt) else
+                    "Wrote the plan" if "ready for your review" in nxt else
+                    "Said" if words else "")
+        return ": ".join(x for x in (head, words) if x)
     if card["kind"] == "check":
         verdict = next((l for l in card["lines"] if re.match(r"^verdict: |^review: \d+ problem", l)), "")
         return re.sub(r"^(verdict|review): ", "", verdict).replace("done", "clean", 1) if verdict.startswith(
@@ -369,51 +409,199 @@ def card_summary(card):
     return said[-1] if said else ""
 
 
-def cards(steps):
+BACK = {"conflict": "Merge conflict", "static": "Fixing static checks", "gaps": "Fixing gaps",
+        "ci": "Fixing CI"}
+
+
+def verdict_of(lines):
+    """A check's verdict: "clean", "N gaps", or None while it has none."""
+    for line in lines:
+        if line.startswith("verdict: done"):
+            return "clean"
+        m = re.match(r"^verdict: (\d+) gap", line)
+        if m:
+            return "%s gap%s" % (m.group(1), "" if m.group(1) == "1" else "s")
+    return None
+
+
+def cards(steps, part=False):
     """The timeline as a person follows it: each step, with a round and the tasks it
-    handed out as one card, in phases: Setup, Analysis and plan, Build, Verify and
-    ship, PR review, Revision N. [{i, kind, phase, title, at, until, cost, summary,
-    lines, tasks}]."""
-    out, phase, revision, approved, i = [], "Setup", 0, False, 0
+    handed out as one card, in phases: Setup, Plan, Parts, Build, Merge conflict,
+    Static checks, Fixing static checks, Check N, Fixing gaps, Merge and push (a
+    part's Merge), CI, Fixing CI, PR review, and Revision N, whose later phases carry
+    its name. [{i, kind, phase, base, title, at, until, cost, summary, lines, tasks}]:
+    `base` is the phase without the revision."""
+    out, i = [], 0
+    planning, approved, cycle, checks, back, clean = True, False, 0, 0, None, False
+    phase, base, carried = "Setup", "Setup", []
     while i < len(steps):
         s = steps[i]
         kind = kind_of(s["title"])
-        p = phase
-        if kind == "round" and phase == "Setup":
-            p = "Analysis and plan"
-        if (approved or kind == "tasks" or s["title"].startswith("Small change")) and \
-                phase in ("Setup", "Analysis and plan"):
-            p = "Build"
+        while kind == "round" and i + 1 < len(steps) and kind_of(steps[i + 1]["title"]) == "pause":
+            i += 1
+            s = dict(s, lines=s["lines"] + [steps[i]["title"]] + steps[i]["lines"], cost=s["cost"] + steps[i]["cost"])
+        title, text = s["title"], "\n".join(s["lines"])
+        new = None
+        if title.startswith("Review comments on the PR"):
+            cycle, checks, back, clean, new = cycle + 1, 0, None, False, "Revision"
+        elif re.match(r"^(Reading the|Setting up)", title):
+            new = "Setup"
+        elif title.startswith("Splitting into"):
+            planning, new = False, "Parts"
+        elif title.startswith("Small change"):
+            planning, new = False, "Build"
+        elif planning and not (approved or kind == "tasks" or title.startswith("Small change")):
+            new = "Plan"
+        elif title.startswith("Syncing with "):
+            planning = False
+            if "conflicts" in text:
+                back, new = "conflict", "Merge conflict"
+            elif clean:
+                back, new = None, "Merge" if part else "Merge and push"
+            else:
+                back = None
+        elif title.startswith(("Running CI's static checks", "Fixing CI's static checks")):
+            new = "Static checks"
+            if "over to the lead" in text:
+                back = "static"
+        elif title.startswith("Checking against the ask"):
+            checks += 1
+            new = "Check %d" % checks
+            clean = verdict_of(s["lines"]) == "clean"
+            if not clean:
+                back = "gaps"
+        elif title.startswith(("Waiting for CI", "Fixing CI (")):
+            back, new = "ci", "CI"
+        elif title.startswith(("Watching the PR", "Merged", "The PR was closed")):
+            new = "PR review"
+        elif kind in ("round", "tasks"):
+            planning, clean = False, False
+            new = BACK.get(back) or ("Revision" if cycle else "Build")
         approved = any("the plan is approved" in l for l in s["lines"])
-        if re.match(r"^Syncing with main|^Running CI's static checks here$", s["title"]) and \
-                "Verify" not in phase:
-            p = "Verify and ship"
-        if s["title"].startswith("Watching the PR"):
-            p = "PR review"
-        if s["title"].startswith("Review comments on the PR"):
-            revision += 1
-            p = "Revision %d" % revision
-        if kind == "round" and phase == "Verify and ship":
-            p = "Build"
-        if kind == "round" and phase.startswith("Revision"):
-            p = phase
-        card = {"i": i, "kind": kind, "phase": p, "title": s["title"], "at": s["at"],
+        if new:
+            base = new
+            phase = ("Revision %d" % cycle if new == "Revision" else new) if not cycle or new in (
+                "Revision", "Setup", "Plan") else "Revision %d · %s" % (cycle, new)
+        card = {"i": i, "kind": kind, "phase": phase, "base": base, "title": title, "at": s["at"],
                 "cost": s["cost"], "lines": list(s["lines"]), "tasks": None}
-        phase = p
+        if kind == "check" and title.startswith("Checking"):
+            card["verdict"] = verdict_of(s["lines"])
+        if title.startswith("Syncing with ") and not new:
+            carried.append(card)
+        else:
+            for c in carried:
+                c["phase"], c["base"] = phase, base
+            carried = []
         nxt = steps[i + 1] if i + 1 < len(steps) else None
         if kind == "round" and nxt and kind_of(nxt["title"]) == "tasks":
-            card["tasks"] = task_rows(nxt["lines"]) or None
-            card["tasks_title"] = nxt["title"]
-            card["tasks_lines"] = nxt["lines"]
-            card["cost"] += nxt["cost"]
             i += 1
+            card["tasks_title"], card["tasks_lines"] = nxt["title"], list(nxt["lines"])
+            card["cost"] += nxt["cost"]
         elif kind == "tasks":
-            card["tasks"] = task_rows(s["lines"]) or None
-        card["summary"] = card_summary(card)
+            card["tasks_lines"] = card["lines"]
+        if card.get("tasks_lines") is not None:
+            while i + 1 < len(steps) and kind_of(steps[i + 1]["title"]) == "pause":
+                i += 1
+                card["tasks_lines"] += [steps[i]["title"]] + steps[i]["lines"]
+                card["cost"] += steps[i]["cost"]
+            card["tasks"] = task_rows(card["tasks_lines"]) or None
         i += 1
+        card["next"] = steps[i]["title"] if i < len(steps) else None
+        card["summary"] = card_summary(card)
         card["until"] = steps[i]["at"] if i < len(steps) else None
         out.append(card)
+    for c in carried:
+        c["base"] = "Build" if c["base"] == "Plan" else "Static checks"
+        c["phase"] = c["base"] if not cycle else "Revision %d · %s" % (cycle, c["base"])
     return out
+
+
+STAGE_OF = {"Setup": "plan", "Plan": "plan", "Parts": "plan", "Build": "build", "Revision": "build",
+            "Merge conflict": "build", "Static checks": "static", "Fixing static checks": "static",
+            "Fixing gaps": "fixing", "Merge": "ship", "Merge and push": "ship", "CI": "ci",
+            "Fixing CI": "ci", "PR review": "review"}
+
+
+def stage_strip(cs, data):
+    """Where the goal is, as the stages of its current build or revision: Plan, Build,
+    Static checks, the checks and their gaps, Merge or Push, CI, PR review.
+    [{key, label, state}], each state done, now or next."""
+    part = bool(data.get("parent"))
+    starts = [n for n, c in enumerate(cs) if c["title"].startswith("Review comments on the PR")]
+    cycle = cs[starts[-1]:] if starts else cs
+    base = cycle[-1]["base"] if cycle else "Setup"
+    checks = [c for c in cycle if c["base"].startswith("Check ")]
+    labels = {"plan": "Plan", "build": "Revision %d" % len(starts) if starts else "Build",
+              "static": "Static checks", "check": "Check", "fixing": "Fixing gaps", "again": "Check again",
+              "ship": "Merge" if part else "Push", "ci": "CI", "review": "PR review"}
+    shown = ["plan", "build", "static", "check", "ship"] + ([] if part else ["ci", "review"])
+    name = lambda c: "%s%s" % (c["base"], ": " + c["verdict"] if c.get("verdict") else "")  # noqa: E731
+    last = checks[-1] if checks else None
+    earlier = checks[-2] if len(checks) > 1 else None
+    if last and last.get("verdict") not in (None, "clean"):
+        labels["check"] = name(last)
+        shown[4:4] = ["fixing", "again"]
+    elif last and earlier:
+        labels["check"], labels["again"] = name(earlier), name(last)
+        shown[4:4] = ["fixing", "again"]
+    elif last:
+        labels["check"] = name(last)
+    key = STAGE_OF.get(base)
+    if base.startswith("Check "):
+        key = "again" if "again" in shown and last is not checks[0] else "check"
+    if base == "Static checks" and "again" in shown and last and last.get("verdict") not in (None, "clean"):
+        key = "again"
+    if data.get("status") == "review":
+        key = "review"
+    over = data.get("status") == "done" and (part or data.get("phase") in ("merged", "closed", gl.MARKED)
+                                             or not data.get("pr_url"))
+    at = shown.index(key) if key in shown else 0
+    return [{"key": k, "label": labels[k],
+             "state": "done" if over or n < at else "now" if n == at else "next"}
+            for n, k in enumerate(shown)]
+
+
+def who_works(data, live, tasks, cs):
+    """Who works on the goal now, in a line."""
+    model = lambda m: gv.short_model(m).capitalize() if m else ""  # noqa: E731
+    text, tone, _ = describe(data)
+    status = data.get("status")
+    if tone in ("warn", "bad") or status in ("paused", "queued", "stopped", "failed", "done"):
+        return ("You: it " if text.startswith("has ") else "You: ") + text if tone == "warn" else "Nobody: " + text
+    running = [t for t in tasks or [] if t.get("status") == "running"]
+    if running:
+        code = [t for t in running if t.get("kind") != "explore"]
+        asks = [t for t in running if t.get("kind") == "explore"]
+        models = sorted({model(t.get("model")) for t in running if t.get("model")})
+        what = " and ".join(x for x in (
+            "%d coding task%s" % (len(code), "" if len(code) == 1 else "s") if code else "",
+            "%d question%s" % (len(asks), "" if len(asks) == 1 else "s") if asks else "") if x)
+        waiting = sum(1 for t in tasks if t.get("status") == "waiting")
+        return "%s%s run%s%s; the lead waits for their reports" % (
+            what, " on " + ", ".join(models) if models else "", "s" if len(running) == 1 else "",
+            ", %d more wait to start" % waiting if waiting else "")
+    base = cs[-1]["base"] if cs else ""
+    for a in live or []:
+        role, m = a.get("role") or "", model(a.get("model"))
+        by = " (%s)" % m if m else ""
+        if role == "Lead":
+            if data.get("phase") == "planning":
+                return "The lead%s analyses the ask and writes the plan" % by
+            return "The lead%s reads the reports and decides what to hand out next%s" % (
+                by, " (a merge conflict)" if base == "Merge conflict" else "")
+        if role == "Checker":
+            return "The checker%s checks the branch against the ask and its criteria" % by
+        if role == "Reviewer":
+            return "The reviewer%s checks the acceptance criteria against the references" % by
+        if role == "CI fixer":
+            return "The fixer%s fixes the failing %s" % (by, "static checks" if base == "Static checks" else "CI")
+    if status == "review":
+        return "Nobody: the goal watches the PR for review comments and the merge"
+    if data.get("runner_doing"):
+        return "The runner: %s" % data["runner_doing"]
+    if "waiting for ci" in (data.get("doing") or "").lower():
+        return "GitHub runs CI; the runner waits for it"
+    return text[:1].upper() + text[1:] if text else ""
 
 
 def log(main_root, gid, start=0, limit=LOG_CHUNK):
@@ -514,8 +702,24 @@ def resume(main_root, gid):
     return "carries on"
 
 
-def answer(main_root, gid, text):
-    """Hand the person's answer to the goal waiting on it."""
+def retire_discussions(goal, prefix=""):
+    """Put the talks whose key starts with `prefix` away, under `discussions/old/`: a
+    talk asked for again starts empty."""
+    folder = goal.state.path("discussions")
+    if not os.path.isdir(folder):
+        return
+    os.makedirs(os.path.join(folder, "old"), exist_ok=True)
+    for name in os.listdir(folder):
+        if name.endswith(".json") and name.startswith(prefix):
+            os.replace(os.path.join(folder, name),
+                       os.path.join(folder, "old", "%s-%d.json" % (name[:-len(".json")], time.time() * 1000)))
+
+
+def answer(main_root, gid, text, answers=None, note=None):
+    """Hand the person's answer to the goal waiting on it, and keep it with what it
+    answers. `answers`, one per question, and `note` are how the page wrote it. A
+    decision on the plan puts the plan's talks away."""
+    import asked
     goal, _ = the_goal(main_root, gid)
     waiting = goal.state.read("awaiting.json") or {}
     if not waiting.get("asked_at"):
@@ -524,6 +728,11 @@ def answer(main_root, gid, text):
         raise Problem(400, "an empty answer")
     goal.state.write(st.ANSWER_FILE, {"asked_at": waiting["asked_at"], "text": text.strip(),
                                       "at": time.time()})
+    good = isinstance(answers, list) and all(isinstance(a, str) for a in answers)
+    asked.record(goal, waiting, text.strip(), answers if good else None,
+                 note.strip() or None if isinstance(note, str) else None)
+    if waiting.get("kind") == "plan":
+        retire_discussions(goal, "plan-")
     return "answered"
 
 

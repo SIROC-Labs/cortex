@@ -245,7 +245,7 @@ def subagents(session_path, now=None, in_call=True):
                     "running": in_call and unfinished and now - moved < STALE,
                     "cut": unfinished and not (in_call and now - moved < STALE),
                     "started": _when(first.get("timestamp")) or moved, "at": moved,
-                    "action": live["action"], "model": live["model"]})
+                    "action": live["action"], "said": live["said"], "model": live["model"]})
     return sorted(out, key=lambda a: (not a["running"], -a["at"]))
 
 
@@ -345,8 +345,8 @@ def running_agents(goal, now=None, processes=None, want_why=False):
         tail = _read_tail(path, 64 * 1024)
         live = activity(tail)
         role = call_role(goal, session, tasks)
-        out.append({"role": role, "model": live["model"], "seconds": seconds,
-                    "action": live["action"], "at": live["at"], "depth": 0,
+        out.append({"role": role, "model": live["model"], "seconds": seconds, "path": path,
+                    "action": live["action"], "said": live["said"], "at": live["at"], "depth": 0,
                     "why": why(session, live["at"], lambda p=path, r=role, t=tail: why_prompt(
                         r, brief_of(p, 800, end=True), *reversed(recent(t))),
                         ready=bool(live["action"] or live["said"])) if want_why else None})
@@ -356,6 +356,7 @@ def running_agents(goal, now=None, processes=None, want_why=False):
                     if a.get("id") else None
                 out.append({"role": "Sub-agent: " + a["description"], "model": a["model"],
                             "seconds": now - a["started"], "action": a["action"], "at": a["at"],
+                            "path": agent_path, "said": a.get("said"),
                             "depth": 1, "why": why(agent_path, a["at"], lambda p=agent_path, r=a[
                                 "description"]: why_prompt(r, brief_of(p), *reversed(recent(
                                     _read_tail(p, 64 * 1024))))) if want_why and agent_path else None})

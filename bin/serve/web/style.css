@@ -253,3 +253,31 @@ button.link:hover { text-decoration: underline; }
 .q-summary { margin-top: 4px; font-size: 13.5px; display: flex; gap: 8px; align-items: baseline; }
 .q-summary .answered { color: var(--ok); font-weight: 700; }
 .q-summary .q-answer { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* where the goal is */
+.stages { margin-top: 14px; }
+.stages ol { display: flex; flex-wrap: wrap; gap: 4px 0; list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.stages li { position: relative; color: var(--faint); padding: 2px 9px; border-radius: 10px; white-space: nowrap; }
+.stages li + li { margin-left: 16px; }
+.stages li + li::before { content: "▸"; position: absolute; left: -13px; color: var(--faint); font-weight: 400; }
+.stages li.s-done { color: var(--dim); }
+.stages li.s-now { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.stages .who { font-size: 13px; color: var(--text); margin-top: 6px; }
+.phase { position: sticky; top: 42px; z-index: 3; background: var(--bg); padding: 6px 0; margin-bottom: 2px; }
+.tasks td.m { color: var(--faint); width: 60px; white-space: nowrap; }
+.live .plain { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now .live { margin: 4px 0 8px; padding: 0; }
+.now .cmds summary { cursor: pointer; font-size: 12.5px; color: var(--dim); }
+.lead-edits { margin-top: 14px; padding: 10px 14px; border-color: var(--bad); background: var(--bad-soft); color: var(--bad); font-size: 13px; }
+.lead-edits ul { margin: 6px 0 0; padding-left: 18px; color: var(--text); }
+
+/* what was sent and answered */
+.waiting.sent { border-color: var(--ok); background: var(--ok-soft); }
+.waiting.sent h3 { color: var(--ok); }
+.waiting .carries { font-size: 13px; color: var(--dim); margin-top: 8px; }
+.qa-head { font-weight: 600; margin-bottom: 4px; }
+.qa-text { margin-top: 6px; }
+.q-summary.full .q-answer { white-space: pre-wrap; overflow: visible; }
+.question [data-done] { padding: 2px 10px; font-size: 12.5px; }
+.disc-head { margin: -4px 0 4px; }
+[hidden] { display: none !important; }
