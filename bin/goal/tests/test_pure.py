@@ -160,6 +160,15 @@ class TestGoals(unittest.TestCase):
         gid = goal.create(self.root, "Recruiter's queue", key="HRT1-519")
         self.assertEqual(gid, "goal-hrt1-519-recruiter-s-queue")
 
+    def test_a_linked_ticket_names_the_goal_not_the_prompt(self):
+        ticket = {"gid": "2", "name": "Call a candidate through Aircall", "custom_fields": []}
+        with mock.patch.object(goal, "first_ticket", return_value=ticket), \
+                mock.patch.object(goal.st, "task_key", return_value="HUM-301"):
+            gid = goal.create(self.root, "Build this ticket https://app.asana.com/0/1/2")
+        g = goal.Goal(self.root, gid).read()
+        self.assertEqual((g["key"], g["name"]), ("HUM-301", "Call a candidate through Aircall"))
+        self.assertEqual(gid, "goal-hum-301-call-a-candidate-through")
+
     def test_the_name_is_the_first_line_with_words_links_left_out(self):
         self.assertEqual(goal.prompt_name("\n## https://app.asana.com/0/1/2 Fix the badge\nmore"),
                          "Fix the badge")

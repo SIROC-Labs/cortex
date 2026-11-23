@@ -1843,8 +1843,8 @@ def create(main_root, prompt, files=(), base=None, name=None, key=None,
            check_effort=DEFAULT_CHECK_EFFORT, gate=DEFAULT_GATE, now=None):
     """Write a new goal for a prompt and the files given with it, which are copied
     into the goal. Returns its id; nothing runs yet, and the tickets the prompt
-    links to are read when it starts. `key` defaults to the first linked ticket's
-    key, and `name` to the prompt's first line, else that ticket's name."""
+    links to are read when it starts. `key` and `name` default to the first linked
+    ticket's key and name, and `name` else to the prompt's first line."""
     if not (prompt or "").strip():
         raise st.Failure("a goal needs a prompt")
     for path in files:
@@ -1852,7 +1852,7 @@ def create(main_root, prompt, files=(), base=None, name=None, key=None,
             raise st.Failure("no file or folder %s" % path)
     ticket = first_ticket(main_root, prompt) if not (name and key) else {}
     key = key or (st.task_key(ticket) if ticket else None)
-    name = name or prompt_name(prompt) or ticket.get("name") or "goal"
+    name = name or prompt_name(ticket.get("name")) or prompt_name(prompt) or "goal"
     gid, n = goal_id(key, name), 1
     while os.path.isdir(Goal(main_root, gid).state.dir):
         n += 1
