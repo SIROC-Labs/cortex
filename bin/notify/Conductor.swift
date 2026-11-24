@@ -22,7 +22,10 @@ final class Conductor: NSObject, NSApplicationDelegate, UNUserNotificationCenter
     func post(title: String, text: String, url: String, sound: String) {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { allowed, _ in
-            guard allowed else { return self.quit(after: 0) }
+            guard allowed else {
+                DispatchQueue.main.async { NSSound(named: NSSound.Name(sound.isEmpty ? "Glass" : sound))?.play() }
+                return self.quit(after: 2)
+            }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = text
