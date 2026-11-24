@@ -24,8 +24,10 @@ HTML attachment as its text, with the file kept for its prototype). A milestone 
 well: its subtasks become parts of one piece of work. Nothing is ever written to Asana:
 questions, the plan and its approval are in conductor.
 
-The goal's name is the prompt's first line, or the ticket's name when the prompt is only
-a link; a linked ticket's key goes into its id and branch. Without `--base`, the PR goes
+When the goal starts, Haiku names it from its ask (the prompt and the tickets it links
+to), before its branch and PR take the name. Until then, and on OpenCode, the name is the
+linked ticket's title, else the prompt's first line. A linked ticket's key goes into its
+id and branch. Without `--base`, the PR goes
 into `main`.
 
 A **lead agent** gets the ask and nothing more. It plans the work, keeps a journal, and

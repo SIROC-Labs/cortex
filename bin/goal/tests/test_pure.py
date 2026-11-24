@@ -3,6 +3,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -168,6 +169,33 @@ class TestGoals(unittest.TestCase):
         g = goal.Goal(self.root, gid).read()
         self.assertEqual((g["key"], g["name"]), ("HUM-301", "Call a candidate through Aircall"))
         self.assertEqual(gid, "goal-hum-301-call-a-candidate-through")
+
+    def test_haiku_names_the_goal_from_its_ask(self):
+        seen = {}
+
+        def run(cmd, **kw):
+            seen["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, '"Call candidates from the pipeline."\n', "")
+        self.assertEqual(goal.model_name("# The ask\n\nBuild this ticket", self.root, run=run),
+                         "Call candidates from the pipeline")
+        self.assertEqual(seen["cmd"][seen["cmd"].index("--model") + 1], "haiku")
+        self.assertIn("Build this ticket", seen["cmd"][2])
+        failed = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "error")
+        self.assertIsNone(goal.model_name("# The ask", self.root, run=failed))
+
+    def test_a_goal_takes_haiku_s_name_when_it_starts_and_keeps_its_own_without_one(self):
+        gid = goal.create(self.root, "Build this ticket", key="HUM-301")
+        runner = goal.Runner(self.root, gid)
+        runner.set(ask="# The ask")
+        with mock.patch.object(goal, "model_name", return_value="Call candidates from the pipeline"):
+            runner.name_it()
+        self.assertEqual(goal.Goal(self.root, gid).read()["name"], "Call candidates from the pipeline")
+        gid = goal.create(self.root, "Fix the badge", key="HUM-302")
+        runner = goal.Runner(self.root, gid)
+        runner.set(ask="# The ask")
+        with mock.patch.object(goal, "model_name", return_value=None):
+            runner.name_it()
+        self.assertEqual(goal.Goal(self.root, gid).read()["name"], "Fix the badge")
 
     def test_the_name_is_the_first_line_with_words_links_left_out(self):
         self.assertEqual(goal.prompt_name("\n## https://app.asana.com/0/1/2 Fix the badge\nmore"),

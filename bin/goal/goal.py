@@ -380,6 +380,27 @@ def prompt_name(prompt, width=NAME_WIDTH):
     return None
 
 
+NAME_PROMPT = """Name this piece of software work for a list of goals and its pull request
+title. Say what it adds or changes, in at most eight words, in sentence case. Leave
+out ticket keys, quotes and a full stop. Reply with the name only.
+
+%s"""
+NAME_ASK_MAX = 6000
+
+
+def model_name(ask, cwd, run=subprocess.run):
+    """A name for the goal from its ask, by Haiku, or None when it gives none."""
+    try:
+        out = run(["claude", "-p", NAME_PROMPT % ask[:NAME_ASK_MAX], "--model", "haiku",
+                   "--max-turns", "1"] + NO_MCP, cwd=cwd, stdin=subprocess.DEVNULL,
+                  capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return prompt_name((out.stdout or "").strip().strip("\"'`").rstrip("."))
+
+
 def files_lines(files):
     """Files for the ask, as Markdown lines: each path, with a small text file's
     text and an HTML prototype's text without its markup."""
@@ -2388,6 +2409,8 @@ class Runner(object):
         if self.data.get("worktree") and os.path.isdir(self.data["worktree"]):
             return
         self.step("Setting up")
+        if not self.data.get("parent"):
+            self.name_it()
         if self.data.get("parent"):
             parent = Goal(self.main_root, self.data["parent"]).read()
             branch = "%s--%s" % (parent["branch"], st.slugify(self.data["part"], max_words=4))
@@ -2417,6 +2440,16 @@ class Runner(object):
             st.warn("could not open the draft PR: %s" % error)
         self.set(base=base.replace("origin/", "", 1), branch=branch, worktree=worktree,
                  pr_url=pr_url)
+
+    def name_it(self):
+        """Haiku names the goal from its ask, before its branch and PR take the name.
+        On OpenCode, or when Haiku gives none, the goal keeps the name it has."""
+        if oc.is_opencode(self.data.get("model") or DEFAULT_MODEL):
+            return
+        name = model_name(self.data.get("ask") or self.data.get("prompt") or "", self.main_root)
+        if name:
+            st.info("named: %s" % name)
+            self.set(name=name)
 
     # usage
 
