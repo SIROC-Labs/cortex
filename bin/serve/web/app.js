@@ -396,6 +396,15 @@ function waitingHtml(g) {
 }
 
 // A question's answer: the option picked, or the words written; "" when none.
+// The note at the bottom answers the questions left open: one alone takes it as
+// its answer; several point to it.
+function withNote(answers, extra) {
+  const open = answers.filter((a) => !a).length;
+  if (!extra || !open) return { answers, note: extra || null };
+  if (open === 1) return { answers: answers.map((a) => a || extra), note: null };
+  return { answers: answers.map((a) => a || "See my note below."), note: extra };
+}
+
 function answerOf(n) {
   const own = $(`.own[data-n="${n}"]`);
   const pick = $(`.opt.on[data-n="${n}"]`);
@@ -696,14 +705,15 @@ async function goalPage(repo, id) {
       else undo();
     } else if (e.target.id === "send") {
       const own = [...document.querySelectorAll("#wait .own")];
-      const answers = own.map((box) => answerOf(box.dataset.n));
+      const given = own.map((box) => answerOf(box.dataset.n));
+      const extra = $("#answer").value.trim();
+      const { answers, note: noted } = withNote(given, extra);
       const missing = answers.map((a, i) => (a ? null : i + 1)).filter(Boolean);
       if (missing.length) return toast(`Answer question ${missing.join(", ")} first: pick an option or write your own`, true);
       const lines = answers.map((a, i) => `${i + 1}. ${a}`);
-      const extra = $("#answer").value.trim();
-      const text = [lines.join("\n"), extra].filter(Boolean).join("\n\n");
+      const text = [lines.join("\n"), noted].filter(Boolean).join("\n\n");
       if (!text) return toast("Write the answer first", true);
-      const note = own.length ? extra || null : null;
+      const note = own.length ? noted : null;
       const asked = (g.awaiting && g.awaiting.questions) || [];
       const undo = showSent({ kind: g.awaiting.kind, text, note, approved: false,
         items: own.length ? answers.map((a, i) => ({ q: (asked[i] && asked[i].q) || "", a })) : null });
