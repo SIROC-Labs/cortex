@@ -151,7 +151,7 @@ MISSING_TOOL = (126, 127)
 # A step that checks a budget: only a change to the design brings the work under it.
 BUDGET = re.compile(r"budget|size", re.I)
 # A sound for each thing that needs the person, and how often a pause may sound.
-SOUNDS = {"waiting": "Glass", "paused": "Basso"}
+SOUNDS = {"waiting": "Glass", "paused": "Basso", "review": "Hero"}
 PAUSE_SOUND_EVERY = 600
 NOTIFY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "notify", "notify.py")
 ROLES = {"lead": "lead", "check": "checker", "ci-fix": "CI fixes", "review": "reviewer",
@@ -3832,6 +3832,9 @@ class Runner(object):
                     self.set(walked_through=True)
             st.run(["gh", "pr", "ready", pr_url], cwd=worktree, check=False)
             st.info("PR ready: %s" % pr_url)
+            if not self.data.get("parent"):
+                notify("Revised, ready for review" if revised else "Ready for review",
+                       title_of(self.data), SOUNDS["review"], pr_url)
         self.set(status="review", phase="review", revising_pr=False, summary=block.get("summary"),
                  doing=REVIEW_DOING, finished=time.time(),
                  watch_from=self.data.get("watch_from") or time.time())

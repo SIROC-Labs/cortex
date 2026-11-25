@@ -297,9 +297,10 @@ This program is the harness around the lead:
   rather than install its own, while its lockfile is the same. `cond goal clean` does the
   same for goals that ended before this.
 - **Notifications.** On macOS a banner from Conductor, with a sound, tells you when a
-  goal starts to wait on you (questions, a plan, a stop), and when goals pause for the
-  usage limit (once for the goals that pause together). A click opens the goal's page, or
-  the Runs page for a pause. Conductor.app is built from `bin/notify/Conductor.swift` into
+  goal starts to wait on you (questions, a plan, a stop), when its PR is ready for your
+  review (CI passed; again after each revision), and when goals pause for the usage limit
+  (once for the goals that pause together). A click opens the goal's page, its PR for a
+  review, or the Runs page for a pause. When macOS blocks the banners, the sound still plays. Conductor.app is built from `bin/notify/Conductor.swift` into
   `~/Applications` the first time, with the Swift compiler of the Command Line Tools;
   without it, only the sound plays. `COND_QUIET=1` turns them off.
 - **Stops.** Three rounds in a row that change nothing, four checks in a row that find

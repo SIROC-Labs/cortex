@@ -18,12 +18,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(HERE, "Conductor.swift")
 APP = os.path.expanduser("~/Applications/Conductor.app")
 BUNDLE_ID = "com.siroc.conductor"
-SOUNDS = ("Glass", "Basso")
+SOUNDS = ("Glass", "Basso", "Hero")
 
 
 def source_hash():
     with open(SOURCE, "rb") as f:
-        return hashlib.sha1(f.read()).hexdigest()
+        return hashlib.sha1(f.read() + " ".join(SOUNDS).encode()).hexdigest()
 
 
 def stamp_path(app):

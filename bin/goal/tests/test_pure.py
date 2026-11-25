@@ -2099,6 +2099,20 @@ class TestWatchPR(unittest.TestCase):
         self.assertIn("## Comments\n- Rename: renamed it", posted()[1])
         self.assertEqual(len(posted()), 2)
 
+    def test_the_person_hears_when_the_goal_is_ready_for_review_each_time(self):
+        self.runner.set(worktree=self.d, key="HUM-1", name="Rename the badge")
+        self.runner.push = lambda: None
+        self.runner.progress = lambda: None
+        banners = []
+        goal.notify, notify = (lambda title, text, sound, url=None: banners.append((title, text, sound, url))), goal.notify
+        self.addCleanup(setattr, goal, "notify", notify)
+        self.runner.finish({"summary": "built", "walkthrough": "## Why\nthe walk"})
+        self.runner.set(revising_pr=True)
+        self.runner.finish({"summary": "renamed it"})
+        self.assertEqual(banners, [
+            ("Ready for review", "HUM-1 Rename the badge", goal.SOUNDS["review"], "https://github.com/o/r/pull/5"),
+            ("Revised, ready for review", "HUM-1 Rename the badge", goal.SOUNDS["review"], "https://github.com/o/r/pull/5")])
+
     def test_a_walkthrough_already_on_the_pr_is_not_posted_again(self):
         self.runner.set(worktree=self.d, url="https://app.asana.com/0/1/77")
         self.runner.push = lambda: None
