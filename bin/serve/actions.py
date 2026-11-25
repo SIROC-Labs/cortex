@@ -149,6 +149,7 @@ def summary(main_root, g, rates=None, processes=None):
     out["finished"] = finished(g)
     out["waiting"] = bool((g.get("awaiting") or {}).get("asked_at"))
     out["title"] = gl.title_of(g)
+    out["ticket_url"] = (gl.asana_urls(g.get("prompt") or g.get("url")) or [None])[0]
     out["state"] = dict(zip(("text", "tone", "label"), describe(g)))
     return out
 

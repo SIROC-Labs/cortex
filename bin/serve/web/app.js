@@ -252,13 +252,15 @@ async function runsPage() {
     const isFolded = (g) => (g.id in folded ? folded[g.id] : !!g.finished && partsOf(g).every((p) => p.finished));
     const row = (g) => {
       const st = state(g);
+      const keyed = !g.parent && g.key && g.ticket_url;
+      const links = g.parent ? "" : linksHtml(keyed ? { ...g, ticket_url: null } : g);
       const parts = g.parent ? [] : partsOf(g);
       const waits = parts.some((p) => p.waiting);
       const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><svg class="chev${isFolded(g) ? "" : " open"}" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title"><span class="name">${esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
+          <div class="title"><span class="name">${keyed ? `<a class="key" href="${esc(g.ticket_url)}" target="_blank" rel="noopener" title="The ticket in Asana">${esc(g.key)}</a> ${esc(g.name)}` : esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
             ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>
@@ -267,6 +269,7 @@ async function runsPage() {
           ${mini(g.plan, "plan")}${mini(g.criteria, "criteria")}
           ${g.round ? `<span>round ${g.round}</span>` : ""}
           ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
+          ${links}
           <span class="badge ${st.tone}">${esc(st.label)}</span>
           <span class="faint">${esc(ago(g.updated || g.created))}</span>
         </div></div>`;
@@ -282,10 +285,23 @@ async function runsPage() {
       };
     });
     document.querySelectorAll(".goal-row").forEach((el) => {
-      el.onclick = () => { location.hash = `#/g/${encodeURIComponent(el.dataset.repo)}/${encodeURIComponent(el.dataset.id)}`; };
+      el.onclick = (e) => {
+        if (e.target.closest("a")) return;
+        location.hash = `#/g/${encodeURIComponent(el.dataset.repo)}/${encodeURIComponent(el.dataset.id)}`; };
     });
   };
   poll(async () => render(await api("GET", "/api/goals")));
+}
+
+// The goal's ticket and PR, as plain links: a click opens them in a new tab, and
+// the browser's own menu copies them.
+const EXT = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M4.5 2.5h5v5M9.5 2.5 3 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+function linksHtml(g) {
+  const pr = g.pr_url && (g.pr_url.match(/\d+$/) || [""])[0];
+  return [
+    g.ticket_url ? `<a class="ext" href="${esc(g.ticket_url)}" target="_blank" rel="noopener" title="The ticket in Asana">${esc(g.key || "Ticket")}${EXT}</a>` : "",
+    g.pr_url ? `<a class="ext" href="${esc(g.pr_url)}" target="_blank" rel="noopener" title="The pull request on GitHub">PR #${esc(pr)}${EXT}</a>` : "",
+  ].filter(Boolean).join("");
 }
 
 // --- a goal -----------------------------------------------------------------
@@ -754,7 +770,7 @@ async function goalPage(repo, id) {
           ${hoverList("criteria", checklist(g.journal, "acceptance criteria"))}
           ${g.cost ? `<span title="${g.own_cost != null ? "its own " + money(g.own_cost) + ", the rest its parts'" : ""}">${money(g.cost)}${g.own_cost != null ? " with its parts" : ""}</span>` : ""}
           ${g.branch ? `<span><code>${esc(g.branch)}</code> → <code>${esc(g.base || "main")}</code></span>` : ""}
-          ${g.pr_url ? `<a href="${esc(g.pr_url)}" target="_blank">PR #${esc((g.pr_url.match(/\d+$/) || [""])[0])}</a>` : ""}
+          ${g.parent ? "" : linksHtml(g)}
           ${g.parent ? `<a href="#/g/${encodeURIComponent(repo)}/${encodeURIComponent(g.parent)}">its goal</a>` : ""}
           <span class="faint">started ${esc(ago(g.created))}</span></div></div>
       <div class="actions">

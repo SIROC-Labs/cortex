@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -65,6 +66,14 @@ class TestActions(Repo):
         self.assertEqual((detail["name"], detail["files"], detail["waiting"]),
                          ("Make the badge red", ["inputs/shot.png"], False))
         self.assertEqual(ac.state_file(self.root, gid, "inputs/shot.png")[1], b"png")
+
+    def test_the_list_links_a_goal_to_its_ticket(self):
+        with mock.patch.object(ac.gl, "first_ticket", return_value={}):
+            linked = ac.start(self.root, "Build this https://app.asana.com/1/2/project/3/task/4?focus=true. Thanks")
+            plain = ac.start(self.root, "Make the badge red")
+        rows = {g: ac.summary(self.root, ac.gl.Goal(self.root, g).read()) for g in (linked, plain)}
+        self.assertEqual(rows[linked]["ticket_url"], "https://app.asana.com/1/2/project/3/task/4?focus=true")
+        self.assertIsNone(rows[plain]["ticket_url"])
 
     def test_a_goal_goes_into_the_queue_into_branch_unless_another_is_named(self):
         ac.set_settings(self.root, {"base": "feature/m1"})
