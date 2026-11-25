@@ -256,21 +256,17 @@ async function runsPage() {
       const parts = g.parent ? [] : partsOf(g);
       const waits = parts.some((p) => p.waiting);
       const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><svg class="chev${isFolded(g) ? "" : " open"}" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
+      const round = g.round && !/\bround\b/.test(st.text) ? `<span>round ${g.round}</span>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
-        <div class="grow">
-          <div class="title"><span class="name">${esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
-            ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
-          <div class="doing">${esc(st.text)}</div>
-        </div>
-        <div class="meta">
+        <div class="title"><span class="name" title="${esc(g.name || "")}">${esc(g.parent ? g.part || g.name : [g.key, g.name].filter(Boolean).join(" ") || g.title)}</span>${fold}
+          ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
+        <div class="status"><span class="badge ${st.tone}">${esc(st.label)}</span>
+          <span class="faint">${esc(ago(g.updated || g.created))}</span></div>
+        <div class="sub"><span class="doing">${esc(st.text)}</span>
           ${g.agents_running ? `<span>${g.agents_running} agent${g.agents_running === 1 ? "" : "s"}</span>` : ""}
-          ${mini(g.plan, "plan")}${mini(g.criteria, "criteria")}
-          ${g.round ? `<span>round ${g.round}</span>` : ""}
-          ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
-          <span class="badge ${st.tone}">${esc(st.label)}</span>
-          <span class="faint">${esc(ago(g.updated || g.created))}</span>
-        </div>
+          ${round}${mini(g.plan, "plan")}${mini(g.criteria, "criteria")}
+          ${g.cost ? `<span>${money(g.cost)}</span>` : ""}</div>
         <div class="links">${g.parent ? "" : linksHtml(g)}</div></div>`;
     };
     $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + (isFolded(g) ? "" : partsOf(g).map(row).join(""))).join("")}</div>`;
