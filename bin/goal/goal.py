@@ -103,6 +103,11 @@ NO_WAITING = "ScheduleWakeup,CronCreate,CronDelete,CronList,Monitor,RemoteTrigge
 # No MCP servers: each call would start every plugin's server (browsers, devices), and
 # a goal's agents use none of them.
 NO_MCP = ["--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}']
+# A goal's agents start clean (see CLEAN), so the person's own rules do not reach
+# them: the ones every agent must keep come with each call.
+RULES = ("Tokens and secrets: never search for, read or print a token, a secret, a file "
+         "that holds one (such as an .env file or a credentials file), or a process's environment.")
+CLEAN_GOAL = CLEAN + ["--append-system-prompt", RULES]
 TASKS_FILE = "tasks.json"
 TASK_CHECK = 15
 DEP_DIRS = ("node_modules", ".venv")
@@ -2658,7 +2663,7 @@ class Runner(object):
             # make the changes.
             readonly=self.data["worktree"] if label == "ci-fix" else None,
             force_subagent=label == "ci-fix", notes=self.goal.state.dir if label == "lead" else None))
-        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN + [
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN_GOAL + [
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
@@ -3479,7 +3484,7 @@ class Runner(object):
                                     allow=allow, readonly=cwd if explore else None,
                                     task=not explore, explore=explore), f)
         run["settings"] = settings
-        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN + [
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN_GOAL + [
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
                "--disallowedTools", "Agent,Task," + NO_WAITING] + NO_MCP + (
                    ["--effort", self.effort("subagent")] if self.effort("subagent") else []) + [

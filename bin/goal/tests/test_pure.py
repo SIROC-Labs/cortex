@@ -1375,6 +1375,7 @@ class TestWindDown(unittest.TestCase):
         self.runner.call("go", "s", False, "lead")
         self.assertEqual(self.cmd[self.cmd.index("--setting-sources") + 1], "project,local")
         self.assertIn("--disable-slash-commands", self.cmd)
+        self.assertIn("never search for, read or print a token", self.cmd[self.cmd.index("--append-system-prompt") + 1])
         settings = self.runner.goal.state.read(goal.SETTINGS_FILE)
         self.assertEqual(settings["claudeMdExcludes"], [os.path.expanduser("~/.claude/CLAUDE.md")])
         self.assertIs(settings["autoMemoryEnabled"], False)
