@@ -252,15 +252,14 @@ async function runsPage() {
     const isFolded = (g) => (g.id in folded ? folded[g.id] : !!g.finished && partsOf(g).every((p) => p.finished));
     const row = (g) => {
       const st = state(g);
-      const keyed = !g.parent && g.key && g.ticket_url;
-      const links = g.parent ? "" : linksHtml(keyed ? { ...g, ticket_url: null } : g);
+
       const parts = g.parent ? [] : partsOf(g);
       const waits = parts.some((p) => p.waiting);
       const fold = parts.length ? `<button class="fold${waits ? " warn" : ""}" data-fold="${esc(g.id)}"><svg class="chev${isFolded(g) ? "" : " open"}" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>${parts.length} parts${waits && isFolded(g) ? " · one waits on you" : ""}</button>` : "";
       return `<div class="goal-row${g.parent ? " part" : ""}" data-repo="${esc(g.repo)}" data-id="${esc(g.id)}">
         <span class="dot ${st.tone}"></span>
         <div class="grow">
-          <div class="title"><span class="name">${keyed ? `<a class="key" href="${esc(g.ticket_url)}" target="_blank" rel="noopener" title="The ticket in Asana">${esc(g.key)}</a> ${esc(g.name)}` : esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
+          <div class="title"><span class="name">${esc(g.parent ? g.part || g.name : g.title || g.name)}</span>${fold}
             ${many && !g.parent ? `<span class="badge">${esc(g.repo)}</span>` : ""}</div>
           <div class="doing">${esc(st.text)}</div>
         </div>
@@ -269,10 +268,10 @@ async function runsPage() {
           ${mini(g.plan, "plan")}${mini(g.criteria, "criteria")}
           ${g.round ? `<span>round ${g.round}</span>` : ""}
           ${g.cost ? `<span>${money(g.cost)}</span>` : ""}
-          ${links}
           <span class="badge ${st.tone}">${esc(st.label)}</span>
           <span class="faint">${esc(ago(g.updated || g.created))}</span>
-        </div></div>`;
+        </div>
+        <div class="links">${g.parent ? "" : linksHtml(g)}</div></div>`;
     };
     $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + (isFolded(g) ? "" : partsOf(g).map(row).join(""))).join("")}</div>`;
     document.querySelectorAll("[data-fold]").forEach((b) => {
@@ -295,13 +294,12 @@ async function runsPage() {
 
 // The goal's ticket and PR, as plain links: a click opens them in a new tab, and
 // the browser's own menu copies them.
-const EXT = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M4.5 2.5h5v5M9.5 2.5 3 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const TICKET = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 5V3.5h12V5a1.5 1.5 0 0 0 0 3v0a1.5 1.5 0 0 0 0 3v1.5H2V11a1.5 1.5 0 0 0 0-3v0a1.5 1.5 0 0 0 0-3Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 6.5h4M6 9.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+const PULL = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="12.5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12.5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.1v5.8M12 10.9V6.5a2 2 0 0 0-2-2H7.5m1.5-1.5L7.5 4.5 9 6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 function linksHtml(g) {
   const pr = g.pr_url && (g.pr_url.match(/\d+$/) || [""])[0];
-  return [
-    g.ticket_url ? `<a class="ext" href="${esc(g.ticket_url)}" target="_blank" rel="noopener" title="The ticket in Asana">${esc(g.key || "Ticket")}${EXT}</a>` : "",
-    g.pr_url ? `<a class="ext" href="${esc(g.pr_url)}" target="_blank" rel="noopener" title="The pull request on GitHub">PR #${esc(pr)}${EXT}</a>` : "",
-  ].filter(Boolean).join("");
+  return (g.ticket_url ? `<a class="ext" href="${esc(g.ticket_url)}" target="_blank" rel="noopener" title="Open the ticket in Asana">${TICKET}${esc(g.key || "Ticket")}</a>` : `<span class="ext none"></span>`)
+    + (g.pr_url ? `<a class="ext" href="${esc(g.pr_url)}" target="_blank" rel="noopener" title="Open the pull request on GitHub">${PULL}#${esc(pr)}</a>` : `<span class="ext none"></span>`);
 }
 
 // --- a goal -----------------------------------------------------------------
