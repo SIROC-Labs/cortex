@@ -1370,6 +1370,15 @@ class TestWindDown(unittest.TestCase):
         self.assertIn("Write(/%s/**)" % os.path.abspath(self.runner.goal.state.dir), allow)
         self.assertIn("Agent", allow)
 
+    def test_a_call_starts_clean_with_only_the_repo_s_own_instructions(self):
+        self.readings = [10]
+        self.runner.call("go", "s", False, "lead")
+        self.assertEqual(self.cmd[self.cmd.index("--setting-sources") + 1], "project,local")
+        self.assertIn("--disable-slash-commands", self.cmd)
+        settings = self.runner.goal.state.read(goal.SETTINGS_FILE)
+        self.assertEqual(settings["claudeMdExcludes"], [os.path.expanduser("~/.claude/CLAUDE.md")])
+        self.assertIs(settings["autoMemoryEnabled"], False)
+
     def test_the_limit_on_the_setup_tab_reaches_a_running_goal(self):
         import json
         self.assertEqual(self.runner.threshold(), 75)

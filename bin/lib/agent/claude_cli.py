@@ -32,6 +32,16 @@ AUTONOMY_MAP = {
 }
 
 
+# A goal's session starts clean: the repo's own CLAUDE.md and settings, and none of
+# the person's: no plugins, skills, hooks, personal instructions or memory.
+CLEAN = ["--setting-sources", "project,local", "--disable-slash-commands"]
+
+
+def clean_settings():
+    home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    return {"claudeMdExcludes": [os.path.join(home, "CLAUDE.md")], "autoMemoryEnabled": False}
+
+
 def unattended(model, dirs, tools=()):
     """(permission mode, allow rules) for a run nobody watches. A repo may turn
     bypass off (`disableBypassPermissionsMode`), so none is used. In auto mode a

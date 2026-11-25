@@ -15,6 +15,10 @@ tab, where you answer it, approve its plan, stop it and carry it on.
 
 ## How it works
 
+Every agent of a goal starts clean: it reads the repo's own `CLAUDE.md` and settings,
+and nothing of yours: no plugins, skills, hooks, MCP servers, personal `CLAUDE.md` or
+memory. Only the runner's own settings (its permissions and hooks) are added.
+
 The ask is the prompt: what you wrote, and the files and folders you gave with it (`-f`,
 an image too), copied into the goal. A small text file is pasted into the ask; a folder,
 such as a downloaded prototype, is only listed, with its `README.md`, and the lead has

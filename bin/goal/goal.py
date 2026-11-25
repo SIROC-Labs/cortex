@@ -48,7 +48,7 @@ import core as st  # noqa: E402
 import notes as nt  # noqa: E402
 import repos  # noqa: E402
 from agent.base import extract_last_json_block, usage_from  # noqa: E402
-from agent.claude_cli import parse_envelope, unattended  # noqa: E402
+from agent.claude_cli import CLEAN, clean_settings, parse_envelope, unattended  # noqa: E402
 from agent import opencode_cli as oc  # noqa: E402
 from ci import (CI_NOT_STARTED, actions_refused, check_states, collect_feedback,  # noqa: E402
                     failed_runs, failure_excerpt, render_feedback)
@@ -392,7 +392,7 @@ def model_name(ask, cwd, run=subprocess.run):
     """A name for the goal from its ask, by Haiku, or None when it gives none."""
     try:
         out = run(["claude", "-p", NAME_PROMPT % ask[:NAME_ASK_MAX], "--model", "haiku",
-                   "--max-turns", "1"] + NO_MCP, cwd=cwd, stdin=subprocess.DEVNULL,
+                   "--max-turns", "1", "--settings", json.dumps(clean_settings())] + CLEAN + NO_MCP, cwd=cwd, stdin=subprocess.DEVNULL,
                   capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -1449,9 +1449,9 @@ def hook_settings(flag, subagent=None, fence=(), allow=None, delegate=None, lead
         pre.append({"matcher": "Bash", "hooks": [guard("task")]})
     if explore:
         pre.append({"matcher": "Bash", "hooks": [guard("explore")]})
-    out = {"hooks": {"PreToolUse": pre,
+    out = dict(clean_settings(), hooks={"PreToolUse": pre,
                      "PostToolUse": [{"matcher": "*", "hooks": hook + (
-                         [guard("note", notes)] if notes else [])}]}}
+                         [guard("note", notes)] if notes else [])}]})
     if allow:
         out["permissions"] = {"allow": allow}
     return out
@@ -2658,7 +2658,7 @@ class Runner(object):
             # make the changes.
             readonly=self.data["worktree"] if label == "ci-fix" else None,
             force_subagent=label == "ci-fix", notes=self.goal.state.dir if label == "lead" else None))
-        cmd = ["claude", "-p", "--output-format", "json", "--model", model,
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN + [
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS),
                "--add-dir", self.goal.state.dir, "--settings", self.goal.state.path(SETTINGS_FILE)]
         cmd += ["--effort", effort] if effort else []
@@ -3479,7 +3479,7 @@ class Runner(object):
                                     allow=allow, readonly=cwd if explore else None,
                                     task=not explore, explore=explore), f)
         run["settings"] = settings
-        cmd = ["claude", "-p", "--output-format", "json", "--model", model,
+        cmd = ["claude", "-p", "--output-format", "json", "--model", model] + CLEAN + [
                "--permission-mode", mode, "--max-turns", str(MAX_TURNS), "--settings", settings,
                "--disallowedTools", "Agent,Task," + NO_WAITING] + NO_MCP + (
                    ["--effort", self.effort("subagent")] if self.effort("subagent") else []) + [
