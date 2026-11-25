@@ -232,19 +232,29 @@ async function runsPage() {
     if (e.target.id !== "toggle-finished") return;
     showFinished = !showFinished;
     store.set("finished", showFinished);
+    page = 0;
     render(last);
   };
+  let page = 0;
+  $("#list").addEventListener("click", (e) => {
+    const to = e.target.closest("[data-page]");
+    if (!to) return;
+    page = Number(to.dataset.page);
+    render(last);
+    $("#goals-head").scrollIntoView({ behavior: "smooth" });
+  });
   const render = (goals) => {
     last = goals;
     const tops = goals.filter((g) => !g.parent);
     const partsOf = (g) => goals.filter((p) => p.parent === g.id);
     const rank = (g) => (g.waiting ? 0 : !g.finished ? 1 : 2);
     tops.sort((a, b) => rank(a) - rank(b) || (b.created || 0) - (a.created || 0));
-    const finishedCount = tops.filter((g) => g.finished).length;
-    const shown = tops.filter((g) => showFinished || !g.finished || partsOf(g).some((p) => !p.finished));
-    $("#toggle-finished").textContent = `${showFinished ? "Hide" : "Show"} finished (${finishedCount})`;
-    $("#toggle-finished").hidden = !finishedCount;
-    if (!shown.length) {
+    const open = (g) => !g.finished || partsOf(g).some((p) => !p.finished);
+    const active = tops.filter(open);
+    const done = tops.filter((g) => !open(g)).sort((a, b) => (b.ended || 0) - (a.ended || 0));
+    $("#toggle-finished").textContent = `${showFinished ? "Hide" : "Show"} finished (${done.length})`;
+    $("#toggle-finished").hidden = !done.length;
+    if (!active.length && !(showFinished && done.length)) {
       $("#list").innerHTML = `<div class="panel empty">${tops.length ? "No goal is running." : "No goals yet."} Write a prompt above to start one.</div>`;
       return;
     }
@@ -269,7 +279,28 @@ async function runsPage() {
           ${g.cost ? `<span>${money(g.cost)}</span>` : ""}</div>
         <div class="links">${g.parent ? "" : linksHtml(g)}</div></div>`;
     };
-    $("#list").innerHTML = `<div class="panel goals">${shown.map((g) => row(g) + (isFolded(g) ? "" : partsOf(g).map(row).join(""))).join("")}</div>`;
+    const rows = (list) => list.map((g) => row(g) + (isFolded(g) ? "" : partsOf(g).map(row).join(""))).join("");
+    let html = active.length ? `<div class="panel goals">${rows(active)}</div>` : "";
+    if (showFinished && done.length) {
+      const pages = Math.ceil(done.length / PAGE);
+      page = Math.min(page, pages - 1);
+      const from = page * PAGE;
+      const today = new Date().setHours(0, 0, 0, 0) / 1000;
+      const groups = [["Today", (t) => t >= today], ["Last 7 days", (t) => t >= today - 6 * 86400], ["Older", () => true]];
+      const left = done.slice(from, from + PAGE);
+      for (const [title, within] of groups) {
+        const these = left.filter((g) => within(g.ended || 0));
+        left.splice(0, these.length);
+        if (these.length) html += `<h3 class="group">${title}</h3><div class="panel goals">${rows(these)}</div>`;
+      }
+      if (pages > 1) {
+        html += `<div class="pager">
+          <button ${page ? `data-page="${page - 1}"` : "disabled"}>← Newer</button>
+          <span>${from + 1}–${Math.min(from + PAGE, done.length)} of ${done.length}</span>
+          <button ${page < pages - 1 ? `data-page="${page + 1}"` : "disabled"}>Older →</button></div>`;
+      }
+    }
+    $("#list").innerHTML = html;
     document.querySelectorAll("[data-fold]").forEach((b) => {
       b.onclick = (e) => {
         e.stopPropagation();
@@ -287,6 +318,8 @@ async function runsPage() {
   };
   poll(async () => render(await api("GET", "/api/goals")));
 }
+
+const PAGE = 40;
 
 // The goal's ticket and PR, as plain links: a click opens them in a new tab, and
 // the browser's own menu copies them.

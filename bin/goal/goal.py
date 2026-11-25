@@ -2019,7 +2019,7 @@ def mark_done(main_root, gid):
         data = one.read()
         if not data or (data.get("parent") and data.get("status") == "done"):
             continue
-        one.update(status="done", phase=MARKED, doing="marked done by you", marked_done=True)
+        one.update(status="done", phase=MARKED, doing="marked done by you", marked_done=True, ended=time.time())
         pid = data.get("pid")
         if pid and st._pid_alive(pid):
             try:
@@ -3860,7 +3860,7 @@ class Runner(object):
         pr_url = self.data.get("pr_url")
         m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", pr_url or "")
         if not m:
-            self.set(status="done", phase="merged", doing="done")
+            self.set(status="done", phase="merged", doing="done", ended=time.time())
             return None
         if not self.data.get("watch_from"):
             self.set(watch_from=self.data.get("finished") or time.time())
@@ -3869,12 +3869,12 @@ class Runner(object):
             state = self.pr_state(pr_url)
             if state == "MERGED":
                 self.step("Merged")
-                self.set(status="done", phase="merged", doing="merged")
+                self.set(status="done", phase="merged", doing="merged", ended=time.time())
                 self.clean_up()
                 return None
             if state == "CLOSED":
                 self.step("The PR was closed without a merge")
-                self.set(status="done", phase="closed", doing="its PR was closed without a merge")
+                self.set(status="done", phase="closed", doing="its PR was closed without a merge", ended=time.time())
                 self.clean_up(keep_branch=True)
                 return None
             sent = nt.waiting(self.goal.state.dir)

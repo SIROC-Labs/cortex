@@ -2045,6 +2045,7 @@ class TestWatchPR(unittest.TestCase):
         self.assertIsNone(self.runner.watch_pr())
         self.assertEqual((self.runner.data["status"], self.runner.data["phase"]), ("done", "merged"))
         self.assertFalse(self.runner.watching())
+        self.assertAlmostEqual(self.runner.data["ended"], time.time(), delta=60)
         self.assertEqual([c for c in self.calls if c[0] == sys.executable], [])
 
     def test_a_pr_github_refuses_shows_as_an_error_and_clears_once_read(self):

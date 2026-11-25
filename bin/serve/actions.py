@@ -147,6 +147,7 @@ def summary(main_root, g, rates=None, processes=None):
     out["plan"] = gv.plan(journal)
     out["criteria"] = gv.plan(journal, "acceptance criteria", anywhere=False)
     out["finished"] = finished(g)
+    out["ended"] = (g.get("ended") or g.get("updated") or g.get("created")) if out["finished"] else None
     out["waiting"] = bool((g.get("awaiting") or {}).get("asked_at"))
     out["title"] = gl.title_of(g)
     out["ticket_url"] = (gl.asana_urls(g.get("prompt") or g.get("url")) or [None])[0]
@@ -179,7 +180,7 @@ def settle_finished_prs(main_root, listed, now=None):
                 return
             phase = {"MERGED": "merged", "CLOSED": "closed"}.get(out.strip())
             if phase:
-                gl.Goal(main_root, gid).update(phase=phase)
+                gl.Goal(main_root, gid).update(phase=phase, ended=time.time())
         threading.Thread(target=look, daemon=True).start()
 
 

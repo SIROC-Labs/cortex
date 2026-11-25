@@ -310,3 +310,7 @@ a.ext:hover { color: var(--accent); border-color: var(--accent); background: var
 a.ext svg { flex-shrink: 0; }
 .facts a.ext { height: 22px; }
 .facts .ext.none { display: none; }
+#list .group { margin: 22px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+#list .panel + .group { margin-top: 26px; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 16px 0; font-size: 13px; color: var(--dim); }
+.pager button:disabled { opacity: .4; cursor: default; }

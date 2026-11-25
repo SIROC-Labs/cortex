@@ -75,6 +75,14 @@ class TestActions(Repo):
         self.assertEqual(rows[linked]["ticket_url"], "https://app.asana.com/1/2/project/3/task/4?focus=true")
         self.assertIsNone(rows[plain]["ticket_url"])
 
+    def test_the_list_says_when_a_finished_goal_ended(self):
+        gid = ac.start(self.root, "Make the badge red")
+        goal = ac.gl.Goal(self.root, gid)
+        self.assertIsNone(ac.summary(self.root, goal.read())["ended"])
+        goal.update(status="done", phase="merged", pr_url="https://github.com/o/r/pull/1")
+        self.assertEqual(ac.summary(self.root, dict(goal.read(), updated=200.0))["ended"], 200.0)
+        self.assertEqual(ac.summary(self.root, dict(goal.read(), updated=200.0, ended=100.0))["ended"], 100.0)
+
     def test_a_goal_goes_into_the_queue_into_branch_unless_another_is_named(self):
         ac.set_settings(self.root, {"base": "feature/m1"})
         first = ac.start(self.root, "One")
